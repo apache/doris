@@ -47,6 +47,7 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/template_helpers.hpp"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class DescriptorTbl;
@@ -268,14 +269,18 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
     _pull_timer = ADD_TIMER(runtime_profile(), "PullTime");
+    auto output_data_types = VectorizedUtils::get_data_types(_row_descriptor);
+    auto column_nums = _child_expr_lists[0].size();
+    DCHECK_EQ(output_data_types.size(), column_nums)
+            << output_data_types.size() << " " << column_nums;
+    // the nullable is not depend on child, it's should use _row_descriptor from FE plan
+    // some case all not nullable column from children, but maybe need output nullable.
+    vector<bool> nullable_flags(column_nums, false);
+    for (int i = 0; i < column_nums; ++i) {
+        nullable_flags[i] = output_data_types[i]->is_nullable();
+    }
 
-    // Prepare result expr lists.
-    vector<bool> nullable_flags;
-    nullable_flags.resize(_child_expr_lists[0].size(), false);
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        for (int j = 0; j < _child_expr_lists[i].size(); ++j) {
-            nullable_flags[j] = nullable_flags[j] || _child_expr_lists[i][j]->root()->is_nullable();
-        }
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
     for (int i = 0; i < _child_expr_lists[0].size(); ++i) {

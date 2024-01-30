@@ -102,6 +102,7 @@ suite("test_export_with_s3", "p2") {
                 "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.${file_suffix}",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
+                "column_separator"=",",
                 "format" = "${format}",
                 "region" = "${region}"
             );

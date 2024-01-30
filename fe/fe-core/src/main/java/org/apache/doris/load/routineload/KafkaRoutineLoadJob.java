@@ -704,7 +704,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     // check if given partitions has more data to consume.
     // 'partitionIdToOffset' to the offset to be consumed.
-    public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) {
+    public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) throws UserException {
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (cachedPartitionWithLatestOffsets.containsKey(entry.getKey())
                     && entry.getValue() < cachedPartitionWithLatestOffsets.get(entry.getKey())) {
@@ -734,11 +734,22 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         // check again
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
-            if (cachedPartitionWithLatestOffsets.containsKey(entry.getKey())
-                    && entry.getValue() < cachedPartitionWithLatestOffsets.get(entry.getKey())) {
-                LOG.debug("has more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
-                        partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
-                return true;
+            Integer partitionId = entry.getKey();
+            if (cachedPartitionWithLatestOffsets.containsKey(partitionId)) {
+                long partitionLatestOffset = cachedPartitionWithLatestOffsets.get(partitionId);
+                long recordPartitionOffset = entry.getValue();
+                if (recordPartitionOffset < partitionLatestOffset) {
+                    LOG.debug("has more data to consume. offsets to be consumed: {},"
+                            + " latest offsets: {}, task {}, job {}",
+                            partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
+                    return true;
+                } else if (recordPartitionOffset > partitionLatestOffset) {
+                    String msg = "offset set in job: " + recordPartitionOffset
+                                + " is greater than kafka latest offset: "
+                                + partitionLatestOffset + " partition id: "
+                                + partitionId;
+                    throw new UserException(msg);
+                }
             }
         }
 

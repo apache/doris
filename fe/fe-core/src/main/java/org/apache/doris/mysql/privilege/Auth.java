@@ -55,6 +55,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapManager;
 import org.apache.doris.ldap.LdapUserInfo;
 import org.apache.doris.load.DppConfig;
+import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
@@ -70,6 +71,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -453,7 +455,7 @@ public class Auth implements Writable {
 
             // create user
             try {
-                //we should not throw AnalysisException at here,so transfer it
+                // we should not throw AnalysisException at here,so transfer it
                 userManager.createUser(userIdent, password, null, false);
             } catch (PatternMatcherException e) {
                 throw new DdlException("create user failed,", e);
@@ -953,12 +955,18 @@ public class Auth implements Writable {
             throws UserException {
         writeLock();
         try {
-            propertyMgr.updateUserProperty(user, properties);
+            propertyMgr.updateUserProperty(user, properties, isReplay);
             if (!isReplay) {
                 UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
                 Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
             }
             LOG.info("finished to set properties for user: {}", user);
+        } catch (DdlException e) {
+            if (isReplay && e.getMessage().contains("Unknown user property")) {
+                LOG.warn("ReplayUpdateUserProperty failed, maybe FE rolled back version, " + e.getMessage());
+            } else {
+                throw e;
+            }
         } finally {
             writeUnlock();
         }
@@ -995,6 +1003,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getMaxQueryInstances(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public int getParallelFragmentExecInstanceNum(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getParallelFragmentExecInstanceNum(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -1349,6 +1366,29 @@ public class Auth implements Writable {
         }
     }
 
+    public void setInitialRootPassword(String initialRootPassword) {
+        // Skip set root password if `initial_root_password` set to empty string
+        if (StringUtils.isEmpty(initialRootPassword)) {
+            return;
+        }
+        byte[] scramble;
+        try {
+            scramble = MysqlPassword.checkPassword(initialRootPassword);
+        } catch (AnalysisException e) {
+            // Skip set root password if `initial_root_password` is not valid 2-staged SHA-1 encrypted
+            LOG.warn("initial_root_password [{}] is not valid 2-staged SHA-1 encrypted, ignore it",
+                    initialRootPassword);
+            return;
+        }
+        UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
+        rootUser.setIsAnalyzed();
+        try {
+            setPasswordInternal(rootUser, scramble, null, false, false, false);
+        } catch (DdlException e) {
+            LOG.warn("Fail to set initial root password, ignore it", e);
+        }
+    }
+
     public List<List<String>> getRoleInfo() {
         readLock();
         try {
@@ -1581,6 +1621,9 @@ public class Auth implements Writable {
         userRoleManager.addUserRole(userIdent, roleManager.getUserDefaultRoleName(userIdent));
     }
 
+    public Set<String> getAllUser() {
+        return userManager.getNameToUsers().keySet();
+    }
 
     /**
      * This is a bug that if created a normal user and grant it with ADMIN_PRIV/RESOURCE_PRIV/NODE_PRIV

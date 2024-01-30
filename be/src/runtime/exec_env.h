@@ -39,6 +39,9 @@ class ScannerScheduler;
 namespace pipeline {
 class TaskScheduler;
 }
+namespace taskgroup {
+class TaskGroupManager;
+}
 class BfdParser;
 class BrokerMgr;
 template <class T>
@@ -108,6 +111,7 @@ public:
     pipeline::TaskScheduler* pipeline_task_group_scheduler() {
         return _pipeline_task_group_scheduler;
     }
+    taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
 
     // using template to simplify client cache management
     template <typename T>
@@ -233,6 +237,7 @@ private:
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _pipeline_task_scheduler = nullptr;
     pipeline::TaskScheduler* _pipeline_task_group_scheduler = nullptr;
+    taskgroup::TaskGroupManager* _task_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;

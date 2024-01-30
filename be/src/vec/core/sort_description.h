@@ -41,13 +41,6 @@ struct SortColumnDescription {
               nulls_direction(nulls_direction_) {}
 
     SortColumnDescription() = default;
-
-    bool operator==(const SortColumnDescription& other) const {
-        return column_name == other.column_name && column_number == other.column_number &&
-               direction == other.direction && nulls_direction == other.nulls_direction;
-    }
-
-    bool operator!=(const SortColumnDescription& other) const { return !(*this == other); }
 };
 
 /// Description of the sorting rule for several columns.

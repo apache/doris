@@ -39,7 +39,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
-#include "util/spinlock.h"
 
 namespace doris {
 
@@ -64,6 +63,7 @@ Status RuntimeFilterMgr::init() {
 
 Status RuntimeFilterMgr::get_producer_filter(const int filter_id, IRuntimeFilter** target) {
     int32_t key = filter_id;
+    std::lock_guard<std::mutex> l(_lock);
 
     auto iter = _producer_map.find(key);
     if (iter == _producer_map.end()) {
@@ -77,6 +77,7 @@ Status RuntimeFilterMgr::get_producer_filter(const int filter_id, IRuntimeFilter
 
 Status RuntimeFilterMgr::get_consume_filter(const int filter_id, const int node_id,
                                             IRuntimeFilter** consumer_filter) {
+    std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(filter_id);
     if (iter == _consumer_map.cend()) {
         LOG(WARNING) << "unknown runtime filter: " << filter_id << ", role: consumer";
@@ -97,6 +98,8 @@ Status RuntimeFilterMgr::get_consume_filter(const int filter_id, const int node_
 Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
                                              std::vector<IRuntimeFilter*>& consumer_filters) {
     int32_t key = filter_id;
+    std::lock_guard<std::mutex> l(_lock);
+
     auto iter = _consumer_map.find(key);
     if (iter == _consumer_map.end()) {
         LOG(WARNING) << "unknown runtime filter: " << key << ", role: consumer";
@@ -113,16 +116,14 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
                                                   bool build_bf_exactly) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
+    std::lock_guard<std::mutex> l(_lock);
 
     auto iter = _consumer_map.find(key);
     if (desc.__isset.opt_remote_rf && desc.opt_remote_rf && desc.has_remote_targets &&
         desc.type == TRuntimeFilterType::BLOOM) {
         // if this runtime filter has remote target (e.g. need merge), we reuse the runtime filter between all instances
         DCHECK(_query_ctx != nullptr);
-
         {
-            std::lock_guard<std::mutex> l(_lock);
-
             iter = _consumer_map.find(key);
             if (iter != _consumer_map.end()) {
                 for (auto holder : iter->second) {
@@ -162,6 +163,8 @@ Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc
                                                   bool build_bf_exactly) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
+    std::lock_guard<std::mutex> l(_lock);
+
     auto iter = _producer_map.find(key);
 
     DCHECK(_state != nullptr);
@@ -223,7 +226,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
     cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, -1, false);
-    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
+    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<std::mutex>()});
     return Status::OK();
 }
 
@@ -245,7 +248,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
     cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options);
-    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
+    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<std::mutex>()});
     return Status::OK();
 }
 
@@ -319,7 +322,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     // iter->second = pair{CntlVal,SpinLock}
     cntVal = iter->second.first;
     {
-        std::lock_guard<SpinLock> l(*iter->second.second);
+        std::lock_guard<std::mutex> l(*iter->second.second);
         MergeRuntimeFilterParams params(request, attach_data);
         ObjectPool* pool = cntVal->pool.get();
         RuntimeFilterWrapperHolder holder;

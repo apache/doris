@@ -579,4 +579,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(logicalFilter());
     }
+
+    @Test
+    void testSortHaving() {
+        String sql = "SELECT (pk + 1) as c FROM t1 HAVING c  > 1 ORDER BY a1 + pk";
+        PlanChecker.from(connectContext).analyze(sql)
+                .applyBottomUp(new CheckAfterRewrite());
+    }
 }

@@ -247,10 +247,13 @@ public class SparkLoadPendingTask extends LoadTask {
             long indexId = entry.getKey();
             int schemaHash = table.getSchemaHashByIndexId(indexId);
 
+            boolean changeAggType = table.getKeysTypeByIndexId(indexId).equals(KeysType.UNIQUE_KEYS)
+                    && table.getTableProperty().getEnableUniqueKeyMergeOnWrite();
+
             // columns
             List<EtlColumn> etlColumns = Lists.newArrayList();
             for (Column column : entry.getValue()) {
-                etlColumns.add(createEtlColumn(column));
+                etlColumns.add(createEtlColumn(column, changeAggType));
             }
 
             // check distribution type
@@ -290,7 +293,7 @@ public class SparkLoadPendingTask extends LoadTask {
         return etlIndexes;
     }
 
-    private EtlColumn createEtlColumn(Column column) {
+    private EtlColumn createEtlColumn(Column column, boolean changeAggType) {
         // column name
         String name = column.getName().toLowerCase(Locale.ROOT);
         // column type
@@ -304,7 +307,11 @@ public class SparkLoadPendingTask extends LoadTask {
         // aggregation type
         String aggregationType = null;
         if (column.getAggregationType() != null) {
-            aggregationType = column.getAggregationType().toString();
+            if (changeAggType && !column.isKey()) {
+                aggregationType = AggregateType.REPLACE.toSql();
+            } else {
+                aggregationType = column.getAggregationType().toString();
+            }
         }
 
         // default value

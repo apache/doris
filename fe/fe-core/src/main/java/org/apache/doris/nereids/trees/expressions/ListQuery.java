@@ -69,4 +69,9 @@ public class ListQuery extends SubqueryExpr implements LeafExpression {
                     ? Optional.of(queryPlan.getOutput().get(0))
                     : Optional.of(new Cast(queryPlan.getOutput().get(0), dataType)));
     }
+
+    @Override
+    public ListQuery withSubquery(LogicalPlan subquery) {
+        return new ListQuery(subquery, correlateSlots, typeCoercionExpr);
+    }
 }

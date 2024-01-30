@@ -1,6 +1,6 @@
 ---
 {
-    "title": "下载oad日志",
+    "title": "下载load日志",
     "language": "zh-CN"
 }
 ---

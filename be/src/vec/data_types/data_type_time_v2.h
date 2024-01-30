@@ -58,7 +58,9 @@ namespace doris::vectorized {
 class DataTypeDateV2 final : public DataTypeNumberBase<UInt32> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::DateV2; }
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATEV2; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_DATEV2);
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::DATEV2;
     }
@@ -67,7 +69,9 @@ public:
 
     bool can_be_inside_nullable() const override { return true; }
 
-    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDateV2SerDe>(); }
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeDateV2SerDe>(nesting_level);
+    }
 
     Field get_field(const TExprNode& node) const override {
         DateV2Value<DateV2ValueType> value;
@@ -110,7 +114,9 @@ public:
 
     DataTypeDateTimeV2(const DataTypeDateTimeV2& rhs) : _scale(rhs._scale) {}
     TypeIndex get_type_id() const override { return TypeIndex::DateTimeV2; }
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATETIMEV2; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_DATETIMEV2);
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::DATETIMEV2;
     }
@@ -123,8 +129,8 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeDateTimeV2SerDe>(_scale);
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeDateTimeV2SerDe>(_scale, nesting_level);
     };
 
     Field get_field(const TExprNode& node) const override {

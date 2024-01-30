@@ -39,11 +39,16 @@ services:
       - ./init:/docker-entrypoint-initdb.d
     networks:
       - doris--mysql_57
-  hello-world:
+  doris--mysql-hello-world:
     image: hello-world
     depends_on:
       doris--mysql_57:
         condition: service_healthy 
-
+    networks:
+      - doris--mysql_57
 networks:
   doris--mysql_57:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.34.0.0/24

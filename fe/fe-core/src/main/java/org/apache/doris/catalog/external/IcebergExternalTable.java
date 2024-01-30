@@ -36,6 +36,7 @@ import org.apache.iceberg.types.Types;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 public class IcebergExternalTable extends ExternalTable {
@@ -66,7 +67,7 @@ public class IcebergExternalTable extends ExternalTable {
             List<Types.NestedField> columns = schema.columns();
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
             for (Types.NestedField field : columns) {
-                tmpSchema.add(new Column(field.name(),
+                tmpSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
                         icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
                         schema.caseInsensitiveFindField(field.name()).fieldId()));
             }

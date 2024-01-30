@@ -43,10 +43,9 @@ struct FileInfo;
 
 class HdfsFileSystemHandle {
 public:
-    HdfsFileSystemHandle(hdfsFS fs, bool cached, bool is_kerberos)
+    HdfsFileSystemHandle(hdfsFS fs, bool cached)
             : hdfs_fs(fs),
               from_cache(cached),
-              _is_kerberos(is_kerberos),
               _ref_cnt(0),
               _create_time(_now()),
               _last_access_time(0),
@@ -76,11 +75,7 @@ public:
 
     int ref_cnt() { return _ref_cnt; }
 
-    bool invalid() {
-        return _invalid ||
-               (_is_kerberos &&
-                _now() - _create_time.load() > config::kerberos_expiration_time_seconds * 1000 / 2);
-    }
+    bool invalid() { return _invalid; }
 
     void set_invalid() { _invalid = true; }
 
@@ -90,7 +85,6 @@ public:
     const bool from_cache;
 
 private:
-    const bool _is_kerberos;
     // the number of referenced client
     std::atomic<int> _ref_cnt;
     // For kerberos authentication, we need to save create time so that
@@ -122,7 +116,8 @@ public:
 
 protected:
     Status connect_impl() override;
-    Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
+    Status create_file_impl(const Path& file, FileWriterPtr* writer,
+                            const FileWriterOptions* opts) override;
     Status open_file_internal(const FileDescription& fd, const Path& abs_path,
                               FileReaderSPtr* reader) override;
     Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override;

@@ -35,7 +35,7 @@ suite("test_hive_partition_statistic", "p2,external,hive,external_remote,externa
         sql """analyze table multi_partition_orc partitions (`event_day=2008-09-25`, `event_day=1956-09-07`) with sync"""
 
         def ctlId
-        def result = sql """show proc '/catalogs'"""
+        def result = sql """show catalogs"""
 
         for (int i = 0; i < result.size(); i++) {
             if (result[i][1] == catalog_name) {

@@ -169,8 +169,16 @@ public enum JoinType {
         return this == LEFT_SEMI_JOIN || this == RIGHT_SEMI_JOIN;
     }
 
+    public final boolean isAntiJoin() {
+        return this == LEFT_ANTI_JOIN || this == RIGHT_ANTI_JOIN;
+    }
+
     public final boolean isOuterJoin() {
         return this == LEFT_OUTER_JOIN || this == RIGHT_OUTER_JOIN || this == FULL_OUTER_JOIN;
+    }
+
+    public final boolean isOneSideOuterJoin() {
+        return this == LEFT_OUTER_JOIN || this == RIGHT_OUTER_JOIN;
     }
 
     public final boolean isRemainLeftJoin() {

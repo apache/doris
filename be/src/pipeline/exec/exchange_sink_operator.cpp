@@ -67,6 +67,7 @@ Status ExchangeSinkOperator::prepare(RuntimeState* state) {
     _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, _sink->_sender_id,
                                                         _state->be_number(), _context);
 
+    _sink_buffer->set_query_statistics(_sink->query_statistics());
     RETURN_IF_ERROR(DataSinkOperator::prepare(state));
     _sink->registe_channels(_sink_buffer.get());
     return Status::OK();
@@ -82,8 +83,10 @@ bool ExchangeSinkOperator::is_pending_finish() const {
 
 Status ExchangeSinkOperator::close(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperator::close(state));
-    _sink_buffer->update_profile(_sink->profile());
-    _sink_buffer->close();
+    if (_sink_buffer) {
+        _sink_buffer->update_profile(_sink->profile());
+        _sink_buffer->close();
+    }
     return Status::OK();
 }
 

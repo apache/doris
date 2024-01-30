@@ -29,13 +29,7 @@ import java.util.List;
  * Null safe equal expression: a <=> b.
  * Unlike normal equal to expression, null <=> null is true.
  */
-public class NullSafeEqual extends ComparisonPredicate implements AlwaysNotNullable {
-    /**
-     * Constructor of Null Safe Equal ComparisonPredicate.
-     *
-     * @param left  left child of Null Safe Equal
-     * @param right right child of Null Safe Equal
-     */
+public class NullSafeEqual extends EqualPredicate implements AlwaysNotNullable {
     public NullSafeEqual(Expression left, Expression right) {
         super(ImmutableList.of(left, right), "<=>");
     }
@@ -61,8 +55,7 @@ public class NullSafeEqual extends ComparisonPredicate implements AlwaysNotNulla
     }
 
     @Override
-    public ComparisonPredicate commute() {
+    public NullSafeEqual commute() {
         return new NullSafeEqual(right(), left());
     }
-
 }

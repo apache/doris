@@ -84,13 +84,16 @@ public class DecimalV3Literal extends Literal {
                 value.setScale(newScale, RoundingMode.FLOOR));
     }
 
-    private void checkPrecisionAndScale(int precision, int scale, BigDecimal value) throws AnalysisException {
+    /**
+     * check precision and scale is enough for value.
+     */
+    private static void checkPrecisionAndScale(int precision, int scale, BigDecimal value) throws AnalysisException {
         Preconditions.checkNotNull(value);
         int realPrecision = value.precision();
         int realScale = value.scale();
         boolean valid = true;
         if (precision != -1 && scale != -1) {
-            if (precision < realPrecision || scale < realScale) {
+            if (precision < realPrecision || scale < realScale || precision - scale < realPrecision - realScale) {
                 valid = false;
             }
         } else {

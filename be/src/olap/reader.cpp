@@ -214,7 +214,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
             // unique keys with merge on write, no need to merge sort keys in rowset
             need_ordered_result = false;
         }
-        if (_aggregation) {
+        if (_aggregation || _direct_mode) {
             // compute engine will aggregate rows with the same key,
             // it's ok for rowset to return unordered result
             need_ordered_result = false;
@@ -256,6 +256,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
+    _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
 
     return Status::OK();
 }

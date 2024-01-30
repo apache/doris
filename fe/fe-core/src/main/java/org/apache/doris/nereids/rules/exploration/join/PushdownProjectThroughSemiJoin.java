@@ -54,7 +54,7 @@ public class PushdownProjectThroughSemiJoin implements ExplorationRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalJoin(logicalProject(logicalJoin()), group())
+                logicalJoin(logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)), group())
                     .when(j -> j.left().child().getJoinType().isLeftSemiOrAntiJoin())
                     // Just pushdown project with non-column expr like (t.id + 1)
                     .whenNot(j -> j.left().isAllSlots())
@@ -63,9 +63,9 @@ public class PushdownProjectThroughSemiJoin implements ExplorationRuleFactory {
                         LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.left();
                         Plan newLeft = pushdownProject(project);
                         return topJoin.withChildren(newLeft, topJoin.right());
-                    }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN),
+                    }).toRule(RuleType.PUSHDOWN_PROJECT_THROUGH_SEMI_JOIN_LEFT),
 
-                logicalJoin(group(), logicalProject(logicalJoin()))
+                logicalJoin(group(), logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)))
                     .when(j -> j.right().child().getJoinType().isLeftSemiOrAntiJoin())
                     // Just pushdown project with non-column expr like (t.id + 1)
                     .whenNot(j -> j.right().isAllSlots())
@@ -74,7 +74,7 @@ public class PushdownProjectThroughSemiJoin implements ExplorationRuleFactory {
                         LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.right();
                         Plan newRight = pushdownProject(project);
                         return topJoin.withChildren(topJoin.left(), newRight);
-                    }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN)
+                    }).toRule(RuleType.PUSHDOWN_PROJECT_THROUGH_SEMI_JOIN_RIGHT)
                 );
     }
 

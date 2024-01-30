@@ -28,6 +28,8 @@ import org.apache.doris.qe.ConnectContext;
 import java.util.Map;
 
 public class CreateRepositoryStmt extends DdlStmt {
+    public static String PROP_DELETE_IF_EXISTS = "delete_if_exists";
+
     private boolean isReadOnly;
     private String name;
     private StorageBackend storage;
@@ -71,6 +73,16 @@ public class CreateRepositoryStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
         FeNameFormat.checkCommonName("repository", name);
+
+        // check delete_if_exists, this property will be used by Repository.initRepository.
+        Map<String, String> properties = getProperties();
+        String deleteIfExistsStr = properties.get(PROP_DELETE_IF_EXISTS);
+        if (deleteIfExistsStr != null) {
+            if (!deleteIfExistsStr.equalsIgnoreCase("true") && !deleteIfExistsStr.equalsIgnoreCase("false")) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "'" + PROP_DELETE_IF_EXISTS + "' in properties, you should set it false or true");
+            }
+        }
     }
 
     @Override

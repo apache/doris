@@ -632,6 +632,17 @@ insert into `schema_evo_test_orc` select 2, "messi", from_unixtime(to_unix_times
 SET hive.support.concurrency=true;
 SET hive.txn.manager=org.apache.hadoop.hive.ql.lockmgr.DbTxnManager;
 
+create table orc_full_acid_empty (id INT, value STRING)
+CLUSTERED BY (id) INTO 3 BUCKETS
+STORED AS ORC
+TBLPROPERTIES ('transactional' = 'true');
+
+create table orc_full_acid_par_empty (id INT, value STRING)
+PARTITIONED BY (part_col INT)
+CLUSTERED BY (id) INTO 3 BUCKETS
+STORED AS ORC
+TBLPROPERTIES ('transactional' = 'true');
+
 create table orc_full_acid (id INT, value STRING)
 CLUSTERED BY (id) INTO 3 BUCKETS
 STORED AS ORC
@@ -1743,5 +1754,55 @@ LOCATION
 
 msck repair table parquet_timestamp_nanos;
 
+CREATE TABLE `orc_decimal_table`(
+    id INT,
+    decimal_col1 DECIMAL(8, 4),
+    decimal_col2 DECIMAL(18, 6),
+    decimal_col3 DECIMAL(38, 12),
+    decimal_col4 DECIMAL(9, 0),
+    decimal_col5 DECIMAL(27, 9),
+    decimal_col6 DECIMAL(9, 0))
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.orc.OrcSerde'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/orc_table/orc_decimal_table';
+
+msck repair table orc_decimal_table;
+
+CREATE TABLE `parquet_decimal_bool`(
+	decimals decimal(20,3),
+	bool_rle boolean
+)
+ROW FORMAT SERDE 
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe' 
+STORED AS INPUTFORMAT 
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat' 
+OUTPUTFORMAT 
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/parquet_decimal_bool';
+
+msck repair table partition_table;
 
 show tables;
+
+
+create database stats_test;
+use stats_test;
+create table stats_test1 (id INT, value STRING) STORED AS ORC;
+create table stats_test2 (id INT, value STRING) STORED AS PARQUET;
+
+insert into stats_test1 values (1, 'name1'), (2, 'name2'), (3, 'name3');
+INSERT INTO stats_test2 VALUES (1, ';'), (2, '\*');
+
+create table employee_gz(name string,salary string)
+row format serde 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+with serdeproperties 
+('quoteChar'='\"'
+,'seperatorChar'=',');
+
+insert into employee_gz values ('a', '1.1'), ('b', '2.2');

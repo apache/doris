@@ -55,6 +55,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
           _max_bytes_in_queue(max_bytes_in_blocks_queue_),
           _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
           _scanners(scanners_),
+          _scanners_ref(scanners_.begin(), scanners_.end()),
           _num_parallel_instances(num_parallel_instances) {
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {
@@ -150,6 +151,10 @@ void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& 
     std::lock_guard l(_transfer_lock);
     auto old_bytes_in_queue = _cur_bytes_in_queue;
     for (auto& b : blocks) {
+        auto st = validate_block_schema(b.get());
+        if (!st.ok()) {
+            set_status_on_error(st, false);
+        }
         _cur_bytes_in_queue += b->allocated_bytes();
         _blocks_queue.push_back(std::move(b));
     }
@@ -200,8 +205,6 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     if (!_blocks_queue.empty()) {
         *block = std::move(_blocks_queue.front());
         _blocks_queue.pop_front();
-
-        RETURN_IF_ERROR(validate_block_schema((*block).get()));
 
         auto block_bytes = (*block)->allocated_bytes();
         _cur_bytes_in_queue -= block_bytes;
@@ -259,14 +262,20 @@ Status ScannerContext::_close_and_clear_scanners(VScanNode* node, RuntimeState* 
     if (state->enable_profile()) {
         std::stringstream scanner_statistics;
         std::stringstream scanner_rows_read;
+        std::stringstream scanner_wait_worker_time;
         scanner_statistics << "[";
         scanner_rows_read << "[";
+        scanner_wait_worker_time << "[";
         for (auto finished_scanner_time : _finished_scanner_runtime) {
             scanner_statistics << PrettyPrinter::print(finished_scanner_time, TUnit::TIME_NS)
                                << ", ";
         }
         for (auto finished_scanner_rows : _finished_scanner_rows_read) {
             scanner_rows_read << PrettyPrinter::print(finished_scanner_rows, TUnit::UNIT) << ", ";
+        }
+        for (auto finished_scanner_wait_time : _finished_scanner_wait_worker_time) {
+            scanner_wait_worker_time
+                    << PrettyPrinter::print(finished_scanner_wait_time, TUnit::TIME_NS) << ", ";
         }
         // Only unfinished scanners here
         for (auto& scanner : _scanners) {
@@ -277,11 +286,18 @@ Status ScannerContext::_close_and_clear_scanners(VScanNode* node, RuntimeState* 
                                << ", ";
             scanner_rows_read << PrettyPrinter::print(scanner->get_rows_read(), TUnit::UNIT)
                               << ", ";
+            scanner_wait_worker_time
+                    << PrettyPrinter::print(scanner->get_scanner_wait_worker_timer(),
+                                            TUnit::TIME_NS)
+                    << ", ";
         }
         scanner_statistics << "]";
         scanner_rows_read << "]";
+        scanner_wait_worker_time << "]";
         node->_scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
         node->_scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
+        node->_scanner_profile->add_info_string("PerScannerWaitTime",
+                                                scanner_wait_worker_time.str());
     }
     // Only unfinished scanners here
     for (auto& scanner : _scanners) {
@@ -395,6 +411,8 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
             if (scanner->need_to_close()) {
                 _finished_scanner_runtime.push_back(scanner->get_time_cost_ns());
                 _finished_scanner_rows_read.push_back(scanner->get_rows_read());
+                _finished_scanner_wait_worker_time.push_back(
+                        scanner->get_scanner_wait_worker_timer());
                 scanner->close(_state);
             } else {
                 current_run->push_back(scanner);
@@ -402,6 +420,10 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
             }
         }
     }
+}
+
+taskgroup::TaskGroup* ScannerContext::get_task_group() const {
+    return _state->get_query_ctx()->get_task_group();
 }
 
 } // namespace doris::vectorized

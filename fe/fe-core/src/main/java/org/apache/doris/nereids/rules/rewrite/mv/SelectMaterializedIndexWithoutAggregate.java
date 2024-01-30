@@ -21,21 +21,26 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.ReplaceExpressions;
+import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.SlotContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -59,7 +64,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         return ImmutableList.of(
                 // project with pushdown filter.
                 // Project(Filter(Scan))
-                logicalProject(logicalFilter(logicalOlapScan().when(this::shouldSelectIndex)))
+                logicalProject(logicalFilter(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg)))
                         .thenApply(ctx -> {
                             LogicalProject<LogicalFilter<LogicalOlapScan>> project = ctx.root;
                             LogicalFilter<LogicalOlapScan> filter = project.child();
@@ -79,7 +84,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // project with filter that cannot be pushdown.
                 // Filter(Project(Scan))
-                logicalFilter(logicalProject(logicalOlapScan().when(this::shouldSelectIndex)))
+                logicalFilter(logicalProject(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg)))
                         .thenApply(ctx -> {
                             LogicalFilter<LogicalProject<LogicalOlapScan>> filter = ctx.root;
                             LogicalProject<LogicalOlapScan> project = filter.child();
@@ -98,13 +103,14 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // scan with filters could be pushdown.
                 // Filter(Scan)
-                logicalFilter(logicalOlapScan().when(this::shouldSelectIndex))
+                logicalFilter(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg))
                         .thenApply(ctx -> {
                             LogicalFilter<LogicalOlapScan> filter = ctx.root;
                             LogicalOlapScan scan = filter.child();
                             LogicalOlapScan mvPlan = select(
                                     scan, filter::getOutputSet, filter::getConjuncts,
-                                    new HashSet<>(filter.getExpressions()));
+                                    Stream.concat(filter.getExpressions().stream(),
+                                            filter.getOutputSet().stream()).collect(ImmutableSet.toImmutableSet()));
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
 
                             return new LogicalProject(
@@ -116,7 +122,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // project and scan.
                 // Project(Scan)
-                logicalProject(logicalOlapScan().when(this::shouldSelectIndex))
+                logicalProject(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg))
                         .thenApply(ctx -> {
                             LogicalProject<LogicalOlapScan> project = ctx.root;
                             LogicalOlapScan scan = project.child();
@@ -135,7 +141,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // only scan.
                 logicalOlapScan()
-                        .when(this::shouldSelectIndex)
+                        .when(this::shouldSelectIndexWithoutAgg)
                         .thenApply(ctx -> {
                             LogicalOlapScan scan = ctx.root;
 
@@ -181,6 +187,11 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
             default:
                 throw new RuntimeException("Not supported keys type: " + keysType);
         }
+
+        Set<Slot> requiredSlots = new HashSet<>();
+        requiredSlots.addAll(requiredScanOutputSupplier.get());
+        requiredSlots.addAll(ExpressionUtils.getInputSlotSet(requiredExpr));
+        requiredSlots.addAll(ExpressionUtils.getInputSlotSet(predicatesSupplier.get()));
         if (scan.getTable().isDupKeysOrMergeOnWrite()) {
             // Set pre-aggregation to `on` to keep consistency with legacy logic.
             List<MaterializedIndex> candidates = scan
@@ -189,6 +200,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             scan, requiredScanOutputSupplier.get(), requiredExpr, predicatesSupplier.get()))
                     .collect(Collectors.toList());
             long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
+            // this is fail-safe for select mv
+            // select baseIndex if bestIndex's slots' data types are different from baseIndex
+            bestIndex = isSameDataType(scan, bestIndex, requiredSlots) ? bestIndex : baseIndexId;
             return scan.withMaterializedIndexSelected(PreAggStatus.on(), bestIndex);
         } else {
             final PreAggStatus preAggStatus;
@@ -196,7 +210,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
                 preAggStatus = PreAggStatus.on();
             } else {
-                preAggStatus = PreAggStatus.off("No aggregate on scan.");
+                // if PreAggStatus is OFF, we use the message from SelectMaterializedIndexWithAggregate
+                preAggStatus = scan.getPreAggStatus().isOff() ? scan.getPreAggStatus()
+                        : PreAggStatus.off("No aggregate on scan.");
             }
             if (table.getIndexIdToMeta().size() == 1) {
                 return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
@@ -214,10 +230,28 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // `candidates` only have base index.
                 return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
             } else {
-                return scan.withMaterializedIndexSelected(preAggStatus,
-                        selectBestIndex(candidates, scan, predicatesSupplier.get()));
+                long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
+                // this is fail-safe for select mv
+                // select baseIndex if bestIndex's slots' data types are different from baseIndex
+                bestIndex = isSameDataType(scan, bestIndex, requiredSlots) ? bestIndex : baseIndexId;
+                return scan.withMaterializedIndexSelected(preAggStatus, bestIndex);
             }
         }
+    }
+
+    private boolean isSameDataType(LogicalOlapScan scan, long selectIndex, Set<Slot> slots) {
+        if (selectIndex != scan.getTable().getBaseIndexId()) {
+            Map<String, PrimitiveType> columnTypes =
+                    scan.getTable().getSchemaByIndexId(selectIndex).stream().collect(Collectors
+                            .toMap(Column::getNameWithoutMvPrefix, column -> column.getDataType()));
+            return slots.stream().allMatch(slot -> {
+                PrimitiveType dataType =
+                        columnTypes.getOrDefault(slot.getName(), PrimitiveType.NULL_TYPE);
+                return dataType == PrimitiveType.NULL_TYPE
+                        || dataType == slot.getDataType().toCatalogDataType().getPrimitiveType();
+            });
+        }
+        return true;
     }
 
     private boolean indexHasAggregate(MaterializedIndex index, LogicalOlapScan scan) {

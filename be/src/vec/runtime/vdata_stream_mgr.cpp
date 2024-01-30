@@ -117,6 +117,21 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         return Status::EndOfFile("data stream receiver closed");
     }
 
+    if (request->has_exec_status()) {
+        Status st = Status::create(request->exec_status());
+        if (!st.ok()) {
+            // All sender queues are set cancelled, and condition variable is signaled
+            // Consumers are blocked on SenderQueue::get_batch(PipSenderQueue::get_batch for pipeline)
+            // and waiting on _data_arrival_cv, they will notice cancelled state in
+            // _inner_get_batch_without_lock.
+            LOG_WARNING("Got abnormal status when processing transmit block to {} {}",
+                        print_id(t_finst_id), request->node_id());
+            recvr->cancel_stream(st.msg());
+        }
+
+        return Status::OK();
+    }
+
     // request can only be used before calling recvr's add_batch or when request
     // is the last for the sender, because request maybe released after it's batch
     // is consumed by ExchangeNode.
@@ -139,7 +154,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
 
 Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id) {
     std::shared_ptr<VDataStreamRecvr> targert_recvr;
-    VLOG_QUERY << "deregister_recvr(): fragment_instance_id=" << fragment_instance_id
+    VLOG_QUERY << "deregister_recvr(): fragment_instance_id=" << print_id(fragment_instance_id)
                << ", node=" << node_id;
     size_t hash_value = get_hash_value(fragment_instance_id, node_id);
     {

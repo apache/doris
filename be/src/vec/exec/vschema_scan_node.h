@@ -56,7 +56,8 @@ public:
 
 private:
     // this is no use in this class
-    Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    Status set_scan_ranges(RuntimeState* state,
+                           const std::vector<TScanRangeParams>& scan_ranges) override;
 
     // Write debug string of this into out.
     void debug_string(int indentation_level, std::stringstream* out) const override;

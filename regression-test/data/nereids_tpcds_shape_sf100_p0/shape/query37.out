@@ -14,14 +14,15 @@ PhysicalResultSink
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = inventory.inv_date_sk)
-------------------------hashJoin[INNER_JOIN](inventory.inv_item_sk = item.i_item_sk)
---------------------------PhysicalProject
-----------------------------filter((inventory.inv_quantity_on_hand >= 100)(inventory.inv_quantity_on_hand <= 500))
-------------------------------PhysicalOlapScan[inventory]
---------------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](inventory.inv_item_sk = item.i_item_sk)
 ----------------------------PhysicalProject
-------------------------------filter((item.i_current_price <= 75.00)i_manufact_id IN (707, 747, 856, 1000)(item.i_current_price >= 45.00))
---------------------------------PhysicalOlapScan[item]
+------------------------------filter((inventory.inv_quantity_on_hand >= 100)(inventory.inv_quantity_on_hand <= 500))
+--------------------------------PhysicalOlapScan[inventory]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((item.i_current_price <= 75.00)i_manufact_id IN (707, 747, 856, 1000)(item.i_current_price >= 45.00))
+----------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------filter((date_dim.d_date >= '1999-02-21')(date_dim.d_date <= '1999-04-22'))

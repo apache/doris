@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Load JSON Format Data",
+    "title": "Importing Data in JSON Format",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# JSON format data import
+# Importing Data in JSON Format
 
 Doris supports importing data in JSON format. This document mainly describes the precautions when importing data in JSON format.
 
@@ -38,7 +38,7 @@ Currently, only the following import methods support data import in JSON format:
 
 Other ways of importing data in JSON format are not currently supported.
 
-## Supported JSON formats
+## Supported JSON Formats
 
 Currently only the following two JSON formats are supported:
 

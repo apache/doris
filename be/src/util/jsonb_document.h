@@ -451,7 +451,7 @@ public:
     static const int sMaxKeyId = 65535;
     typedef uint16_t keyid_type;
 
-    static const uint8_t sMaxKeyLen = 64;
+    static const uint16_t sMaxKeyLen = 256;
 
     // size of the key. 0 indicates it is stored as id
     uint8_t klen() const { return size_; }
@@ -1568,6 +1568,7 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
             stream->skip(1);
             stream->add_leg_len();
             stream->set_has_escapes(true);
+            if (stream->exhausted()) return false;
             continue;
         } else if (stream->peek() == DOUBLE_QUOTE) {
             if (left_quotation_marks == nullptr) {

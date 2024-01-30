@@ -77,9 +77,9 @@ limit 100;
         }
     }
     
-    // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.16"
-    // File file = new File(outFile)
-    // file.write(getRuntimeFilters(plan))
+    //def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.16"
+    //File file = new File(outFile)
+    //file.write(getRuntimeFilters(plan))
     
-     assertEquals("RF4[d_date_sk->[cs_ship_date_sk],RF3[cs_order_number->[cs_order_number],RF2[cc_call_center_sk->[cs_call_center_sk],RF1[cs_order_number->[cr_order_number],RF0[ca_address_sk->[cs_ship_addr_sk]", getRuntimeFilters(plan))
+    assertEquals("RF4[cs_order_number->[cs_order_number],RF3[cc_call_center_sk->[cs_call_center_sk],RF2[cs_order_number->[cr_order_number],RF1[d_date_sk->[cs_ship_date_sk],RF0[ca_address_sk->[cs_ship_addr_sk]", getRuntimeFilters(plan))
 }

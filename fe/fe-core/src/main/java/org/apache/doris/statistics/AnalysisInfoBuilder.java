@@ -60,6 +60,10 @@ public class AnalysisInfoBuilder {
     private long partitionCount;
     private CronExpression cronExpression;
     private boolean forceFull;
+    private boolean usingSqlForPartitionColumn;
+    private long tblUpdateTime;
+    private boolean emptyJob;
+    private boolean userInject;
 
     public AnalysisInfoBuilder() {
     }
@@ -95,6 +99,10 @@ public class AnalysisInfoBuilder {
         partitionCount = info.partitionCount;
         cronExpression = info.cronExpression;
         forceFull = info.forceFull;
+        usingSqlForPartitionColumn = info.usingSqlForPartitionColumn;
+        tblUpdateTime = info.tblUpdateTime;
+        emptyJob = info.emptyJob;
+        userInject = info.userInject;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {
@@ -237,12 +245,34 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public void setCronExpression(CronExpression cronExpression) {
+    public AnalysisInfoBuilder setCronExpression(CronExpression cronExpression) {
         this.cronExpression = cronExpression;
+        return this;
     }
 
-    public void setForceFull(boolean forceFull) {
+    public AnalysisInfoBuilder setForceFull(boolean forceFull) {
         this.forceFull = forceFull;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setUsingSqlForPartitionColumn(boolean usingSqlForPartitionColumn) {
+        this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setTblUpdateTime(long tblUpdateTime) {
+        this.tblUpdateTime = tblUpdateTime;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setEmptyJob(boolean emptyJob) {
+        this.emptyJob = emptyJob;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setUserInject(boolean userInject) {
+        this.userInject = userInject;
+        return this;
     }
 
     public AnalysisInfo build() {
@@ -250,37 +280,7 @@ public class AnalysisInfoBuilder {
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 externalTableLevelTask, partitionOnly, samplingPartition, isAllPartition, partitionCount,
-                cronExpression, forceFull);
+                cronExpression, forceFull, usingSqlForPartitionColumn, tblUpdateTime, emptyJob, userInject);
     }
 
-    public AnalysisInfoBuilder copy() {
-        return new AnalysisInfoBuilder()
-                .setJobId(jobId)
-                .setTaskId(taskId)
-                .setTaskIds(taskIds)
-                .setCatalogId(catalogId)
-                .setDBId(dbId)
-                .setTblId(tblId)
-                .setColToPartitions(colToPartitions)
-                .setColName(colName)
-                .setIndexId(indexId)
-                .setJobType(jobType)
-                .setAnalysisMode(analysisMode)
-                .setAnalysisMethod(analysisMethod)
-                .setAnalysisType(analysisType)
-                .setSamplePercent(samplePercent)
-                .setSampleRows(sampleRows)
-                .setPeriodTimeInMs(periodTimeInMs)
-                .setMaxBucketNum(maxBucketNum)
-                .setMessage(message)
-                .setLastExecTimeInMs(lastExecTimeInMs)
-                .setTimeCostInMs(timeCostInMs)
-                .setState(state)
-                .setScheduleType(scheduleType)
-                .setExternalTableLevelTask(externalTableLevelTask)
-                .setSamplingPartition(samplingPartition)
-                .setPartitionOnly(partitionOnly)
-                .setAllPartition(isAllPartition)
-                .setPartitionCount(partitionCount);
-    }
 }

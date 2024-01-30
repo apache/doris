@@ -87,6 +87,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 Plan plan = joinToMultiJoin(filter, planToHintType);
                 Preconditions.checkState(plan instanceof MultiJoin);
                 MultiJoin multiJoin = (MultiJoin) plan;
+                ctx.statementContext.addJoinFilters(multiJoin.getJoinFilter());
                 ctx.statementContext.setMaxNAryInnerJoin(multiJoin.children().size());
                 Plan after = multiJoinToJoin(multiJoin, planToHintType);
                 return after;
@@ -328,10 +329,12 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             Set<Expression> joinFilter, Set<Integer> usedPlansIndex, Map<Plan, JoinHintType> planToHintType) {
         List<Expression> otherJoinConditions = Lists.newArrayList();
         Set<ExprId> leftOutputExprIdSet = left.getOutputExprIdSet();
+        int candidateIndex = 0;
         for (int i = 0; i < candidates.size(); i++) {
             if (usedPlansIndex.contains(i)) {
                 continue;
             }
+            candidateIndex = i;
 
             Plan candidate = candidates.get(i);
             Set<ExprId> rightOutputExprIdSet = candidate.getOutputExprIdSet();
@@ -361,21 +364,14 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         }
         // All { left -> one in [candidates] } is CrossJoin
         // Generate a CrossJoin
-        for (int i = 0; i < candidates.size(); i++) {
-            if (usedPlansIndex.contains(i)) {
-                continue;
-            }
-            usedPlansIndex.add(i);
-            Plan right = candidates.get(i);
-            return new LogicalJoin<>(JoinType.CROSS_JOIN,
-                    ExpressionUtils.EMPTY_CONDITION,
-                    otherJoinConditions,
-                    JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(right, JoinHintType.NONE)),
-                    Optional.empty(),
-                    left, right);
-        }
-
-        throw new RuntimeException("findInnerJoin: can't reach here");
+        usedPlansIndex.add(candidateIndex);
+        Plan right = candidates.get(candidateIndex);
+        return new LogicalJoin<>(JoinType.CROSS_JOIN,
+                ExpressionUtils.EMPTY_CONDITION,
+                otherJoinConditions,
+                JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(right, JoinHintType.NONE)),
+                Optional.empty(),
+                left, right);
     }
 
     private boolean nonJoinAndNonFilter(Plan plan) {

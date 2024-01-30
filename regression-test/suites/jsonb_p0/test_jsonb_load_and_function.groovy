@@ -96,6 +96,8 @@ suite("test_jsonb_load_and_function", "p0") {
         }
     }
 
+    sql """ sync; """
+
     // check result
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 

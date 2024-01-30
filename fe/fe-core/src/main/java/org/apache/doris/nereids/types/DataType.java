@@ -121,6 +121,7 @@ public abstract class DataType implements AbstractDataType {
             case "smallint":
                 return SmallIntType.INSTANCE;
             case "int":
+            case "integer":
                 return IntegerType.INSTANCE;
             case "bigint":
                 return BigIntType.INSTANCE;
@@ -157,6 +158,18 @@ public abstract class DataType implements AbstractDataType {
                         default:
                             throw new AnalysisException("Nereids do not support type: " + type);
                     }
+                }
+            case "decimalv2":
+                switch (types.size()) {
+                    case 1:
+                        return DecimalV2Type.SYSTEM_DEFAULT;
+                    case 2:
+                        return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)), 0);
+                    case 3:
+                        return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)),
+                                Integer.parseInt(types.get(2)));
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
                 }
             case "decimalv3":
                 switch (types.size()) {
@@ -206,6 +219,8 @@ public abstract class DataType implements AbstractDataType {
             case "date":
                 return Config.enable_date_conversion && tryConvert ? DateV2Type.INSTANCE
                         : DateType.INSTANCE;
+            case "datev1":
+                return DateType.INSTANCE;
             case "datev2":
                 return DateV2Type.INSTANCE;
             case "time":
@@ -218,6 +233,15 @@ public abstract class DataType implements AbstractDataType {
                                 : DateTimeType.INSTANCE;
                     case 2:
                         return DateTimeV2Type.of(Integer.parseInt(types.get(1)));
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+            case "datetimev1":
+                switch (types.size()) {
+                    case 1:
+                        return DateTimeType.INSTANCE;
+                    case 2:
+                        throw new AnalysisException("Nereids do not support datetimev1 type with precision");
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }

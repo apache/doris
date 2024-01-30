@@ -323,6 +323,11 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Can not drop key column in Unique data model table");
             }
 
+            if (olapTable.hasSequenceCol() && dropColName.equalsIgnoreCase(olapTable.getSequenceMapCol())) {
+                throw new DdlException("Can not drop sequence mapping column[" + dropColName
+                        + "] in Unique data model table[" + olapTable.getName() + "]");
+            }
+
         } else if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (null == targetIndexName) {
                 // drop column in base table
@@ -588,7 +593,13 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
                             && modColumn.getDataType() == PrimitiveType.VARCHAR) {
                         col.checkSchemaChangeAllowed(modColumn);
-                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                        // If col and modColumn is not key, it allow light schema change,
+                        // of course, olapTable has been enable light schema change
+                        if (modColumn.isKey() || col.isKey()) {
+                            lightSchemaChange = false;
+                        } else {
+                            lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                        }
                     }
                 }
             }
@@ -937,6 +948,10 @@ public class SchemaChangeHandler extends AlterHandler {
             } else if (olapTable.isDuplicateWithoutKey()) {
                 throw new DdlException("Duplicate table without keys do not support add key column!");
             }
+        }
+
+        if (newColumn.getType().isTime() || newColumn.getType().isTimeV2()) {
+            throw new DdlException("Time type is not supported for olap table");
         }
 
         // hll must be used in agg_keys
@@ -1933,7 +1948,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
-                    if (!olapTable.isPartitioned()) {
+                    if (!olapTable.isPartitionedTable()) {
                         List<String> specifiedPartitions = indexDef.getPartitionNames();
                         if (!specifiedPartitions.isEmpty()) {
                             throw new DdlException("table " + olapTable.getName()
@@ -2183,6 +2198,13 @@ public class SchemaChangeHandler extends AlterHandler {
                         .put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
                         Long.parseLong(properties
                         .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)));
+        }
+
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+            timeSeriesCompactionConfig
+                        .put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                        Long.parseLong(properties
+                        .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)));
         }
 
         if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()

@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -54,7 +53,10 @@ public class DropStatsStmt extends DdlStmt {
     private Set<String> columnNames;
     // Flag to drop external table row count in table_statistics.
     private boolean dropTableRowCount;
+    private boolean isAllColumns;
 
+    private long catalogId;
+    private long dbId;
     private long tblId;
 
     public DropStatsStmt(boolean dropExpired) {
@@ -80,7 +82,7 @@ public class DropStatsStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.enable_stats) {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }
@@ -101,10 +103,13 @@ public class DropStatsStmt extends DdlStmt {
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         TableIf table = db.getTableOrAnalysisException(tblName);
         tblId = table.getId();
+        dbId = db.getId();
+        catalogId = catalog.getId();
         // check permission
         checkAnalyzePriv(db.getFullName(), table.getName());
         // check columnNames
         if (columnNames != null) {
+            isAllColumns = false;
             for (String cName : columnNames) {
                 if (table.getColumn(cName) == null) {
                     ErrorReport.reportAnalysisException(
@@ -116,6 +121,7 @@ public class DropStatsStmt extends DdlStmt {
                 }
             }
         } else {
+            isAllColumns = true;
             columnNames = table.getColumns().stream().map(Column::getName).collect(Collectors.toSet());
         }
     }
@@ -124,8 +130,20 @@ public class DropStatsStmt extends DdlStmt {
         return tblId;
     }
 
+    public long getDbId() {
+        return dbId;
+    }
+
+    public long getCatalogIdId() {
+        return catalogId;
+    }
+
     public Set<String> getColumnNames() {
         return columnNames;
+    }
+
+    public boolean isAllColumns() {
+        return isAllColumns;
     }
 
     public boolean dropTableRowCount() {

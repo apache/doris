@@ -29,11 +29,10 @@ ROOT=$(
 )
 
 CURDIR="${ROOT}"
-TPCDS_QUERIES_DIR="${CURDIR}/../queries"
 
 usage() {
     echo "
-This script is used to run TPC-DS 103 queries, 
+This script is used to run TPC-DS 99 queries, 
 will use mysql client to connect Doris server which parameter is specified in doris-cluster.conf file.
 Usage: $0 
   "
@@ -43,10 +42,12 @@ Usage: $0
 OPTS=$(getopt \
     -n "$0" \
     -o '' \
+    -o 'hs:' \
     -- "$@")
 
 eval set -- "${OPTS}"
 HELP=0
+SCALE_FACTOR=1
 
 if [[ $# == 0 ]]; then
     usage
@@ -57,6 +58,10 @@ while true; do
     -h)
         HELP=1
         shift
+        ;;
+    -s)
+        SCALE_FACTOR=$2
+        shift 2
         ;;
     --)
         shift
@@ -73,6 +78,27 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
+if [[ ${SCALE_FACTOR} -eq 1 ]]; then
+    echo "Running tpcds sf 1 queries"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf1"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1.sql"
+elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
+    echo "Running tpcds sf 100 queries"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf100"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf100.sql"
+elif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
+    echo "Running tpcds sf 1000 queries"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf1000"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1000.sql"
+elif [[ ${SCALE_FACTOR} -eq 10000 ]]; then
+    echo "Running tpcds sf 10000 queries"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf10000"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf10000.sql"
+else
+    echo "${SCALE_FACTOR} scale is NOT support currently."
+    exit 1
+fi
+
 check_prerequest() {
     local CMD=$1
     local NAME=$2
@@ -84,7 +110,6 @@ check_prerequest() {
 
 check_prerequest "mysql --version" "mysql"
 
-#shellcheck source=/dev/null
 source "${CURDIR}/../conf/doris-cluster.conf"
 export MYSQL_PWD=${PASSWORD:-}
 
@@ -98,27 +123,44 @@ run_sql() {
     echo "$*"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
+get_session_variable() {
+    k="$1"
+    v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+    echo "${v/*Value: /}"
+}
+backup_session_variables_file="${CURDIR}/../conf/opt/backup_session_variables.sql"
+backup_session_variables() {
+    while IFS= read -r line; do
+        k="${line/set global /}"
+        k="${k%=*}"
+        v=$(get_session_variable "${k}")
+        echo "set global ${k}=${v};" >>"${backup_session_variables_file}"
+    done < <(grep -v '^ *#' <"${TPCDS_OPT_CONF}")
+}
+backup_session_variables
 
+echo '============================================'
+echo "Optimize session variables"
+run_sql "source ${TPCDS_OPT_CONF};"
 echo '============================================'
 run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
-start=$(date +%s)
-run_sql "analyze database ${DB} with sync;"
-end=$(date +%s)
-totalTime=$((end - start))
-echo "analyze database ${DB} with sync total time: ${totalTime} s"
-echo '============================================'
-echo "Time Unit: ms"
 
 RESULT_DIR="${CURDIR}/result"
-rm "${RESULT_DIR}"
+if [[ -d "${RESULT_DIR}" ]]; then
+    rm -r "${RESULT_DIR}"
+fi
 mkdir -p "${RESULT_DIR}"
 touch result.csv
 cold_run_sum=0
 best_hot_run_sum=0
-for i in {1..99}; do
+# run part of queries, set their index to query_array
+# query_array=(59 17 29 25 47 40 54)
+query_array=$(seq 1 99)
+# shellcheck disable=SC2068
+for i in ${query_array[@]}; do
     cold=0
     hot1=0
     hot2=0
@@ -153,4 +195,10 @@ for i in {1..99}; do
     fi
 done
 
+echo "Total cold run time: ${cold_run_sum} ms"
+echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish tpcds queries.'
+
+echo "Restore session variables"
+run_sql "source ${backup_session_variables_file};"
+rm -f "${backup_session_variables_file}"

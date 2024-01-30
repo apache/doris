@@ -56,11 +56,14 @@ public:
             : query_id(query_id),
               is_disposable(use_disposable_cache),
               read_segment_index(read_segment_index),
+              should_stop(false),
               file_cache_stats(stats) {}
     ReaderType reader_type = ReaderType::UNKNOWN;
     const TUniqueId* query_id = nullptr;
     bool is_disposable = false;
     bool read_segment_index = false;
+    // stop reader when reading, used in some interrupted operations
+    bool should_stop = false;
     FileCacheStatistics* file_cache_stats = nullptr;
 };
 

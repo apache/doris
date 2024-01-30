@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-SUM",
+    "title": "WINDOW_FUNCTION_SUM",
     "language": "zh-CN"
 }
 ---
@@ -17,7 +17,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 计算窗口内数据的和
 
 ```sql
-SUM([DISTINCT | ALL] expression) [OVER (analytic_clause)]
+SUM([ALL] expression) [OVER (analytic_clause)]
 ```
 
 ### example

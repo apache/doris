@@ -73,6 +73,7 @@ public class JdbcTableSink extends DataSink {
         strBuilder.append(prefix + "TABLE TYPE: ").append(jdbcType.toString()).append("\n");
         strBuilder.append(prefix + "TABLENAME OF EXTERNAL TABLE: ").append(externalTableName).append("\n");
         strBuilder.append(prefix + "EnableTransaction: ").append(useTransaction ? "true" : "false").append("\n");
+        strBuilder.append(prefix + "PreparedStatement SQL: ").append(insertSql).append("\n");
         return strBuilder.toString();
     }
 

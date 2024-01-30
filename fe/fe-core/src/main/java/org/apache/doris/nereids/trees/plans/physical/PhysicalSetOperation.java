@@ -143,4 +143,8 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
     }
+
+    public boolean isDistinct() {
+        return qualifier == Qualifier.DISTINCT;
+    }
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_statistic_timeout", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_hive_statistic_timeout", "p2,external,hive,external_remote,external_remote_hive, nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
@@ -32,22 +32,14 @@ suite("test_hive_statistic_timeout", "p2,external,hive,external_remote,external_
         logger.info("catalog " + catalog_name + " created")
 
         sql """use ${catalog_name}.tpch_1000_parquet"""
-        sql """set query_timeout=1"""
-        sql """analyze table part (p_partkey, p_container, p_type, p_retailprice) with sync;"""
-
-        def result = sql """show column stats part"""
-        assertTrue(result.size() == 4)
-
-        def ctlId
-        result = sql """show proc '/catalogs'"""
-
-        for (int i = 0; i < result.size(); i++) {
-            if (result[i][1] == catalog_name) {
-                ctlId = result[i][0]
-            }
+        sql """set global analyze_timeout=1"""
+        try {
+            sql """analyze table part (p_partkey, p_container, p_type, p_retailprice) with sync with full;"""
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("Cancelled"));
+        } finally {
+            sql """set global analyze_timeout=43200"""
         }
-
-        qt_01 """select col_id, count, ndv, null_count, min, max from internal.__internal_schema.column_statistics where catalog_id='$ctlId' order by col_id;"""
         sql """drop catalog ${catalog_name}""";
     }
 }

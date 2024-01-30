@@ -33,6 +33,7 @@ class Arena;
 
 class DataTypeStringSerDe : public DataTypeSerDe {
 public:
+    DataTypeStringSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
     void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                     FormatOptions& options) const override;
 
@@ -40,12 +41,11 @@ public:
                                   BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options,
-                                          int nesting_level) const override;
+                                          const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized, const FormatOptions& options,
-                                               int nesting_level) const override;
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;

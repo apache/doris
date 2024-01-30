@@ -34,7 +34,6 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
-
 public class PaimonTableCache {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonTableCache.class);
     // Max cache num of paimon table
@@ -82,7 +81,6 @@ public class PaimonTableCache {
             throw new RuntimeException("failed to get table for:" + key);
         }
     }
-
 
     public static class TableExt {
         private Table table;

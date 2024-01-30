@@ -20,6 +20,7 @@ package org.apache.doris.planner.external.jdbc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Preconditions;
@@ -108,7 +109,8 @@ public class JdbcFunctionPushDownRule {
             Preconditions.checkArgument(!func.isEmpty(), "function can not be empty");
 
             if (checkFunction.test(func)) {
-                String errMsg = "Unsupported function: " + func + " in expr: " + expr.toMySql()
+                String errMsg = "Unsupported function: " + func + " in expr: " + expr.toExternalSql(
+                        TableType.JDBC_EXTERNAL_TABLE, null)
                         + " in JDBC Table Type: " + tableType;
                 LOG.warn(errMsg);
                 errors.add(errMsg);

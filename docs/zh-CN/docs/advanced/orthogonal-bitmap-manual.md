@@ -1,6 +1,6 @@
 ---
 {
-    "title": "BITMAP精准去重",
+    "title": "BITMAP 精准去重",
     "language": "zh-CN"
 }
 ---

@@ -48,11 +48,12 @@ const static std::string S3_REGION = "AWS_REGION";
 const static std::string S3_TOKEN = "AWS_TOKEN";
 const static std::string S3_MAX_CONN_SIZE = "AWS_MAX_CONN_SIZE";
 const static std::string S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
-const static std::string S3_CONN_TIMEOUT_MS = "AWS_CONN_TIMEOUT_MS";
+const static std::string S3_CONN_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
 
 struct S3Conf {
     std::string ak;
     std::string sk;
+    std::string token;
     std::string endpoint;
     std::string region;
     std::string bucket;
@@ -64,9 +65,10 @@ struct S3Conf {
 
     std::string to_string() const {
         return fmt::format(
-                "(ak={}, sk=*, endpoint={}, region={}, bucket={}, prefix={}, max_connections={}, "
-                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={})",
-                ak, endpoint, region, bucket, prefix, max_connections, request_timeout_ms,
+                "(ak={}, sk=*, token={}, endpoint={}, region={}, bucket={}, prefix={}, "
+                "max_connections={}, request_timeout_ms={}, connect_timeout_ms={}, "
+                "use_virtual_addressing={})",
+                ak, token, endpoint, region, bucket, prefix, max_connections, request_timeout_ms,
                 connect_timeout_ms, use_virtual_addressing);
     }
 
@@ -74,6 +76,7 @@ struct S3Conf {
         uint64_t hash_code = 0;
         hash_code += Fingerprint(ak);
         hash_code += Fingerprint(sk);
+        hash_code += Fingerprint(token);
         hash_code += Fingerprint(endpoint);
         hash_code += Fingerprint(region);
         hash_code += Fingerprint(bucket);

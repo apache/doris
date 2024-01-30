@@ -59,6 +59,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 /* this class contains the reference to bdb environment.
@@ -91,7 +92,8 @@ public class BDBEnvironment {
     // The setup() method opens the environment and database
     public void setup(File envHome, String selfNodeName, String selfNodeHostPort,
                       String helperHostPort, boolean isElectable) {
-        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
+        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY)
+                || Config.metadata_failure_recovery.equals("true");
         // Almost never used, just in case the master can not restart
         if (metadataFailureRecovery) {
             if (!isElectable) {
@@ -139,6 +141,8 @@ public class BDBEnvironment {
                 String.valueOf(Config.bdbje_reserved_disk_bytes));
 
         if (BDBJE_LOG_LEVEL.contains(Config.bdbje_file_logging_level)) {
+            java.util.logging.Logger parent = java.util.logging.Logger.getLogger("com.sleepycat.je");
+            parent.setLevel(Level.parse(Config.bdbje_file_logging_level));
             environmentConfig.setConfigParam(EnvironmentConfig.FILE_LOGGING_LEVEL, Config.bdbje_file_logging_level);
         } else {
             LOG.warn("bdbje_file_logging_level invalid value: {}, will not take effort, use default",
@@ -209,6 +213,11 @@ public class BDBEnvironment {
                 .filter(Frontend::isAlive)
                 .map(fe -> new InetSocketAddress(fe.getHost(), fe.getEditLogPort()))
                 .collect(Collectors.toSet());
+
+        if (addresses.isEmpty()) {
+            LOG.info("addresses is empty");
+            return null;
+        }
         return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses);
     }
 

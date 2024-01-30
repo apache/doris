@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
- suite("test_create_view_from_tvf") {
+ suite("test_create_view_from_tvf","p0,external,tvf,external_docker") {
     String testViewName = "test_view_from_number"
 
     def create_view = {createViewSql -> 

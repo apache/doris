@@ -22,3 +22,48 @@
 -- !select --
 \N	0.00000
 
+-- !select_coalesce_bool --
+true
+
+-- !select_coalesce_tinyint --
+1
+
+-- !select_coalesce_smallint --
+1
+
+-- !select_coalesce_int --
+1
+
+-- !select_coalesce_bigint --
+1
+
+-- !select_coalesce_largeint --
+1
+
+-- !select_coalesce_float --
+1.0
+
+-- !select_coalesce_double --
+1.0
+
+-- !select_coalesce_datetime --
+2022-10-17T11:16:50
+
+-- !select_coalesce_date --
+2022-10-17
+
+-- !select_coalesce_decimal --
+1
+
+-- !select_coalesce_decimalv2 --
+1
+
+-- !select_abs1 --
+3
+
+-- !select_abs2 --
+3.2
+
+-- !select_array --
+[1]
+

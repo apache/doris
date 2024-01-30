@@ -215,7 +215,7 @@ public abstract class RoutineLoadTaskInfo {
 
     abstract String getTaskDataSourceProperties();
 
-    abstract boolean hasMoreDataToConsume();
+    abstract boolean hasMoreDataToConsume() throws UserException;
 
     @Override
     public boolean equals(Object obj) {

@@ -59,7 +59,7 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 |```array<Type>```|```ArrayList<Type>```|
 |```map<Type1,Type2>```|```HashMap<Type1,Type2>```|
 
-* array/map类型可以嵌套基本类型，例如Doris: ```array<int>```对应JAVA UDF Argument Type: ```ArrayList<Integer>```, 其他依此类推
+* array/map类型可以嵌套其它类型，例如Doris: ```array<array<int>>```对应JAVA UDF Argument Type: ```ArrayList<ArrayList<Integer>>```, 其他依此类推
 ## 编写 UDF 函数
 
 本小节主要介绍如何开发一个 Java UDF。在 `samples/doris-demo/java-udf-demo/` 下提供了示例，可供参考，查看点击[这里](https://github.com/apache/doris/tree/master/samples/doris-demo/java-udf-demo)

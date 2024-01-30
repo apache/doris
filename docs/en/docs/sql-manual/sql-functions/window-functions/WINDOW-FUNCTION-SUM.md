@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-SUM",
+    "title": "WINDOW_FUNCTION_SUM",
     "language": "en"
 }
 ---
@@ -17,7 +17,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 Calculate the sum of the data in the window
 
 ```sql
-SUM([DISTINCT | ALL] expression) [OVER (analytic_clause)]
+SUM([ALL] expression) [OVER (analytic_clause)]
 ```
 
 ### example

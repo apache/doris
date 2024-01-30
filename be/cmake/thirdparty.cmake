@@ -212,6 +212,9 @@ set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DI
 add_library(aws-c-s3 STATIC IMPORTED)
 set_target_properties(aws-c-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-s3.a)
 
+add_library(aws-c-sdkutils STATIC IMPORTED)
+set_target_properties(aws-c-sdkutils PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-sdkutils.a)
+
 if (NOT OS_MACOSX)
     add_library(aws-s2n STATIC IMPORTED)
     set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
@@ -283,6 +286,10 @@ set_target_properties(k5crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/li
 add_library(gssapi_krb5 STATIC IMPORTED)
 set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgssapi_krb5.a)
 
+add_library(dragonbox_to_chars STATIC IMPORTED)
+set_target_properties(dragonbox_to_chars PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libdragonbox_to_chars.a)
+target_include_directories(dragonbox_to_chars INTERFACE ${THIRDPARTY_DIR}/include/dragonbox-1.1.3)
+
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
 if (OS_MACOSX)
@@ -294,4 +301,10 @@ if (OS_MACOSX)
 
     add_library(intl STATIC IMPORTED)
     set_target_properties(intl PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libintl.a")
+endif()
+
+# Only used on x86 or x86_64
+if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
+    add_library(deflate STATIC IMPORTED)
+    set_target_properties(deflate PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libdeflate.a)
 endif()

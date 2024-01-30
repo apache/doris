@@ -257,7 +257,7 @@ private:
     size_t _has_read = 0;
 
     bool _closed = false;
-    bool _scanner_initialized = false;
+    bool _scanner_opened = false;
     jclass _jni_scanner_cls;
     jobject _jni_scanner_obj;
     jmethodID _jni_scanner_open;

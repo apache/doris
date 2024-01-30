@@ -144,10 +144,18 @@ void VExchangeNode::release_resource(RuntimeState* state) {
 
 Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
-    statistics->merge(_sub_plan_query_statistics_recvr.get());
+    if (!statistics->collect_dml_statistics()) {
+        statistics->merge(_sub_plan_query_statistics_recvr.get());
+    }
     return Status::OK();
 }
-
+Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics, int sender_id) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    if (!statistics->collect_dml_statistics()) {
+        statistics->merge(_sub_plan_query_statistics_recvr.get(), sender_id);
+    }
+    return Status::OK();
+}
 Status VExchangeNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();

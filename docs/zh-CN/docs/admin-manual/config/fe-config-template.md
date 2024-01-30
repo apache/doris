@@ -37,13 +37,20 @@ FE 进程启动后，会先读取 `fe.conf` 中的配置项，之后再读取 `f
 
 `fe_custom.conf` 文件的位置可以在 `fe.conf` 通过 `custom_config_dir` 配置项配置。
 
+## 注意事项
+
+**1.** 出于简化架构的目的，目前通过```mysql协议修改Config```的方式修改配置只会修改本地FE内存中的数据，而不会把变更同步到所有FE。
+对于只会在Master FE生效的Config项，修改请求会自动转发到Master节点
+
+**2.** 需要注意```forward_to_master```选项会影响```admin show frontend config```的展示结果，如果```forward_to_master=true```，那么只会展示Master的配置（即使您此时连接的是Follower FE节点），这可能导致您无法看到对本地FE配置的修改；如果期望show config返回本地FE的配置项，那么执行命令```set forward_to_master=false```
+
 ## 查看配置项
 
 FE 的配置项有两种方式进行查看：
 
 1. FE 前端页面查看
 
-   在浏览器中打开 FE 前端页面 `http://fe_host:fe_http_port/variable`。在 `Configure Info` 中可以看到当前生效的 FE 配置项。
+   在浏览器中打开 FE 前端页面 `http://fe_host:fe_http_port/Configure`。在 `Configure Info` 中可以看到当前生效的 FE 配置项。
 
 2. 通过命令查看
 

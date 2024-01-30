@@ -257,6 +257,10 @@ heap dump文件所在目录默认为 `${DORIS_HOME}/log`, 文件名前缀是 `JE
 
 ##### 3. heap dump profiling
 
+```
+需要 addr2line 版本为 2.35.2, 见下面的 QA 1.
+```
+
 1.  单个heap dump文件生成纯文本分析结果
 ```shell
    jeprof lib/doris_be heap_dump_file_1
@@ -284,6 +288,40 @@ heap dump文件所在目录默认为 `${DORIS_HOME}/log`, 文件名前缀是 `JE
    ```shell
    jeprof --pdf lib/doris_be --base=heap_dump_file_1 heap_dump_file_2 > result.pdf
    ```
+
+##### 4. QA
+
+1. 运行 jeprof 后出现很多错误: `addr2line: Dwarf Error: found dwarf version xxx, this reader only handles version xxx`.
+
+GCC 11 之后默认使用 DWARF-v5 ，这要求Binutils 2.35.2 及以上，Doris Ldb_toolchain 用了 GCC 11。see: https://gcc.gnu.org/gcc-11/changes.html。
+
+替换 addr2line 到 2.35.2，参考：
+```
+// 下载 addr2line 源码
+wget https://ftp.gnu.org/gnu/binutils/binutils-2.35.tar.bz2
+
+// 安装依赖项，如果需要
+yum install make gcc gcc-c++ binutils
+
+// 编译&安装 addr2line
+tar -xvf binutils-2.35.tar.bz2
+cd binutils-2.35
+./configure --prefix=/usr/local
+make
+make install
+
+// 验证
+addr2line -h
+
+// 替换 addr2line
+chmod +x addr2line
+mv /usr/bin/addr2line /usr/bin/addr2line.bak
+mv /bin/addr2line /bin/addr2line.bak
+cp addr2line /bin/addr2line
+cp addr2line /usr/bin/addr2line
+hash -r
+```
+注意，不能使用 addr2line 2.3.9, 这可能不兼容，导致内存一直增长。
 
 #### LSAN
 

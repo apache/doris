@@ -32,11 +32,11 @@ workload group 可限制组内任务在单个be节点上的计算资源和内存
 
 ## workload group属性
 
-* cpu_share：必选，用于设置workload group获取cpu时间的多少，可以实现cpu资源软隔离。cpu_share 是相对值，表示正在运行的workload group可获取cpu资源的权重。例如，用户创建了3个workload group g-a、g-b和g-c，cpu_share 分别为 10、30、40，某一时刻g-a和g-b正在跑任务，而g-c没有任务，此时g-a可获得 25% (10 / (10 + 30))的cpu资源，而g-b可获得75%的cpu资源。如果系统只有一个workload group正在运行，则不管其cpu_share的值为多少，它都可获取全部的cpu资源。
+* cpu_share: 必选，用于设置workload group获取cpu时间的多少，可以实现cpu资源软隔离。cpu_share 是相对值，表示正在运行的workload group可获取cpu资源的权重。例如，用户创建了3个workload group g-a、g-b和g-c，cpu_share 分别为 10、30、40，某一时刻g-a和g-b正在跑任务，而g-c没有任务，此时g-a可获得 25% (10 / (10 + 30))的cpu资源，而g-b可获得75%的cpu资源。如果系统只有一个workload group正在运行，则不管其cpu_share的值为多少，它都可获取全部的cpu资源。
 
-* memory_limit: 必选，用于设置workload group可以使用be内存的百分比。workload group内存限制的绝对值为： 物理内存 * mem_limit * memory_limit，其中 mem_limit 为be配置项。系统所有workload group的 memory_limit总合不可超过100%。workload group在绝大多数情况下保证组内任务可使用memory_limit的内存，当workload group内存使用超出该限制后，组内内存占用较大的任务可能会被cancel以释放超出的内存，参考 enable_memory_overcommit。
+* memory_limit: 必选，用于设置workload group可以使用be内存的百分比。workload group内存限制的绝对值为：`物理内存 * mem_limit * memory_limit`，其中 mem_limit 为be配置项。系统所有workload group的 memory_limit总合不可超过100%。workload group在绝大多数情况下保证组内任务可使用memory_limit的内存，当workload group内存使用超出该限制后，组内内存占用较大的任务可能会被cancel以释放超出的内存，参考 enable_memory_overcommit。
 
-* enable_memory_overcommit: 可选，用于开启workload group内存软隔离，默认为false。如果设置为false，则该workload group为内存硬隔离，系统检测到workload group内存使用超出限制后将立即cancel组内内存占用最大的若干个任务，以释放超出的内存；如果设置为true，则该workload group为内存软隔离，如果系统有空闲内存资源则该workload group在超出memory_limit的限制后可继续使用系统内存，在系统总内存紧张时会cancel组内内存占用最大的若干个任务，释放部分超出的内存以缓解系统内存压力。建议在有workload group开启该配置时，所有workload group的 memory_limit 总合低于100%，剩余部分用于workload group内存超发。
+* enable_memory_overcommit: 可选，用于开启workload group内存软隔离，默认为false。如果设置为false，则该workload group为内存硬隔离，系统检测到workload group内存使用超出限制后将立即cancel组内内存占用最大的若干个任务，以释放超出的内存；如果设置为true，则该workload group为内存软隔离，如果系统有空闲内存资源则该workload group在超出memory_limit的限制后可继续使用系统内存，在系统总内存紧张时会cancel组内内存占用最大的若干个任务，释放部分超出的内存以缓解系统内存压力。建议在有workload group开启该配置时，所有workload group的 memory_limit 总和低于100%，剩余部分用于workload group内存超发。
 
 ## workload group使用
 

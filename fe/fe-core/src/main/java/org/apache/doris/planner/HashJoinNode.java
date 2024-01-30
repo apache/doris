@@ -94,12 +94,12 @@ public class HashJoinNode extends JoinNodeBase {
 
         if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
                 || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
-            tupleIds.addAll(outer.getTupleIds());
+            tupleIds.addAll(outer.getOutputTupleIds());
         } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
-            tupleIds.addAll(inner.getTupleIds());
+            tupleIds.addAll(inner.getOutputTupleIds());
         } else {
-            tupleIds.addAll(outer.getTupleIds());
-            tupleIds.addAll(inner.getTupleIds());
+            tupleIds.addAll(outer.getOutputTupleIds());
+            tupleIds.addAll(inner.getOutputTupleIds());
         }
 
         for (Expr eqJoinPredicate : eqJoinConjuncts) {
@@ -276,7 +276,17 @@ public class HashJoinNode extends JoinNodeBase {
         ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
         List<Expr> newEqJoinConjuncts = Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
         eqJoinConjuncts =
-                newEqJoinConjuncts.stream().map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
+                newEqJoinConjuncts.stream().map(entity -> {
+                            BinaryPredicate predicate = (BinaryPredicate) entity;
+                            if (predicate.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
+                                Preconditions.checkArgument(predicate.getChildren().size() == 2);
+                                if (!predicate.getChild(0).isNullable() || !predicate.getChild(1).isNullable()) {
+                                    predicate.setOp(BinaryPredicate.Operator.EQ);
+                                }
+                            }
+                            return predicate;
+                        }
+                ).collect(Collectors.toList());
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
 
         computeOutputTuple(analyzer);

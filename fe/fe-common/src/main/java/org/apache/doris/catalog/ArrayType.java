@@ -88,13 +88,11 @@ public class ArrayType extends Type {
             return false;
         }
 
-        // Array(Null) is a virtual Array type, can match any Array(...) type
-        if (itemType.isNull() || ((ArrayType) t).getItemType().isNull()) {
-            return true;
+        if (((ArrayType) t).getContainsNull() != getContainsNull()) {
+            return false;
         }
 
-        return itemType.matchesType(((ArrayType) t).itemType)
-                && (((ArrayType) t).containsNull || !containsNull);
+        return itemType.matchesType(((ArrayType) t).itemType);
     }
 
     @Override
@@ -161,6 +159,16 @@ public class ArrayType extends Type {
             return true;
         }
         return Type.canCastTo(type.getItemType(), targetType.getItemType());
+    }
+
+    public static Type getAssignmentCompatibleType(ArrayType t1, ArrayType t2, boolean strict) {
+        Type itemCompatibleType = Type.getAssignmentCompatibleType(t1.getItemType(), t2.getItemType(), strict);
+
+        if (itemCompatibleType.isInvalid()) {
+            return ScalarType.INVALID;
+        }
+
+        return new ArrayType(itemCompatibleType, t1.getContainsNull() || t2.getContainsNull());
     }
 
     @Override

@@ -162,6 +162,9 @@ public:
 
     bool is_empty() const { return _num_rows == 0; }
 
+    bool prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+                                      const int column_id) const;
+
     CompressionTypePB get_compression() const { return _meta_compression; }
 
     uint64_t num_rows() const { return _num_rows; }
@@ -176,6 +179,8 @@ public:
     DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
 
     void disable_index_meta_cache() { _use_index_page_cache = false; }
+
+    FieldType get_meta_type() { return _meta_type; }
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,

@@ -116,5 +116,25 @@ suite("test_subquery_in_project") {
                 end 'test'  from test_sql group by cube(dt) order by dt;
     """
 
+    qt_sql15 """
+        select sum(age + (select sum(age) from test_sql)) from test_sql order by 1;
+    """
+
+    qt_sql16 """
+        select sum(distinct age + (select sum(age) from test_sql)) from test_sql order by 1;
+    """
+
+    qt_sql17 """
+        select sum(age + (select sum(age) from test_sql)) over() from test_sql order by 1;
+    """
+
+    qt_sql18 """
+        select sum(age + (select sum(age) from test_sql)) over() from test_sql group by dt, age order by 1;
+    """
+
+    qt_sql20 """
+        select sum(age + (select sum(age) from test_sql)) from test_sql group by dt, age order by 1;
+    """
+
     sql """drop table if exists test_sql;"""
 }

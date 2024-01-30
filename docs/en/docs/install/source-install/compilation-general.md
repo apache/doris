@@ -29,7 +29,7 @@ under the License.
 
 This topic is about how to compile Doris from source.
 
-## Compile With Docker Development Image (Recommended)
+## Compile with Docker Development Image (Recommended)
 
 ### Use Off-the-Shelf Image
 
@@ -61,8 +61,10 @@ This topic is about how to compile Doris from source.
 | apache/doris:build-env-for-1.1.0| | 1.1.0 |
 | apache/doris:build-env-for-1.2| | 1.1.x, 1.2.x |
 | apache/doris:build-env-for-1.2-no-avx2| | 1.1.x, 1.2.x |
-| apache/doris:build-env-ldb-toolchain-latest | | trunk |
-| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | trunk |
+| apache/doris:build-env-for-2.0| | 2.0.x |
+| apache/doris:build-env-for-2.0-no-avx2| | 2.0.x |
+| apache/doris:build-env-ldb-toolchain-latest | | master |
+| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | mater |
 
 **Note**:
 
@@ -142,6 +144,12 @@ This topic is about how to compile Doris from source.
     $ sh build.sh
     ```
 
+   To build debug version for BE, add BUILD_TYPE=Debug.
+
+    ```
+    $ BUILD_TYPE=Debug sh build.sh
+    ```
+
    After compilation, the output files will be in the `output/` directory.
 
     > **Note:**
@@ -213,6 +221,12 @@ You can compile Doris directly in your own Linux environment.
 
     ```
     $ USE_AVX2=0 sh build.sh
+    ```
+
+   To build debug version for BE, add BUILD_TYPE=Debug.
+
+    ```
+    $ BUILD_TYPE=Debug sh build.sh
     ```
 
    After compilation, the output files will be in the `output/` directory.

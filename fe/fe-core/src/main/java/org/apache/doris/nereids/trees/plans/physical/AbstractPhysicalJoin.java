@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -41,6 +42,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Abstract class for all physical join node.
@@ -107,6 +109,11 @@ public abstract class AbstractPhysicalJoin<
 
     public List<Expression> getHashJoinConjuncts() {
         return hashJoinConjuncts;
+    }
+
+    public List<EqualTo> getEqualToConjuncts() {
+        return hashJoinConjuncts.stream().filter(EqualTo.class::isInstance).map(EqualTo.class::cast)
+                .collect(Collectors.toList());
     }
 
     public boolean isShouldTranslateOutput() {

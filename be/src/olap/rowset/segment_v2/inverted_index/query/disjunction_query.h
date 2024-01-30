@@ -39,7 +39,6 @@ public:
 
 private:
     IndexReader* _reader = nullptr;
-    std::vector<std::wstring*> _wsterms;
     std::vector<Term*> _terms;
     std::vector<TermDocs*> _term_docs;
     std::vector<TermIterator> _term_iterators;

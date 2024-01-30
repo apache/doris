@@ -130,6 +130,7 @@ public class ExportExportingTask extends MasterTask {
                             job.getTableName().getDb());
                     OlapTable table = db.getOlapTableOrAnalysisException(job.getTableName().getTbl());
                     table.readLock();
+                    Map<String, Long> partitionToVersion = job.getPartitionToVersion();
                     try {
                         SelectStmt selectStmt = selectStmtList.get(idx);
                         List<Long> tabletIds = selectStmt.getTableRefs().get(0).getSampleTabletIds();
@@ -138,7 +139,7 @@ public class ExportExportingTask extends MasterTask {
                                     tabletId);
                             Partition partition = table.getPartition(tabletMeta.getPartitionId());
                             long nowVersion = partition.getVisibleVersion();
-                            long oldVersion = job.getPartitionToVersion().get(partition.getName());
+                            long oldVersion = partitionToVersion.get(partition.getName());
                             if (nowVersion != oldVersion) {
                                 LOG.warn("Tablet {} has changed version, old version = {}, now version = {}",
                                         tabletId, oldVersion, nowVersion);
@@ -206,7 +207,11 @@ public class ExportExportingTask extends MasterTask {
             // cancel all executor
             if (isFailed) {
                 for (int idx = 0; idx < parallelNum; ++idx) {
-                    job.getStmtExecutor(idx).cancel();
+                    //if tablet version changed, we don't need to execute task, so stmtExecutor is null,
+                    //and there is no need to cancel it.
+                    if (null != job.getStmtExecutor(idx)) {
+                        job.getStmtExecutor(idx).cancel();
+                    }
                 }
             }
             exportExecPool.shutdownNow();

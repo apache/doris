@@ -79,4 +79,35 @@ suite("test_join_with_projection") {
     sql """
         drop table if exists test_join_with_projection_outerjoin_B;
     """
+
+    sql """set enable_nereids_planner=false;"""
+    sql """drop table if exists c5870_t;"""
+    sql """create table  c5870_t ( 
+            order_item_seq_id varchar(80) NOT NULL,
+            last_updated_stamp datetime,
+            quantity DECIMAL(18, 2)
+            )
+            ENGINE=OLAP
+            DISTRIBUTED BY HASH(order_item_seq_id) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+            """
+    sql """with c5870_t_pk_set AS 
+                (SELECT oi.order_item_seq_id,
+                    oi.quantity
+                FROM `c5870_t` oi
+                WHERE order_item_seq_id >= 
+                    (SELECT last_updated_stamp
+                    FROM `c5870_t` )
+                    ORDER BY  oi.last_updated_stamp limit 1 )
+                SELECT order_item_seq_id
+            FROM 
+                (SELECT oia.order_item_seq_id
+                FROM `c5870_t` oia
+                INNER JOIN c5870_t_pk_set lips
+                    ON true ) oia ;"""
+    sql """drop table if exists c5870_t;"""
 }

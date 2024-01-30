@@ -28,6 +28,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
@@ -1362,7 +1363,10 @@ public class FunctionCallExpr extends Expr {
             // TODO: fix how we equal count distinct.
             fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
-
+            if (children.get(0).type.isComplexType()) {
+                throw new AnalysisException("The pattern params of " + fnName + " function can not support "
+                    + children.get(0).type);
+            }
             // Make sure BE doesn't see any TYPE_NULL exprs
             for (int i = 0; i < children.size(); ++i) {
                 if (getChild(i).getType().isNull()) {
@@ -1508,7 +1512,8 @@ public class FunctionCallExpr extends Expr {
                 fn.setReturnType(assignmentCompatibleType);
             }
 
-        } else if (fnName.getFunction().equalsIgnoreCase("ifnull")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("ifnull")
+                || fnName.getFunction().equalsIgnoreCase("nvl")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
             if (assignmentCompatibleType != Type.INVALID) {
@@ -1571,6 +1576,27 @@ public class FunctionCallExpr extends Expr {
             args[0] = Type.DOUBLE;
             System.arraycopy(childrenTypes, 1, args, 1, childrenTypes.length - 1);
             fn = getBuiltinFunction(fnName.getFunction(), args, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("bitand")
+                || fnName.getFunction().equalsIgnoreCase("bitor")
+                || fnName.getFunction().equalsIgnoreCase("bitxor")) {
+            Type[] childTypes = collectChildReturnTypes();
+            if (Arrays.stream(childTypes).anyMatch(child -> child.isDecimalV2()
+                    || child.isDecimalV3() || child.isFloatingPointType())) {
+                uncheckedCastChild(Type.BIGINT, 0);
+                uncheckedCastChild(Type.BIGINT, 1);
+                argTypes[0] = Type.BIGINT;
+                argTypes[1] = Type.BIGINT;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("bitnot")) {
+            if (children.get(0).type.isDecimalV2() || children.get(0).type.isDecimalV3()
+                    || children.get(0).type.isFloatingPointType()) {
+                uncheckedCastChild(Type.BIGINT, 0);
+                argTypes[0] = Type.BIGINT;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {
@@ -1588,8 +1614,25 @@ public class FunctionCallExpr extends Expr {
                 // now first find function in built-in functions
                 if (Strings.isNullOrEmpty(fnName.getDb())) {
                     Type[] childTypes = collectChildReturnTypes();
-                    fn = getBuiltinFunction(fnName.getFunction(), childTypes,
-                            Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    // when we call count<Array<T>> with nested type is not null type which is defined in FunctionSet
+                    // so here aim to make function signature to match builtln func we defined in fe code
+                    if (fnName.getFunction().equalsIgnoreCase("count") && childTypes.length > 0
+                            && childTypes[0].isComplexType()) {
+                        // get origin type to match builtln func
+                        Type[] matchFuncChildTypes = new Type[1];
+                        if (childTypes[0].isArrayType()) {
+                            matchFuncChildTypes[0] = Type.ARRAY;
+                        } else if (childTypes[0].isMapType()) {
+                            matchFuncChildTypes[0] = Type.MAP;
+                        } else if (childTypes[0].isStructType()) {
+                            matchFuncChildTypes[0] = Type.GENERIC_STRUCT;
+                        }
+                        fn = getBuiltinFunction(fnName.getFunction(), matchFuncChildTypes,
+                                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    } else {
+                        fn = getBuiltinFunction(fnName.getFunction(), childTypes,
+                                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    }
                 }
 
                 // find user defined functions
@@ -1597,6 +1640,9 @@ public class FunctionCallExpr extends Expr {
                     fn = findUdf(fnName, analyzer);
                     if (analyzer.isReAnalyze() && fn instanceof AliasFunction) {
                         throw new AnalysisException("a UDF in the original function of a alias function");
+                    }
+                    if (fn != null) {
+                        FunctionUtil.checkEnableJavaUdf();
                     }
                 }
             }
@@ -1743,6 +1789,19 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
+        if (fn.getFunctionName().getFunction().equals("sha2")) {
+            if ((children.size() != 2) || (getChild(1).isConstant() == false)
+                    || !(getChild(1) instanceof IntLiteral)) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " needs two params, and the second is must be a integer constant: "
+                                + this.toSql());
+            }
+            final Integer constParam = (int) ((IntLiteral) getChild(1)).getValue();
+            if (!Lists.newArrayList(224, 256, 384, 512).contains(constParam)) {
+                throw new AnalysisException("sha2's digest length only support 224/256/384/512 but meet " + constParam);
+            }
+        }
+
         if (isAggregateFunction()) {
             final String functionName = fnName.getFunction();
             // subexprs must not contain aggregates
@@ -1780,10 +1839,20 @@ public class FunctionCallExpr extends Expr {
                     ix = i % 2 == 0 ? 0 : 1;
                 }
 
+                // array_zip varargs special case array_zip(array1, array2, ...)
+                // we only specialize array_zip with first array type, next type we same with custom type
+                if (i >= args.length && (fnName.getFunction().equalsIgnoreCase("array_zip"))) {
+                    if (argTypes[i].isNull()) {
+                        uncheckedCastChild(args[i - 1], i);
+                    }
+                    continue;
+                }
                 if (i == 0 && (fnName.getFunction().equalsIgnoreCase("char"))) {
                     continue;
                 }
-
+                if (fnName.getFunction().equalsIgnoreCase("count") && args[i].isComplexType()) {
+                    continue;
+                }
                 if ((fnName.getFunction().equalsIgnoreCase("money_format") || fnName.getFunction()
                         .equalsIgnoreCase("histogram")
                         || fnName.getFunction().equalsIgnoreCase("hist"))
@@ -1820,6 +1889,9 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_shuffle")
                         || fnName.getFunction().equalsIgnoreCase("shuffle")
                         || fnName.getFunction().equalsIgnoreCase("array_except")
+                        || fnName.getFunction().equalsIgnoreCase("array_apply")
+                        || fnName.getFunction().equalsIgnoreCase("array_position")
+                        || fnName.getFunction().equalsIgnoreCase("array_contains")
                         || fnName.getFunction().equalsIgnoreCase("width_bucket"))
                         && (args[ix].isDecimalV3() || (children.get(0).getType().isArrayType()
                         && (((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())
@@ -1877,12 +1949,12 @@ public class FunctionCallExpr extends Expr {
             Expr child1Result = getChild(1).getResultValue(false);
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
-                    this.type = Type.DATETIME;
+                    this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
                 } else {
-                    this.type = Type.DATE;
+                    this.type = Type.DATEV2;
                 }
             } else {
-                this.type = Type.DATETIME;
+                this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
             }
         } else if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
                 && fn.getReturnType().isDatetimeV2()) {

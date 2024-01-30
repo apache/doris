@@ -923,6 +923,26 @@
 -- !sql_bitmap_intersect_Bitmap_agg_phase_4_notnull --
 12	\N
 
+-- !sql_bitmap_agg_tinyint --
+0
+7
+5
+
+-- !sql_bitmap_agg_smallint --
+0
+7
+5
+
+-- !sql_bitmap_agg_int --
+0
+7
+5
+
+-- !sql_bitmap_agg_bigint --
+0
+7
+5
+
 -- !sql_bitmap_union_Bitmap_gb --
 \N
 \N

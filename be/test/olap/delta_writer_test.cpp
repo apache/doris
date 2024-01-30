@@ -101,6 +101,7 @@ static void tear_down() {
 static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
                                   TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
+    request->partition_id = 1000;
     request->__set_version(1);
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 6;
@@ -264,6 +265,7 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
                                                     TCreateTabletReq* request,
                                                     bool enable_mow = false) {
     request->tablet_id = tablet_id;
+    request->partition_id = 10000;
     request->__set_version(1);
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 2;

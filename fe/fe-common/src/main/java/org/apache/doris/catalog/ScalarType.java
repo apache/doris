@@ -373,6 +373,40 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createDecimalV2Type() {
+        Preconditions.checkState(!Config.disable_decimalv2, "DecimalV2 is disable in fe.conf!");
+        return DEFAULT_DECIMALV2;
+    }
+
+    public static ScalarType createDecimalV2Type(int precision) {
+        Preconditions.checkState(!Config.disable_decimalv2, "DecimalV2 is disable in fe.conf!");
+        return createDecimalV2Type(precision, DEFAULT_SCALE);
+    }
+
+    public static ScalarType createDecimalV2Type(int precision, int scale) {
+        Preconditions.checkState(!Config.disable_decimalv2, "DecimalV2 is disable in fe.conf!");
+        ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
+        type.precision = precision;
+        type.scale = scale;
+        return type;
+    }
+
+    public static ScalarType createDecimalV2Type(String precisionStr) {
+        Preconditions.checkState(!Config.disable_decimalv2, "DecimalV2 is disable in fe.conf!");
+        ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
+        type.precisionStr = precisionStr;
+        type.scaleStr = null;
+        return type;
+    }
+
+    public static ScalarType createDecimalV2Type(String precisionStr, String scaleStr) {
+        Preconditions.checkState(!Config.disable_decimalv2, "DecimalV2 is disable in fe.conf!");
+        ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
+        type.precisionStr = precisionStr;
+        type.scaleStr = scaleStr;
+        return type;
+    }
+
     public static PrimitiveType getSuitableDecimalType(int precision, boolean decimalV2) {
         if (decimalV2 && !Config.enable_decimal_conversion) {
             return PrimitiveType.DECIMALV2;
@@ -427,6 +461,18 @@ public class ScalarType extends Type {
         } else {
             return new ScalarType(PrimitiveType.DATE);
         }
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createDatetimeV1Type() {
+        Preconditions.checkState(!Config.disable_datev1, "Datev1 is disable in fe.conf!");
+        return new ScalarType(PrimitiveType.DATETIME);
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createDateV1Type() {
+        Preconditions.checkState(!Config.disable_datev1, "Datev1 is disable in fe.conf!");
+        return new ScalarType(PrimitiveType.DATE);
     }
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
@@ -551,7 +597,7 @@ public class ScalarType extends Type {
             return "TIMEV2(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
-                return "VARCHAR(*)";
+                return "VARCHAR(" + MAX_VARCHAR_LENGTH + ")";
             }
             return "VARCHAR(" + len + ")";
         } else if (type == PrimitiveType.STRING) {
@@ -567,7 +613,7 @@ public class ScalarType extends Type {
         StringBuilder stringBuilder = new StringBuilder();
         switch (type) {
             case CHAR:
-                if (isWildcardVarchar()) {
+                if (isWildcardChar()) {
                     stringBuilder.append("character");
                 } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("char").append("(").append(len).append(")");
@@ -1172,6 +1218,16 @@ public class ScalarType extends Type {
 
     public static boolean canCastTo(ScalarType type, ScalarType targetType) {
         return PrimitiveType.isImplicitCast(type.getPrimitiveType(), targetType.getPrimitiveType());
+    }
+
+    /**
+     * Decimal default precision is 9 and scale is 0, this method return whether this is
+     * default decimal v3 or v2
+     */
+    public boolean isDefaultDecimal() {
+        return (isDecimalV3() || isDecimalV2())
+                && DEFAULT_PRECISION == this.precision
+                && DEFAULT_SCALE == this.scale;
     }
 
     @Override

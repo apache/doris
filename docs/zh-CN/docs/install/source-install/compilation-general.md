@@ -60,8 +60,10 @@ under the License.
 | apache/doris:build-env-for-1.1.0| | 1.1.0 |
 | apache/doris:build-env-for-1.2| | 1.1.x, 1.2.x |
 | apache/doris:build-env-for-1.2-no-avx2| | 1.1.x, 1.2.x |
-| apache/doris:build-env-ldb-toolchain-latest | | trunk |
-| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | trunk |
+| apache/doris:build-env-for-2.0| | 2.0.x |
+| apache/doris:build-env-for-2.0-no-avx2| | 2.0.x |
+| apache/doris:build-env-ldb-toolchain-latest | | master |
+| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | mater |
 
 **注意**：
 
@@ -140,7 +142,12 @@ under the License.
    ```
    $ sh build.sh
    ```
-   
+
+   如需编译Debug版本的BE，增加 BUILD_TYPE=Debug
+   ```
+   $ BUILD_TYPE=Debug sh build.sh
+   ```
+
    编译完成后，产出文件在 `output/` 目录中。
    
    >**注意:**
@@ -208,7 +215,12 @@ under the License.
    ```
    $ USE_AVX2=0 sh build.sh
    ```
-   
+
+   如需编译Debug版本的BE，增加 BUILD_TYPE=Debug
+   ```
+   $ BUILD_TYPE=Debug sh build.sh
+   ```
+
    编译完成后，产出文件在 `output/` 目录中。
 
 ## 常见问题
