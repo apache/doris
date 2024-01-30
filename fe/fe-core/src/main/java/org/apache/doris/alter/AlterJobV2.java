@@ -157,8 +157,19 @@ public abstract class AlterJobV2 implements Writable {
 
     public String getRawSql() {
         return rawSql;
-    }
 
+    // /api/debug_point/add/{name}?value=100
+    private void stateWait(final String name) {
+        long waitTimeMs = DebugPointUtil.getDebugParamOrDefault(name, 0);
+        if (waitTimeMs > 0) {
+            try {
+                LOG.info("debug point {} wait {} ms", name, waitTimeMs);
+                Thread.sleep(waitTimeMs);
+            } catch (InterruptedException e) {
+                LOG.warn(name, e);
+            }
+        }
+    }
     /**
      * The keyword 'synchronized' only protects 2 methods:
      * run() and cancel()
