@@ -138,7 +138,7 @@ public class StatisticsUtil {
         if (!FeConstants.enableInternalSchemaDb) {
             return Collections.emptyList();
         }
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, true)) {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             return stmtExecutor.executeInternalQuery();
@@ -173,17 +173,17 @@ public class StatisticsUtil {
     }
 
     public static AutoCloseConnectContext buildConnectContext() {
-        return buildConnectContext(false);
+        return buildConnectContext(false, false);
     }
 
-    public static AutoCloseConnectContext buildConnectContext(boolean limitScan) {
+    public static AutoCloseConnectContext buildConnectContext(boolean limitScan, boolean enablePageCache) {
         ConnectContext connectContext = new ConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
-        sessionVariable.enablePageCache = false;
+        sessionVariable.enablePageCache = enablePageCache;
         sessionVariable.enableProfile = Config.enable_profile_when_analyze;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;

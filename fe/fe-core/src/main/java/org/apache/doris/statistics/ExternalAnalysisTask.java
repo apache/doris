@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
@@ -71,15 +73,20 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
     /**
      * Get table row count
      */
-    private void getTableStats() {
+    protected void getTableStats() {
         Map<String, String> params = buildStatsParams(null);
-        List<ResultRow> columnResult =
-                StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                        .replace(ANALYZE_TABLE_COUNT_TEMPLATE));
-        String rowCount = columnResult.get(0).get(0);
-        Env.getCurrentEnv().getAnalysisManager()
-                .updateTableStatsStatus(
-                        new TableStatsMeta(Long.parseLong(rowCount), info, tbl));
+        List<ResultRow> columnResult;
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext,
+                    new StringSubstitutor(params).replace(ANALYZE_TABLE_COUNT_TEMPLATE));
+            r.connectContext.setExecutor(stmtExecutor);
+            columnResult = stmtExecutor.executeInternalQuery();
+        }
+        if (columnResult != null) {
+            String rowCount = columnResult.get(0).get(0);
+            Env.getCurrentEnv().getAnalysisManager()
+                .updateTableStatsStatus(new TableStatsMeta(Long.parseLong(rowCount), info, tbl));
+        }
         job.rowCountDone(this);
     }
 

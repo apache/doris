@@ -128,7 +128,7 @@ public class AnalysisJob {
                 values.add(data.toSQL(true));
             }
             insertStmt += values.toString();
-            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
                 stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
                 executeWithExceptionOnFail(stmtExecutor);
             } catch (Exception t) {

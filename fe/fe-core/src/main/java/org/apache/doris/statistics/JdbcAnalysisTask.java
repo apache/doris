@@ -25,10 +25,9 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
-public class JdbcAnalysisTask extends BaseAnalysisTask {
+public class JdbcAnalysisTask extends ExternalAnalysisTask {
 
     private static final String ANALYZE_SQL_TABLE_TEMPLATE = " SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
@@ -68,19 +67,6 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
     }
 
     /**
-     * Get table row count and store the result to metadata.
-     */
-    private void getTableStats() throws Exception {
-        Map<String, String> params = buildTableStatsParams(null);
-        List<ResultRow> columnResult =
-                StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(ANALYZE_TABLE_COUNT_TEMPLATE));
-        String rowCount = columnResult.get(0).get(0);
-        Env.getCurrentEnv().getAnalysisManager()
-            .updateTableStatsStatus(new TableStatsMeta(Long.parseLong(rowCount), info, table));
-        job.rowCountDone(this);
-    }
-
-    /**
      * Get column statistics and insert the result to __internal_schema.column_statistics
      */
     private void getColumnStats() throws Exception {
@@ -102,7 +88,7 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         //   NOW() FROM `hive`.`tpch100`.`region`
         StringBuilder sb = new StringBuilder();
         sb.append(ANALYZE_SQL_TABLE_TEMPLATE);
-        Map<String, String> params = buildTableStatsParams("NULL");
+        Map<String, String> params = buildStatsParams("NULL");
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
         params.put("colName", col.getName());
@@ -113,7 +99,8 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         runQuery(sql);
     }
 
-    private Map<String, String> buildTableStatsParams(String partId) {
+    @Override
+    protected Map<String, String> buildStatsParams(String partId) {
         Map<String, String> commonParams = new HashMap<>();
         String id = StatisticsUtil.constructId(tbl.getId(), -1);
         if (partId == null) {
