@@ -339,9 +339,17 @@ public class MTMVUtil {
      * @param partitionId
      */
     private static void dropPartition(MTMV mtmv, Long partitionId) throws AnalysisException, DdlException {
-        Partition partition = mtmv.getPartitionOrAnalysisException(partitionId);
-        DropPartitionClause dropPartitionClause = new DropPartitionClause(false, partition.getName(), false, false);
-        Env.getCurrentEnv().dropPartition((Database) mtmv.getDatabase(), mtmv, dropPartitionClause);
+        if (!mtmv.writeLockIfExist()) {
+            return;
+        }
+        try {
+            Partition partition = mtmv.getPartitionOrAnalysisException(partitionId);
+            DropPartitionClause dropPartitionClause = new DropPartitionClause(false, partition.getName(), false, false);
+            Env.getCurrentEnv().dropPartition((Database) mtmv.getDatabase(), mtmv, dropPartitionClause);
+        } finally {
+            mtmv.writeUnlock();
+        }
+
     }
 
     /**
