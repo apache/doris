@@ -1280,6 +1280,7 @@ visible_functions = {
         [['conv'], 'VARCHAR', ['VARCHAR', 'TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
         [['conv'], 'VARCHAR', ['STRING', 'TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
         [['cos'], 'DOUBLE', ['DOUBLE'], ''],
+        [['cosh'], 'DOUBLE', ['DOUBLE'], ''],
 
         [['degrees'], 'DOUBLE', ['DOUBLE'], ''],
 
