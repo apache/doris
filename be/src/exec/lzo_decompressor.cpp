@@ -24,7 +24,7 @@ namespace doris {
 const uint8_t LzopDecompressor::LZOP_MAGIC[9] = {0x89, 0x4c, 0x5a, 0x4f, 0x00,
                                                  0x0d, 0x0a, 0x1a, 0x0a};
 
-const uint64_t LzopDecompressor::LZOP_VERSION = 0x1030;
+const uint64_t LzopDecompressor::LZOP_VERSION = 0x1040;
 const uint64_t LzopDecompressor::MIN_LZO_VERSION = 0x0100;
 // magic(9) + ver(2) + lib_ver(2) + ver_needed(2) + method(1)
 // + lvl(1) + flags(4) + mode/mtime(12) + filename_len(1)
@@ -155,17 +155,24 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
     } else {
         // decompress
         *decompressed_len = uncompressed_size;
-        int ret = lzo1x_decompress_safe(ptr, compressed_size, output,
-                                        reinterpret_cast<lzo_uint*>(&uncompressed_size), nullptr);
-        if (ret != LZO_E_OK || uncompressed_size != *decompressed_len) {
+        // we must use lzo_uint defined in lzoconf.h
+        // DO NOT use 32-bit integer!
+        lzo_uint d_sz;
+        // the 4th arg type of lzo1x_decompress_safe() is an address of lzo_uint,
+        // lzo_uint may be compiled to 64-bit integer rather than 32-bit integer,
+        // so lzo1x_decompress_safe() may write 8 bytes data on that address,
+        // passing address of a 32-bit integer to the 4th arg is dangerous,
+        // memory of nearby variable could be overwritten unexpectly.
+        int ret = lzo1x_decompress_safe(ptr, compressed_size, output, &d_sz, nullptr);
+        if (ret != LZO_E_OK || d_sz != *decompressed_len) {
             std::stringstream ss;
             ss << "Lzo decompression failed with ret: " << ret
-               << " decompressed len: " << uncompressed_size << " expected: " << *decompressed_len;
+               << " decompressed len: " << d_sz << " expected: " << *decompressed_len;
             return Status::InternalError(ss.str());
         }
 
         RETURN_IF_ERROR(checksum(_header_info.output_checksum_type, "decompressed", out_checksum,
-                                 output, uncompressed_size));
+                                 output, d_sz));
         ptr += compressed_size;
     }
 
