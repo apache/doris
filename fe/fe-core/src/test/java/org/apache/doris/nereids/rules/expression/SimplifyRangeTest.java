@@ -107,6 +107,55 @@ public class SimplifyRangeTest {
         assertRewrite("(TA > 3 and TA < 1) and TB < 5", "FALSE");
         assertRewrite("(TA > 3 and TA < 1) or TB < 5", "TB < 5");
         assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
+
+        assertRewrite("TA + TC", "TA + TC");
+        assertRewrite("(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)", "(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)");
+        assertRewrite("(TA + TC > 3 and TA + TC < 1) or (TA + TC > 7 and TA + TC < 5)", "FALSE");
+        assertRewrite("TA + TC > 3 and TA + TC < 1", "FALSE");
+        assertRewrite("TA + TC >= 3 and TA + TC < 3", "TA + TC >= 3 and TA + TC < 3");
+        assertRewrite("TA + TC = 1 and TA + TC > 10", "FALSE");
+        assertRewrite("TA + TC > 5 or TA + TC < 1", "TA + TC > 5 or TA + TC < 1");
+        assertRewrite("TA + TC > 5 or TA + TC > 1 or TA + TC > 10", "TA + TC > 1");
+        assertRewrite("TA + TC > 5 or TA + TC > 1 or TA + TC < 10", "(not (TA + TC) IS NULL)");
+        assertRewrite("TA + TC > 5 and TA + TC > 1 and TA + TC > 10", "TA + TC > 10");
+        assertRewrite("TA + TC > 5 and TA + TC > 1 and TA + TC < 10", "TA + TC > 5 and TA + TC < 10");
+        assertRewrite("TA + TC > 1 or TA + TC < 1", "TA + TC > 1 or TA + TC < 1");
+        assertRewrite("TA + TC > 1 or TA + TC < 10", "(not (TA + TC) IS NULL)");
+        assertRewrite("TA + TC > 5 and TA + TC < 10", "TA + TC > 5 and TA + TC < 10");
+        assertRewrite("TA + TC > 5 and TA + TC > 10", "TA + TC > 10");
+        assertRewrite("TA + TC > 5 + 1 and TA + TC > 10", "TA + TC > 5 + 1 and TA + TC > 10");
+        assertRewrite("TA + TC > 5 + 1 and TA + TC > 10", "TA + TC > 5 + 1 and TA + TC > 10");
+        assertRewrite("(TA + TC > 1 and TA + TC > 10) or TA + TC > 20", "TA + TC > 10");
+        assertRewrite("(TA + TC > 1 or TA + TC > 10) and TA + TC > 20", "TA + TC > 20");
+        assertRewrite("(TA + TC + TB > 1 or TA + TC + TB > 10) and TA + TC + TB > 20", "TA + TC + TB > 20");
+        assertRewrite("TA + TC > 10 or TA + TC > 10", "TA + TC > 10");
+        assertRewrite("(TA + TC > 10 or TA + TC > 20) and (TB > 10 and TB < 20)", "TA + TC > 10 and (TB > 10 and TB < 20) ");
+        assertRewrite("(TA + TC > 10 or TA + TC > 20) and (TB > 10 and TB > 20)", "TA + TC > 10 and TB > 20");
+        assertRewrite("((TB > 30 and TA + TC > 40) and TA + TC > 20) and (TB > 10 and TB > 20)", "TB > 30 and TA + TC > 40");
+        assertRewrite("(TA + TC > 10 and TB > 10) or (TB > 10 and TB > 20)", "TA + TC > 10 and TB > 10 or TB > 20");
+        assertRewrite("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA + TC > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
+        assertRewrite("TA + TC in (1,2,3) and TA + TC > 10", "FALSE");
+        assertRewrite("TA + TC in (1,2,3) and TA + TC >= 1", "TA + TC in (1,2,3)");
+        assertRewrite("TA + TC in (1,2,3) and TA + TC > 1", "((TA + TC = 2) OR (TA + TC = 3))");
+        assertRewrite("TA + TC in (1,2,3) or TA + TC >= 1", "TA + TC >= 1");
+        assertRewrite("TA + TC in (1)", "TA + TC in (1)");
+        assertRewrite("TA + TC in (1,2,3) and TA + TC < 10", "TA + TC in (1,2,3)");
+        assertRewrite("TA + TC in (1,2,3) and TA + TC < 1", "FALSE");
+        assertRewrite("TA + TC in (1,2,3) or TA + TC < 1", "TA + TC in (1,2,3) or TA + TC < 1");
+        assertRewrite("TA + TC in (1,2,3) or TA + TC in (2,3,4)", "TA + TC in (1,2,3,4)");
+        assertRewrite("TA + TC in (1,2,3) or TA + TC in (4,5,6)", "TA + TC in (1,2,3,4,5,6)");
+        assertRewrite("TA + TC in (1,2,3) and TA + TC in (4,5,6)", "FALSE");
+        assertRewrite("TA + TC in (1,2,3) and TA + TC in (3,4,5)", "TA + TC = 3");
+        assertRewrite("TA + TC + TB in (1,2,3) and TA + TC + TB in (3,4,5)", "TA + TC + TB = 3");
+        assertRewrite("TA + TC in (1,2,3) and DA > 1.5", "TA + TC in (1,2,3) and DA > 1.5");
+        assertRewrite("TA + TC = 1 and TA + TC = 3", "FALSE");
+        assertRewrite("TA + TC in (1) and TA + TC in (3)", "FALSE");
+        assertRewrite("TA + TC in (1) and TA + TC in (1)", "TA + TC = 1");
+        assertRewrite("(TA + TC > 3 and TA + TC < 1) and TB < 5", "FALSE");
+        assertRewrite("(TA + TC > 3 and TA + TC < 1) or TB < 5", "TB < 5");
+
+        assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1");
+
     }
 
     private void assertRewrite(String expression, String expected) {

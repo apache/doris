@@ -1482,8 +1482,9 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         // when filter_controller->merge is still in progress
         fragment_executor = iter->second;
     }
-    RETURN_IF_ERROR(filter_controller->merge(request, attach_data, opt_remote_rf));
-    return Status::OK();
+    auto merge_status = filter_controller->merge(request, attach_data, opt_remote_rf);
+    DCHECK(merge_status.ok());
+    return merge_status;
 }
 
 void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
