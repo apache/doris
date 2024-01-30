@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -1332,44 +1331,6 @@ public class OlapScanNode extends ScanNode {
             return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
         return scanRangeLocations.size();
-    }
-
-    @Override
-    public boolean shouldColoAgg(AggregateInfo aggregateInfo) {
-        distributionColumnIds.clear();
-        if (ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
-                && ConnectContext.get().getSessionVariable().enableColocateScan()) {
-            List<Expr> aggPartitionExprs = aggregateInfo.getInputPartitionExprs();
-            List<SlotDescriptor> slots = desc.getSlots();
-            for (Expr aggExpr : aggPartitionExprs) {
-                if (aggExpr instanceof SlotRef) {
-                    SlotDescriptor slotDesc = ((SlotRef) aggExpr).getDesc();
-                    int columnId = 0;
-                    for (SlotDescriptor slotDescriptor : slots) {
-                        if (slotDescriptor.equals(slotDesc)) {
-                            if (slotDescriptor.getType().isFixedLengthType()
-                                    || slotDescriptor.getType().isStringType()) {
-                                distributionColumnIds.add(columnId);
-                            } else {
-                                return false;
-                            }
-                        }
-                        columnId++;
-                    }
-                }
-            }
-
-            for (int i = 0; i < slots.size(); i++) {
-                if (!distributionColumnIds.contains(i) && (!slots.get(i).getType().isFixedLengthType()
-                        || slots.get(i).getType().isStringType())) {
-                    return false;
-                }
-            }
-
-            return !distributionColumnIds.isEmpty();
-        } else {
-            return false;
-        }
     }
 
     @Override
