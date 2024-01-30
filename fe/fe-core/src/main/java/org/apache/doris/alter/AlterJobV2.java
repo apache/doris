@@ -155,6 +155,10 @@ public abstract class AlterJobV2 implements Writable {
         this.finishedTimeMs = finishedTimeMs;
     }
 
+    public String getRawSql() {
+        return rawSql;
+    }
+
     /**
      * The keyword 'synchronized' only protects 2 methods:
      * run() and cancel()

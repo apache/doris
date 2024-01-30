@@ -213,7 +213,8 @@ public class BinlogManager {
         tableIds.add(alterJob.getTableId());
         long timestamp = -1;
         TBinlogType type = TBinlogType.ALTER_JOB;
-        String data = alterJob.toJson();
+        AlterJobRecord alterJobRecord = new AlterJobRecord(alterJob);
+        String data = alterJobRecord.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
@@ -303,7 +304,8 @@ public class BinlogManager {
         tableIds.add(info.getTblId());
         long timestamp = -1;
         TBinlogType type = TBinlogType.TRUNCATE_TABLE;
-        String data = info.toJson();
+        TruncateTableRecord record = new TruncateTableRecord(info);
+        String data = record.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
