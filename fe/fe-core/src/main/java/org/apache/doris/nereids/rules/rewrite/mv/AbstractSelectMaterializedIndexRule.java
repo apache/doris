@@ -357,9 +357,9 @@ public abstract class AbstractSelectMaterializedIndexRule {
             Set<String> nonEqualColNames) {
         int matchCount = 0;
         for (Column column : table.getSchemaByIndexId(index.getId())) {
-            if (equalColNames.contains(column.getName())) {
+            if (equalColNames.contains(normalizeName(column.getNameWithoutMvPrefix()))) {
                 matchCount++;
-            } else if (nonEqualColNames.contains(column.getName())) {
+            } else if (nonEqualColNames.contains(normalizeName(column.getNameWithoutMvPrefix()))) {
                 // un-equivalence predicate's columns can match only first column in index.
                 matchCount++;
                 break;
