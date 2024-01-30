@@ -90,7 +90,7 @@ public class PaimonJniScanner extends JniScanner {
     @Override
     public void open() throws IOException {
         try {
-            // When the user does not specify hive-site.xml, Paimon will look for the file from the classpath: 
+            // When the user does not specify hive-site.xml, Paimon will look for the file from the classpath:
             //    org.apache.paimon.hive.HiveCatalog.createHiveConf:
             //        `Thread.currentThread().getContextClassLoader().getResource(HIVE_SITE_FILE)`
             // so we need to provide a classloader, otherwise it will cause NPE.
