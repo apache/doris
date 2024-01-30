@@ -90,15 +90,16 @@ public class PaimonJniScanner extends JniScanner {
     @Override
     public void open() throws IOException {
         try {
+            // When the user does not specify hive-site.xml, Paimon will look for the file from the classpath: 
+            //    org.apache.paimon.hive.HiveCatalog.createHiveConf:
+            //        `Thread.currentThread().getContextClassLoader().getResource(HIVE_SITE_FILE)`
+            // so we need to provide a classloader, otherwise it will cause NPE.
             Thread.currentThread().setContextClassLoader(classLoader);
             initTable();
             initReader();
             resetDatetimeV2Precision();
         } catch (Exception e) {
-            LOG.warn("Failed to open paimon_scanner: " + e.getMessage());
-            for (StackTraceElement element : e.getStackTrace()) {
-                LOG.warn(element.getClassName() + ":" + element.getMethodName() + ":" + element.getLineNumber());
-            }
+            LOG.warn("Failed to open paimon_scanner: " + e.getMessage(), e);
             throw e;
         }
     }
