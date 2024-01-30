@@ -249,7 +249,7 @@ Status EngineCloneTask::_do_clone() {
         DataDir* store = nullptr;
         RETURN_IF_ERROR(StorageEngine::instance()->obtain_shard_path(
                 _clone_req.storage_medium, _clone_req.dest_path_hash, &local_shard_root_path,
-                &store));
+                &store, _clone_req.partition_id));
         auto tablet_dir = fmt::format("{}/{}/{}", local_shard_root_path, _clone_req.tablet_id,
                                       _clone_req.schema_hash);
 

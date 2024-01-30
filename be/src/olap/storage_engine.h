@@ -70,6 +70,8 @@ class TabletManager;
 class Thread;
 class ThreadPool;
 class TxnManager;
+class CreateTabletIdxCache;
+struct DirInfo;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -105,9 +107,11 @@ public:
 
     int64_t get_file_or_directory_size(const std::string& file_path);
 
-    // get root path for creating tablet. The returned vector of root path should be random,
+    // get root path for creating tablet. The returned vector of root path should be round robin,
     // for avoiding that all the tablet would be deployed one disk.
-    std::vector<DataDir*> get_stores_for_create_tablet(TStorageMedium::type storage_medium);
+    std::vector<DataDir*> get_stores_for_create_tablet(int64 partition_id,
+                                                       TStorageMedium::type storage_medium);
+
     DataDir* get_store(const std::string& path);
 
     uint32_t available_storage_medium_type_count() const {
@@ -125,7 +129,7 @@ public:
     // @param [out] shard_path choose an available root_path to clone new tablet
     // @return error code
     Status obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
-                             std::string* shared_path, DataDir** store);
+                             std::string* shared_path, DataDir** store, int64_t partition_id);
 
     // Load new tablet to make it effective.
     //
@@ -337,36 +341,12 @@ private:
 
     Status _persist_broken_paths();
 
+    void _get_candidate_stores(TStorageMedium::type storage_medium,
+                               std::vector<DirInfo>& dir_infos);
+
+    int _get_and_set_next_disk_index(int64 partition_id, TStorageMedium::type storage_medium);
+
 private:
-    struct CompactionCandidate {
-        CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_)
-                : nice(nicumulative_compaction_), tablet_id(tablet_id_), disk_index(index_) {}
-        uint32_t nice; // priority
-        int64_t tablet_id;
-        uint32_t disk_index = -1;
-    };
-
-    // In descending order
-    struct CompactionCandidateComparator {
-        bool operator()(const CompactionCandidate& a, const CompactionCandidate& b) {
-            return a.nice > b.nice;
-        }
-    };
-
-    struct CompactionDiskStat {
-        CompactionDiskStat(std::string path, uint32_t index, bool used)
-                : storage_path(path),
-                  disk_index(index),
-                  task_running(0),
-                  task_remaining(0),
-                  is_used(used) {}
-        const std::string storage_path;
-        const uint32_t disk_index;
-        uint32_t task_running;
-        uint32_t task_remaining;
-        bool is_used;
-    };
-
     EngineOptions _options;
     std::mutex _store_lock;
     std::mutex _trash_sweep_lock;
@@ -494,7 +474,50 @@ private:
     // next index for create tablet
     std::map<TStorageMedium::type, int> _store_next_index;
 
+    // next index for create tablet
+    std::map<TStorageMedium::type, int> _last_use_index;
+
+    std::unique_ptr<CreateTabletIdxCache> _create_tablet_idx_lru_cache;
+
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
+};
+
+// lru cache for create tabelt round robin in disks
+// key: partitionId_medium
+// value: index
+class CreateTabletIdxCache : public LRUCachePolicy {
+public:
+    // get key, delimiter with DELIMITER '-'
+    static std::string get_key(int64_t partition_id, TStorageMedium::type medium) {
+        return fmt::format("{}-{}", partition_id, medium);
+    }
+
+    // -1 not found key in lru
+    int get_index(const std::string& key);
+
+    void set_index(const std::string& key, int next_idx);
+
+    struct CacheValue : public LRUCacheValueBase {
+        int idx = 0;
+    };
+
+    CreateTabletIdxCache(size_t capacity)
+            : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
+                             LRUCacheType::NUMBER,
+                             /*stale_sweep_time_s*/ 30 * 60) {}
+};
+
+struct DirInfo {
+    DataDir* data_dir;
+
+    int available_level = 0;
+
+    bool operator<(const DirInfo& other) const {
+        if (available_level != other.available_level) {
+            return available_level < other.available_level;
+        }
+        return data_dir->path_hash() < other.data_dir->path_hash();
+    }
 };
 
 } // namespace doris

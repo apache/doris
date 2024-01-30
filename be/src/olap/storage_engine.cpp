@@ -18,6 +18,7 @@
 #include "olap/storage_engine.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
+#include <assert.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
@@ -91,7 +92,8 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
-
+extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+                                   std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
 StorageEngine* StorageEngine::_s_instance = nullptr;
@@ -129,7 +131,9 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
           _heartbeat_flags(nullptr),
-          _stream_load_recorder(nullptr) {
+          _stream_load_recorder(nullptr),
+          _create_tablet_idx_lru_cache(
+                  new CreateTabletIdxCache(config::partition_disk_index_lru_size)) {
     _s_instance = this;
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
@@ -467,106 +471,111 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
-std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
-        TStorageMedium::type storage_medium) {
-    struct DirInfo {
-        DataDir* data_dir;
+int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
+                                                TStorageMedium::type storage_medium) {
+    auto key = CreateTabletIdxCache::get_key(partition_id, storage_medium);
+    int curr_index = _create_tablet_idx_lru_cache->get_index(key);
+    // -1, lru can't find key
+    if (curr_index == -1) {
+        curr_index = std::max(0, _last_use_index[storage_medium] + 1);
+    }
+    _last_use_index[storage_medium] = curr_index;
+    _create_tablet_idx_lru_cache->set_index(key, std::max(0, curr_index + 1));
+    return curr_index;
+}
 
-        size_t disk_available;
-        //if disk_available is high, then available_level is small
-        int available_level;
-
-        int tablet_num;
-
-        bool operator<(const DirInfo& other) const {
-            if (available_level != other.available_level) {
-                return available_level < other.available_level;
+void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
+                                          std::vector<DirInfo>& dir_infos) {
+    std::vector<double> usages;
+    for (auto& it : _store_map) {
+        DataDir* data_dir = it.second;
+        if (data_dir->is_used()) {
+            if ((_available_storage_medium_type_count == 1 ||
+                 data_dir->storage_medium() == storage_medium) &&
+                !data_dir->reach_capacity_limit(0)) {
+                DirInfo dir_info;
+                dir_info.data_dir = data_dir;
+                dir_info.available_level = 0;
+                usages.push_back(data_dir->get_usage(0));
+                dir_infos.push_back(dir_info);
             }
-            if (tablet_num != other.tablet_num) {
-                return tablet_num < other.tablet_num;
-            }
-            return data_dir->path_hash() < other.data_dir->path_hash();
         }
-    };
-    std::map<size_t, int> available_levels;
+    }
+
+    if (dir_infos.size() <= 1) {
+        return;
+    }
+
+    std::sort(usages.begin(), usages.end());
+    if (usages.back() < 0.7) {
+        return;
+    }
+
+    std::vector<double> level_min_usages;
+    level_min_usages.push_back(usages[0]);
+    for (auto usage : usages) {
+        // usage < 0.7 consider as one level, give a small skew
+        if (usage < 0.7 - (config::high_disk_avail_level_diff_usages / 2.0)) {
+            continue;
+        }
+
+        // at high usages,  default 15% is one level
+        // for example: there disk usages are:   0.66,  0.72,  0.83
+        // then level_min_usages = [0.66, 0.83], divide disks into 2 levels:  [0.66, 0.72], [0.83]
+        if (usage >= level_min_usages.back() + config::high_disk_avail_level_diff_usages) {
+            level_min_usages.push_back(usage);
+        }
+    }
+    for (auto& dir_info : dir_infos) {
+        double usage = dir_info.data_dir->get_usage(0);
+        for (size_t i = 1; i < level_min_usages.size() && usage >= level_min_usages[i]; i++) {
+            dir_info.available_level++;
+        }
+
+        // when usage is too high, no matter consider balance now,
+        // make it a higher level.
+        // for example, two disks and usages are: 0.85 and 0.92, then let tablets fall on the first disk.
+        // by default, storage_flood_stage_usage_percent = 90
+        if (usage > config::storage_flood_stage_usage_percent / 100.0) {
+            dir_info.available_level++;
+        }
+    }
+}
+
+std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
+        int64 partition_id, TStorageMedium::type storage_medium) {
     std::vector<DirInfo> dir_infos;
-    int next_index = 0;
-    size_t max_disk_capacity = 0;
+    int curr_index = 0;
+    std::vector<DataDir*> stores;
     {
         std::lock_guard<std::mutex> l(_store_lock);
-        next_index = _store_next_index[storage_medium]++;
-        if (next_index < 0) {
-            next_index = 0;
-            _store_next_index[storage_medium] = next_index + 1;
-        }
-        for (auto& it : _store_map) {
-            DataDir* data_dir = it.second;
-            if (data_dir->is_used()) {
-                if (_available_storage_medium_type_count == 1 ||
-                    data_dir->storage_medium() == storage_medium) {
-                    size_t disk_available = data_dir->disk_available();
-                    DirInfo dir_info;
-                    dir_info.data_dir = data_dir;
-                    dir_info.available_level = disk_available;
-                    dir_infos.push_back(dir_info);
-                    available_levels[disk_available] = 0;
-                    size_t disk_capacity = data_dir->disk_capacity();
-                    if (max_disk_capacity < disk_capacity) {
-                        max_disk_capacity = disk_capacity;
-                    }
-                }
-            }
-        }
-    }
-
-    std::vector<DataDir*> stores;
-    if (dir_infos.empty()) {
-        return stores;
-    }
-
-    // if two disk available diff not exceeds 20% capacity, then they are the same available level.
-    size_t same_level_available_diff = std::max<size_t>(max_disk_capacity / 5, 1);
-    int level = 0;
-    size_t level_start_available = available_levels.rbegin()->first;
-    for (auto rit = available_levels.rbegin(); rit != available_levels.rend(); rit++) {
-        if (level_start_available - rit->first >= same_level_available_diff) {
-            level_start_available = rit->first;
-            level++;
-        }
-        rit->second = level;
-    }
-
-    for (auto& dir_info : dir_infos) {
-        dir_info.tablet_num = dir_info.data_dir->tablet_num();
-        dir_info.available_level = available_levels[dir_info.disk_available];
+        curr_index = _get_and_set_next_disk_index(partition_id, storage_medium);
+        _get_candidate_stores(storage_medium, dir_infos);
     }
 
     std::sort(dir_infos.begin(), dir_infos.end());
+    get_round_robin_stores(curr_index, dir_infos, stores);
 
-    // Suppose there are five data dirs (D1, D2, D3, D4, D5).
-    // D1/D2/D3 contain 1 tablet,  D4/D5 contain 2 tablets.
-    // If three creating tablets threads simultaneously invoke this function to get stores,
-    // then the return stores will be as below:
-    // thread 1: (D1, D2, D3, D4, D5)
-    // thread 2: (D2, D3, D1, D5, D4)
-    // thread 3: (D3, D1, D2, D4, D5)
-    stores.reserve(dir_infos.size());
+    return stores;
+}
+
+// maintain in stores LOW,MID,HIGH level round robin
+void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+                            std::vector<DataDir*>& stores) {
     for (size_t i = 0; i < dir_infos.size();) {
         size_t end = i + 1;
-        while (end < dir_infos.size() && dir_infos[i].tablet_num == dir_infos[end].tablet_num &&
+        while (end < dir_infos.size() &&
                dir_infos[i].available_level == dir_infos[end].available_level) {
             end++;
         }
         // data dirs [i, end) have the same tablet size, round robin range [i, end)
         size_t count = end - i;
         for (size_t k = 0; k < count; k++) {
-            size_t index = i + (k + next_index) % count;
+            size_t index = i + (k + curr_index) % count;
             stores.push_back(dir_infos[index].data_dir);
         }
         i = end;
     }
-
-    return stores;
 }
 
 DataDir* StorageEngine::get_store(const std::string& path) {
@@ -1125,7 +1134,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
     std::vector<DataDir*> stores;
     {
         SCOPED_TIMER(ADD_TIMER(profile, "GetStores"));
-        stores = get_stores_for_create_tablet(request.storage_medium);
+        stores = get_stores_for_create_tablet(request.partition_id, request.storage_medium);
     }
     if (stores.empty()) {
         return Status::Error<CE_CMD_PARAMS_ERROR>(
@@ -1135,7 +1144,8 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
 }
 
 Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
-                                        std::string* shard_path, DataDir** store) {
+                                        std::string* shard_path, DataDir** store,
+                                        int64_t partition_id) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
     if (shard_path == nullptr) {
@@ -1143,7 +1153,7 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int
                 "invalid output parameter which is null pointer.");
     }
 
-    auto stores = get_stores_for_create_tablet(storage_medium);
+    auto stores = get_stores_for_create_tablet(partition_id, storage_medium);
     if (stores.empty()) {
         return Status::Error<NO_AVAILABLE_ROOT_PATH>(
                 "no available disk can be used to create tablet.");
@@ -1411,6 +1421,31 @@ Status StorageEngine::_persist_broken_paths() {
     }
 
     return Status::OK();
+}
+
+int CreateTabletIdxCache::get_index(const std::string& key) {
+    auto lru_handle = cache()->lookup(key);
+    if (lru_handle) {
+        Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
+        auto value = (CacheValue*)cache()->value(lru_handle);
+        value->last_visit_time = UnixMillis();
+        VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
+        return value->idx;
+    }
+    return -1;
+}
+
+void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
+    assert(next_idx >= 0);
+    CacheValue* value = new CacheValue;
+    value->last_visit_time = UnixMillis();
+    value->idx = next_idx;
+    auto deleter = [](const doris::CacheKey& key, void* value) {
+        CacheValue* cache_value = (CacheValue*)value;
+        delete cache_value;
+    };
+    auto lru_handle = cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int));
+    cache()->release(lru_handle);
 }
 
 } // namespace doris
