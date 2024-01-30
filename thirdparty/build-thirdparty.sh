@@ -1790,6 +1790,9 @@ build_wasmtime() {
 }
 
 build_wasmtime_cpp() {
+    check_if_source_exist "${WASMTIME_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${WASMTIME_CPP_SOURCE}"
+
     cp -rf ./include/wasmtime.hh "${TP_INCLUDE_DIR}/"
 }
 
