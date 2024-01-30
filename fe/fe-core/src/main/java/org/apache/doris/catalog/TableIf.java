@@ -327,7 +327,7 @@ public interface TableIf {
         }
     }
 
-    default void dropConstraint(String name, boolean replay) {
+    default void dropConstraint(String name) {
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
@@ -341,9 +341,7 @@ public interface TableIf {
                 ((PrimaryKeyConstraint) constraint).getForeignTables()
                         .forEach(t -> t.dropFKReferringPK(this, (PrimaryKeyConstraint) constraint));
             }
-            if (!replay) {
-                Env.getCurrentEnv().getEditLog().logDropConstraint(new AlterConstraintLog(constraint, this));
-            }
+            Env.getCurrentEnv().getEditLog().logDropConstraint(new AlterConstraintLog(constraint, this));
         } finally {
             writeUnlock();
         }
