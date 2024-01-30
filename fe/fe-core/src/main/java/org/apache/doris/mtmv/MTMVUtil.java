@@ -443,7 +443,8 @@ public class MTMVUtil {
         return false;
     }
 
-    public static Map<String, MTMVRefreshPartitionSnapshot> generatePartitionSnapshots(MTMV mtmv, Set<Long> partitionIds)
+    public static Map<String, MTMVRefreshPartitionSnapshot> generatePartitionSnapshots(MTMV mtmv,
+            Set<Long> partitionIds)
             throws AnalysisException {
         Map<String, MTMVRefreshPartitionSnapshot> res = Maps.newHashMap();
         for (Long partitionId : partitionIds) {
