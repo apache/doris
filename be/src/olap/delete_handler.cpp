@@ -293,7 +293,7 @@ Status DeleteHandler::parse_condition(const DeleteSubPredicatePB& sub_cond, TCon
 
 Status DeleteHandler::parse_condition(const std::string& condition_str, TCondition* condition) {
     bool matched = true;
-    smatch what;
+    boost::smatch what;
 
     try {
         // Condition string format, the format is (column_name)(op)(value)
