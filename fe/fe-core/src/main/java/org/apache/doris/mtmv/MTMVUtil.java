@@ -155,7 +155,7 @@ public class MTMVUtil {
             return false;
         }
         try {
-            return isMTMVSync(mtmv, mtmvRelation.getBaseTables(), Sets.newHashSet(), 0L);
+            return isMTMVSync(mtmv, mtmvRelation.getBaseTables(), Sets.newHashSet());
         } catch (AnalysisException e) {
             LOG.warn("isMTMVSync failed: ", e);
             return false;
@@ -168,11 +168,10 @@ public class MTMVUtil {
      * @param mtmv
      * @param tables
      * @param excludeTables
-     * @param gracePeriod
      * @return
      * @throws AnalysisException
      */
-    public static boolean isMTMVSync(MTMV mtmv, Set<BaseTableInfo> tables, Set<String> excludeTables, long gracePeriod)
+    public static boolean isMTMVSync(MTMV mtmv, Set<BaseTableInfo> tables, Set<String> excludeTables)
             throws AnalysisException {
         Collection<Partition> partitions = mtmv.getPartitions();
         for (Partition partition : partitions) {
@@ -444,17 +443,18 @@ public class MTMVUtil {
     }
 
     public static Map<String, MTMVRefreshPartitionSnapshot> generatePartitionSnapshots(MTMV mtmv,
-            Set<Long> partitionIds)
+            Set<BaseTableInfo> baseTables, Set<Long> partitionIds)
             throws AnalysisException {
         Map<String, MTMVRefreshPartitionSnapshot> res = Maps.newHashMap();
         for (Long partitionId : partitionIds) {
-            res.put(mtmv.getPartition(partitionId).getName(), generatePartitionSnapshot(mtmv, partitionId));
+            res.put(mtmv.getPartition(partitionId).getName(), generatePartitionSnapshot(mtmv, baseTables, partitionId));
         }
         return res;
     }
 
 
-    private static MTMVRefreshPartitionSnapshot generatePartitionSnapshot(MTMV mtmv, Long partitionId)
+    private static MTMVRefreshPartitionSnapshot generatePartitionSnapshot(MTMV mtmv,
+            Set<BaseTableInfo> baseTables, Long partitionId)
             throws AnalysisException {
         MTMVRefreshPartitionSnapshot refreshPartitionSnapshot = new MTMVRefreshPartitionSnapshot();
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
@@ -471,7 +471,7 @@ public class MTMVUtil {
                         .put(relatedTable.getPartitionName(relatedPartitionId), partitionSnapshot);
             }
         }
-        for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
+        for (BaseTableInfo baseTableInfo : baseTables) {
             if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE && mtmv
                     .getMvPartitionInfo().getRelatedTableInfo().equals(baseTableInfo)) {
                 continue;

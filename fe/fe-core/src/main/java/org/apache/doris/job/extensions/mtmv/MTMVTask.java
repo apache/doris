@@ -178,7 +178,7 @@ public class MTMVTask extends AbstractTask {
                 // need get names before exec
                 List<String> execPartitionNames = MTMVUtil.getPartitionNamesByIds(mtmv, execPartitionIds);
                 Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVUtil
-                        .generatePartitionSnapshots(mtmv, execPartitionIds);
+                        .generatePartitionSnapshots(mtmv, relation.getBaseTables(), execPartitionIds);
                 exec(ctx, execPartitionIds, tableWithPartKey);
                 completedPartitions.addAll(execPartitionNames);
                 partitionSnapshots.putAll(execPartitionSnapshots);
@@ -388,7 +388,7 @@ public class MTMVTask extends AbstractTask {
         // check if data is fresh
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
-        boolean fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), mtmv.getExcludedTriggerTables(), 0L);
+        boolean fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), mtmv.getExcludedTriggerTables());
         if (fresh) {
             return Lists.newArrayList();
         }
