@@ -126,30 +126,42 @@ public class JdbcExecutor {
     public void close() throws Exception {
         try {
             if (stmt != null) {
-                stmt.cancel();
+                try {
+                    stmt.cancel();
+                } catch (SQLException e) {
+                    LOG.error("Error cancelling statement", e);
+                }
             }
             if (conn != null && resultSet != null) {
                 abortReadConnection(conn, resultSet, tableType);
+                try {
+                    resultSet.close();
+                } catch (SQLException e) {
+                    LOG.error("Error closing resultSet", e);
+                }
+                try {
+                    stmt.close();
+                } catch (SQLException e) {
+                    LOG.error("Error closing statement", e);
+                }
             }
-            if (minIdleSize == 0) {
-                // it can be immediately closed if there is no need to maintain the cache of datasource
+        } finally {
+            if (conn != null && !conn.isClosed()) {
+                try {
+                    conn.close();
+                } catch (SQLException e) {
+                    LOG.error("Error closing connection", e);
+                }
+            }
+        }
+
+        if (minIdleSize == 0) {
+            // Close and remove the datasource if necessary
+            if (druidDataSource != null) {
                 druidDataSource.close();
                 JdbcDataSource.getDataSource().getSourcesMap().clear();
                 druidDataSource = null;
             }
-        } finally {
-            if (stmt != null) {
-                stmt.close();
-            }
-            if (resultSet != null) {
-                resultSet.close();
-            }
-            if (conn != null) {
-                conn.close();
-            }
-            resultSet = null;
-            stmt = null;
-            conn = null;
         }
     }
 
