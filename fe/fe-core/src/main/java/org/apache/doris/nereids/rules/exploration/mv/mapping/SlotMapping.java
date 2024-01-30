@@ -95,4 +95,9 @@ public class SlotMapping extends Mapping {
         this.slotReferenceMap = slotReferenceSlotReferenceMap;
         return this.slotReferenceMap;
     }
+
+    @Override
+    public String toString() {
+        return "SlotMapping{" + "relationSlotMap=" + relationSlotMap + '}';
+    }
 }

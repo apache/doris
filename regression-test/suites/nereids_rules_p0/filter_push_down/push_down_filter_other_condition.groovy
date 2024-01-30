@@ -17,6 +17,7 @@
 
 suite("push_down_filter_other_condition") {
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "use regression_test_nereids_rules_p0"

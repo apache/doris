@@ -285,10 +285,5 @@ public class MaxComputeExternalTable extends ExternalTable {
         makeSureInitialized();
         return odpsTable;
     }
-
-    @Override
-    public String getMysqlType() {
-        return "BASE TABLE";
-    }
 }
 

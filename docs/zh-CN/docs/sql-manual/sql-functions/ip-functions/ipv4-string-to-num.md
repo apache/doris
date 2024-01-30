@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## IPv4StringToNum
+## IPV4_STRING_TO_NUM
 
 <version since="dev">
 
-IPv4StringToNum
+IPV4_STRING_TO_NUM
 
 </version>
 
@@ -34,28 +34,31 @@ IPv4StringToNum
 
 #### Syntax
 
-`BIGINT IPv4StringToNum(VARCHAR ipv4_string)`
+`BIGINT IPV4_STRING_TO_NUM(VARCHAR ipv4_string)`
 
 获取包含 IPv4 地址的字符串，格式为 A.B.C.D（点分隔的十进制数字）。返回一个 BIGINT 数字，表示相应的大端 IPv4 地址。
 
 ### notice
 
-`如果输入字符串不是有效的 IPv4 地址，将返回错误`
+`如果输入字符串不是有效的 IPv4 地址或者NULL，将返回错误`
 
 ### example
 ```
-mysql> select ipv4stringtonum('192.168.0.1'); 
-+--------------------------------+ 
-| ipv4stringtonum('192.168.0.1') | 
-+--------------------------------+ 
-| 3232235521                     | 
-+--------------------------------+ 
+mysql> select ipv4_string_to_num('192.168.0.1'); 
++-----------------------------------+ 
+| ipv4_string_to_num('192.168.0.1') | 
++-----------------------------------+ 
+| 3232235521                        | 
++-----------------------------------+ 
 1 row in set (0.01 sec)
 
-mysql> SELECT ipv4stringtonum('192.168');
+mysql> SELECT ipv4_string_to_num('192.168');
 ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][INVALID_ARGUMENT][E33] Invalid IPv4 value
+
+mysql> select addr_src, ipv4_string_to_num(addr_src) from ipv4_string_test where addr_src is null;
+ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][E33] Null Input, you may consider convert it to a valid default IPv4 value like '0.0.0.0' first
 ```
 
 ### keywords
 
-IPV4STRINGTONUM, IP
+IPV4_STRING_TO_NUM, IP

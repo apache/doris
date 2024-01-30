@@ -143,6 +143,26 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_TABLE_NAMES, "false");
     }
 
+    public int getMinPoolSize() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.MIN_POOL_SIZE, "1"));
+    }
+
+    public int getMaxPoolSize() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.MAX_POOL_SIZE, "100"));
+    }
+
+    public int getMaxIdleTime() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.MAX_IDLE_TIME, "300000"));
+    }
+
+    public int getMaxWaitTime() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.MAX_WAIT_TIME, "5000"));
+    }
+
+    public boolean getKeepAlive() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(JdbcResource.KEEP_ALIVE, "false"));
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
         JdbcClientConfig jdbcClientConfig = new JdbcClientConfig()
@@ -155,7 +175,13 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setOnlySpecifiedDatabase(getOnlySpecifiedDatabase())
                 .setIsLowerCaseTableNames(getLowerCaseTableNames())
                 .setIncludeDatabaseMap(getIncludeDatabaseMap())
-                .setExcludeDatabaseMap(getExcludeDatabaseMap());
+                .setExcludeDatabaseMap(getExcludeDatabaseMap())
+                .setMinPoolSize(getMinPoolSize())
+                .setMaxPoolSize(getMaxPoolSize())
+                .setMinIdleSize(getMinPoolSize() > 0 ? 1 : 0)
+                .setMaxIdleTime(getMaxIdleTime())
+                .setMaxWaitTime(getMaxWaitTime())
+                .setKeepAlive(getKeepAlive());
 
         jdbcClient = JdbcClient.createJdbcClient(jdbcClientConfig);
     }

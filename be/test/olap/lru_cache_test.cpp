@@ -236,8 +236,19 @@ static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
                             CachePriority priority) {
     uint32_t hash = key.hash(key.data(), key.size(), 0);
     static std::unique_ptr<MemTrackerLimiter> lru_cache_tracker =
-            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "TestLruCache");
+            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL,
+                                                "TestSizeLruCache");
     cache.release(cache.insert(key, hash, EncodeValue(value), value, &deleter,
+                               lru_cache_tracker.get(), priority, value));
+}
+
+static void insert_number_LRUCache(LRUCache& cache, const CacheKey& key, int value, int charge,
+                                   CachePriority priority) {
+    uint32_t hash = key.hash(key.data(), key.size(), 0);
+    static std::unique_ptr<MemTrackerLimiter> lru_cache_tracker =
+            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL,
+                                                "TestNumberLruCache");
+    cache.release(cache.insert(key, hash, EncodeValue(value), charge, &deleter,
                                lru_cache_tracker.get(), priority, value));
 }
 
@@ -282,31 +293,31 @@ TEST_F(CacheTest, Prune) {
 
     // The lru usage is 1, add one entry
     CacheKey key1("100");
-    insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
+    insert_number_LRUCache(cache, key1, 100, 1, CachePriority::NORMAL);
     EXPECT_EQ(1, cache.get_usage());
 
     CacheKey key2("200");
-    insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
+    insert_number_LRUCache(cache, key2, 200, 1, CachePriority::DURABLE);
     EXPECT_EQ(2, cache.get_usage());
 
     CacheKey key3("300");
-    insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
+    insert_number_LRUCache(cache, key3, 300, 1, CachePriority::NORMAL);
     EXPECT_EQ(3, cache.get_usage());
 
     CacheKey key4("400");
-    insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
+    insert_number_LRUCache(cache, key4, 400, 1, CachePriority::NORMAL);
     EXPECT_EQ(4, cache.get_usage());
 
     CacheKey key5("500");
-    insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
+    insert_number_LRUCache(cache, key5, 500, 1, CachePriority::NORMAL);
     EXPECT_EQ(5, cache.get_usage());
 
     CacheKey key6("600");
-    insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
+    insert_number_LRUCache(cache, key6, 600, 1, CachePriority::NORMAL);
     EXPECT_EQ(5, cache.get_usage());
 
     CacheKey key7("700");
-    insert_LRUCache(cache, key7, 700, CachePriority::DURABLE);
+    insert_number_LRUCache(cache, key7, 700, 1, CachePriority::DURABLE);
     EXPECT_EQ(5, cache.get_usage());
 
     auto pred = [](const void* value) -> bool { return false; };
@@ -321,7 +332,7 @@ TEST_F(CacheTest, Prune) {
     EXPECT_EQ(0, cache.get_usage());
 
     for (int i = 1; i <= 5; ++i) {
-        insert_LRUCache(cache, CacheKey {std::to_string(i)}, i, CachePriority::NORMAL);
+        insert_number_LRUCache(cache, CacheKey {std::to_string(i)}, i, 1, CachePriority::NORMAL);
         EXPECT_EQ(i, cache.get_usage());
     }
     cache.prune_if([](const void*) { return true; });
@@ -334,31 +345,31 @@ TEST_F(CacheTest, PruneIfLazyMode) {
 
     // The lru usage is 1, add one entry
     CacheKey key1("100");
-    insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
+    insert_number_LRUCache(cache, key1, 100, 1, CachePriority::NORMAL);
     EXPECT_EQ(1, cache.get_usage());
 
     CacheKey key2("200");
-    insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
+    insert_number_LRUCache(cache, key2, 200, 1, CachePriority::DURABLE);
     EXPECT_EQ(2, cache.get_usage());
 
     CacheKey key3("300");
-    insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
+    insert_number_LRUCache(cache, key3, 300, 1, CachePriority::NORMAL);
     EXPECT_EQ(3, cache.get_usage());
 
     CacheKey key4("666");
-    insert_LRUCache(cache, key4, 666, CachePriority::NORMAL);
+    insert_number_LRUCache(cache, key4, 666, 1, CachePriority::NORMAL);
     EXPECT_EQ(4, cache.get_usage());
 
     CacheKey key5("500");
-    insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
+    insert_number_LRUCache(cache, key5, 500, 1, CachePriority::NORMAL);
     EXPECT_EQ(5, cache.get_usage());
 
     CacheKey key6("600");
-    insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
+    insert_number_LRUCache(cache, key6, 600, 1, CachePriority::NORMAL);
     EXPECT_EQ(6, cache.get_usage());
 
     CacheKey key7("700");
-    insert_LRUCache(cache, key7, 700, CachePriority::DURABLE);
+    insert_number_LRUCache(cache, key7, 700, 1, CachePriority::DURABLE);
     EXPECT_EQ(7, cache.get_usage());
 
     auto pred = [](const void* value) -> bool { return false; };
@@ -376,6 +387,58 @@ TEST_F(CacheTest, PruneIfLazyMode) {
     auto pred3 = [](const void* value) -> bool { return DecodeValue((void*)value) <= 600; };
     EXPECT_EQ(3, cache.prune_if(pred3, true));
     EXPECT_EQ(4, cache.get_usage());
+}
+
+TEST_F(CacheTest, Number) {
+    LRUCache cache(LRUCacheType::NUMBER);
+    cache.set_capacity(5);
+
+    // The lru usage is 1, add one entry
+    CacheKey key1("1");
+    insert_number_LRUCache(cache, key1, 0, 1, CachePriority::NORMAL);
+    EXPECT_EQ(1, cache.get_usage());
+
+    CacheKey key2("2");
+    insert_number_LRUCache(cache, key2, 0, 2, CachePriority::DURABLE);
+    EXPECT_EQ(3, cache.get_usage());
+
+    CacheKey key3("3");
+    insert_number_LRUCache(cache, key3, 0, 3, CachePriority::NORMAL);
+    EXPECT_EQ(5, cache.get_usage());
+
+    CacheKey key4("4");
+    insert_number_LRUCache(cache, key4, 0, 3, CachePriority::NORMAL);
+    EXPECT_EQ(5, cache.get_usage()); // evict key3, because key3 is NORMAL, key2 is DURABLE.
+
+    CacheKey key5("5");
+    insert_number_LRUCache(cache, key5, 0, 5, CachePriority::NORMAL);
+    EXPECT_EQ(5, cache.get_usage()); // evict key2, key4
+
+    CacheKey key6("6");
+    insert_number_LRUCache(cache, key6, 0, 6, CachePriority::NORMAL);
+    EXPECT_EQ(0, cache.get_usage()); // evict key5, evict key6 at the same time as release.
+
+    CacheKey key7("7");
+    insert_number_LRUCache(cache, key7, 200, 1, CachePriority::NORMAL);
+    EXPECT_EQ(1, cache.get_usage());
+
+    CacheKey key8("8");
+    insert_number_LRUCache(cache, key8, 100, 1, CachePriority::DURABLE);
+    EXPECT_EQ(2, cache.get_usage());
+
+    insert_number_LRUCache(cache, key8, 100, 1, CachePriority::DURABLE);
+    EXPECT_EQ(2, cache.get_usage());
+
+    auto pred = [](const void* value) -> bool { return false; };
+    cache.prune_if(pred);
+    EXPECT_EQ(2, cache.get_usage());
+
+    auto pred2 = [](const void* value) -> bool { return DecodeValue((void*)value) > 100; };
+    cache.prune_if(pred2);
+    EXPECT_EQ(1, cache.get_usage());
+
+    cache.prune();
+    EXPECT_EQ(0, cache.get_usage());
 }
 
 TEST_F(CacheTest, HeavyEntries) {

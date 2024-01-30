@@ -21,6 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HudiUtils;
+import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -28,12 +31,15 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HivePartition;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.HMSAnalysisTask;
+import org.apache.doris.statistics.StatsType;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
@@ -41,6 +47,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -69,6 +76,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -76,18 +84,27 @@ import java.util.stream.Collectors;
 /**
  * Hive metastore external table.
  */
-public class HMSExternalTable extends ExternalTable {
+public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableIf {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
     private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
     private static final Set<String> SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS;
-
+    private static final Map<StatsType, String> MAP_SPARK_STATS_TO_DORIS;
     private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
     private static final String TBL_PROP_INSERT_ONLY = "insert_only";
 
     private static final String TBL_PROP_TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
 
     private static final String NUM_ROWS = "numRows";
+
+    private static final String SPARK_COL_STATS = "spark.sql.statistics.colStats.";
+    private static final String SPARK_STATS_MAX = ".max";
+    private static final String SPARK_STATS_MIN = ".min";
+    private static final String SPARK_STATS_NDV = ".distinctCount";
+    private static final String SPARK_STATS_NULLS = ".nullCount";
+    private static final String SPARK_STATS_AVG_LEN = ".avgLen";
+    private static final String SPARK_STATS_MAX_LEN = ".avgLen";
+    private static final String SPARK_STATS_HISTOGRAM = ".histogram";
 
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
@@ -107,6 +124,17 @@ public class HMSExternalTable extends ExternalTable {
         SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.HoodieInputFormat");
         SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat");
         SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat");
+    }
+
+    static {
+        MAP_SPARK_STATS_TO_DORIS = Maps.newHashMap();
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.NDV, SPARK_STATS_NDV);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.AVG_SIZE, SPARK_STATS_AVG_LEN);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.MAX_SIZE, SPARK_STATS_MAX_LEN);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.NUM_NULLS, SPARK_STATS_NULLS);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.MIN_VALUE, SPARK_STATS_MIN);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.MAX_VALUE, SPARK_STATS_MAX);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.HISTOGRAM, SPARK_STATS_HISTOGRAM);
     }
 
     private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
@@ -235,6 +263,7 @@ public class HMSExternalTable extends ExternalTable {
         return partitionColumns.stream().map(c -> c.getType()).collect(Collectors.toList());
     }
 
+    @Override
     public List<Column> getPartitionColumns() {
         makeSureInitialized();
         getFullSchema();
@@ -261,11 +290,6 @@ public class HMSExternalTable extends ExternalTable {
     public boolean isView() {
         makeSureInitialized();
         return remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText();
-    }
-
-    @Override
-    public String getMysqlType() {
-        return type.name();
     }
 
     @Override
@@ -541,6 +565,31 @@ public class HMSExternalTable extends ExternalTable {
         LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
     }
 
+    public boolean hasColumnStatistics(String colName) {
+        Map<String, String> parameters = remoteTable.getParameters();
+        return parameters.keySet().stream()
+            .filter(k -> k.startsWith(SPARK_COL_STATS + colName + ".")).findAny().isPresent();
+    }
+
+    public boolean fillColumnStatistics(String colName, Map<StatsType, String> statsTypes, Map<String, String> stats) {
+        makeSureInitialized();
+        if (!hasColumnStatistics(colName)) {
+            return false;
+        }
+
+        Map<String, String> parameters = remoteTable.getParameters();
+        for (StatsType type : statsTypes.keySet()) {
+            String key = SPARK_COL_STATS + colName + MAP_SPARK_STATS_TO_DORIS.getOrDefault(type, "-");
+            if (parameters.containsKey(key)) {
+                stats.put(statsTypes.get(type), parameters.get(key));
+            } else {
+                // should not happen, spark would have all type (except histogram)
+                stats.put(statsTypes.get(type), "NULL");
+            }
+        }
+        return true;
+    }
+
     @Override
     public Optional<ColumnStatistic> getColumnStatistic(String colName) {
         makeSureInitialized();
@@ -735,6 +784,58 @@ public class HMSExternalTable extends ExternalTable {
     public Set<String> getDistributionColumnNames() {
         return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
             .collect(Collectors.toSet());
+    }
+
+    @Override
+    public PartitionType getPartitionType() {
+        return getPartitionColumns().size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
+    }
+
+    @Override
+    public Set<String> getPartitionColumnNames() {
+        return getPartitionColumns().stream()
+                .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
+    }
+
+    @Override
+    public Map<Long, PartitionItem> getPartitionItems() {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                getDbName(), getName(), getPartitionColumnTypes());
+
+        return hivePartitionValues.getIdToPartitionItem().entrySet().stream()
+                .filter(entry -> !entry.getValue().isDefaultPartition())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    @Override
+    public long getPartitionLastModifyTime(long partitionId, PartitionItem item) throws AnalysisException {
+        List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(1);
+        partitionValuesList.add(
+                ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        List<HivePartition> resPartitions = cache.getAllPartitionsWithCache(getDbName(), getName(),
+                partitionValuesList);
+        if (resPartitions.size() != 1) {
+            throw new AnalysisException("partition not normal, size: " + resPartitions.size());
+        }
+        return resPartitions.get(0).getLastModifiedTimeIgnoreInit();
+    }
+
+    @Override
+    public long getLastModifyTime() throws AnalysisException {
+
+        long result = 0L;
+        long visibleVersionTime;
+        for (Entry<Long, PartitionItem> entry : getPartitionItems().entrySet()) {
+            visibleVersionTime = getPartitionLastModifyTime(entry.getKey(), entry.getValue());
+            if (visibleVersionTime > result) {
+                result = visibleVersionTime;
+            }
+        }
+        return result;
     }
 }
 

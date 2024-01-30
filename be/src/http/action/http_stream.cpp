@@ -30,6 +30,7 @@
 #include <rapidjson/prettywriter.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
@@ -119,7 +120,7 @@ void HttpStreamAction::handle(HttpRequest* req) {
     // add new line at end
     str = str + '\n';
     HttpChannel::send_reply(req, str);
-    if (config::enable_stream_load_record) {
+    if (config::enable_stream_load_record && !config::is_cloud_mode()) {
         str = ctx->prepare_stream_load_record(str);
         _save_stream_load_record(ctx, str);
     }
@@ -292,12 +293,14 @@ void HttpStreamAction::free_handler_ctx(std::shared_ptr<void> param) {
 Status HttpStreamAction::process_put(HttpRequest* http_req,
                                      std::shared_ptr<StreamLoadContext> ctx) {
     TStreamLoadPutRequest request;
-    set_request_auth(&request, ctx->auth);
     if (http_req != nullptr) {
         request.__set_load_sql(http_req->header(HTTP_SQL));
     } else {
+        request.__set_token(ctx->auth.token);
         request.__set_load_sql(ctx->sql_str);
+        ctx->auth.token = "";
     }
+    set_request_auth(&request, ctx->auth);
     request.__set_loadId(ctx->id.to_thrift());
     request.__set_label(ctx->label);
     if (ctx->group_commit) {
@@ -352,7 +355,8 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
 
 void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
                                                 const std::string& str) {
-    auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
+    auto stream_load_recorder =
+            ExecEnv::GetInstance()->storage_engine().to_local().get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
         std::string key =
                 std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;

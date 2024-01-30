@@ -35,9 +35,9 @@ suite("test_index_compaction_dup_keys", "p0") {
     def trigger_full_compaction_on_tablets = { String[][] tablets ->
         for (String[] tablet : tablets) {
             String tablet_id = tablet[0]
-            backend_id = tablet[2]
-            times = 1
-            
+            String backend_id = tablet[2]
+            int times = 1
+
             String compactionStatus;
             do{
                 def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
@@ -64,8 +64,8 @@ suite("test_index_compaction_dup_keys", "p0") {
             do {
                 Thread.sleep(1000)
                 String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                String backend_id = tablet[2]
+                def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def compactionStatus = parseJson(out.trim())
@@ -78,9 +78,8 @@ suite("test_index_compaction_dup_keys", "p0") {
     def get_rowset_count = {String[][] tablets ->
         int rowsetCount = 0
         for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
             def compactionStatusUrlIndex = 18
-            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
+            def (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -165,8 +164,16 @@ suite("test_index_compaction_dup_keys", "p0") {
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
+        String[][] dedup_tablets = deduplicate_tablets(tablets)
 
-        int replicaNum = 1
+        // In the p0 testing environment, there are no expected operations such as scaling down BE (backend) services
+        // if tablets or dedup_tablets is empty, exception is thrown, and case fail
+        int replicaNum = Math.floor(tablets.size() / dedup_tablets.size())
+        if (replicaNum != 1 && replicaNum != 3)
+        {
+            assert(false);
+        }
+
         // before full compaction, there are 7 rowsets.
         int rowsetCount = get_rowset_count.call(tablets);
         assert (rowsetCount == 7 * replicaNum)

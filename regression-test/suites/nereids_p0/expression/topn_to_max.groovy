@@ -30,7 +30,7 @@ suite("test_topn_to_max") {
     from test_topn_to_max
     group by k1;
     '''
-    res = sql '''
+    def res = sql '''
     explain rewritten plan select k1, topn(k2, 1)
     from test_topn_to_max
     group by k1;
@@ -41,9 +41,9 @@ suite("test_topn_to_max") {
     select topn(k2, 1)
     from test_topn_to_max;
     '''
-    res = sql '''
+    def res1 = sql '''
     explain rewritten plan select topn(k2, 1)
     from test_topn_to_max;
     '''
-    assertTrue(res.toString().contains("max"), res.toString() + " should contain max")
+    assertTrue(res1.toString().contains("max"), res1.toString() + " should contain max")
 }

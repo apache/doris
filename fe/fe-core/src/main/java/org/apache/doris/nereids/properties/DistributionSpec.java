@@ -53,6 +53,10 @@ public abstract class DistributionSpec {
         return this.getClass().getSimpleName();
     }
 
+    public String shapeInfo() {
+        return this.getClass().getSimpleName();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

@@ -68,6 +68,11 @@ public class MultiDistinctSum extends NullableAggregateFunction implements Unary
     }
 
     @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        return new Sum(getArgument(0)).searchSignature(signatures);
+    }
+
+    @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
         return new MultiDistinctSum(distinct, alwaysNullable, children.get(0));
     }

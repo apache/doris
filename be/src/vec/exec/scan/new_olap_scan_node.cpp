@@ -80,21 +80,6 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
     }
 }
 
-Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
-    if (!_is_pipeline_scan || _should_create_scanner) {
-        statistics->add_scan_bytes(_byte_read_counter->value());
-        statistics->add_scan_rows(_rows_read_counter->value());
-        statistics->add_cpu_ms(_scan_cpu_timer->value() / NANOS_PER_MILLIS);
-    }
-    return Status::OK();
-}
-
-Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics, int) {
-    RETURN_IF_ERROR(collect_query_statistics(statistics));
-    return Status::OK();
-}
-
 Status NewOlapScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VScanNode::prepare(state));
     // if you want to add some profile in scan node, even it have not new VScanner object
@@ -543,16 +528,12 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
 
             if (_shared_scan_opt) {
                 auto& read_source = tablets_read_source.emplace_back();
-                {
-                    std::shared_lock rdlock(tablet->get_header_lock());
-                    auto st =
-                            tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false);
-                    if (!st.ok()) {
-                        LOG(WARNING) << "fail to init reader.res=" << st;
-                        return Status::InternalError(
-                                "failed to initialize storage reader. tablet_id={} : {}",
-                                tablet->tablet_id(), st.to_string());
-                    }
+                auto st = tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false);
+                if (!st.ok()) {
+                    LOG(WARNING) << "fail to init reader.res=" << st;
+                    return Status::InternalError(
+                            "failed to initialize storage reader. tablet_id={} : {}",
+                            tablet->tablet_id(), st.to_string());
                 }
                 if (!_state->skip_delete_predicate()) {
                     read_source.fill_delete_predicates();

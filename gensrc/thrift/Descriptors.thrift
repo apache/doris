@@ -324,7 +324,11 @@ struct TJdbcTable {
   6: optional string jdbc_resource_name
   7: optional string jdbc_driver_class
   8: optional string jdbc_driver_checksum
-  
+  9: optional i32 jdbc_min_pool_size
+  10: optional i32 jdbc_max_pool_size
+  11: optional i32 jdbc_max_idle_time
+  12: optional i32 jdbc_max_wait_time
+  13: optional bool jdbc_keep_alive
 }
 
 struct TMCTable {

@@ -193,7 +193,8 @@ AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id,
                                      ? tnode.analytic_node.buffered_tuple_id
                                      : 0),
           _is_colocate(tnode.analytic_node.__isset.is_colocate && tnode.analytic_node.is_colocate),
-          _partition_exprs(tnode.analytic_node.partition_exprs) {}
+          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
+                                                               : std::vector<TExpr> {}) {}
 
 Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));

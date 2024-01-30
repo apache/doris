@@ -1,7 +1,7 @@
 ---
 {
 "title": "IPV6_NUM_TO_STRING",
-"language": "en"
+"language": "zh-CN"
 }
 ---
 
@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## IPv6NumToString
+## IPV6_NUM_TO_STRING
 
 <version since="dev">
 
-IPv6NumToString
+IPV6_NUM_TO_STRING
 
 </version>
 
@@ -34,7 +34,7 @@ IPv6NumToString
 
 #### Syntax
 
-`VARCHAR IPv6NumToString(VARCHAR ipv6_num)`
+`VARCHAR IPV6_NUM_TO_STRING(VARCHAR ipv6_num)`
 
 接受字符串类型的二进制格式的IPv6地址。以文本格式返回此地址的字符串。
 IPv6映射的IPv4地址以::ffff:111.222.33。 
@@ -42,7 +42,7 @@ IPv6映射的IPv4地址以::ffff:111.222.33。
 ### example
 
 ```
-mysql> select ipv6numtostring(unhex('2A0206B8000000000000000000000011')) as addr;
+mysql> select ipv6_num_to_string(unhex('2A0206B8000000000000000000000011')) as addr;
 +--------------+
 | addr         |
 +--------------+
@@ -53,4 +53,4 @@ mysql> select ipv6numtostring(unhex('2A0206B8000000000000000000000011')) as addr
 
 ### keywords
 
-IPV6NUMTOSTRING, IP
+IPV6_NUM_TO_STRING, IP

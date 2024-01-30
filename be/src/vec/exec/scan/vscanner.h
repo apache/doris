@@ -32,6 +32,7 @@
 namespace doris {
 class RuntimeProfile;
 class TupleDescriptor;
+class QueryStatistics;
 
 namespace vectorized {
 class VExprContext;
@@ -122,7 +123,11 @@ public:
 
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
-    void update_scan_cpu_timer() { _scan_cpu_timer += _cpu_watch.elapsed_time(); }
+    void update_scan_cpu_timer() {
+        int64_t cpu_time = _cpu_watch.elapsed_time();
+        _scan_cpu_timer += cpu_time;
+        _query_statistics->add_cpu_nanos(cpu_time);
+    }
 
     RuntimeState* runtime_state() { return _state; }
 
@@ -148,14 +153,8 @@ public:
 
     void set_status_on_failure(const Status& st) { _status = st; }
 
-    // return false if _is_counted_down is already true,
-    // otherwise, set _is_counted_down to true and return true.
-    bool set_counted_down() {
-        if (_is_counted_down) {
-            return false;
-        }
-        _is_counted_down = true;
-        return true;
+    void set_query_statistics(QueryStatistics* query_statistics) {
+        _query_statistics = query_statistics;
     }
 
 protected:
@@ -169,6 +168,8 @@ protected:
     RuntimeState* _state = nullptr;
     VScanNode* _parent = nullptr;
     pipeline::ScanLocalStateBase* _local_state = nullptr;
+    QueryStatistics* _query_statistics = nullptr;
+
     // Set if scan node has sort limit info
     int64_t _limit = -1;
 
@@ -221,8 +222,6 @@ protected:
     int64_t _scan_cpu_timer = 0;
 
     bool _is_load = false;
-    // set to true after decrease the "_num_unfinished_scanners" in scanner context
-    bool _is_counted_down = false;
 
     bool _is_init = true;
 
@@ -233,6 +232,5 @@ protected:
 };
 
 using VScannerSPtr = std::shared_ptr<VScanner>;
-using VScannerWPtr = std::weak_ptr<VScanner>;
 
 } // namespace doris::vectorized

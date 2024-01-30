@@ -59,6 +59,8 @@ using HashTableCtxVariants = std::variant<
         vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN, HashJoinProbeLocalState>,
         vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN, HashJoinProbeLocalState>,
         vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN,
+                                          HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN,
                                           HashJoinProbeLocalState>>;
 
 class HashJoinProbeDependency final : public Dependency {
@@ -120,10 +122,23 @@ private:
     std::atomic<bool> _probe_inited = false;
     int _last_probe_match;
 
+    // For mark join, last probe index of null mark
+    int _last_probe_null_mark;
+
+    /*
+     * For null aware anti/semi join with other join conjuncts, we do need to care about the rows in
+     * build side with null keys,
+     * because the other join conjuncts' result may be changed from null to false(null & false == false).
+     */
+    std::shared_ptr<std::vector<uint32_t>> _build_indexes_null;
+
     vectorized::Block _probe_block;
     vectorized::ColumnRawPtrs _probe_columns;
     // other expr
     vectorized::VExprContextSPtrs _other_join_conjuncts;
+
+    vectorized::VExprContextSPtrs _mark_join_conjuncts;
+
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<uint16_t> _probe_column_disguise_null;
@@ -135,16 +150,13 @@ private:
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 
-    // for full/right outer join
-    vectorized::HashTableIteratorVariants _outer_join_pull_visited_iter;
-    vectorized::HashTableIteratorVariants _probe_row_match_iter;
-
     RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
     RuntimeProfile::Counter* _probe_next_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
     RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage = nullptr;
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
 };
@@ -176,6 +188,10 @@ public:
                                   : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
 
+    bool is_shuffled_hash_join() const override {
+        return _join_distribution == TJoinDistributionType::PARTITIONED;
+    }
+
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer,
@@ -187,6 +203,9 @@ private:
     const bool _is_broadcast_join;
     // other expr
     vectorized::VExprContextSPtrs _other_join_conjuncts;
+
+    vectorized::VExprContextSPtrs _mark_join_conjuncts;
+
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     bool _probe_ignore_null = false;
@@ -197,7 +216,7 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
     std::vector<std::string> _right_table_column_names;
-    std::vector<TExpr> _partition_exprs;
+    const std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

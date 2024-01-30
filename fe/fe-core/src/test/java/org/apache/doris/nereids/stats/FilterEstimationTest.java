@@ -835,7 +835,9 @@ class FilterEstimationTest {
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
+                .setMaxExpr(new IntLiteral(100))
                 .setMaxValue(100)
+                .setMinExpr(new IntLiteral(0))
                 .setMinValue(0)
                 .setCount(100);
         DoubleLiteral begin = new DoubleLiteral(40.0);
@@ -847,7 +849,7 @@ class FilterEstimationTest {
         stats.addColumnStats(a, builder.build());
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(and, stats);
-        Assertions.assertEquals(result.getRowCount(), 10, 0.01);
+        Assertions.assertEquals(10, result.getRowCount(), 0.01);
         ColumnStatistic colStats = result.findColumnStatistics(a);
         Assertions.assertTrue(colStats != null);
         Assertions.assertEquals(10, colStats.ndv, 0.1);

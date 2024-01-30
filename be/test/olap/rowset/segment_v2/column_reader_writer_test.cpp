@@ -53,7 +53,10 @@ public:
 protected:
     void SetUp() override {
         config::disable_storage_page_cache = true;
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(TEST_DIR).ok());
+        auto st = io::global_local_filesystem()->delete_directory(TEST_DIR);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(TEST_DIR);
+        ASSERT_TRUE(st.ok()) << st;
     }
 
     void TearDown() override {

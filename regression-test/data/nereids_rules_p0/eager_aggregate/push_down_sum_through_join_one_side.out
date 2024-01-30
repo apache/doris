@@ -69,8 +69,8 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[sum_t_one_side] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[sum_t_one_side]
 --------hashAgg[LOCAL]
 ----------filter((sum_t_one_side.score > 10))
 ------------PhysicalOlapScan[sum_t_one_side]
@@ -87,8 +87,8 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[sum_t_one_side] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[sum_t_one_side]
 --------hashAgg[LOCAL]
 ----------filter((sum_t_one_side.score > 10))
 ------------PhysicalOlapScan[sum_t_one_side]
@@ -148,8 +148,10 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
---------PhysicalOlapScan[sum_t_one_side]
---------PhysicalOlapScan[sum_t_one_side]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[sum_t_one_side]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[sum_t_one_side]
 
 -- !groupby_pushdown_equal_conditions_non_aggregate_selection --
 PhysicalResultSink
@@ -174,8 +176,8 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[sum_t_one_side] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[sum_t_one_side]
 --------hashAgg[LOCAL]
 ----------filter((t1.score > 50))
 ------------PhysicalOlapScan[sum_t_one_side]
@@ -228,9 +230,9 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((sum_t_one_side.id < 100))
-----------PhysicalOlapScan[sum_t_one_side] apply RFs: RF0
+----------PhysicalOlapScan[sum_t_one_side]
 --------hashAgg[LOCAL]
 ----------filter((sum_t_one_side.score > 20) and (t1.id < 100))
 ------------PhysicalOlapScan[sum_t_one_side]

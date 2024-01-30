@@ -44,13 +44,21 @@ namespace doris::segment_v2 {
 
 Status FulltextIndexSearcherBuilder::build(DorisCompoundReader* directory,
                                            OptionalIndexSearcherPtr& output_searcher) {
-    auto closeDirectory = true;
-    auto* reader = lucene::index::IndexReader::open(
-            directory, config::inverted_index_read_buffer_size, closeDirectory);
+    auto close_directory = true;
+    lucene::index::IndexReader* reader = nullptr;
+    try {
+        reader = lucene::index::IndexReader::open(
+                directory, config::inverted_index_read_buffer_size, close_directory);
+    } catch (const CLuceneError& e) {
+        if (reader) {
+            reader->close();
+        }
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "FulltextIndexSearcherBuilder build error: {}", e.what());
+    }
     bool close_reader = true;
     auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, close_reader);
     if (!index_searcher) {
-        _CLDECDELETE(directory)
         output_searcher = std::nullopt;
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "FulltextIndexSearcherBuilder build index_searcher error.");
@@ -65,9 +73,9 @@ Status FulltextIndexSearcherBuilder::build(DorisCompoundReader* directory,
 Status BKDIndexSearcherBuilder::build(DorisCompoundReader* directory,
                                       OptionalIndexSearcherPtr& output_searcher) {
     try {
-        auto closeDirectory = true;
+        auto close_directory = true;
         auto bkd_reader =
-                std::make_shared<lucene::util::bkd::bkd_reader>(directory, closeDirectory);
+                std::make_shared<lucene::util::bkd::bkd_reader>(directory, close_directory);
         if (!bkd_reader->open()) {
             LOG(INFO) << "bkd index file " << directory->getPath() + "/" + directory->getFileName()
                       << " is empty";
@@ -186,14 +194,19 @@ Status InvertedIndexSearcherCache::get_index_searcher(
             }
         }
         OptionalIndexSearcherPtr result;
-        RETURN_IF_ERROR(index_builder->build(directory, result));
-        directory->getDorisIndexInput()->setIdxFileCache(false);
+        auto st = index_builder->build(directory, result);
+        if (!st.ok()) {
+            _CLDECDELETE(directory)
+            return st;
+        }
         if (!result.has_value()) {
+            _CLDECDELETE(directory)
             LOG(ERROR) << "InvertedIndexReaderType:" << reader_type_to_string(reader_type)
                        << " build for InvertedIndexSearcherCache error";
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "InvertedIndexSearcherCache build error.");
         }
+        directory->getDorisIndexInput()->setIdxFileCache(false);
         index_searcher = *result;
     }
 #endif

@@ -93,15 +93,15 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     if (_context->partial_update_info && _context->partial_update_info->is_partial_update) {
         // check columns that used to do partial updates should not include variant
         for (int i : _context->partial_update_info->update_cids) {
-            const auto& col = _context->tablet_schema->columns()[i];
+            const auto& col = _context->original_tablet_schema->columns()[i];
             if (!col.is_key() && col.name() != DELETE_SIGN) {
                 return Status::InvalidArgument(
                         "Not implement partial update for variant only support delete currently");
             }
         }
     } else {
-        for (int i = 0; i < _context->tablet_schema->columns().size(); ++i) {
-            if (_context->tablet_schema->columns()[i].is_variant_type()) {
+        for (int i = 0; i < _context->original_tablet_schema->columns().size(); ++i) {
+            if (_context->original_tablet_schema->columns()[i].is_variant_type()) {
                 variant_column_pos.push_back(i);
             }
         }
@@ -155,7 +155,8 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         bool is_nullable = column_ref->is_nullable();
         const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
                 remove_nullable(column_ref)->assume_mutable_ref());
-        const TabletColumn& parent_column = _context->tablet_schema->columns()[variant_pos];
+        const TabletColumn& parent_column =
+                _context->original_tablet_schema->columns()[variant_pos];
         CHECK(object_column.is_finalized());
         std::shared_ptr<vectorized::ColumnObject::Subcolumns::Node> root;
         for (auto& entry : object_column.get_subcolumns()) {

@@ -319,8 +319,10 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableMemtableOnSinkNode(taskInfo.isMemtableOnSinkNode());
-
+        boolean isEnableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
@@ -375,6 +377,9 @@ public class StreamLoadPlanner {
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
                 boolean existInExpr = false;
+                if (col.hasOnUpdateDefaultValue()) {
+                    partialUpdateInputColumns.add(col.getName());
+                }
                 for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                     if (importColumnDesc.getColumnName() != null
                             && importColumnDesc.getColumnName().equals(col.getName())) {
@@ -542,7 +547,10 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableMemtableOnSinkNode(taskInfo.isMemtableOnSinkNode());
+        boolean isEnableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
 
         pipParams.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();

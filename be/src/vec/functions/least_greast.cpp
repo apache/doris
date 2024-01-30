@@ -190,8 +190,7 @@ struct FunctionFieldImpl {
             for (int row = 0; row < input_rows_count; ++row) {
                 const auto& str_data = column_string.get_data_at(index_check_const(row, arg_const));
                 for (int col = 1; col < column_size; ++col) {
-                    auto [column, is_const] =
-                            unpack_if_const(block.safe_get_by_position(col).column);
+                    auto [column, is_const] = unpack_if_const(argument_columns[col]);
                     const auto& temp_data = assert_cast<const ColumnString&>(*column).get_data_at(
                             index_check_const(row, is_const));
                     if (EqualsOp<StringRef, StringRef>::apply(temp_data, str_data)) {

@@ -95,6 +95,11 @@ Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
     _jdbc_param.tuple_desc = _tuple_desc;
     _jdbc_param.query_string = std::move(_query_string);
     _jdbc_param.table_type = _table_type;
+    _jdbc_param.min_pool_size = jdbc_table->jdbc_min_pool_size();
+    _jdbc_param.max_pool_size = jdbc_table->jdbc_max_pool_size();
+    _jdbc_param.max_idle_time = jdbc_table->jdbc_max_idle_time();
+    _jdbc_param.max_wait_time = jdbc_table->jdbc_max_wait_time();
+    _jdbc_param.keep_alive = jdbc_table->jdbc_keep_alive();
 
     if (get_parent() != nullptr) {
         get_parent()->_scanner_profile->add_info_string("JdbcDriverClass",

@@ -52,6 +52,7 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 
@@ -285,18 +286,21 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
                     return BooleanLiteral.of(false);
                 } else if (comparisonPredicate instanceof GreaterThan
                         || comparisonPredicate instanceof LessThanEqual) {
-                    return comparisonPredicate.withChildren(left,
-                            convertDecimalToIntegerLikeLiteral(
-                                    literal.setScale(0, RoundingMode.FLOOR)));
+                    return TypeCoercionUtils
+                            .processComparisonPredicate((ComparisonPredicate) comparisonPredicate
+                                    .withChildren(left, convertDecimalToIntegerLikeLiteral(
+                                            literal.setScale(0, RoundingMode.FLOOR))));
                 } else if (comparisonPredicate instanceof LessThan
                         || comparisonPredicate instanceof GreaterThanEqual) {
-                    return comparisonPredicate.withChildren(left,
-                            convertDecimalToIntegerLikeLiteral(
-                                    literal.setScale(0, RoundingMode.CEILING)));
+                    return TypeCoercionUtils
+                            .processComparisonPredicate((ComparisonPredicate) comparisonPredicate
+                                    .withChildren(left, convertDecimalToIntegerLikeLiteral(
+                                            literal.setScale(0, RoundingMode.CEILING))));
                 }
             } else {
-                return comparisonPredicate.withChildren(left,
-                        convertDecimalToIntegerLikeLiteral(literal));
+                return TypeCoercionUtils
+                        .processComparisonPredicate((ComparisonPredicate) comparisonPredicate
+                                .withChildren(left, convertDecimalToIntegerLikeLiteral(literal)));
             }
         }
         return comparisonPredicate;

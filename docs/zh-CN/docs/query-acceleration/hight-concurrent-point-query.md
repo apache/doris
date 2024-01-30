@@ -88,10 +88,10 @@ url = jdbc:mysql://127.0.0.1:9030/ycsb?useServerPrepStmts=true
 // use `?` for placement holders, readStatement should be reused
 PreparedStatement readStatement = conn.prepareStatement("select * from tbl_point_query where key = ?");
 ...
-readStatement.setInt(1234);
+readStatement.setInt(1,1234);
 ResultSet resultSet = readStatement.executeQuery();
 ...
-readStatement.setInt(1235);
+readStatement.setInt(1,1235);
 resultSet = readStatement.executeQuery();
 ...
 ```
@@ -102,3 +102,58 @@ Doris 中有针对 Page 级别的 Cache，每个 Page 中存的是某一列的�
 
 - `disable_storage_row_cache`是否开启行缓存， 默认不开启
 - `row_cache_mem_limit`指定 Row cache 占用内存的百分比， 默认 20% 内存
+
+## 性能优化
+1. 通常，通过增加Observer数量来提升处理query能力是有效的
+2. query 负载均衡：点查中如果发现接受点查请求的fe cpu使用过高，或请求响应变慢，可使用jdbc load balance 进行负载均衡，将请求分散到多个节点，分担压力（同时也可以使用其他方式进行query负载均衡配置，如Nginx，proxySQL)
+3. 通过将点查请求定向发送至Observer角色来分担高并发点查的请求压力，减少向 fe master发送点查请求，通常可以解决 Fe Master节点查询耗时上下浮动问题，以获得更好性能与稳定性
+
+## QA
+1. 如何确定配置无误使用了并发点查的短路径优化
+   A：explain sql ，当执行计划中出现 SHORT-CIRCUIT ，证明使用了短路径优化
+   ```sql
+   mysql> explain select * from tbl_point_query where `key` = -2147481418 ;                                                                                                                                
+         +-----------------------------------------------------------------------------------------------+                                                                                                       
+         | Explain String(Old Planner)                                                                   |                                                                                                       
+         +-----------------------------------------------------------------------------------------------+                                                                                                       
+         | PLAN FRAGMENT 0                                                                               |                                                                                                       
+         |   OUTPUT EXPRS:                                                                               |                                                                                                       
+         |     `test`.`tbl_point_query`.`key`                                                            |                                                                                                       
+         |     `test`.`tbl_point_query`.`v1`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v2`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v3`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v4`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v5`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v6`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v7`                                                             |                                                                                                       
+         |   PARTITION: UNPARTITIONED                                                                    |                                                                                                       
+         |                                                                                               |                                                                                                       
+         |   HAS_COLO_PLAN_NODE: false                                                                   |                                                                                                       
+         |                                                                                               |                                                                                                       
+         |   VRESULT SINK                                                                                |                                                                                                       
+         |      MYSQL_PROTOCAL                                                                           |                                                                                                       
+         |                                                                                               |                                                                                                       
+         |   0:VOlapScanNode                                                                             |                                                                                                       
+         |      TABLE: test.tbl_point_query(tbl_point_query), PREAGGREGATION: ON                         |                                                                                                       
+         |      PREDICATES: `key` = -2147481418 AND `test`.`tbl_point_query`.`__DORIS_DELETE_SIGN__` = 0 |                                                                                                       
+         |      partitions=1/1 (tbl_point_query), tablets=1/1, tabletList=360065                         |                                                                                                       
+         |      cardinality=9452868, avgRowSize=833.31323, numNodes=1                                    |                                                                                                       
+         |      pushAggOp=NONE                                                                           |                                                                                                       
+         |      SHORT-CIRCUIT                                                                            |                                                                                                       
+         +-----------------------------------------------------------------------------------------------+
+      ```
+
+2. 如何确定 prepared statement 生效
+   A：当发送请求到 Doris 之后，在 fe.audit.log 中找到相应的query请求,发现Stmt=EXECUTE() ，说明 prepared statement 生效
+   ```text
+   2024-01-02 11:15:51,248 [query] |Client=192.168.1.82:53450|User=root|Db=test|State=EOF|ErrorCode=0|ErrorMessage=|Time(ms)=49|ScanBytes=0|ScanRows=0|ReturnRows=1|StmtId=51|QueryId=b63d30b908f04dad-ab4a
+      3ba21d2c776b|IsQuery=true|isNereids=false|feIp=10.16.10.6|Stmt=EXECUTE(-2147481418)|CpuTimeMS=0|SqlHash=eee20fa2ac13a4f93bd4503a87921024|peakMemoryBytes=0|SqlDigest=|TraceId=|WorkloadGroup=|FuzzyVaria
+      bles=
+   ```
+   
+3. 非主键查询能否使用到高并发点查的特殊优化
+   A：不能，高并发点查只针对于key列的等值查询，且查询中不能包含 join，嵌套子查询
+4. useServerPrepStmts 在普通查询中是否有用
+   A：Prepared Statement 目前只在主键点查的情况下生效
+5. 优化器选择需要进行全局设置吗
+   A：在使用 prepared statement 进行查询时，Doris 会选择性能最好的查询方式，不需要手动设置优化器

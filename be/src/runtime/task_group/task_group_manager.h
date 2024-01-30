@@ -65,11 +65,13 @@ public:
 
     bool enable_cpu_hard_limit() { return _enable_cpu_hard_limit.load(); }
 
-    bool set_cg_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr);
+    void get_query_scheduler(uint64_t tg_id, doris::pipeline::TaskScheduler** exec_sched,
+                             vectorized::SimplifiedScanScheduler** scan_sched,
+                             ThreadPool** non_pipe_thread_pool);
 
-    // currently cgroup both support cpu soft limit and cpu hard limit
-    // doris task group only support cpu soft limit
-    bool enable_cgroup() { return enable_cpu_hard_limit() || config::enable_cgroup_cpu_soft_limit; }
+    Status add_query_to_group(uint64_t tg_id, TUniqueId query_id, TaskGroupPtr* tg_ptr);
+
+    void remove_query_from_group(uint64_t tg_id, TUniqueId query_id);
 
 private:
     std::shared_mutex _group_mutex;
@@ -81,6 +83,7 @@ private:
     std::map<uint64_t, std::unique_ptr<doris::pipeline::TaskScheduler>> _tg_sche_map;
     std::map<uint64_t, std::unique_ptr<vectorized::SimplifiedScanScheduler>> _tg_scan_sche_map;
     std::map<uint64_t, std::unique_ptr<CgroupCpuCtl>> _cgroup_ctl_map;
+    std::map<uint64_t, std::unique_ptr<ThreadPool>> _non_pipe_thread_pool_map;
 
     std::shared_mutex _init_cg_ctl_lock;
     std::unique_ptr<CgroupCpuCtl> _cg_cpu_ctl;

@@ -68,10 +68,6 @@ def get_all_cluster_names():
         ]
 
 
-def lock_network():
-    return filelock.FileLock(os.path.join(LOCAL_DORIS_PATH, "lock"))
-
-
 def gen_subnet_prefix16():
     used_subnet = utils.get_docker_subnets_prefix16()
     for cluster_name in get_all_cluster_names():
@@ -404,6 +400,7 @@ class Cluster(object):
 
     @staticmethod
     def new(name, image, fe_config, be_config, be_disks, coverage_dir):
+        os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
         with filelock.FileLock(os.path.join(LOCAL_DORIS_PATH, "lock")):
             subnet = gen_subnet_prefix16()
             cluster = Cluster(name, subnet, image, fe_config, be_config,

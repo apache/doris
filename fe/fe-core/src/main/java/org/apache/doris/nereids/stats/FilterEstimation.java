@@ -332,7 +332,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             }
         }
         compareExprStatsBuilder.setNumNulls(0);
-        Statistics estimated = new Statistics(context.statistics);
+        Statistics estimated = new StatisticsBuilder(context.statistics).build();
         ColumnStatistic stats = compareExprStatsBuilder.build();
         selectivity = getNotNullSelectivity(stats, selectivity);
         estimated = estimated.withSel(selectivity);

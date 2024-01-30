@@ -17,12 +17,12 @@
 
 suite("eager_aggregate_basic") {
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
 
-    sql "SET ENABLE_NEREIDS_RULES=push_down_min_max_through_join"
-    sql "SET ENABLE_NEREIDS_RULES=push_down_sum_through_join"
-    sql "SET ENABLE_NEREIDS_RULES=push_down_count_through_join"
+    sql "SET ENABLE_NEREIDS_RULES=push_down_agg_through_join_one_side"
+    sql "SET ENABLE_NEREIDS_RULES=push_down_agg_through_join"
 
     sql """
         DROP TABLE IF EXISTS shunt_log_com_dd_library;

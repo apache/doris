@@ -53,6 +53,8 @@ protected:
     vectorized::MutableColumnPtr _tuple_is_null_left_flag_column = nullptr;
     vectorized::MutableColumnPtr _tuple_is_null_right_flag_column = nullptr;
 
+    size_t _mark_column_id = -1;
+
     RuntimeProfile::Counter* _probe_timer = nullptr;
     RuntimeProfile::Counter* _probe_rows_counter = nullptr;
     RuntimeProfile::Counter* _join_filter_timer = nullptr;

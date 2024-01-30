@@ -852,6 +852,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
         // can apply 'match qeury' and 'equal query' and 'list query' for fulltext index.
         return (pred_in_compound ? pred->type() == PredicateType::MATCH
                                  : (pred->type() == PredicateType::MATCH ||
+                                    pred->type() == PredicateType::IS_NULL ||
+                                    pred->type() == PredicateType::IS_NOT_NULL ||
                                     PredicateTypeTraits::is_equal_or_list(pred->type())));
     }
 

@@ -200,6 +200,8 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
                 RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
             }
             if (_shared_scan_opt) {
+                LOG(INFO) << "instance shared scan enabled"
+                          << print_id(state->fragment_instance_id());
                 _shared_scanner_controller->set_scanner_context(id(),
                                                                 _eos ? nullptr : _scanner_ctx);
             }
@@ -273,7 +275,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     reached_limit(block, eos);
     if (*eos) {
         // reach limit, stop the scanners.
-        _scanner_ctx->set_should_stop();
+        _scanner_ctx->stop_scanners(state);
     }
 
     return Status::OK();
@@ -318,8 +320,8 @@ Status VScanNode::_init_profile() {
     return Status::OK();
 }
 
-Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners,
-                                  const int query_parallel_instance_num) {
+void VScanNode::_start_scanners(const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
+                                const int query_parallel_instance_num) {
     if (_is_pipeline_scan) {
         int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
         _scanner_ctx = pipeline::PipScannerContext::create_shared(
@@ -330,39 +332,27 @@ Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners,
                                                      _output_row_descriptor.get(), scanners,
                                                      limit(), _state->scan_queue_mem_limit());
     }
-    return Status::OK();
 }
 
 Status VScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+
     RETURN_IF_ERROR(ExecNode::close(state));
     return Status::OK();
 }
 
 void VScanNode::release_resource(RuntimeState* state) {
     if (_scanner_ctx) {
-        if (!state->enable_pipeline_exec()) {
+        if (!state->enable_pipeline_exec() || _should_create_scanner) {
             // stop and wait the scanner scheduler to be done
             // _scanner_ctx may not be created for some short circuit case.
-            _scanner_ctx->set_should_stop();
-            _scanner_ctx->clear_and_join(this, state);
-        } else if (_should_create_scanner) {
-            _scanner_ctx->clear_and_join(this, state);
+            _scanner_ctx->stop_scanners(state);
         }
     }
-
+    _scanners.clear();
     ExecNode::release_resource(state);
-}
-
-Status VScanNode::try_close(RuntimeState* state) {
-    if (_scanner_ctx) {
-        // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
-        // TODO: there is a lock in `set_should_stop` may cause some slight impact
-        _scanner_ctx->set_should_stop();
-    }
-    return Status::OK();
 }
 
 Status VScanNode::_normalize_conjuncts() {
@@ -1330,11 +1320,18 @@ VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* 
 Status VScanNode::_prepare_scanners(const int query_parallel_instance_num) {
     std::list<VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
+    // Init scanner wrapper
+    for (auto it = scanners.begin(); it != scanners.end(); ++it) {
+        _scanners.emplace_back(std::make_shared<ScannerDelegate>(*it));
+    }
     if (scanners.empty()) {
         _eos = true;
     } else {
+        for (auto& scanner : scanners) {
+            scanner->set_query_statistics(_query_statistics.get());
+        }
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
-        RETURN_IF_ERROR(_start_scanners(scanners, query_parallel_instance_num));
+        _start_scanners(_scanners, query_parallel_instance_num);
     }
     return Status::OK();
 }

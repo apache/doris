@@ -52,6 +52,9 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         );
     """
 
+    sql """drop catalog ${file_ctl_name}""";
+    sql """drop catalog ${hms_ctl_name}""";
+
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
             def all = """select * from all_table order by c1;"""

@@ -550,6 +550,10 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         reset_offset((off / _size) * _size);
         return read_buffer(off, out, buf_len, bytes_read);
     }
+    auto start = std::chrono::steady_clock::now();
+    // The baseline time is calculated by dividing the size of each buffer by MB/s.
+    // If it exceeds this value, it is considered a slow I/O operation.
+    constexpr auto read_time_baseline = std::chrono::seconds(s_max_pre_buffer_size / 1024 / 1024);
     {
         std::unique_lock lck {_lock};
         // buffer must be prefetched or it's closed
@@ -565,6 +569,11 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         if (UNLIKELY(BufferStatus::CLOSED == _buffer_status)) {
             return Status::OK();
         }
+    }
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - start);
+    if (duration > read_time_baseline) [[unlikely]] {
+        LOG_WARNING("The prefetch io is too slow");
     }
     RETURN_IF_ERROR(_prefetch_status);
     // there is only parquet would do not sequence read

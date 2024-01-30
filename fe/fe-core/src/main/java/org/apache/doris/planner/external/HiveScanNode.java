@@ -18,7 +18,6 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -39,7 +38,6 @@ import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveTransaction;
-import org.apache.doris.datasource.hive.HiveVersionUtil;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
@@ -117,9 +115,6 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         super.doInitialize();
-        if (HiveVersionUtil.isHive1(hmsTable.getHiveVersion())) {
-            genSlotToSchemaIdMap();
-        }
 
         if (hmsTable.isHiveTransactionalTable()) {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
@@ -184,7 +179,7 @@ public class HiveScanNode extends FileQueryScanNode {
             // so that we can unify the interface.
             HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
                     hmsTable.getRemoteTable().getSd().getInputFormat(),
-                    hmsTable.getRemoteTable().getSd().getLocation(), null);
+                    hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
             this.totalPartitionNum = 1;
             this.readPartitionNum = 1;
             resPartitions.add(dummyPartition);
@@ -394,23 +389,6 @@ public class HiveScanNode extends FileQueryScanNode {
             fileAttributes.setTrimDoubleQuotes(true);
         }
         return fileAttributes;
-    }
-
-    // To Support Hive 1.x orc internal column name like (_col0, _col1, _col2...)
-    private void genSlotToSchemaIdMap() {
-        List<Column> baseSchema = desc.getTable().getBaseSchema();
-        Map<String, Integer> columnNameToPosition = Maps.newHashMap();
-        for (SlotDescriptor slot : desc.getSlots()) {
-            int idx = 0;
-            for (Column col : baseSchema) {
-                if (col.getName().equals(slot.getColumn().getName())) {
-                    columnNameToPosition.put(col.getName(), idx);
-                    break;
-                }
-                idx += 1;
-            }
-        }
-        params.setSlotNameToSchemaPos(columnNameToPosition);
     }
 
     @Override

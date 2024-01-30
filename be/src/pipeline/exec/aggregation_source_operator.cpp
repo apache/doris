@@ -17,6 +17,7 @@
 
 #include "aggregation_source_operator.h"
 
+#include <memory>
 #include <string>
 
 #include "common/exception.h"
@@ -141,13 +142,13 @@ Status AggLocalState::_reset_hash_table() {
                     }
                 });
 
-                ss.aggregate_data_container.reset(new vectorized::AggregateDataContainer(
+                ss.aggregate_data_container = std::make_unique<vectorized::AggregateDataContainer>(
                         sizeof(typename HashTableType::key_type),
                         ((ss.total_size_of_aggregate_states + ss.align_aggregate_states - 1) /
                          ss.align_aggregate_states) *
-                                ss.align_aggregate_states));
-                hash_table = HashTableType();
-                ss.agg_arena_pool.reset(new vectorized::Arena);
+                                ss.align_aggregate_states);
+                agg_method.hash_table.reset(new HashTableType());
+                ss.agg_arena_pool = std::make_unique<vectorized::Arena>();
                 return Status::OK();
             },
             ss.agg_data->method_variant);

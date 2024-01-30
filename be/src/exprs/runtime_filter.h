@@ -292,9 +292,7 @@ public:
     Status update_filter(const UpdateRuntimeFilterParams* param);
     Status update_filter(const UpdateRuntimeFilterParamsV2* param, int64_t start_apply);
 
-    void set_ignored() { _is_ignored = true; }
-
-    void set_ignored_msg(std::string& msg) { _ignored_msg = msg; }
+    void set_ignored(const std::string& msg);
 
     // for ut
     bool is_bloomfilter();

@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.MutableState.EmptyMutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
-import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -189,11 +188,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.mutableState = this.mutableState.set(key, state);
     }
 
-    /**
-     * used for PhysicalPlanTranslator only
-     * @return PlanNodeId
-     */
-    public PlanNodeId translatePlanNodeId() {
-        return id.toPlanNodeId();
+    public int getId() {
+        return id.asInt();
     }
 }

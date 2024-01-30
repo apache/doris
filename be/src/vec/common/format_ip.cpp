@@ -23,9 +23,6 @@
 #include <algorithm>
 #include <array>
 
-#include "vec/common/hex.h"
-#include "vec/core/types.h"
-
 namespace doris::vectorized {
 
 /** Further we want to generate constexpr array of strings with sizes from sequence of unsigned ints [0..N)

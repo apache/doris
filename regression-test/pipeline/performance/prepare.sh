@@ -39,23 +39,23 @@ EOF
 if ${DEBUG:-false}; then
     pull_request_num="28431"
     commit_id_from_trigger="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
-    commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
+    commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5" # teamcity checkout commit id
+    target_branch="master"
 fi
 echo "#### Check env"
-if [[ -z "${teamcity_build_checkoutDir}" ||
-    -z "${commit_id_from_trigger}" ||
-    -z ${commit_id:-} ||
-    -z ${pull_request_num:-} ]]; then
-    echo "ERROR: env teamcity_build_checkoutDir or commit_id_from_trigger
-    or commit_id or pull_request_num not set" && exit 1
-fi
+if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
+if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 1; fi
+if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
+if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 1; fi
+if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
+
 commit_id_from_checkout=${commit_id}
 
 echo "#### 1. check if need run"
 if [[ "${commit_id_from_trigger}" != "${commit_id_from_checkout}" ]]; then
     echo -e "从触发流水线 -> 流水线开始跑，这个时间段中如果有新commit，
-这时候流水线 checkout 出来的 commit 就不是触发时的传过来的 commit了，
-这种情况不需要跑，预期pr owner会重新触发。"
+这时候流水线 checkout 出来的 commit 就不是触发时的传过来的 commit 了，
+这种情况不需要跑，预期 pr owner 会重新触发。"
     echo -e "ERROR: PR(${pull_request_num}),
     the lastest commit id
     ${commit_id_from_checkout}
@@ -67,6 +67,13 @@ fi
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
+if [[ "${target_branch}" == "master" || "${target_branch}" == "branch-2.0" ]]; then
+    echo "INFO: PR target branch ${target_branch} is in (master, branch-2.0)"
+else
+    echo "WARNING: PR target branch ${target_branch} is NOT in (master, branch-2.0), skip pipeline."
+    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
+    exit 0
+fi
 # shellcheck source=/dev/null
 # _get_pr_changed_files file_changed_performance
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh
@@ -78,6 +85,7 @@ if _get_pr_changed_files "${pull_request_num}"; then
 fi
 
 echo "#### 2. check if tpch depending files exist"
+set -x
 if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh &&
@@ -85,6 +93,12 @@ if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-u
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/custom_env.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/conf/be_custom.conf &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/conf/fe_custom.conf &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/conf/opt_session_variables.sql &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/check-query-result.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/queries-sort.sql &&
+    -d "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/query-result-target/ &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/prepare.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/compile.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/deploy.sh &&
@@ -94,3 +108,9 @@ if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-u
     -f "${teamcity_build_checkoutDir}"/tools/tpcds-tools/bin/run-tpcds-queries.sh ]]; then
     echo "ERROR: depending files missing" && exit 1
 fi
+
+echo "#### 3. try to kill old doris process"
+# shellcheck source=/dev/null
+# stop_doris
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
+stop_doris

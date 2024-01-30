@@ -65,7 +65,7 @@ statement
     | explain? cte? DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
         (USING relation (COMMA relation)*)?
-        whereClause                                                    #delete
+        whereClause?                                                   #delete
     | LOAD LABEL lableName=identifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
         (withRemoteStorageSystem)?
@@ -97,11 +97,12 @@ statement
     | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #pauseMTMV
     | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #resumeMTMV
     | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier      #cancelMTMVTask
-    | ALTER TABLE table=relation
+    | ALTER TABLE table=multipartIdentifier
         ADD CONSTRAINT constraintName=errorCapturingIdentifier
         constraint                                                        #addConstraint
-    | ALTER TABLE table=relation
+    | ALTER TABLE table=multipartIdentifier
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
+    | SHOW CONSTRAINTS FROM table=multipartIdentifier                                 #showConstraint
     | CALL functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
     ;
 
@@ -175,7 +176,7 @@ identifierOrText
     ;
 
 userIdentify
-    : user=identifierOrText (AT (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
+    : user=identifierOrText (ATSIGN (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
     ;
 
 
@@ -334,13 +335,13 @@ relation
     ;
 
 joinRelation
-    : (joinType) JOIN joinHint? right=relationPrimary joinCriteria?
+    : (joinType) JOIN distributeType? right=relationPrimary joinCriteria?
     ;
 
 // Just like `opt_plan_hints` in legacy CUP parser.
-joinHint
-    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketJoinHint
-    | HINT_START identifier HINT_END                                  #commentJoinHint
+distributeType
+    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketDistributeType
+    | HINT_START identifier HINT_END                                  #commentDistributeType
     ;
 
 relationHint
@@ -349,7 +350,7 @@ relationHint
     ;
 
 aggClause
-    : GROUP BY groupingElement?
+    : GROUP BY groupingElement
     ;
 
 groupingElement
@@ -438,12 +439,16 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition?
+    : multipartIdentifier materializedViewName? specifiedPartition?
        tabletList? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                               #tableValuedFunction
+    ;
+
+materializedViewName
+    : INDEX indexName=identifier
     ;
 
 propertyClause

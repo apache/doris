@@ -81,6 +81,12 @@ public class JdbcTable extends Table {
     private String driverUrl;
     private String checkSum;
 
+    private int minPoolSize = 1;
+    private int maxPoolSize = 100;
+    private int maxIdleTime = 30000;
+    private int maxWaitTime = 5000;
+    private boolean keepAlive = false;
+
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
         tempMap.put("nebula", TOdbcTableType.NEBULA);
@@ -163,6 +169,26 @@ public class JdbcTable extends Table {
         return getFromJdbcResourceOrDefault(JdbcResource.DRIVER_URL, driverUrl);
     }
 
+    public int getMinPoolSize() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.MIN_POOL_SIZE, String.valueOf(minPoolSize)));
+    }
+
+    public int getMaxPoolSize() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.MAX_POOL_SIZE, String.valueOf(maxPoolSize)));
+    }
+
+    public int getMaxIdleTime() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.MAX_IDLE_TIME, String.valueOf(maxIdleTime)));
+    }
+
+    public int getMaxWaitTime() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.MAX_WAIT_TIME, String.valueOf(maxWaitTime)));
+    }
+
+    public boolean getKeepAlive() {
+        return Boolean.parseBoolean(getFromJdbcResourceOrDefault(JdbcResource.KEEP_ALIVE, String.valueOf(keepAlive)));
+    }
+
     private String getFromJdbcResourceOrDefault(String key, String defaultVal) {
         if (Strings.isNullOrEmpty(resourceName)) {
             return defaultVal;
@@ -185,6 +211,11 @@ public class JdbcTable extends Table {
         tJdbcTable.setJdbcDriverUrl(getDriverUrl());
         tJdbcTable.setJdbcResourceName(resourceName);
         tJdbcTable.setJdbcDriverChecksum(checkSum);
+        tJdbcTable.setJdbcMinPoolSize(getMinPoolSize());
+        tJdbcTable.setJdbcMaxPoolSize(getMaxPoolSize());
+        tJdbcTable.setJdbcMaxIdleTime(getMaxIdleTime());
+        tJdbcTable.setJdbcMaxWaitTime(getMaxWaitTime());
+        tJdbcTable.setJdbcKeepAlive(getKeepAlive());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.JDBC_TABLE, fullSchema.size(), 0,
                 getName(), "");
         tTableDescriptor.setJdbcTable(tJdbcTable);

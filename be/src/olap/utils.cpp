@@ -652,21 +652,11 @@ bool valid_bool(const std::string& value_str) {
 }
 
 bool valid_ipv4(const std::string& value_str) {
-    if (value_str.size() == 0) {
-        return false;
-    }
-
-    vectorized::IPv4 value = 0;
-    return IPv4Value::from_string(value, value_str);
+    return IPv4Value::is_valid_string(value_str.c_str(), value_str.size());
 }
 
 bool valid_ipv6(const std::string& value_str) {
-    if (value_str.size() == 0) {
-        return false;
-    }
-
-    vectorized::IPv6 value;
-    return IPv6Value::from_string(value, value_str);
+    return IPv6Value::is_valid_string(value_str.c_str(), value_str.size());
 }
 
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...) {

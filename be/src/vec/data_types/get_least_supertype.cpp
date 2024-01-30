@@ -291,9 +291,7 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type) {
                         typeid_cast<const DataTypeNullable*>(type.get())) {
                 have_nullable = true;
 
-                if (!type_nullable->only_null()) {
-                    nested_types.emplace_back(type_nullable->get_nested_type());
-                }
+                nested_types.emplace_back(type_nullable->get_nested_type());
             } else {
                 nested_types.emplace_back(type);
             }

@@ -109,7 +109,7 @@ Status VMysqlTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     return Status::OK();
 }
 
-Status VMysqlTableWriter::append_block(vectorized::Block& block) {
+Status VMysqlTableWriter::write(vectorized::Block& block) {
     Block output_block;
     RETURN_IF_ERROR(_projection_block(block, &output_block));
     auto num_rows = output_block.rows();

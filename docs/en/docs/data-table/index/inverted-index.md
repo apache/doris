@@ -51,6 +51,9 @@ The features for inverted index is as follows:
 
 - add fulltext search on text(string, varchar, char) field
   - MATCH_ALL matches all keywords, MATCH_ANY matches any keywords
+  - support phrase query MATCH_PHRASE
+  - support phrase + prefix query MATCH_PHRASE_PREFIX
+  - support regexp query MATCH_REGEXP
   - support fulltext on array of text field
   - support english, chinese and mixed unicode word parser
 - accelerate normal equal, range query, replacing bitmap index in the future
@@ -180,6 +183,15 @@ SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword1 keyword2';
 
 -- 1.4 find rows that logmsg contains both keyword1 and keyword2, and in the order of keyword1 appearing first and keyword2 appearing later.
 SELECT * FROM table_name WHERE logmsg MATCH_PHRASE 'keyword1 keyword2';
+
+-- 1.5 perform prefix matching on the last word "keyword2" while maintaining the order of words, defaulting to finding 50 prefix words (controlled by the session variable inverted_index_max_expansions)
+SELECT * FROM table_name WHERE logmsg MATCH_PHRASE_PREFIX 'keyword1 keyword2';
+
+-- 1.6 If only one word is entered, it degrades to a prefix query, defaulting to finding 50 prefix words (controlled by the session variable inverted_index_max_expansions)
+SELECT * FROM table_name WHERE logmsg MATCH_PHRASE_PREFIX 'keyword1';
+
+-- 1.7 perform regex matching on the tokenized words, defaulting to matching 50 tokens (controlled by the session variable inverted_index_max_expansions)
+SELECT * FROM table_name WHERE logmsg MATCH_REGEXP 'key*';
 
 -- 2. normal equal, range query
 SELECT * FROM table_name WHERE id = 123;

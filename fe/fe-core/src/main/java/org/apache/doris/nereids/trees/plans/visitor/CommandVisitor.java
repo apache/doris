@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 
 /** CommandVisitor. */
@@ -106,6 +107,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropConstraintCommand(DropConstraintCommand dropConstraintCommand, C context) {
         return visitCommand(dropConstraintCommand, context);
+    }
+
+    default R visitShowConstraintsCommand(ShowConstraintsCommand showConstraintsCommand, C context) {
+        return visitCommand(showConstraintsCommand, context);
     }
 
     default R visitRefreshMTMVCommand(RefreshMTMVCommand refreshMTMVCommand, C context) {

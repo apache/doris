@@ -24,6 +24,7 @@
 
 #include "util/string_parser.hpp"
 #include "vec/common/format_ip.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -43,21 +44,29 @@ public:
 
     std::string to_string() const { return to_string(_value); }
 
-    static bool from_string(vectorized::IPv4& value, const std::string& ipv4_str) {
-        if (ipv4_str.empty()) {
+    static bool from_string(vectorized::IPv4& value, const char* ipv4_str, size_t len) {
+        if (len == 0) {
             return false;
         }
         int64_t parse_value;
-        const char* src = ipv4_str.c_str();
-        const char* end = ipv4_str.c_str() + ipv4_str.size() - 1;
-        while (std::isspace(*src)) ++src;
-        while (std::isspace(*end)) --end;
-        if (!vectorized::parseIPv4whole(src, ++end,
+        size_t begin = 0;
+        size_t end = len - 1;
+        while (begin < len && std::isspace(ipv4_str[begin])) {
+            ++begin;
+        }
+        while (end > begin && std::isspace(ipv4_str[end])) {
+            --end;
+        }
+        if (!vectorized::parseIPv4whole(ipv4_str + begin, ipv4_str + end + 1,
                                         reinterpret_cast<unsigned char*>(&parse_value))) {
             return false;
         }
         value = static_cast<vectorized::IPv4>(parse_value);
         return true;
+    }
+
+    static bool from_string(vectorized::IPv4& value, const std::string& ipv4_str) {
+        return from_string(value, ipv4_str.c_str(), ipv4_str.size());
     }
 
     static std::string to_string(vectorized::IPv4 value) {
@@ -68,6 +77,23 @@ public:
         vectorized::formatIPv4(src, end);
         size_t len = end - start;
         return {buf, len};
+    }
+
+    static bool is_valid_string(const char* ipv4_str, size_t len) {
+        if (len == 0) {
+            return false;
+        }
+        int64_t parse_value;
+        size_t begin = 0;
+        size_t end = len - 1;
+        while (begin < len && std::isspace(ipv4_str[begin])) {
+            ++begin;
+        }
+        while (end > begin && std::isspace(ipv4_str[end])) {
+            --end;
+        }
+        return vectorized::parseIPv4whole(ipv4_str + begin, ipv4_str + end + 1,
+                                          reinterpret_cast<unsigned char*>(&parse_value));
     }
 
 private:

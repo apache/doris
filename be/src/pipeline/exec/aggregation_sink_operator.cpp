@@ -536,7 +536,7 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
                 agg_method.init_serialized_keys(key_columns, num_rows);
 
                 auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
+                    HashMethodType::try_presis_key_and_origin(key, origin, *_agg_arena_pool);
                     auto mapped =
                             Base::_shared_state->aggregate_data_container->append_data(origin);
                     auto st = _create_agg_status(mapped);
@@ -656,9 +656,8 @@ void AggSinkLocalState<DependencyType, Derived>::_init_hash_method(
                 is_nullable);
     } else {
         if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32,
-                                            vectorized::AggregateDataPtr,
-                                            vectorized::AggregatedMethodVariants>(
-                    _agg_data->method_variant, probe_exprs)) {
+                                            vectorized::AggregateDataPtr>(_agg_data->method_variant,
+                                                                          probe_exprs)) {
             _agg_data->init(Type::serialized);
         }
     }
@@ -686,7 +685,7 @@ Status AggSinkLocalState<DependencyType, Derived>::_reset_hash_table() {
                         ((ss.total_size_of_aggregate_states + ss.align_aggregate_states - 1) /
                          ss.align_aggregate_states) *
                                 ss.align_aggregate_states));
-                hash_table = HashTableType();
+                agg_method.hash_table.reset(new HashTableType());
                 ss.agg_arena_pool.reset(new vectorized::Arena);
                 return Status::OK();
             },
@@ -734,7 +733,8 @@ AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operato
           _limit(tnode.limit),
           _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
           _is_streaming(is_streaming),
-          _partition_exprs(tnode.agg_node.grouping_exprs),
+          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
+                                                               : std::vector<TExpr> {}),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate) {}
 
 template <typename LocalStateType>

@@ -60,7 +60,7 @@ SET GLOBAL enable_file_cache = true;
 |  参数   | 必选项 | 说明  |
 |  ---  | ---  | --- |
 | `enable_file_cache`  | 是 | 是否启用 File Cache，默认 false |
-| `file_cache_path` | 是 | 缓存目录的相关配置，json格式，例子: `[{"path": "/path/to/file_cache1", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache2", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache3", "total_size":53687091200,"query_limit": 10737418240}]`。`path` 是缓存的保存路径，`total_size` 是缓存的大小上限，`query_limit` 是单个查询能够使用的最大缓存大小。 |
+| `file_cache_path` | 是 | 缓存目录的相关配置，json格式，例子: `[{"path": "/path/to/file_cache1", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache2", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache3", "total_size":53687091200,"query_limit": 10737418240, "normal_percent":85, "disposable_percent":10, "index_percent":5}]`。`path` 是缓存的保存路径，`total_size` 是缓存的大小上限，`query_limit` 是单个查询能够使用的最大缓存大小，`normal_percent, disposable_percent, index_percent` 3个cache队列的百分比，他们之和是100 |
 | `file_cache_min_file_segment_size` | 否 | 单个 Block 的大小下限，默认 1MB，需要大于 4096 |
 | `file_cache_max_file_segment_size` | 否 | 单个 Block 的大小上限，默认 4MB，需要大于 4096 |
 | `enable_file_cache_query_limit` | 否 | 是否限制单个 query 使用的缓存大小，默认 false |

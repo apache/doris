@@ -242,7 +242,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
-                    Assertions.assertEquals("Slot((v1 + 1)) in sum((v1 + 1)) is neither key column nor value column.",
+                    Assertions.assertEquals("do not support compound expression [(v1 + 1)] in SUM.",
                             preAgg.getOffReason());
                     return true;
                 }));

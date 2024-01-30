@@ -95,12 +95,12 @@ void DistinctAggregationNode::_emplace_into_hash_table_to_distinct(IColumn::Sele
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
                     ctor(key, dummy_mapped_data);
-                    distinct_row.push_back(row);
+                    distinct_row.push_back_without_reserve(row);
                 };
 
                 auto creator_for_null_key = [&](auto& mapped) {
                     mapped = dummy_mapped_data;
-                    distinct_row.push_back(row);
+                    distinct_row.push_back_without_reserve(row);
                 };
 
                 SCOPED_TIMER(_hash_table_emplace_timer);

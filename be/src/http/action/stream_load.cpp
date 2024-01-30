@@ -39,6 +39,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
@@ -214,7 +215,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         HttpChannel::send_reply(req, str);
         streaming_load_current_processing->increment(-1);
 #ifndef BE_TEST
-        if (config::enable_stream_load_record) {
+        if (config::enable_stream_load_record && !config::is_cloud_mode()) {
             str = ctx->prepare_stream_load_record(str);
             _save_stream_load_record(ctx, str);
         }
@@ -674,7 +675,8 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
 
 void StreamLoadAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
                                                 const std::string& str) {
-    auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
+    auto stream_load_recorder =
+            ExecEnv::GetInstance()->storage_engine().to_local().get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
         std::string key =
                 std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;

@@ -47,7 +47,8 @@ public:
     TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id, LoadStreamMgr* load_stream_mgr,
                  RuntimeProfile* profile);
 
-    Status init(OlapTableSchemaParam* schema, int64_t index_id, int64_t partition_id);
+    Status init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
+                int64_t partition_id);
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
@@ -135,7 +136,7 @@ private:
 
     void _report_result(StreamId stream, const Status& status,
                         const std::vector<int64_t>& success_tablet_ids,
-                        const FailedTablets& failed_tablets);
+                        const FailedTablets& failed_tablets, bool eos);
     void _report_schema(StreamId stream, const PStreamHeader& hdr);
 
     // report failure for one message
@@ -144,8 +145,10 @@ private:
         if (header.has_tablet_id()) {
             failed_tablets.emplace_back(header.tablet_id(), status);
         }
-        _report_result(stream, status, {}, failed_tablets);
+        _report_result(stream, status, {}, failed_tablets, false);
     }
+
+    Status _write_stream(StreamId stream, butil::IOBuf& buf);
 
 private:
     PUniqueId _load_id;

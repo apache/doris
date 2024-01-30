@@ -62,7 +62,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +73,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class RoutineLoadManager implements Writable {
@@ -251,7 +255,7 @@ public class RoutineLoadManager implements Writable {
             if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
                     dbFullName,
                     PrivPredicate.LOAD)) {
-                //todo add new error code
+                // todo add new error code
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(),
@@ -579,7 +583,7 @@ public class RoutineLoadManager implements Writable {
       else return all of result
      */
     public List<RoutineLoadJob> getJob(String dbFullName, String jobName,
-                                       boolean includeHistory, PatternMatcher matcher)
+            boolean includeHistory, PatternMatcher matcher)
             throws MetaNotFoundException {
         Preconditions.checkArgument(jobName == null || matcher == null,
                 "jobName and matcher cannot be not null at the same time");
@@ -683,19 +687,55 @@ public class RoutineLoadManager implements Writable {
 
     // Remove old routine load jobs from idToRoutineLoadJob
     // This function is called periodically.
-    // Cancelled and stopped job will be remove after Configure.label_keep_max_second seconds
+    // Cancelled and stopped job will be removed after Configure.label_keep_max_second seconds
     public void cleanOldRoutineLoadJobs() {
         LOG.debug("begin to clean old routine load jobs ");
+        clearRoutineLoadJobIf(RoutineLoadJob::isExpired);
+    }
+
+    /**
+     * Remove finished routine load jobs from idToRoutineLoadJob
+     * This function is called periodically if Config.label_num_threshold is set.
+     * Cancelled and stopped job will be removed.
+     */
+    public void cleanOverLimitRoutineLoadJobs() {
+        if (Config.label_num_threshold < 0
+                || idToRoutineLoadJob.size() <= Config.label_num_threshold) {
+            return;
+        }
+        writeLock();
+        try {
+            LOG.debug("begin to clean routine load jobs");
+            Deque<RoutineLoadJob> finishedJobs = idToRoutineLoadJob
+                    .values()
+                    .stream()
+                    .filter(RoutineLoadJob::isFinal)
+                    .sorted(Comparator.comparingLong(o -> o.endTimestamp))
+                    .collect(Collectors.toCollection(ArrayDeque::new));
+            while (!finishedJobs.isEmpty()
+                    && idToRoutineLoadJob.size() > Config.label_num_threshold) {
+                RoutineLoadJob routineLoadJob = finishedJobs.pollFirst();
+                unprotectedRemoveJobFromDb(routineLoadJob);
+                idToRoutineLoadJob.remove(routineLoadJob.getId());
+                RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
+                        routineLoadJob.getState());
+                Env.getCurrentEnv().getEditLog().logRemoveRoutineLoadJob(operation);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void clearRoutineLoadJobIf(Predicate<RoutineLoadJob> pred) {
         writeLock();
         try {
             Iterator<Map.Entry<Long, RoutineLoadJob>> iterator = idToRoutineLoadJob.entrySet().iterator();
             long currentTimestamp = System.currentTimeMillis();
             while (iterator.hasNext()) {
                 RoutineLoadJob routineLoadJob = iterator.next().getValue();
-                if (routineLoadJob.needRemove()) {
+                if (pred.test(routineLoadJob)) {
                     unprotectedRemoveJobFromDb(routineLoadJob);
                     iterator.remove();
-
                     RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
                             routineLoadJob.getState());
                     Env.getCurrentEnv().getEditLog().logRemoveRoutineLoadJob(operation);

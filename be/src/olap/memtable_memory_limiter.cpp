@@ -67,6 +67,7 @@ Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
                                                        "MemTableMemoryLimiter");
     REGISTER_HOOK_METRIC(memtable_memory_limiter_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
+    _log_timer.start();
     return Status::OK();
 }
 
@@ -203,17 +204,31 @@ int64_t MemTableMemoryLimiter::_flush_memtable(std::weak_ptr<MemTableWriter> wri
 void MemTableMemoryLimiter::refresh_mem_tracker() {
     std::lock_guard<std::mutex> l(_lock);
     _refresh_mem_tracker();
+    std::stringstream ss;
+    Limit limit = Limit::NONE;
     if (_soft_limit_reached()) {
-        LOG(INFO) << "reached " << (_hard_limit_reached() ? "hard" : "soft") << " limit"
-                  << ", process mem: " << PerfCounters::get_vm_rss_str()
-                  << " (without allocator cache: "
-                  << PrettyPrinter::print_bytes(MemInfo::proc_mem_no_allocator_cache())
-                  << "), load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
-                  << ", memtable writers num: " << _writers.size()
-                  << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
-                  << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
-                  << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
+        limit = _hard_limit_reached() ? Limit::HARD : Limit::SOFT;
+        ss << "reached " << (limit == Limit::HARD ? "hard" : "soft") << " limit";
+    } else if (_last_limit == Limit::NONE) {
+        return;
+    } else {
+        ss << "ended " << (_last_limit == Limit::HARD ? "hard" : "soft") << " limit";
     }
+
+    if (_last_limit == limit && _log_timer.elapsed_time() < LOG_INTERVAL) {
+        return;
+    }
+
+    _last_limit = limit;
+    _log_timer.reset();
+    LOG(INFO) << ss.str() << ", process mem: " << PerfCounters::get_vm_rss_str()
+              << " (without allocator cache: "
+              << PrettyPrinter::print_bytes(MemInfo::proc_mem_no_allocator_cache())
+              << "), load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
+              << ", memtable writers num: " << _writers.size()
+              << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
+              << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
+              << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
 }
 
 void MemTableMemoryLimiter::_refresh_mem_tracker() {

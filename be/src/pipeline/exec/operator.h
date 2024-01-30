@@ -19,20 +19,16 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
-#include <ostream>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -105,7 +101,7 @@ using OperatorBuilders = std::vector<OperatorBuilderPtr>;
 
 class OperatorBuilderBase {
 public:
-    OperatorBuilderBase(int32_t id, const std::string& name) : _id(id), _name(name) {}
+    OperatorBuilderBase(int32_t id, std::string name) : _id(id), _name(std::move(name)) {}
 
     virtual ~OperatorBuilderBase() = default;
 
@@ -173,14 +169,6 @@ public:
     virtual bool is_sink() const;
 
     virtual bool is_source() const;
-
-    virtual Status collect_query_statistics(QueryStatistics* statistics) { return Status::OK(); };
-
-    virtual Status collect_query_statistics(QueryStatistics* statistics, int sender_id) {
-        return Status::OK();
-    };
-
-    virtual void set_query_statistics(std::shared_ptr<QueryStatistics>) {};
 
     virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
@@ -251,8 +239,6 @@ public:
      */
     virtual bool is_pending_finish() const { return false; }
 
-    virtual Status try_close(RuntimeState* state) { return Status::OK(); }
-
     bool is_closed() const { return _is_closed; }
 
     const OperatorBuilderBase* operator_builder() const { return _operator_builder; }
@@ -301,11 +287,7 @@ public:
         return Status::OK();
     }
 
-    Status try_close(RuntimeState* state) override {
-        return _sink->try_close(state, state->query_status());
-    }
-
-    [[nodiscard]] bool is_pending_finish() const override { return !_sink->is_close_done(); }
+    [[nodiscard]] bool is_pending_finish() const override { return _sink->is_pending_finish(); }
 
     Status close(RuntimeState* state) override {
         if (is_closed()) {
@@ -317,9 +299,6 @@ public:
     }
 
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override { return _sink->profile(); }
-    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override {
-        _sink->set_query_statistics(statistics);
-    }
 
 protected:
     DataSinkType* _sink = nullptr;
@@ -344,10 +323,7 @@ public:
         return Status::OK();
     }
 
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(_node->alloc_resource(state));
-        return Status::OK();
-    }
+    Status open(RuntimeState* state) override { return _node->alloc_resource(state); }
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
@@ -383,16 +359,6 @@ public:
 
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
         return _node->runtime_profile();
-    }
-
-    Status collect_query_statistics(QueryStatistics* statistics) override {
-        RETURN_IF_ERROR(_node->collect_query_statistics(statistics));
-        return Status::OK();
-    }
-
-    Status collect_query_statistics(QueryStatistics* statistics, int sender_id) override {
-        RETURN_IF_ERROR(_node->collect_query_statistics(statistics, sender_id));
-        return Status::OK();
     }
 
 protected:
@@ -434,8 +400,7 @@ class StatefulOperator : public StreamingOperator<StatefulNodeType> {
 public:
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : StreamingOperator<StatefulNodeType>(builder, node),
-              _child_block(vectorized::Block::create_shared()),
-              _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
+              _child_block(vectorized::Block::create_shared()) {}
 
     virtual ~StatefulOperator() = default;
 
@@ -475,7 +440,7 @@ public:
 
 protected:
     std::shared_ptr<vectorized::Block> _child_block;
-    SourceState _child_source_state;
+    SourceState _child_source_state {SourceState::DEPEND_ON_SOURCE};
 };
 
 } // namespace doris::pipeline

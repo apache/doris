@@ -47,9 +47,9 @@ PhysicalResultSink
 
 -- !eliminate_not_null_with_subquery --
 PhysicalResultSink
---hashJoin[LEFT_SEMI_JOIN] hashCondition=((t.score = t.score)) otherCondition=() build RFs:RF0 score->[score]
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t.score = t.score)) otherCondition=()
 ----filter(( not score IS NULL) and (t.score > 0))
-------PhysicalOlapScan[t] apply RFs: RF0
+------PhysicalOlapScan[t]
 ----filter((t.score > 0))
 ------PhysicalOlapScan[t]
 

@@ -30,6 +30,7 @@
 #include <chrono> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
+#include <cstring>
 #include <exception>
 #include <string>
 #include <string_view>
@@ -1588,11 +1589,24 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     //    so we only need to set date part
     // 3. if both are true, means all part of date_time be set, no need check_range_and_set_time
     bool already_set_date_part = yearday > 0 || (week_num >= 0 && weekday > 0);
-    if (already_set_date_part && already_set_time_part) return true;
-    if (already_set_date_part)
+    if (already_set_date_part && already_set_time_part) {
+        return true;
+    }
+    // for two special date cases, complete default month/day
+    if (!time_part_used && year > 0) {
+        if (std::string_view {format, end} == "%Y") {
+            month = day = 1;
+        } else if (std::string_view {format, end} == "%Y-%m") {
+            day = 1;
+        }
+    }
+
+    if (already_set_date_part) {
         return check_range_and_set_time(_year, _month, _day, hour, minute, second, _type);
-    if (already_set_time_part)
+    }
+    if (already_set_time_part) {
         return check_range_and_set_time(year, month, day, _hour, _minute, _second, _type);
+    }
 
     return check_range_and_set_time(year, month, day, hour, minute, second, _type);
 }
@@ -2578,6 +2592,16 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                                             date_v2_value_.day_, 0, 0, 0, 0);
         }
     }
+
+    // for two special date cases, complete default month/day
+    if (!time_part_used && year > 0) {
+        if (std::string_view {format, end} == "%Y") {
+            month = day = 1;
+        } else if (std::string_view {format, end} == "%Y-%m") {
+            day = 1;
+        }
+    }
+
     if (already_set_time_part) {
         if constexpr (is_datetime) {
             return check_range_and_set_time(year, month, day, date_v2_value_.hour_,
@@ -2668,17 +2692,14 @@ char* DateV2Value<T>::to_string(char* to, int scale) const {
     return to + len + 1;
 }
 
-template <typename T>
-typename DateV2Value<T>::underlying_value DateV2Value<T>::to_date_int_val() const {
-    return int_val_;
-}
 // [1900-01-01, 2039-12-31]
-static std::array<DateV2Value<DateV2ValueType>, date_day_offset_dict::DICT_DAYS>
-        DATE_DAY_OFFSET_ITEMS;
-// [1900-01-01, 2039-12-31]
-static std::array<std::array<std::array<int, 31>, 12>, 140> DATE_DAY_OFFSET_DICT;
+std::array<DateV2Value<DateV2ValueType>, date_day_offset_dict::DICT_DAYS>
+        date_day_offset_dict::DATE_DAY_OFFSET_ITEMS;
 
-static bool DATE_DAY_OFFSET_ITEMS_INIT = false;
+// [1900-01-01, 2039-12-31]
+std::array<std::array<std::array<int, 31>, 12>, 140> date_day_offset_dict::DATE_DAY_OFFSET_DICT;
+
+bool date_day_offset_dict::DATE_DAY_OFFSET_ITEMS_INIT = false;
 
 date_day_offset_dict date_day_offset_dict::instance = date_day_offset_dict();
 
@@ -2716,16 +2737,6 @@ date_day_offset_dict::date_day_offset_dict() {
     }
 
     DATE_DAY_OFFSET_ITEMS_INIT = true;
-}
-
-DateV2Value<DateV2ValueType> date_day_offset_dict::operator[](int day) const {
-    int index = day + DAY_BEFORE_EPOCH;
-    if (LIKELY(index >= 0 && index < DICT_DAYS)) {
-        return DATE_DAY_OFFSET_ITEMS[index];
-    } else {
-        DateV2Value<DateV2ValueType> d = DATE_DAY_OFFSET_ITEMS[0];
-        return d += index;
-    }
 }
 
 int date_day_offset_dict::daynr(int year, int month, int day) const {

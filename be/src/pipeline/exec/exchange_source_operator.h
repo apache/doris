@@ -113,10 +113,6 @@ public:
     [[nodiscard]] int num_senders() const { return _num_senders; }
     [[nodiscard]] bool is_merging() const { return _is_merging; }
 
-    std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr() {
-        return _sub_plan_query_statistics_recvr;
-    }
-
     DataDistribution required_data_distribution() const override {
         if (OperatorX<ExchangeLocalState>::ignore_data_distribution()) {
             return {ExchangeType::NOOP};
@@ -134,7 +130,6 @@ private:
     const bool _is_merging;
     const TPartitionType::type _partition_type;
     RowDescriptor _input_row_desc;
-    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     // use in merge sort
     size_t _offset;

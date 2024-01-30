@@ -79,6 +79,10 @@ public abstract class Edge {
         return LongBitmap.getCardinality(leftExtendedNodes) == 1 && LongBitmap.getCardinality(rightExtendedNodes) == 1;
     }
 
+    public boolean isRightSimple() {
+        return LongBitmap.getCardinality(rightExtendedNodes) == 1;
+    }
+
     public void addLeftRejectEdge(JoinEdge edge) {
         leftRejectEdges.add(edge);
     }
@@ -211,10 +215,22 @@ public abstract class Edge {
         return getExpressions().get(i);
     }
 
+    public String getTypeName() {
+        if (this instanceof FilterEdge) {
+            return "FILTER";
+        } else {
+            return ((JoinEdge) this).getJoinType().toString();
+        }
+    }
+
     @Override
     public String toString() {
-        return String.format("<%s - %s>", LongBitmap.toString(leftExtendedNodes), LongBitmap.toString(
-                rightExtendedNodes));
+        if (!leftRejectEdges.isEmpty() || !rightRejectEdges.isEmpty()) {
+            return String.format("<%s --%s-- %s>[%s , %s]", LongBitmap.toString(leftExtendedNodes),
+                    this.getTypeName(), LongBitmap.toString(rightExtendedNodes), leftRejectEdges, rightRejectEdges);
+        }
+        return String.format("<%s --%s-- %s>", LongBitmap.toString(leftExtendedNodes),
+                this.getTypeName(), LongBitmap.toString(rightExtendedNodes));
     }
 }
 
