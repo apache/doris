@@ -197,6 +197,7 @@ public class MaterializedViewUtils {
                 IncrementCheckerContext context) {
             if (join.isMarkJoin()) {
                 context.setPctPossible(false);
+                return null;
             }
             Plan left = join.child(0);
             Set<Column> leftColumnSet = left.getOutputSet().stream()

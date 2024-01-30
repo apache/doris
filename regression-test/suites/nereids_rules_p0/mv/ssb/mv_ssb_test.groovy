@@ -204,7 +204,6 @@ suite("mv_ssb_test") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 
 
-
     def mv2_1 = """
             SELECT SUM(lo_revenue), d_year, p_brand
             FROM lineorder, date, part, supplier

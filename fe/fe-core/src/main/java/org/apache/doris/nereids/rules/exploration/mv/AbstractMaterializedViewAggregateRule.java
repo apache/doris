@@ -42,10 +42,13 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
@@ -231,13 +234,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 })
                 .collect(Collectors.toList());
         finalOutputExpressions = finalOutputExpressions.stream()
-                .map(expr -> {
-                    ExprId exprId = expr.getExprId();
-                    if (projectOutPutExprIdMap.containsKey(exprId)) {
-                        return projectOutPutExprIdMap.get(exprId);
-                    }
-                    return expr;
-                })
+                .map(expr -> projectOutPutExprIdMap.containsKey(expr.getExprId())
+                        ? projectOutPutExprIdMap.get(expr.getExprId()) : expr)
                 .collect(Collectors.toList());
         return new LogicalAggregate(finalGroupExpressions, finalOutputExpressions, mvProject);
     }
@@ -327,15 +325,15 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
     private Pair<Set<? extends Expression>, Set<? extends Expression>> topPlanSplitToGroupAndFunction(
             Pair<Plan, LogicalAggregate<Plan>> topPlanAndAggPair) {
-        LogicalAggregate<Plan> queryAggregate = topPlanAndAggPair.value();
-        Set<Expression> queryAggGroupSet = new HashSet<>(queryAggregate.getGroupByExpressions());
+        LogicalAggregate<Plan> bottomQueryAggregate = topPlanAndAggPair.value();
+        Set<Expression> groupByExpressionSet = new HashSet<>(bottomQueryAggregate.getGroupByExpressions());
         // when query is bitmap_count(bitmap_union), the plan is as following:
         // project(bitmap_count()#1)
         //    aggregate(bitmap_union()#2)
         // we should use exprId which query top plan used to decide the query top plan is use the
         // bottom agg function or not
-        Set<ExprId> queryAggFunctionSet = queryAggregate.getOutputExpressions().stream()
-                .filter(expr -> !queryAggGroupSet.contains(expr))
+        Set<ExprId> bottomAggregateFunctionExprIdSet = bottomQueryAggregate.getOutput().stream()
+                .filter(expr -> !groupByExpressionSet.contains(expr))
                 .map(NamedExpression::getExprId)
                 .collect(Collectors.toSet());
 
@@ -343,8 +341,13 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         Set<Expression> topGroupByExpressions = new HashSet<>();
         Set<Expression> topFunctionExpressions = new HashSet<>();
         queryTopPlan.getOutput().forEach(expression -> {
-            if (expression.anyMatch(expr -> expr instanceof NamedExpression
-                    && queryAggFunctionSet.contains(((NamedExpression) expr).getExprId()))) {
+            ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                    new ExpressionLineageReplacer.ExpressionReplaceContext(ImmutableList.of(expression),
+                            ImmutableSet.of(), ImmutableSet.of());
+            queryTopPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+            if (!Sets.intersection(bottomAggregateFunctionExprIdSet,
+                    replaceContext.getExprIdExpressionMap().keySet()).isEmpty()) {
+                // if query top plan expression use any aggregate function, then consider it is aggregate function
                 topFunctionExpressions.add(expression);
             } else {
                 topGroupByExpressions.add(expression);
