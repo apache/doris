@@ -137,7 +137,7 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
 OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                     bool enable_lazy_mat, std::vector<orc::TypeKind>* cannot_predict_type)
+                     bool enable_lazy_mat, std::vector<orc::TypeKind>* unsupported_pushdown_types)
         : _profile(profile),
           _state(state),
           _scan_params(params),
@@ -149,7 +149,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
           _is_dict_cols_converted(false),
-          _unsupported_pushdown_types(cannot_predict_type) {
+          _unsupported_pushdown_types(unsupported_pushdown_types) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);

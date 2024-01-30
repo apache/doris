@@ -131,7 +131,7 @@ public:
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
               io::IOContext* io_ctx, bool enable_lazy_mat = true,
-              std::vector<orc::TypeKind>* cannot_predict_type = nullptr);
+              std::vector<orc::TypeKind>* unsupported_pushdown_types = nullptr);
 
     OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::string& ctz, io::IOContext* io_ctx, bool enable_lazy_mat = true);
