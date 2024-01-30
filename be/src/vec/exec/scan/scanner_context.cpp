@@ -273,7 +273,7 @@ bool ScannerContext::empty_in_queue(int id) {
 }
 
 Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block,
-                                            bool* eos, int id, bool wait) {
+                                            bool* eos, int id) {
     std::vector<vectorized::BlockUPtr> merge_blocks;
     {
         std::unique_lock l(_transfer_lock);
@@ -295,9 +295,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         }
 
         // Wait for block from queue
-        if (wait) {
-            // scanner batch wait time
+        {
             SCOPED_TIMER(_scanner_wait_batch_timer);
+            // scanner batch wait time
             while (!(!_blocks_queue.empty() || done() || !status().ok() || state->is_cancelled())) {
                 if (!is_scheduled && _num_running_scanners == 0 && should_be_scheduled()) {
                     LOG(INFO) << debug_string();
