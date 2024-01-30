@@ -179,74 +179,78 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     public void updateCloudClusterMap(List<Backend> toAdd, List<Backend> toDel) {
         lock.lock();
-        Set<String> clusterNameSet = new HashSet<>();
-        for (Backend b : toAdd) {
-            String clusterName = b.getCloudClusterName();
-            String clusterId = b.getCloudClusterId();
-            if (clusterName.isEmpty() || clusterId.isEmpty()) {
-                LOG.warn("cloud cluster name or id empty: id={}, name={}", clusterId, clusterName);
-                continue;
-            }
-            clusterNameSet.add(clusterName);
-            if (clusterNameSet.size() != 1) {
-                LOG.warn("toAdd be list have multi clusterName, please check, Set: {}", clusterNameSet);
-            }
-
-            clusterNameToId.put(clusterName, clusterId);
-            List<Backend> be = clusterIdToBackend.get(clusterId);
-            if (be == null) {
-                be = new ArrayList<>();
-                clusterIdToBackend.put(clusterId, be);
-                MetricRepo.registerClusterMetrics(clusterName, clusterId);
-            }
-            Set<String> existed = be.stream().map(i -> i.getHost() + ":" + i.getHeartbeatPort())
-                    .collect(Collectors.toSet());
-            // Deduplicate
-            // TODO(gavin): consider vpc
-            boolean alreadyExisted = existed.contains(b.getHost() + ":" + b.getHeartbeatPort());
-            if (alreadyExisted) {
-                LOG.info("BE already existed, clusterName={} clusterId={} backendNum={} backend={}",
-                        clusterName, clusterId, be.size(), b);
-                continue;
-            }
-            be.add(b);
-            LOG.info("update (add) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
-                    clusterName, clusterId, be.size(), b);
-        }
-
-        for (Backend b : toDel) {
-            String clusterName = b.getCloudClusterName();
-            String clusterId = b.getCloudClusterId();
-            // We actually don't care about cluster name here
-            if (clusterName.isEmpty() || clusterId.isEmpty()) {
-                LOG.warn("cloud cluster name or id empty: id={}, name={}", clusterId, clusterName);
-                continue;
-            }
-            List<Backend> be = clusterIdToBackend.get(clusterId);
-            if (be == null) {
-                LOG.warn("try to remove a non-existing cluster, clusterId={} clusterName={}",
-                        clusterId, clusterName);
-                continue;
-            }
-            Set<Long> d = toDel.stream().map(i -> i.getId()).collect(Collectors.toSet());
-            be = be.stream().filter(i -> !d.contains(i.getId())).collect(Collectors.toList());
-            // ATTN: clusterId may have zero nodes
-            clusterIdToBackend.replace(clusterId, be);
-            // such as dropCluster, but no lock
-            // ATTN: Empty clusters are treated as dropped clusters.
-            if (be.size() == 0) {
-                LOG.info("del clusterId {} and clusterName {} due to be nodes eq 0", clusterId, clusterName);
-                boolean succ = clusterNameToId.remove(clusterName, clusterId);
-                if (!succ) {
-                    LOG.warn("impossible, somewhere err, clusterNameToId {}, "
-                            + "want remove cluster name {}, cluster id {}", clusterNameToId, clusterName, clusterId);
+        try {
+            Set<String> clusterNameSet = new HashSet<>();
+            for (Backend b : toAdd) {
+                String clusterName = b.getCloudClusterName();
+                String clusterId = b.getCloudClusterId();
+                if (clusterName.isEmpty() || clusterId.isEmpty()) {
+                    LOG.warn("cloud cluster name or id empty: id={}, name={}", clusterId, clusterName);
+                    continue;
                 }
-                clusterIdToBackend.remove(clusterId);
+                clusterNameSet.add(clusterName);
+                if (clusterNameSet.size() != 1) {
+                    LOG.warn("toAdd be list have multi clusterName, please check, Set: {}", clusterNameSet);
+                }
+
+                clusterNameToId.put(clusterName, clusterId);
+                List<Backend> be = clusterIdToBackend.get(clusterId);
+                if (be == null) {
+                    be = new ArrayList<>();
+                    clusterIdToBackend.put(clusterId, be);
+                    MetricRepo.registerClusterMetrics(clusterName, clusterId);
+                }
+                Set<String> existed = be.stream().map(i -> i.getHost() + ":" + i.getHeartbeatPort())
+                        .collect(Collectors.toSet());
+                // Deduplicate
+                // TODO(gavin): consider vpc
+                boolean alreadyExisted = existed.contains(b.getHost() + ":" + b.getHeartbeatPort());
+                if (alreadyExisted) {
+                    LOG.info("BE already existed, clusterName={} clusterId={} backendNum={} backend={}",
+                            clusterName, clusterId, be.size(), b);
+                    continue;
+                }
+                be.add(b);
+                LOG.info("update (add) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
+                        clusterName, clusterId, be.size(), b);
             }
-            LOG.info("update (del) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
-                    clusterName, clusterId, be.size(), b);
+
+            for (Backend b : toDel) {
+                String clusterName = b.getCloudClusterName();
+                String clusterId = b.getCloudClusterId();
+                // We actually don't care about cluster name here
+                if (clusterName.isEmpty() || clusterId.isEmpty()) {
+                    LOG.warn("cloud cluster name or id empty: id={}, name={}", clusterId, clusterName);
+                    continue;
+                }
+                List<Backend> be = clusterIdToBackend.get(clusterId);
+                if (be == null) {
+                    LOG.warn("try to remove a non-existing cluster, clusterId={} clusterName={}",
+                            clusterId, clusterName);
+                    continue;
+                }
+                Set<Long> d = toDel.stream().map(i -> i.getId()).collect(Collectors.toSet());
+                be = be.stream().filter(i -> !d.contains(i.getId())).collect(Collectors.toList());
+                // ATTN: clusterId may have zero nodes
+                clusterIdToBackend.replace(clusterId, be);
+                // such as dropCluster, but no lock
+                // ATTN: Empty clusters are treated as dropped clusters.
+                if (be.size() == 0) {
+                    LOG.info("del clusterId {} and clusterName {} due to be nodes eq 0", clusterId, clusterName);
+                    boolean succ = clusterNameToId.remove(clusterName, clusterId);
+                    if (!succ) {
+                        LOG.warn("impossible, somewhere err, clusterNameToId {}, "
+                                + "want remove cluster name {}, cluster id {}",
+                                clusterNameToId, clusterName, clusterId);
+                    }
+                    clusterIdToBackend.remove(clusterId);
+                }
+                LOG.info("update (del) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
+                        clusterName, clusterId, be.size(), b);
+            }
+        } finally {
+            lock.unlock();
         }
-        lock.unlock();
     }
 
 
@@ -327,9 +331,12 @@ public class CloudSystemInfoService extends SystemInfoService {
     public void updateClusterNameToId(final String newName,
                                       final String originalName, final String clusterId) {
         lock.lock();
-        clusterNameToId.remove(originalName);
-        clusterNameToId.put(newName, clusterId);
-        lock.unlock();
+        try {
+            clusterNameToId.remove(originalName);
+            clusterNameToId.put(newName, clusterId);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public String getClusterNameByClusterId(final String clusterId) {
@@ -345,9 +352,12 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     public void dropCluster(final String clusterId, final String clusterName) {
         lock.lock();
-        clusterNameToId.remove(clusterName, clusterId);
-        clusterIdToBackend.remove(clusterId);
-        lock.unlock();
+        try {
+            clusterNameToId.remove(clusterName, clusterId);
+            clusterIdToBackend.remove(clusterId);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public List<String> getCloudClusterNames() {
