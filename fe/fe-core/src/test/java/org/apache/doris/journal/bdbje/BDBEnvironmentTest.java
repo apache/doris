@@ -23,6 +23,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Frontend;
+import org.apache.doris.utframe.UtPortUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -48,11 +49,7 @@ import org.junit.jupiter.api.RepeatedTest;
 // import org.junit.jupiter.api.Test;
 
 import java.io.File;
-import java.io.IOException;
 import java.lang.reflect.Field;
-import java.net.DatagramSocket;
-import java.net.ServerSocket;
-import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -95,26 +92,6 @@ public class BDBEnvironmentTest {
         }
     }
 
-    private int findValidPort() {
-        int port = 0;
-        for (int i = 0; i < 65535; i++) {
-            try (ServerSocket socket = new ServerSocket(0)) {
-                socket.setReuseAddress(true);
-                port = socket.getLocalPort();
-                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
-                    datagramSocket.setReuseAddress(true);
-                    break;
-                } catch (SocketException e) {
-                    LOG.info("The port {} is invalid and try another port", port);
-                }
-            } catch (IOException e) {
-                throw new IllegalStateException("Could not find a free TCP/IP port");
-            }
-        }
-        Preconditions.checkArgument(((port > 0) && (port < 65536)));
-        return port;
-    }
-
     private byte[] randomBytes() {
         byte[] byteArray = new byte[32];
         new SecureRandom().nextBytes(byteArray);
@@ -124,7 +101,7 @@ public class BDBEnvironmentTest {
     // @Test
     @RepeatedTest(1)
     public void testSetup() throws Exception {
-        int port = findValidPort();
+        int port = UtPortUtils.findValidPort();
         String selfNodeName = Env.genFeNodeName("127.0.0.1", port, false);
         String selfNodeHostPort = "127.0.0.1:" + port;
         LOG.debug("selfNodeName:{}, selfNodeHostPort:{}", selfNodeName, selfNodeHostPort);
@@ -197,7 +174,7 @@ public class BDBEnvironmentTest {
     // @Test
     @RepeatedTest(1)
     public void testSetupTwice() throws Exception {
-        int port = findValidPort();
+        int port = UtPortUtils.findValidPort();
         String selfNodeName = Env.genFeNodeName("127.0.0.1", port, false);
         String selfNodeHostPort = "127.0.0.1:" + port;
         File homeFile = new File(createTmpDir());
@@ -211,7 +188,7 @@ public class BDBEnvironmentTest {
     // @Test
     @RepeatedTest(1)
     public void testMetadataRecovery() throws Exception {
-        int port = findValidPort();
+        int port = UtPortUtils.findValidPort();
         String selfNodeName = Env.genFeNodeName("127.0.0.1", port, false);
         String selfNodeHostPort = "127.0.0.1:" + port;
 
@@ -245,7 +222,7 @@ public class BDBEnvironmentTest {
     // @Test
     @RepeatedTest(1)
     public void testOpenReplicatedEnvironmentTwice() throws Exception {
-        int port = findValidPort();
+        int port = UtPortUtils.findValidPort();
         String selfNodeName = Env.genFeNodeName("127.0.0.1", port, false);
         String selfNodeHostPort = "127.0.0.1:" + port;
 
@@ -281,7 +258,7 @@ public class BDBEnvironmentTest {
     // @Test
     @RepeatedTest(1)
     public void testCluster() throws Exception {
-        int masterPort = findValidPort();
+        int masterPort = UtPortUtils.findValidPort();
         String masterNodeName = Env.genFeNodeName("127.0.0.1", masterPort, false);
         String masterNodeHostPort = "127.0.0.1:" + masterPort;
         LOG.debug("masterNodeName:{}, masterNodeHostPort:{}", masterNodeName, masterNodeHostPort);
@@ -293,7 +270,7 @@ public class BDBEnvironmentTest {
         List<BDBEnvironment> followerEnvironments = new ArrayList<>();
         List<File> followerDirs = new ArrayList<>();
         for (int i = 1; i <= 2; i++) {
-            int followerPort = findValidPort();
+            int followerPort = UtPortUtils.findValidPort();
             String followerNodeName = Env.genFeNodeName("127.0.0.1", followerPort, false);
             String followerNodeHostPort = "127.0.0.1:" + followerPort;
             LOG.debug("followerNodeName{}:{}, followerNodeHostPort{}:{}", i, i, followerNodeName, followerNodeHostPort);
@@ -305,7 +282,7 @@ public class BDBEnvironmentTest {
             followerEnvironments.add(followerEnvironment);
         }
 
-        int observerPort = findValidPort();
+        int observerPort = UtPortUtils.findValidPort();
         String observerNodeName = Env.genFeNodeName("127.0.0.1", observerPort, false);
         String observerNodeHostPort = "127.0.0.1:" + observerPort;
         LOG.debug("observerNodeName:{}, observerNodeHostPort:{}", observerNodeName, observerNodeHostPort);
@@ -400,7 +377,7 @@ public class BDBEnvironmentTest {
         LOG.info("start");
         List<Pair<BDBEnvironment, NodeInfo>> followersInfo = new ArrayList<>();
 
-        int masterPort = findValidPort();
+        int masterPort = UtPortUtils.findValidPort();
         String masterNodeName = "fe1";
         String masterNodeHostPort = "127.0.0.1:" + masterPort;
 
@@ -410,7 +387,7 @@ public class BDBEnvironmentTest {
         followersInfo.add(Pair.of(masterEnvironment, new NodeInfo(masterNodeName, masterNodeHostPort, masterDir)));
 
         for (int i = 2; i <= 3; i++) {
-            int nodePort = findValidPort();
+            int nodePort = UtPortUtils.findValidPort();
             String nodeName = "fe" + i;
             String nodeHostPort = "127.0.0.1:" + nodePort;
 
@@ -569,7 +546,7 @@ public class BDBEnvironmentTest {
     public void testReadTxnIsNotMatched() throws Exception {
         List<Pair<BDBEnvironment, NodeInfo>> followersInfo = new ArrayList<>();
 
-        int masterPort = findValidPort();
+        int masterPort = UtPortUtils.findValidPort();
         String masterNodeName = "fe1";
         String masterNodeHostPort = "127.0.0.1:" + masterPort;
 
@@ -579,7 +556,7 @@ public class BDBEnvironmentTest {
         followersInfo.add(Pair.of(masterEnvironment, new NodeInfo(masterNodeName, masterNodeHostPort, masterDir)));
 
         for (int i = 2; i <= 3; i++) {
-            int nodePort = findValidPort();
+            int nodePort = UtPortUtils.findValidPort();
             String nodeName = "fe" + i;
             String nodeHostPort = "127.0.0.1:" + nodePort;
 

@@ -24,6 +24,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.system.SystemInfoService.HostInfo;
+import org.apache.doris.utframe.UtPortUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -40,9 +41,6 @@ import org.junit.jupiter.api.RepeatedTest;
 import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
-import java.net.DatagramSocket;
-import java.net.ServerSocket;
-import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -77,28 +75,9 @@ public class BDBDebuggerTest {
         }
     }
 
-    private int findValidPort() {
-        int port = 0;
-        for (int i = 0; i < 65535; i++) {
-            try (ServerSocket socket = new ServerSocket(0)) {
-                socket.setReuseAddress(true);
-                port = socket.getLocalPort();
-                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
-                    datagramSocket.setReuseAddress(true);
-                    break;
-                } catch (SocketException e) {
-                    LOG.info("The port {} is invalid and try another port", port);
-                }
-            } catch (IOException e) {
-                throw new IllegalStateException("Could not find a free TCP/IP port");
-            }
-        }
-        return port;
-    }
-
     @RepeatedTest(1)
     public void testNormal() throws Exception {
-        int port = findValidPort();
+        int port = UtPortUtils.findValidPort();
         Preconditions.checkArgument(((port > 0) && (port < 65535)));
         String nodeName = Env.genFeNodeName("127.0.0.1", port, false);
         long replayedJournalId = 0;

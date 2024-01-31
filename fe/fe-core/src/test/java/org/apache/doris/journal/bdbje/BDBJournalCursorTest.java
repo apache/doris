@@ -18,6 +18,7 @@
 package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.utframe.UtPortUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -30,10 +31,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.RepeatedTest;
 
 import java.io.File;
-import java.io.IOException;
-import java.net.DatagramSocket;
-import java.net.ServerSocket;
-import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -70,32 +67,12 @@ public class BDBJournalCursorTest {
         }
     }
 
-    private int findValidPort() {
-        int port = 0;
-        for (int i = 0; i < 65535; i++) {
-            try (ServerSocket socket = new ServerSocket(0)) {
-                socket.setReuseAddress(true);
-                port = socket.getLocalPort();
-                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
-                    datagramSocket.setReuseAddress(true);
-                    break;
-                } catch (SocketException e) {
-                    LOG.info("The port {} is invalid and try another port", port);
-                }
-            } catch (IOException e) {
-                throw new IllegalStateException("Could not find a free TCP/IP port");
-            }
-        }
-        Preconditions.checkArgument(((port > 0) && (port < 65536)));
-        return port;
-    }
-
     @RepeatedTest(1)
     public void testNormal() throws Exception {
         Assertions.assertTrue(BDBJournalCursor.getJournalCursor(null, -1, 20) == null);
         Assertions.assertTrue(BDBJournalCursor.getJournalCursor(null, 21, 20) == null);
 
-        int port = findValidPort();
+        int port = UtPortUtils.findValidPort();
         String selfNodeName = Env.genFeNodeName("127.0.0.1", port, false);
         String selfNodeHostPort = "127.0.0.1:" + port;
         LOG.debug("selfNodeName:{}, selfNodeHostPort:{}", selfNodeName, selfNodeHostPort);

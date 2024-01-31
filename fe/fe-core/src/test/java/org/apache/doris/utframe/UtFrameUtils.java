@@ -188,11 +188,11 @@ public class UtFrameUtils {
             }
         }
 
-        int feHttpPort = findValidPort();
-        int feRpcPort = findValidPort();
-        int feQueryPort = findValidPort();
-        int arrowFlightSqlPort = findValidPort();
-        int feEditLogPort = findValidPort();
+        int feHttpPort = UtPortUtils.findValidPort();
+        int feRpcPort = UtPortUtils.findValidPort();
+        int feQueryPort = UtPortUtils.findValidPort();
+        int arrowFlightSqlPort = UtPortUtils.findValidPort();
+        int feEditLogPort = UtPortUtils.findValidPort();
 
         // start fe in "DORIS_HOME/fe/mocked/"
         MockedFrontend frontend = new MockedFrontend();
@@ -278,11 +278,11 @@ public class UtFrameUtils {
     }
 
     private static Backend createBackendWithoutRetry(String beHost, int feRpcPort) throws IOException {
-        int beHeartbeatPort = findValidPort();
-        int beThriftPort = findValidPort();
-        int beBrpcPort = findValidPort();
-        int beHttpPort = findValidPort();
-        int beArrowFlightSqlPort = findValidPort();
+        int beHeartbeatPort = UtPortUtils.findValidPort();
+        int beThriftPort = UtPortUtils.findValidPort();
+        int beBrpcPort = UtPortUtils.findValidPort();
+        int beHttpPort = UtPortUtils.findValidPort();
+        int beArrowFlightSqlPort = UtPortUtils.findValidPort();
 
         // start be
         MockedBackendFactory.BeThriftService beThriftService = new DefaultBeThriftServiceImpl();
@@ -319,25 +319,6 @@ public class UtFrameUtils {
         } catch (IOException e) {
             // ignore
         }
-    }
-
-    public static int findValidPort() {
-        int port = 0;
-        while (true) {
-            try (ServerSocket socket = new ServerSocket(0)) {
-                socket.setReuseAddress(true);
-                port = socket.getLocalPort();
-                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
-                    datagramSocket.setReuseAddress(true);
-                    break;
-                } catch (SocketException e) {
-                    System.out.println("The port " + port + " is invalid and try another port.");
-                }
-            } catch (IOException e) {
-                throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
-            }
-        }
-        return port;
     }
 
     public static String getSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr) throws Exception {

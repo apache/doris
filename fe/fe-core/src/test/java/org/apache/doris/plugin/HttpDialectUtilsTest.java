@@ -18,16 +18,12 @@
 package org.apache.doris.plugin;
 
 import org.apache.doris.plugin.dialect.HttpDialectUtils;
-
+import org.apache.doris.utframe.UtPortUtils;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.IOException;
-import java.net.DatagramSocket;
-import java.net.ServerSocket;
-import java.net.SocketException;
 
 public class HttpDialectUtilsTest {
 
@@ -36,7 +32,7 @@ public class HttpDialectUtilsTest {
 
     @Before
     public void setUp() throws Exception {
-        port = findValidPort();
+        port = UtPortUtils.findValidPort();
         server = new SimpleHttpServer(port);
         server.start("/api/v1/convert");
     }
@@ -71,22 +67,4 @@ public class HttpDialectUtilsTest {
         Assert.assertEquals(originSql, res);
     }
 
-    private static int findValidPort() {
-        int port;
-        while (true) {
-            try (ServerSocket socket = new ServerSocket(0)) {
-                socket.setReuseAddress(true);
-                port = socket.getLocalPort();
-                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
-                    datagramSocket.setReuseAddress(true);
-                    break;
-                } catch (SocketException e) {
-                    System.out.println("The port " + port + " is invalid and try another port.");
-                }
-            } catch (IOException e) {
-                throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
-            }
-        }
-        return port;
-    }
 }
