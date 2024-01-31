@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -42,6 +43,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -89,9 +93,14 @@ public class MaterializedViewUtils {
             return Optional.empty();
         }
         // TODO support to return only one related table info, support multi later
-        return Optional.of(new RelatedTableInfo(new BaseTableInfo(context.getTableColumnList().get(0).key()),
+        Pair<TableIf, Column> tableIfColumnPair = context.getTableColumnList().get(0);
+        if (context.getTableIdAndRelationMapping().get(tableIfColumnPair.key().getId()).size() > 1) {
+            // if partition referenced column is in multi table, can not increment update
+            return Optional.empty();
+        }
+        return Optional.of(new RelatedTableInfo(new BaseTableInfo(tableIfColumnPair.key()),
                 context.isPctPossible(),
-                context.getTableColumnList().get(0).value().getName()));
+                tableIfColumnPair.value().getName()));
     }
 
     /**
@@ -222,7 +231,13 @@ public class MaterializedViewUtils {
 
         @Override
         public Void visitLogicalRelation(LogicalRelation relation, IncrementCheckerContext context) {
-            if (!(relation instanceof LogicalCatalogRelation) || !context.getTableColumnList().isEmpty()) {
+            if (!(relation instanceof LogicalCatalogRelation)) {
+                return visit(relation, context);
+            }
+            // record tableId and relation, to check the self join
+            context.addTableIdAndRelation(((LogicalCatalogRelation)relation).getTable().getId(), relation);
+            // TODO: 2024/1/31 support only one partition referenced column, support multi later
+            if (!context.getTableColumnList().isEmpty()) {
                 return visit(relation, context);
             }
             LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) relation;
@@ -260,6 +275,7 @@ public class MaterializedViewUtils {
             });
             if (!originalGroupbyExprSet.contains(context.getMvPartitionColumn().getColumn().get())) {
                 context.setPctPossible(false);
+                return null;
             }
             return visit(aggregate, context);
         }
@@ -314,7 +330,8 @@ public class MaterializedViewUtils {
         private final SlotReference mvPartitionColumn;
         private boolean pctPossible = true;
         private final List<Pair<TableIf, Column>> tableColumnList = new ArrayList<>();
-        private boolean joinNullGenerateSide;
+        // This record the table id and relation mapping, because a table maybe used repeatedly.
+        private final Multimap<Long, LogicalRelation> tableIdAndRelationMapping = HashMultimap.create();
 
         public IncrementCheckerContext(SlotReference mvPartitionColumn) {
             this.mvPartitionColumn = mvPartitionColumn;
@@ -340,12 +357,12 @@ public class MaterializedViewUtils {
             return tableColumnList;
         }
 
-        public boolean isJoinNullGenerateSide() {
-            return joinNullGenerateSide;
+        public Multimap<Long, LogicalRelation> getTableIdAndRelationMapping() {
+            return tableIdAndRelationMapping;
         }
 
-        public void setJoinNullGenerateSide(boolean joinNullGenerateSide) {
-            this.joinNullGenerateSide = joinNullGenerateSide;
+        public void addTableIdAndRelation(Long tableId, LogicalRelation relation) {
+            tableIdAndRelationMapping.put(tableId, relation);
         }
     }
 

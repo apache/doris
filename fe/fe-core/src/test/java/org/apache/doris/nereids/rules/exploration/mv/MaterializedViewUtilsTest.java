@@ -350,6 +350,24 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                         });
     }
 
+
+    @Test
+    public void getRelatedTableInfoSelfJoinTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("    select t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey, 1\n"
+                                + "    from lineitem_list_partition t1\n"
+                                + "    join lineitem_list_partition t2\n"
+                                + "    on t1.l_shipdate = t2.l_shipdate\n"
+                                + "    group by t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_orderkey", rewrittenPlan);
+                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                        });
+    }
+
+
     @Test
     public void getRelatedTableInfoUseRightTest() {
         PlanChecker.from(connectContext)
