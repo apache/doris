@@ -169,10 +169,9 @@ public:
         return _bloom_filter->init(data, data_size);
     }
 
-    Status get_data(char** data, int* len) {
+    void get_data(char** data, int* len) {
         *data = _bloom_filter->data();
         *len = _bloom_filter->size();
-        return Status::OK();
     }
 
     size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
