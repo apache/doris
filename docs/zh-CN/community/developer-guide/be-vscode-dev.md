@@ -92,6 +92,11 @@ cd /home/workspace/doris
 
 如果不出意外，应该会编译成功，最终的部署文件将产出到 /home/workspace/doris/output/ 目录下。如果还遇到其他问题，可以参照 doris 的安装文档 http://doris.apache.org。
 
+注意：如果编译fe时希望单独指定私有的maven仓地址，可以设置环境变量USER_SETTINGS_MVN_REPO指定settings.xml的文件路径。
+举例：
+```
+  export USER_SETTINGS_MVN_REPO="/xxx/xxx/settings.xml"
+```
 ## 部署调试(GDB)
 
 1. 给 be 编译结果文件授权

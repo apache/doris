@@ -19,7 +19,7 @@
 
 namespace doris::vectorized {
 struct NameFunctionIPv4NumToString {
-    static constexpr auto name = "ipv4numtostring";
+    static constexpr auto name = "ipv4_num_to_string";
 };
 
 void register_function_ip(SimpleFunctionFactory& factory) {

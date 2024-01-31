@@ -1232,13 +1232,16 @@ void StorageEngine::notify_listeners() {
     }
 }
 
-void StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
+bool StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
+    bool found = false;
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
         if (listener->task_worker_type() == task_worker_type) {
             listener->notify_thread();
+            found = true;
         }
     }
+    return found;
 }
 
 Status StorageEngine::execute_task(EngineTask* task) {
@@ -1251,28 +1254,6 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id)
     std::lock_guard<std::mutex> lock(_gc_mutex);
     auto search = _unused_rowsets.find(rowset_id.to_string());
     return search != _unused_rowsets.end();
-}
-
-void StorageEngine::create_cumulative_compaction(
-        TabletSharedPtr best_tablet, std::shared_ptr<CumulativeCompaction>& cumulative_compaction) {
-    cumulative_compaction.reset(new CumulativeCompaction(best_tablet));
-}
-
-void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
-                                           std::shared_ptr<BaseCompaction>& base_compaction) {
-    base_compaction.reset(new BaseCompaction(best_tablet));
-}
-
-void StorageEngine::create_full_compaction(TabletSharedPtr best_tablet,
-                                           std::shared_ptr<FullCompaction>& full_compaction) {
-    full_compaction.reset(new FullCompaction(best_tablet));
-}
-
-void StorageEngine::create_single_replica_compaction(
-        TabletSharedPtr best_tablet,
-        std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
-        CompactionType compaction_type) {
-    single_replica_compaction.reset(new SingleReplicaCompaction(best_tablet, compaction_type));
 }
 
 bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,

@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------filter(($c$1 OR $c$2))
+------------------filter((ifnull($c$1, FALSE) OR ifnull($c$2, FALSE)))
 --------------------hashJoin[LEFT_SEMI_JOIN](c.c_customer_sk = catalog_sales.cs_ship_customer_sk)
 ----------------------hashJoin[LEFT_SEMI_JOIN](c.c_customer_sk = web_sales.ws_bill_customer_sk)
 ------------------------PhysicalProject

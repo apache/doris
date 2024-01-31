@@ -87,6 +87,12 @@ Doris倒排索引的功能简要介绍如下：
         - char_replace 将pattern中每个char替换为一个replacement中的char
           - char_filter_pattern：需要被替换掉的字符数组
           - char_filter_replacement：替换后的字符数组，可以不用配置，默认为一个空格字符
+    - ignore_above：控制字符串是否建索引。
+      - 长度超过 ignore_above 设置的字符串不会被索引。对于字符串数组，ignore_above 将分别应用于每个数组元素，长度超过 ignore_above 的字符串元素将不被索引。
+      - 默认为 256 字节
+    - lower_case: 是否将分词进行小写转换，从而在匹配的时候实现忽略大小写
+      - true: 转换小写
+      - false：不转换小写
   - COMMENT 是可选的，用于指定注释
 
 ```sql

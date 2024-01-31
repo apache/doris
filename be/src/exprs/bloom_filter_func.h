@@ -226,6 +226,8 @@ public:
 
     virtual bool find_olap_engine(const void* data) const = 0;
 
+    virtual bool find_olap_engine_crc32(const void* data) const = 0;
+
     virtual bool find_uint32_t(uint32_t data) const = 0;
 
     virtual void insert_fixed_len(const char* data, const int* offsets, int number) = 0;
@@ -334,6 +336,11 @@ struct CommonFindOp {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         return find(bloom_filter, data);
     }
+
+    bool find_olap_engine_crc32(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+        return find(bloom_filter, data);
+    }
+
     bool find(const BloomFilterAdaptor& bloom_filter, uint32_t data) const {
         return bloom_filter.test(data);
     }
@@ -396,6 +403,11 @@ struct StringFindOp {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         return StringFindOp::find(bloom_filter, data);
     }
+
+    bool find_olap_engine_crc32(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+        return StringFindOp::find_crc32_hash(bloom_filter, data);
+    }
+
     bool find(const BloomFilterAdaptor& bloom_filter, uint32_t data) const {
         return bloom_filter.test(data);
     }
@@ -413,6 +425,17 @@ struct FixedStringFindOp : public StringFindOp {
             size--;
         }
         return bloom_filter.test(Slice(value->data, size));
+    }
+    bool find_olap_engine_crc32(const BloomFilterAdaptor& bloom_filter,
+                                const void* input_data) const {
+        const auto* value = reinterpret_cast<const StringRef*>(input_data);
+        int64_t size = value->size;
+        const char* data = value->data;
+        // CHAR type may pad the tail with \0, need to trim
+        while (size > 0 && data[size - 1] == '\0') {
+            size--;
+        }
+        return bloom_filter.test_new_hash(Slice(value->data, size));
     }
 };
 
@@ -553,6 +576,10 @@ public:
 
     bool find_olap_engine(const void* data) const override {
         return dummy.find_olap_engine(*_bloom_filter, data);
+    }
+
+    bool find_olap_engine_crc32(const void* data) const override {
+        return dummy.find_olap_engine_crc32(*_bloom_filter, data);
     }
 
     bool find_uint32_t(uint32_t data) const override { return dummy.find(*_bloom_filter, data); }

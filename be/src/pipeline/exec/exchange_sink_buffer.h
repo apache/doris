@@ -88,6 +88,7 @@ struct TransmitInfo {
     vectorized::PipChannel* channel;
     std::unique_ptr<PBlock> block;
     bool eos;
+    Status exec_status;
 };
 
 struct BroadcastTransmitInfo {

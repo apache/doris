@@ -148,4 +148,90 @@ constexpr inline __int128 exp10_i128(int x) {
     return values[x];
 }
 
+constexpr inline int max_i32(int digit_count) {
+    if (digit_count < 0) {
+        return 0;
+    }
+    if (digit_count > 9) {
+        return std::numeric_limits<int>::max();
+    }
+    constexpr int values[] = {0, 9, 99, 999, 9999, 99999, 999999, 9999999, 99999999, 999999999};
+    return values[digit_count];
+}
+
+constexpr inline int64_t max_i64(int digit_count) {
+    if (digit_count < 0) {
+        return 0;
+    }
+    if (digit_count > 18) {
+        return std::numeric_limits<int64_t>::max();
+    }
+
+    constexpr int64_t values[] = {1LL,
+                                  9LL,
+                                  99LL,
+                                  999LL,
+                                  9999LL,
+                                  99999LL,
+                                  999999LL,
+                                  9999999LL,
+                                  99999999LL,
+                                  999999999LL,
+                                  9999999999LL,
+                                  99999999999LL,
+                                  999999999999LL,
+                                  9999999999999LL,
+                                  99999999999999LL,
+                                  999999999999999LL,
+                                  9999999999999999LL,
+                                  99999999999999999LL,
+                                  999999999999999999LL};
+    return values[digit_count];
+}
+
+constexpr inline __int128 max_i128(int digit_count) {
+    DCHECK(digit_count > 0);
+    constexpr __int128 values[] = {
+            static_cast<__int128>(0LL),
+            static_cast<__int128>(9LL),
+            static_cast<__int128>(99LL),
+            static_cast<__int128>(999LL),
+            static_cast<__int128>(9999LL),
+            static_cast<__int128>(99999LL),
+            static_cast<__int128>(999999LL),
+            static_cast<__int128>(9999999LL),
+            static_cast<__int128>(99999999LL),
+            static_cast<__int128>(999999999LL),
+            static_cast<__int128>(9999999999LL),
+            static_cast<__int128>(99999999999LL),
+            static_cast<__int128>(999999999999LL),
+            static_cast<__int128>(9999999999999LL),
+            static_cast<__int128>(99999999999999LL),
+            static_cast<__int128>(999999999999999LL),
+            static_cast<__int128>(9999999999999999LL),
+            static_cast<__int128>(99999999999999999LL),
+            static_cast<__int128>(999999999999999999LL),
+            static_cast<__int128>(1000000000000000000LL) * 10LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 100LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 1000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 10000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 100000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 1000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 10000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 100000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 1000000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 10000000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 1000000000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 10000000000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 1000000000000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 10000000000000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000000000LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000000000LL * 10LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000000000LL * 100LL - 1,
+            static_cast<__int128>(1000000000000000000LL) * 100000000000000000LL * 1000LL - 1};
+    return values[digit_count];
+}
+
 } // namespace common

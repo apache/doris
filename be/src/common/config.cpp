@@ -193,14 +193,12 @@ DEFINE_mInt32(max_download_speed_kbps, "50000");
 DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
-// sleep time for one second
-DEFINE_Int32(sleep_one_second, "1");
 
 // log dir
 DEFINE_String(sys_log_dir, "${DORIS_HOME}/log");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
 // INFO, WARNING, ERROR, FATAL
-DEFINE_String(sys_log_level, "INFO");
+DEFINE_mString(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
 DEFINE_String(sys_log_roll_mode, "SIZE-MB-1024");
 // log roll num
@@ -956,6 +954,7 @@ DEFINE_Bool(enable_debug_points, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_mBool(enable_workload_group_for_scan, "false");
+DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -995,6 +994,9 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
+// -1 indicates not working.
+// Normally we should not change this, it's useful for testing.
+DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 DEFINE_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
@@ -1002,7 +1004,9 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_Bool(inverted_index_compaction_enable, "false");
+DEFINE_mBool(inverted_index_compaction_enable, "false");
+// index by RAM directory
+DEFINE_mBool(inverted_index_ram_dir_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
@@ -1029,7 +1033,7 @@ DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
 
 //disable shrink memory by default
-DEFINE_Bool(enable_shrink_memory, "false");
+DEFINE_mBool(enable_shrink_memory, "false");
 DEFINE_mInt32(schema_cache_capacity, "1024");
 DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
@@ -1043,6 +1047,7 @@ DEFINE_Bool(enable_feature_binlog, "false");
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
 // Apply delete pred in cumu compaction
 DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
@@ -1051,7 +1056,8 @@ DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
-DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
+DEFINE_mString(kerberos_ccache_path, "");
+DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1071,6 +1077,11 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
+// rowid conversion correctness check when compaction for mow table
+DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
+// When the number of missing versions is more than this value, do not directly
+// retry the publish and handle it through async publish.
+DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1082,7 +1093,7 @@ DEFINE_Int32(group_commit_insert_threads, "10");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 
-DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
+DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
 
 DEFINE_Bool(exit_on_exception, "false");
 
@@ -1100,6 +1111,17 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
+
+DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
+
+DEFINE_Bool(enable_snapshot_action, "false");
+
+DEFINE_mInt32(s3_writer_buffer_allocation_timeout_second, "60");
+
+DEFINE_mBool(enable_column_type_check, "true");
+
+// Tolerance for the number of partition id 0 in rowset, default 0
+DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1461,6 +1483,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         if (PERSIST) {                                                                            \
             RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                    \
         }                                                                                         \
+        update_config(std::string((FIELD).name), VALUE);                                           \
         return Status::OK();                                                                      \
     }
 
@@ -1507,6 +1530,13 @@ Status set_config(const std::string& field, const std::string& value, bool need_
     // The other types are not thread safe to change dynamically.
     return Status::NotSupported("'{}' is type of '{}' which is not support to modify", field,
                                 it->second.type);
+}
+
+void update_config(const std::string& field, const std::string& value) {
+    if ("sys_log_level" == field) {
+        // update log level
+        update_logging(field, value);
+    }
 }
 
 Status set_fuzzy_config(const std::string& field, const std::string& value) {

@@ -39,6 +39,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -2334,5 +2335,22 @@ public class AuthTest {
         revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("viewdb", "*"),
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV)));
         revoke(revokeStmt);
+    }
+
+    @Test
+    public void testSetInitialRootPassword() {
+        // Skip set root password if `initial_root_password` set to empty string
+        auth.setInitialRootPassword("");
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", null, null));
+        // Skip set root password if `initial_root_password` is not valid 2-staged SHA-1 encrypted
+        auth.setInitialRootPassword("invalidRootPassword");
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", null, null));
+        // Set initial root password
+        byte[] scrambled = MysqlPassword.makeScrambledPassword("validRootPassword");
+        auth.setInitialRootPassword(new String(scrambled));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", "validRootPassword", null));
     }
 }

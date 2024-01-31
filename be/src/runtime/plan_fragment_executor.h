@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 
@@ -80,7 +81,8 @@ public:
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
     using report_status_callback =
-            std::function<void(const Status&, RuntimeProfile*, RuntimeProfile*, bool)>;
+            std::function<void(const Status&, RuntimeProfile*, RuntimeProfile*, bool,
+                               std::shared_ptr<QueryStatistics>)>;
 
     // report_status_cb, if !empty(), is used to report the accumulated profile
     // information periodically during execution (open() or get_next()).
@@ -243,6 +245,13 @@ private:
     const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
     void _collect_query_statistics();
+
+    std::shared_ptr<QueryStatistics> _dml_query_statistics() {
+        if (_query_statistics && _query_statistics->collect_dml_statistics()) {
+            return _query_statistics;
+        }
+        return nullptr;
+    }
 
     void _collect_node_statistics();
 };

@@ -249,6 +249,10 @@ struct TQueryOptions {
   86: optional i32 analyze_timeout = 43200;
 
   87: optional bool faster_float_convert = false;
+
+  88: optional i32 inverted_index_max_expansions = 50;
+
+  89: optional i32 inverted_index_skip_threshold = 50;
 }
 
 

@@ -425,6 +425,8 @@ void MemTable::_aggregate() {
         _output_mutable_block =
                 vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
         _output_mutable_block.clear_column_data();
+        _row_in_blocks = temp_row_in_blocks;
+        _last_sorted_pos = _row_in_blocks.size();
     }
 }
 
@@ -434,10 +436,7 @@ void MemTable::shrink_memtable_by_agg() {
         return;
     }
     size_t same_keys_num = _sort();
-    if (same_keys_num == 0) {
-        vectorized::Block in_block = _input_mutable_block.to_block();
-        _put_into_output(in_block);
-    } else {
+    if (same_keys_num != 0) {
         _aggregate<false>();
     }
 }

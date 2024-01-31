@@ -36,7 +36,6 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -158,7 +157,7 @@ public class AnalyzeTest extends TestWithFeService {
         new MockUp<BaseAnalysisTask>() {
 
             @Mock
-            protected void runQuery(String sql, boolean needEncode) {}
+            protected void runQuery(String sql) {}
         };
         HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
         colToPartitions.put("col1", Collections.singleton("t1"));
@@ -174,12 +173,6 @@ public class AnalyzeTest extends TestWithFeService {
                 .setState(AnalysisState.RUNNING)
                 .build();
         new OlapAnalysisTask(analysisJobInfo).doExecute();
-        new Expectations() {
-            {
-                stmtExecutor.execute();
-                times = 1;
-            }
-        };
     }
 
 }

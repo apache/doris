@@ -38,10 +38,15 @@ class Block;
 namespace doris::vectorized {
 
 MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_desc,
+                                         const TMaxComputeFileDesc& max_compute_params,
                                          const std::vector<SlotDescriptor*>& file_slot_descs,
                                          const TFileRangeDesc& range, RuntimeState* state,
                                          RuntimeProfile* profile)
-        : _file_slot_descs(file_slot_descs), _range(range), _state(state), _profile(profile) {
+        : _max_compute_params(max_compute_params),
+          _file_slot_descs(file_slot_descs),
+          _range(range),
+          _state(state),
+          _profile(profile) {
     _table_desc = mc_desc;
     std::ostringstream required_fields;
     std::ostringstream columns_types;
@@ -64,7 +69,7 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
                                        {"access_key", _table_desc->access_key()},
                                        {"secret_key", _table_desc->secret_key()},
                                        {"project", _table_desc->project()},
-                                       {"partition_spec", _table_desc->partition_spec()},
+                                       {"partition_spec", _max_compute_params.partition_spec},
                                        {"table", _table_desc->table()},
                                        {"public_access", _table_desc->public_access()},
                                        {"start_offset", std::to_string(_range.start_offset)},

@@ -61,7 +61,7 @@ public:
     Status close(RuntimeState* state) override;
 
 private:
-    std::unique_ptr<ExchangeSinkBuffer> _sink_buffer;
+    std::unique_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     int _dest_node_id = -1;
     RuntimeState* _state = nullptr;
     PipelineFragmentContext* _context;

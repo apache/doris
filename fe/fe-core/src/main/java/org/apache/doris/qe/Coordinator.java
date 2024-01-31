@@ -875,8 +875,13 @@ public class Coordinator implements CoordInterface {
                          long leftTimeMs,
             String operation) throws RpcException, UserException {
         if (leftTimeMs <= 0) {
-            throw new UserException("timeout before waiting for " + operation + " RPC. Elapse(sec): " + (
-                    (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout()));
+            long elapsed = (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
+            String msg = String.format(
+                    "timeout before waiting %s rpc, query timeout:%d, already elapsed:%d, left for this:%d",
+                        operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
+
+            LOG.warn("Query {} {}", DebugUtil.printId(queryId), msg);
+            throw new UserException(msg);
         }
 
         long timeoutMs = Math.min(leftTimeMs, Config.remote_fragment_exec_timeout_ms);
@@ -904,7 +909,10 @@ public class Coordinator implements CoordInterface {
                 code = TStatusCode.INTERNAL_ERROR;
             } catch (TimeoutException e) {
                 exception = e;
-                errMsg = "timeout when waiting for " + operation + " RPC. Wait(sec): " + timeoutMs / 1000;
+                errMsg = String.format(
+                    "timeout when waiting for %s rpc, query timeout:%d, left timeout for this operation:%d",
+                    operation, queryOptions.getExecutionTimeout(), timeoutMs / 1000);
+                LOG.warn("Query {} {}", DebugUtil.printId(queryId), errMsg);
                 code = TStatusCode.TIMEOUT;
             }
 
@@ -942,8 +950,12 @@ public class Coordinator implements CoordInterface {
             Future<PExecPlanFragmentResult>>> futures, long leftTimeMs,
             String operation) throws RpcException, UserException {
         if (leftTimeMs <= 0) {
-            throw new UserException("timeout before waiting for " + operation + " RPC. Elapse(sec): " + (
-                    (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.query_timeout));
+            long elapsed = (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
+            String msg = String.format(
+                    "timeout before waiting %s rpc, query timeout:%d, already elapsed:%d, left for this:%d",
+                    operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
+            LOG.warn("Query {} {}", DebugUtil.printId(queryId), msg);
+            throw new UserException(msg);
         }
 
         long timeoutMs = Math.min(leftTimeMs, Config.remote_fragment_exec_timeout_ms);
@@ -971,7 +983,10 @@ public class Coordinator implements CoordInterface {
                 code = TStatusCode.INTERNAL_ERROR;
             } catch (TimeoutException e) {
                 exception = e;
-                errMsg = "timeout when waiting for " + operation + " RPC. Wait(sec): " + timeoutMs / 1000;
+                errMsg = String.format(
+                    "timeout when waiting for %s rpc, query timeout:%d, left timeout for this operation:%d",
+                                            operation, queryOptions.getExecutionTimeout(), timeoutMs / 1000);
+                LOG.warn("Query {} {}", DebugUtil.printId(queryId), errMsg);
                 code = TStatusCode.TIMEOUT;
             }
 
@@ -1135,7 +1150,8 @@ public class Coordinator implements CoordInterface {
         Status status = new Status();
         resultBatch = receiver.getNext(status);
         if (!status.ok()) {
-            LOG.warn("get next fail, need cancel. query id: {}", DebugUtil.printId(queryId));
+            LOG.warn("get next fail, need cancel. query id: {}, msg: {}",
+                    DebugUtil.printId(queryId), status.getErrorMsg());
         }
 
         updateStatus(status, null /* no instance id */);
@@ -1156,7 +1172,7 @@ public class Coordinator implements CoordInterface {
                 throw new RpcException(null, copyStatus.getErrorMsg());
             } else {
                 String errMsg = copyStatus.getErrorMsg();
-                LOG.warn("query failed: {}", errMsg);
+                LOG.warn("Query {} failed: {}", DebugUtil.printId(queryId), errMsg);
 
                 // hide host info
                 int hostIndex = errMsg.indexOf("host");
@@ -2210,7 +2226,14 @@ public class Coordinator implements CoordInterface {
                         status.getErrorMsg());
                 updateStatus(status, params.getFragmentInstanceId());
             }
-            if (ctx.fragmentInstancesMap.get(params.fragment_instance_id).getIsDone()) {
+
+            // params.isDone() should be promised.
+            // There are some periodic reports during the load process,
+            // and the reports from the intermediate process may be concurrent with the last report.
+            // The last report causes the counter to decrease to zero,
+            // but it is possible that the report without commit-info triggered the commit operation,
+            // resulting in the data not being published.
+            if (ctx.fragmentInstancesMap.get(params.fragment_instance_id).getIsDone() && params.isDone()) {
                 if (params.isSetDeltaUrls()) {
                     updateDeltas(params.getDeltaUrls());
                 }
@@ -2262,7 +2285,14 @@ public class Coordinator implements CoordInterface {
                         status.getErrorMsg());
                 updateStatus(status, params.getFragmentInstanceId());
             }
-            if (execState.done) {
+
+            // params.isDone() should be promised.
+            // There are some periodic reports during the load process,
+            // and the reports from the intermediate process may be concurrent with the last report.
+            // The last report causes the counter to decrease to zero,
+            // but it is possible that the report without commit-info triggered the commit operation,
+            // resulting in the data not being published.
+            if (execState.done && params.isDone()) {
                 if (params.isSetDeltaUrls()) {
                     updateDeltas(params.getDeltaUrls());
                 }

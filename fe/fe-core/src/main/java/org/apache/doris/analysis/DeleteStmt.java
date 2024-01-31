@@ -157,7 +157,7 @@ public class DeleteStmt extends DdlStmt {
                 expr = new BoolLiteral(true);
             } else if (column.isKey()) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
-            } else if (!isMow && !column.isVisible()) {
+            } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             } else {
                 continue;

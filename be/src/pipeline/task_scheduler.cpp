@@ -125,10 +125,11 @@ void BlockedTaskScheduler::_schedule() {
                     _make_task_run(local_blocked_tasks, iter);
                 }
             } else if (task->query_context()->is_timeout(now)) {
-                LOG(WARNING) << "Timeout, query_id=" << print_id(task->query_context()->query_id)
-                             << ", instance_id="
+                LOG(WARNING) << "Timeout of blocking task of query_id="
+                             << print_id(task->query_context()->query_id) << ", instance_id="
                              << print_id(task->fragment_context()->get_fragment_instance_id());
-                task->fragment_context()->cancel(PPlanFragmentCancelReason::TIMEOUT);
+                task->fragment_context()->cancel(PPlanFragmentCancelReason::TIMEOUT,
+                                                 "Query timeout");
 
                 if (task->is_pending_finish()) {
                     task->set_state(PipelineTaskState::PENDING_FINISH);
@@ -272,7 +273,9 @@ void TaskScheduler::_do_work(size_t index) {
         task->set_previous_core_id(index);
         if (!status.ok()) {
             task->set_eos_time();
-            LOG(WARNING) << fmt::format("Pipeline task failed. reason: {}", status.to_string());
+            LOG_WARNING("Instance {} pipeline task {} failed, reason: {}",
+                        print_id(task->fragment_context()->get_fragment_instance_id()),
+                        task->get_core_id(), status.msg());
             // Print detail informations below when you debugging here.
             //
             // LOG(WARNING)<< "task:\n"<<task->debug_string();
@@ -319,6 +322,11 @@ void TaskScheduler::_do_work(size_t index) {
 }
 
 void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state) {
+    // close_a_pipeline may delete fragment context and will core in some defer
+    // code, because the defer code will access fragment context it self.
+    std::shared_ptr<PipelineFragmentContext> lock_for_context =
+            task->fragment_context()->shared_from_this();
+
     if (task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
         _blocked_task_scheduler->add_blocked_task(task);
@@ -335,18 +343,16 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
     if (try_close_failed) {
         cancel();
         // Call `close` if `try_close` failed to make sure allocated resources are released
-        static_cast<void>(task->close());
-    } else if (!task->is_pending_finish()) {
-        status = task->close();
-        if (!status.ok() && state != PipelineTaskState::CANCELED) {
-            cancel();
-        }
     }
-
     if (task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
         static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
         return;
+    }
+
+    status = task->close();
+    if (!status.ok() && state != PipelineTaskState::CANCELED) {
+        cancel();
     }
     task->set_state(state);
     task->set_close_pipeline_time();

@@ -72,6 +72,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -153,6 +154,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     Set<Expression> boundConjuncts = filter.getConjuncts().stream()
                             .map(expr -> bindSlot(expr, filter.child(), ctx.cascadesContext))
                             .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(ImmutableSet.toImmutableSet());
                     return new LogicalFilter<>(boundConjuncts, filter.child());
                 })
@@ -206,10 +208,12 @@ public class BindExpression implements AnalysisRuleFactory {
                     List<Expression> cond = join.getOtherJoinConjuncts().stream()
                             .map(expr -> bindSlot(expr, join.children(), ctx.cascadesContext))
                             .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toList());
                     List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts().stream()
                             .map(expr -> bindSlot(expr, join.children(), ctx.cascadesContext))
                             .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toList());
                     return new LogicalJoin<>(join.getJoinType(),
                             hashJoinConjuncts, cond, join.getHint(), join.getMarkJoinSlotReference(),
@@ -282,10 +286,22 @@ public class BindExpression implements AnalysisRuleFactory {
                         if (alias.child().anyMatch(expr -> expr instanceof AggregateFunction)) {
                             continue;
                         }
-                        // NOTICE: must use unbound expressions, because we will bind them in binding group by expr.
-                        childOutputsToExpr.putIfAbsent(alias.getName(), agg.getOutputExpressions().get(i).child(0));
+                        /*
+                            Alias(x) has been bound by binding agg's output
+                            we add x to childOutputsToExpr, so when binding group by exprs later, we can use x directly
+                            and won't bind it again
+                            select
+                              p_cycle_time / (select max(p_cycle_time) from log_event_8)  as 'x',
+                              count(distinct case_id) as 'y'
+                            from
+                              log_event_8
+                            group by
+                              x
+                         */
+                        childOutputsToExpr.putIfAbsent(alias.getName(), output.get(i).child(0));
                     }
 
+                    Set<Expression> boundedGroupByExpressions = Sets.newHashSet();
                     List<Expression> replacedGroupBy = agg.getGroupByExpressions().stream()
                             .map(groupBy -> {
                                 if (groupBy instanceof UnboundSlot) {
@@ -293,7 +309,9 @@ public class BindExpression implements AnalysisRuleFactory {
                                     if (unboundSlot.getNameParts().size() == 1) {
                                         String name = unboundSlot.getNameParts().get(0);
                                         if (childOutputsToExpr.containsKey(name)) {
-                                            return childOutputsToExpr.get(name);
+                                            Expression expression = childOutputsToExpr.get(name);
+                                            boundedGroupByExpressions.add(expression);
+                                            return expression;
                                         }
                                     }
                                 }
@@ -326,16 +344,24 @@ public class BindExpression implements AnalysisRuleFactory {
 
                     List<Expression> groupBy = replacedGroupBy.stream()
                             .map(expression -> {
-                                Expression e = binder.bind(expression);
-                                if (e instanceof UnboundSlot) {
-                                    return childBinder.bind(e);
+                                if (boundedGroupByExpressions.contains(expression)) {
+                                    // expr has been bound by binding agg's output
+                                    return expression;
+                                } else {
+                                    // bind slot for unbound exprs
+                                    Expression e = binder.bind(expression);
+                                    if (e instanceof UnboundSlot) {
+                                        return childBinder.bind(e);
+                                    }
+                                    return e;
                                 }
-                                return e;
                             })
                             .collect(Collectors.toList());
                     groupBy.forEach(expression -> checkBound(expression, ctx.root));
                     groupBy = groupBy.stream()
-                            .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            // bind function for unbound exprs or return old expr if it's bound by binding agg's output
+                            .map(expr -> boundedGroupByExpressions.contains(expr) ? expr
+                                    : bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
                     checkIfOutputAliasNameDuplicatedForGroupBy(groupBy, output);
                     return agg.withGroupByAndOutput(groupBy, output);
@@ -465,6 +491,7 @@ public class BindExpression implements AnalysisRuleFactory {
                                 return bindSlot(expr, childPlan, ctx.cascadesContext, false);
                             })
                             .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toSet());
                     checkIfOutputAliasNameDuplicatedForGroupBy(ImmutableList.copyOf(boundConjuncts),
                             childPlan.getOutputExpressions());
@@ -481,6 +508,7 @@ public class BindExpression implements AnalysisRuleFactory {
                                 return bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
                             })
                             .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toSet());
                     checkIfOutputAliasNameDuplicatedForGroupBy(ImmutableList.copyOf(boundConjuncts),
                             childPlan.getOutput().stream().map(NamedExpression.class::cast)

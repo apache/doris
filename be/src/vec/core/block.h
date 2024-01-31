@@ -154,6 +154,12 @@ public:
                     reinterpret_cast<vectorized::ColumnNullable*>(raw_res_ptr.get());
             col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
             raw_res_ptr = col_ptr_nullable->get_nested_column_ptr();
+        } else if (!raw_res_ptr->is_nullable() && input_col_ptr->is_nullable()) {
+            LOG(WARNING) << "nullable mismatch for raw_res_column: "
+                         << this->get_by_position(block_cid).dump_structure()
+                         << " input_column: " << input_col_ptr->dump_structure()
+                         << " block_cid: " << block_cid << " select_size: " << select_size;
+            return Status::RuntimeError("copy_column_data_to_block nullable mismatch");
         }
 
         return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, raw_res_ptr);

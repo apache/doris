@@ -57,14 +57,24 @@ public class StatsId {
         this.partId = row.get(6);
     }
 
+    public StatsId(String id, long catalogId, long dbId, long tblId, long idxId, String colId, String partId) {
+        this.id = id;
+        this.catalogId = catalogId;
+        this.dbId = dbId;
+        this.tblId = tblId;
+        this.idxId = idxId;
+        this.colId = colId;
+        this.partId = partId;
+    }
+
     public String toSQL() {
         StringJoiner sj = new StringJoiner(",");
-        sj.add(StatisticsUtil.quote(id));
+        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(id)));
         sj.add(String.valueOf(catalogId));
         sj.add(String.valueOf(dbId));
         sj.add(String.valueOf(tblId));
         sj.add(String.valueOf(idxId));
-        sj.add(StatisticsUtil.quote(colId));
+        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(colId)));
         sj.add(partId);
         return sj.toString();
     }

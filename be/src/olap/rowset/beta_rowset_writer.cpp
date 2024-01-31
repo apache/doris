@@ -76,7 +76,7 @@ BetaRowsetWriter::BetaRowsetWriter()
           _num_rows_filtered(0),
           _segcompaction_worker(this),
           _is_doing_segcompaction(false) {
-    _segcompaction_status.store(OK);
+    _segcompaction_status.store(ErrorCode::OK);
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
@@ -341,7 +341,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
-    if (_segcompaction_status.load() != OK) {
+    if (_segcompaction_status.load() != ErrorCode::OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>(
                 "BetaRowsetWriter::_segcompaction_if_necessary meet invalid state");
     } else if ((_num_segment - _segcompacted_point) >= config::segcompaction_batch_size) {
@@ -370,7 +370,7 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
     if (!config::enable_segcompaction) {
         return Status::OK();
     }
-    if (_segcompaction_status.load() != OK) {
+    if (_segcompaction_status.load() != ErrorCode::OK) {
         return Status::Error<SEGCOMPACTION_FAILED>(
                 "BetaRowsetWriter::_segcompaction_rename_last_segments meet invalid state");
     }
@@ -497,7 +497,7 @@ Status BetaRowsetWriter::wait_flying_segcompaction() {
     if (elapsed >= MICROS_PER_SEC) {
         LOG(INFO) << "wait flying segcompaction finish time:" << elapsed << "us";
     }
-    if (_segcompaction_status.load() != OK) {
+    if (_segcompaction_status.load() != ErrorCode::OK) {
         return Status::Error<SEGCOMPACTION_FAILED>("BetaRowsetWriter meet invalid state.");
     }
     return Status::OK();

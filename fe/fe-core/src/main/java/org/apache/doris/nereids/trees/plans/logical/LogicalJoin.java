@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
@@ -57,13 +58,16 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     private final JoinType joinType;
     private final List<Expression> otherJoinConjuncts;
     private final List<Expression> hashJoinConjuncts;
-    private final JoinHint hint;
 
     // When the predicate condition contains subqueries and disjunctions, the join will be marked as MarkJoin.
     private final Optional<MarkJoinSlotReference> markJoinSlotReference;
 
     // Use for top-to-down join reorder
     private final JoinReorderContext joinReorderContext = new JoinReorderContext();
+    // Table bitmap for tables below this join
+    private long bitmap = LongBitmap.newBitmap();
+
+    private JoinHint hint;
 
     public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE,
@@ -92,6 +96,20 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         this(joinType, hashJoinConjuncts,
                 otherJoinConjuncts, hint, markJoinSlotReference,
                 Optional.empty(), Optional.empty(), leftChild, rightChild);
+    }
+
+    public LogicalJoin(
+            long bitmap,
+            JoinType joinType,
+            List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            JoinHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts,
+                otherJoinConjuncts, hint, markJoinSlotReference,
+                Optional.empty(), Optional.empty(), leftChild, rightChild);
+        this.bitmap = LongBitmap.or(this.bitmap, bitmap);
     }
 
     public LogicalJoin(
@@ -195,6 +213,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return hint;
     }
 
+    public void setHint(JoinHint hint) {
+        this.hint = hint;
+    }
+
     public boolean isMarkJoin() {
         return markJoinSlotReference.isPresent();
     }
@@ -265,6 +287,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public Optional<MarkJoinSlotReference> getMarkJoinSlotReference() {
         return markJoinSlotReference;
+    }
+
+    public long getBitmap() {
+        return bitmap;
+    }
+
+    public void setBitmap(long bitmap) {
+        this.bitmap = bitmap;
     }
 
     @Override

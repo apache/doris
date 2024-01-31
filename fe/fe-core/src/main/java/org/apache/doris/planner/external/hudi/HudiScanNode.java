@@ -133,7 +133,14 @@ public class HudiScanNode extends HiveScanNode {
         }
     }
 
-    public static void setHudiParams(TFileRangeDesc rangeDesc, HudiSplit hudiSplit) {
+    @Override
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        if (split instanceof HudiSplit) {
+            setHudiParams(rangeDesc, (HudiSplit) split);
+        }
+    }
+
+    public void setHudiParams(TFileRangeDesc rangeDesc, HudiSplit hudiSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(hudiSplit.getTableFormatType().value());
         THudiFileDesc fileDesc = new THudiFileDesc();
@@ -223,7 +230,8 @@ public class HudiScanNode extends HiveScanNode {
 
         List<String> columnNames = new ArrayList<>();
         List<String> columnTypes = new ArrayList<>();
-        List<FieldSchema> allFields = hmsTable.getRemoteTable().getSd().getCols();
+        List<FieldSchema> allFields = Lists.newArrayList();
+        allFields.addAll(hmsTable.getRemoteTable().getSd().getCols());
         allFields.addAll(hmsTable.getRemoteTable().getPartitionKeys());
 
         for (Schema.Field hudiField : hudiSchema.getFields()) {

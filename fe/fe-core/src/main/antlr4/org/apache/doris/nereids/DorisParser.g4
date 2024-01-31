@@ -60,10 +60,11 @@ statement
 identifierOrText
     : errorCapturingIdentifier
     | STRING_LITERAL
+    | LEADING_STRING
     ;
 
 userIdentify
-    : user=identifierOrText (AT (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
+    : user=identifierOrText (ATSIGN (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
     ;
 
 
@@ -191,7 +192,7 @@ havingClause
 selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
-    : hintName=identifier LEFT_PAREN parameters+=hintAssignment (COMMA parameters+=hintAssignment)* RIGHT_PAREN
+    : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
     ;
 
 hintAssignment
@@ -259,7 +260,8 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition? tableAlias sample? relationHint? lateralView*           #tableName
+    : multipartIdentifier materializedViewName? specifiedPartition?
+       tabletList? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties+=property (COMMA properties+=property)*)?
@@ -270,6 +272,10 @@ property
     : key=propertyItem EQ value=propertyItem
     ;
 
+materializedViewName
+    : INDEX indexName=identifier
+    ;
+
 propertyItem : identifier | constant ;
 
 tableAlias
@@ -278,6 +284,10 @@ tableAlias
 
 multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
+    ;
+
+tabletList
+    : TABLET LEFT_PAREN tabletIdList+=INTEGER_VALUE (COMMA tabletIdList+=INTEGER_VALUE)*  RIGHT_PAREN
     ;
 
 // -----------------Expression-----------------
@@ -307,7 +317,7 @@ booleanExpression
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE) pattern=valueExpression
+    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
@@ -316,8 +326,8 @@ predicate
 valueExpression
     : primaryExpression                                                                      #valueExpressionDefault
     | operator=(SUBTRACT | PLUS | TILDE) valueExpression                                     #arithmeticUnary
-    | left=valueExpression operator=(ASTERISK | SLASH | MOD) right=valueExpression           #arithmeticBinary
-    | left=valueExpression operator=(PLUS | SUBTRACT | DIV | HAT | PIPE | AMPERSAND)
+    | left=valueExpression operator=(ASTERISK | SLASH | MOD | DIV) right=valueExpression     #arithmeticBinary
+    | left=valueExpression operator=(PLUS | SUBTRACT | HAT | PIPE | AMPERSAND)
                            right=valueExpression                                             #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     | operator=(BITAND | BITOR | BITXOR) LEFT_PAREN left = valueExpression
@@ -435,7 +445,7 @@ specifiedPartition
 constant
     : NULL                                                                                     #nullLiteral
     | interval                                                                                 #intervalLiteral
-    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
+    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                 #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | STRING_LITERAL                                                                           #stringLiteral
@@ -678,6 +688,7 @@ nonReserved
     | LAST
     | LDAP
     | LDAP_ADMIN_PASSWORD
+    | LEADING
     | LEFT_BRACE
     | LESS
     | LEVEL
@@ -713,6 +724,7 @@ nonReserved
     | ONLY
     | OPEN
     | OPTIMIZED
+    | ORDERED
     | PARAMETER
     | PARSED
     | PASSWORD

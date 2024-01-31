@@ -286,7 +286,7 @@ Status CsvReader::init_reader(bool is_load) {
         if (_file_format_type != TFileFormatType::FORMAT_CSV_PLAIN ||
             (_file_compress_type != TFileCompressType::UNKNOWN &&
              _file_compress_type != TFileCompressType::PLAIN)) {
-            return Status::InternalError("For now we do not support split compressed file");
+            return Status::InternalError<false>("For now we do not support split compressed file");
         }
         start_offset -= 1;
         _size += 1;
@@ -419,7 +419,7 @@ Status CsvReader::init_reader(bool is_load) {
         _line_reader = NewPlainBinaryLineReader::create_unique(_file_reader);
         break;
     default:
-        return Status::InternalError(
+        return Status::InternalError<false>(
                 "Unknown format type, cannot init line reader in csv reader, type={}",
                 _file_format_type);
     }
@@ -579,7 +579,7 @@ Status CsvReader::_create_decompressor() {
             compress_type = CompressType::SNAPPYBLOCK;
             break;
         default:
-            return Status::InternalError("unknown compress type: {}", _file_compress_type);
+            return Status::InternalError<false>("unknown compress type: {}", _file_compress_type);
         }
     } else {
         switch (_file_format_type) {
@@ -610,7 +610,7 @@ Status CsvReader::_create_decompressor() {
             compress_type = CompressType::SNAPPYBLOCK;
             break;
         default:
-            return Status::InternalError("unknown format type: {}", _file_format_type);
+            return Status::InternalError<false>("unknown format type: {}", _file_format_type);
         }
     }
     Decompressor* decompressor;
@@ -700,7 +700,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 Status CsvReader::_validate_line(const Slice& line, bool* success) {
     if (!_is_proto_format && !validate_utf8(line.data, line.size)) {
         if (!_is_load) {
-            return Status::InternalError("Only support csv data in utf8 codec");
+            return Status::InternalError<false>("Only support csv data in utf8 codec");
         } else {
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                     [&]() -> std::string { return std::string(line.data, line.size); },
@@ -812,9 +812,10 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         return Status::InvalidArgument(
                 "start offset of TFileRangeDesc must be zero in get parsered schema");
     }
+
     if (_params.file_type == TFileType::FILE_STREAM ||
         _params.file_type == TFileType::FILE_BROKER) {
-        return Status::InternalError(
+        return Status::InternalError<false>(
                 "Getting parsered schema from csv file do not support stream load and broker "
                 "load.");
     }
@@ -917,10 +918,11 @@ Status CsvReader::_parse_col_nums(size_t* col_nums) {
     size_t size = 0;
     RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
     if (size == 0) {
-        return Status::InternalError("The first line is empty, can not parse column numbers");
+        return Status::InternalError<false>(
+                "The first line is empty, can not parse column numbers");
     }
     if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
-        return Status::InternalError("Only support csv data in utf8 codec");
+        return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
     _split_line(Slice(ptr, size));
     *col_nums = _split_values.size();
@@ -933,10 +935,10 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
     // no use of _line_reader_eof
     RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
     if (size == 0) {
-        return Status::InternalError("The first line is empty, can not parse column names");
+        return Status::InternalError<false>("The first line is empty, can not parse column names");
     }
     if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
-        return Status::InternalError("Only support csv data in utf8 codec");
+        return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
     _split_line(Slice(ptr, size));
     for (size_t idx = 0; idx < _split_values.size(); ++idx) {

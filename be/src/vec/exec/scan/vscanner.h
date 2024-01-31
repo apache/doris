@@ -64,6 +64,9 @@ public:
 
     virtual Status close(RuntimeState* state);
 
+    // Try to stop scanner, and all running readers.
+    virtual void try_stop() { _should_stop = true; };
+
     virtual std::string get_name() { return ""; }
 
     // return the readable name of current scan range.
@@ -212,8 +215,11 @@ protected:
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
+
+    bool _should_stop = false;
 };
 
 using VScannerSPtr = std::shared_ptr<VScanner>;
+using VScannerWPtr = std::weak_ptr<VScanner>;
 
 } // namespace doris::vectorized

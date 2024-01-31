@@ -83,8 +83,10 @@ bool ExchangeSinkOperator::is_pending_finish() const {
 
 Status ExchangeSinkOperator::close(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperator::close(state));
-    _sink_buffer->update_profile(_sink->profile());
-    _sink_buffer->close();
+    if (_sink_buffer) {
+        _sink_buffer->update_profile(_sink->profile());
+        _sink_buffer->close();
+    }
     return Status::OK();
 }
 

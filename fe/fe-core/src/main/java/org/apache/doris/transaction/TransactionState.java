@@ -108,7 +108,8 @@ public class TransactionState implements Writable {
         TIMEOUT,
         OFFSET_OUT_OF_RANGE,
         PAUSE,
-        NO_PARTITIONS;
+        NO_PARTITIONS,
+        INVALID_JSON_PATH;
 
         public static TxnStatusChangeReason fromString(String reasonString) {
             for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {
@@ -746,6 +747,12 @@ public class TransactionState implements Writable {
 
     public String getErrMsg() {
         return this.errMsg;
+    }
+
+    // reduce memory
+    public void pruneAfterVisible() {
+        publishVersionTasks.clear();
+        tableIdToTotalNumDeltaRows.clear();
     }
 
     public void setSchemaForPartialUpdate(OlapTable olapTable) {

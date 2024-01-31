@@ -312,8 +312,10 @@ LABEL: 'LABEL';
 LARGEINT: 'LARGEINT';
 LAST: 'LAST';
 LATERAL: 'LATERAL';
+LAZY: 'LAZY';
 LDAP: 'LDAP';
 LDAP_ADMIN_PASSWORD: 'LDAP_ADMIN_PASSWORD';
+LEADING: 'LEADING';
 LEFT: 'LEFT';
 LESS: 'LESS';
 LEVEL: 'LEVEL';
@@ -338,6 +340,8 @@ MATCH_ELEMENT_GT: 'ELEMENT_GT';
 MATCH_ELEMENT_LE: 'ELEMENT_LE';
 MATCH_ELEMENT_LT: 'ELEMENT_LT';
 MATCH_PHRASE: 'MATCH_PHRASE';
+MATCH_PHRASE_PREFIX: 'MATCH_PHRASE_PREFIX';
+MATCH_REGEXP: 'MATCH_REGEXP';
 MATERIALIZED: 'MATERIALIZED';
 MAX: 'MAX';
 MAXVALUE: 'MAXVALUE';
@@ -372,6 +376,7 @@ OPEN: 'OPEN';
 OPTIMIZED: 'OPTIMIZED';
 OR: 'OR';
 ORDER: 'ORDER';
+ORDERED: 'ORDERED';
 OUTER: 'OUTER';
 OUTFILE: 'OUTFILE';
 OVER: 'OVER';
@@ -631,9 +636,8 @@ fragment DIGIT
 
 fragment LETTER
     : [a-zA-Z$_] // these are the "java letters" below 0x7F
-    |   // covers all characters above 0x7F which are not a surrogate
-    ~[\u0000-\u007F\uD800-\uDBFF]
-     {Character.isJavaIdentifierStart(_input.LA(-1))}?
+    | ~[\u0000-\u007F\uD800-\uDBFF] // covers all characters above 0x7F which are not a surrogate
+    | [\uD800-\uDBFF] [\uDC00-\uDFFF] // covers UTF-16 surrogate pairs encodings for U+10000 to U+10FFFF
     ;
 
 SIMPLE_COMMENT

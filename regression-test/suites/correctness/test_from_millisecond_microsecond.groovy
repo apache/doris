@@ -60,12 +60,12 @@ suite("test_from_millisecond_microsecond") {
         microseconds_add(cast(from_unixtime(t/1000000) as datetime(6)), cast((t % 1000000) as int)) as t2 
         from millimicro order by id;
     """ 
-
+    // 32536771199 is max valid timestamp for from_unixtime
     qt_select3 """
         select 
-        FROM_UNIXTIME(2147483647),from_second(2147483647),
-        FROM_UNIXTIME(2147483647 + 1),from_second(2147483647 + 1),
-        FROM_UNIXTIME(21474836470),from_second(21474836470);
+        from_unixtime(32536771199),     from_second(32536771199),
+        from_unixtime(32536771199 + 1), from_second(32536771199 + 1),
+        from_unixtime(21474836470),     from_second(21474836470);
     """ 
 
     qt_select4 """
@@ -128,4 +128,80 @@ suite("test_from_millisecond_microsecond") {
         microsecond_timestamp(from_microsecond(t))
         from millimicro order by id;
     """ 
+
+    // null datetime
+    sql """ DROP TABLE IF EXISTS millimicro """
+    sql """
+        CREATE TABLE IF NOT EXISTS millimicro (
+              `id` INT(11) NULL COMMENT ""   ,
+              `t` Datetime(6) NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+    );
+    """
+
+    sql """
+        insert into millimicro values(1,'2023-01-01 00:00:00');
+    """
+    sql """
+        insert into millimicro values(2,'2023-01-01 00:00:00.123');
+    """
+    sql """
+        insert into millimicro values(3,'2023-01-01 00:00:00.123456');
+    """
+
+    qt_select_null_datetime """
+        select 
+        id,
+        SECOND_TIMESTAMP(t),
+        MILLISECOND_TIMESTAMP(t),
+        MICROSECOND_TIMESTAMP(t)
+        from millimicro
+        order by id;
+    """ 
+
+
+    // not null datetime
+    sql """ DROP TABLE IF EXISTS millimicro """
+    sql """
+        CREATE TABLE IF NOT EXISTS millimicro (
+              `id` INT(11) NULL COMMENT ""   ,
+              `t` Datetime(6)  COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+    );
+    """
+
+    sql """
+        insert into millimicro values(1,'2023-01-01 00:00:00');
+    """
+    sql """
+        insert into millimicro values(2,'2023-01-01 00:00:00.123');
+    """
+    sql """
+        insert into millimicro values(3,'2023-01-01 00:00:00.123456');
+    """
+
+    qt_select_not_null_datetime """
+        select 
+        id,
+        SECOND_TIMESTAMP(t),
+        MILLISECOND_TIMESTAMP(t),
+        MICROSECOND_TIMESTAMP(t)
+        from millimicro
+        order by id;
+    """ 
+
+    sql " set time_zone='Asia/Shanghai' "
+    qt_sql " select from_second(-1) "
+    qt_sql " select from_microsecond(253402271999999999) "
+    qt_sql " select from_microsecond(253402272000000000) "
 }

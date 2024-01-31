@@ -236,8 +236,6 @@ DECLARE_mInt32(max_download_speed_kbps);
 DECLARE_mInt32(download_low_speed_limit_kbps);
 // download low speed time(seconds)
 DECLARE_mInt32(download_low_speed_time);
-// sleep time for one second
-DECLARE_Int32(sleep_one_second);
 
 // log dir
 DECLARE_String(sys_log_dir);
@@ -998,6 +996,7 @@ DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
 DECLARE_mBool(enable_workload_group_for_scan);
+DECLARE_mInt64(workload_group_scan_task_wait_timeout_ms);
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -1032,14 +1031,16 @@ DECLARE_String(inverted_index_query_cache_limit);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
-DECLARE_Int32(query_bkd_inverted_index_limit_percent); // 5%
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
+DECLARE_mInt32(inverted_index_max_buffered_docs);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction
-DECLARE_Bool(inverted_index_compaction_enable);
+DECLARE_mBool(inverted_index_compaction_enable);
+// index by RAM directory
+DECLARE_mBool(inverted_index_ram_dir_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 // semi-structure configs
@@ -1066,7 +1067,7 @@ DECLARE_mInt32(s3_write_buffer_whole_size);
 // the max number of cached file handle for block segemnt
 DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 //enable shrink memory
-DECLARE_Bool(enable_shrink_memory);
+DECLARE_mBool(enable_shrink_memory);
 // enable cache for high concurrent point query work load
 DECLARE_mInt32(schema_cache_capacity);
 DECLARE_mInt32(schema_cache_sweep_time_sec);
@@ -1082,6 +1083,8 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 
 // max number of hdfs file handle in cache
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
+DECLARE_Int32(max_hdfs_file_handle_cache_time_sec);
+
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
 // Apply delete pred in cumu compaction
@@ -1092,10 +1095,10 @@ DECLARE_Int32(rocksdb_max_write_buffer_number);
 
 // Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
 DECLARE_mBool(allow_invalid_decimalv2_literal);
-// the max expiration time of kerberos ticket.
-// If a hdfs filesytem with kerberos authentication live longer
-// than this time, it will be expired.
-DECLARE_mInt64(kerberos_expiration_time_seconds);
+// Allow to specify kerberos credentials cache path.
+DECLARE_mString(kerberos_ccache_path);
+// set krb5.conf path, use "/etc/krb5.conf" by default
+DECLARE_mString(kerberos_krb5_conf_path);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
@@ -1121,6 +1124,11 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 DECLARE_mInt64(LZ4_HC_compression_level);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
+// rowid conversion correctness check when compaction for mow table
+DECLARE_mBool(enable_rowid_conversion_correctness_check);
+// When the number of missing versions is more than this value, do not directly
+// retry the publish and handle it through async publish.
+DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1156,6 +1164,19 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
+
+DECLARE_mInt32(buffered_reader_read_timeout_ms);
+
+// whether to enable /api/snapshot api
+DECLARE_Bool(enable_snapshot_action);
+
+// The timeout config for S3 write buffer allocation
+DECLARE_mInt32(s3_writer_buffer_allocation_timeout_second);
+
+DECLARE_mBool(enable_column_type_check);
+
+// Tolerance for the number of partition id 0 in rowset, default 0
+DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
 
 #ifdef BE_TEST
 // test s3
@@ -1267,6 +1288,8 @@ std::vector<std::vector<std::string>> get_config_info();
 Status set_fuzzy_config(const std::string& field, const std::string& value);
 
 void set_fuzzy_configs();
+
+void update_config(const std::string& field, const std::string& value);
 
 } // namespace config
 } // namespace doris

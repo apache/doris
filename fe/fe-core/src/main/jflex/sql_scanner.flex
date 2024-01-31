@@ -309,6 +309,8 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("match_any", new Integer(SqlParserSymbols.KW_MATCH_ANY));
         keywordMap.put("match_all", new Integer(SqlParserSymbols.KW_MATCH_ALL));
         keywordMap.put("match_phrase", new Integer(SqlParserSymbols.KW_MATCH_PHRASE));
+        keywordMap.put("match_phrase_prefix", new Integer(SqlParserSymbols.KW_MATCH_PHRASE_PREFIX));
+        keywordMap.put("match_regexp", new Integer(SqlParserSymbols.KW_MATCH_REGEXP));
         keywordMap.put("element_eq", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_EQ));
         keywordMap.put("element_lt", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_LT));
         keywordMap.put("element_gt", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_GT));
@@ -572,7 +574,11 @@ import org.apache.doris.qe.SqlModeHelper;
     return new Symbol(id, yyline+1, yycolumn+1, value);
   }
 
-  private static String escapeBackSlash(String str) {
+  private static String escapeBackSlash(String str, long sqlMode) {
+      if ((sqlMode & SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES) != 0) {
+          return str;
+      }
+
       StringWriter writer = new StringWriter();
       int strLen = str.length();
       for (int i = 0; i < strLen; ++i) {
@@ -732,12 +738,12 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 
 {SingleQuoteStringLiteral} {
   return newToken(SqlParserSymbols.STRING_LITERAL,
-      escapeBackSlash(yytext().substring(1, yytext().length()-1)).replaceAll("''", "'"));
+      escapeBackSlash(yytext().substring(1, yytext().length()-1), sql_mode).replaceAll("''", "'"));
 }
 
 {DoubleQuoteStringLiteral} {
   return newToken(SqlParserSymbols.STRING_LITERAL,
-      escapeBackSlash(yytext().substring(1, yytext().length()-1)).replaceAll("\"\"", "\""));
+      escapeBackSlash(yytext().substring(1, yytext().length()-1), sql_mode).replaceAll("\"\"", "\""));
 }
 
 {CommentedHintBegin} {

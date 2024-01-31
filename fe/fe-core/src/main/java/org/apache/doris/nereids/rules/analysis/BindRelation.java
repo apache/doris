@@ -26,6 +26,7 @@ import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -45,11 +47,13 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -87,7 +91,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
             Plan plan = doBindRelation(ctx);
-            if (!(plan instanceof Unbound)) {
+            if (!(plan instanceof Unbound) && plan instanceof Relation) {
                 // init output and allocate slot id immediately, so that the slot id increase
                 // in the order in which the table appears.
                 LogicalProperties logicalProperties = plan.getLogicalProperties();
@@ -124,8 +128,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (cteContext != null) {
             Optional<LogicalPlan> analyzedCte = cteContext.getAnalyzedCTEPlan(tableName);
             if (analyzedCte.isPresent()) {
-                return new LogicalCTEConsumer(unboundRelation.getRelationId(),
+                LogicalCTEConsumer consumer = new LogicalCTEConsumer(unboundRelation.getRelationId(),
                         cteContext.getCteId(), tableName, analyzedCte.get());
+                if (cascadesContext.isLeadingJoin()) {
+                    LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
+                    leading.putRelationIdAndTableName(Pair.of(consumer.getRelationId(), tableName));
+                    leading.getRelationIdToScanMap().put(consumer.getRelationId(), consumer);
+                }
+                return consumer;
             }
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
@@ -146,7 +156,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
 
         // TODO: should generate different Scan sub class according to table's type
-        return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+        LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+        if (cascadesContext.isLeadingJoin()) {
+            LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
+            leading.putRelationIdAndTableName(Pair.of(unboundRelation.getRelationId(), tableName));
+            leading.getRelationIdToScanMap().put(unboundRelation.getRelationId(), scan);
+        }
+        return scan;
     }
 
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
@@ -167,18 +183,32 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier) {
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation);
+        List<Long> tabletIds = unboundRelation.getTabletIds();
         if (!CollectionUtils.isEmpty(partIds)) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds,
-                    unboundRelation.getHints(), unboundRelation.getTableSample());
+                    tabletIds, unboundRelation.getHints(), unboundRelation.getTableSample());
         } else {
-            scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), unboundRelation.getHints(),
+            Optional<String> indexName = unboundRelation.getIndexName();
+            if (indexName.isPresent()) {
+                OlapTable olapTable = (OlapTable) table;
+                Long indexId = olapTable.getIndexIdByName(indexName.get());
+                if (indexId == null) {
+                    throw new AnalysisException("Table " + olapTable.getName()
+                        + " doesn't have materialized view " + indexName.get());
+                }
+                scan = new LogicalOlapScan(unboundRelation.getRelationId(),
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, indexId,
+                    unboundRelation.getHints(), unboundRelation.getTableSample());
+            } else {
+                scan = new LogicalOlapScan(unboundRelation.getRelationId(),
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample());
+            }
         }
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
-                && !ConnectContext.get().getSessionVariable()
-                .skipDeleteSign()) {
+                && !ConnectContext.get().getSessionVariable().skipDeleteSign()
+                && !scan.isDirectMvScan()) {
             // table qualifier is catalog.db.table, we make db.table.column
             Slot deleteSlot = null;
             for (Slot slot : scan.getOutput()) {
@@ -225,6 +255,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case JDBC_EXTERNAL_TABLE:
             case JDBC:
                 return new LogicalJdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
+            case ODBC:
+                return new LogicalOdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
             case ES_EXTERNAL_TABLE:
                 return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table, tableQualifier);
             default:
@@ -252,7 +284,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
-        viewContext.newAnalyzer().analyze();
+        viewContext.newAnalyzer(true, customTableResolver).analyze();
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
         return viewContext.getRewritePlan();
     }

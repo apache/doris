@@ -157,22 +157,26 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
 
     {
         std::lock_guard<doris::SpinLock> l(_fail_lock);
+        int least_tablet_success_channel_num = ((_parent->_num_replicas + 1) / 2);
+        if (_parent->_write_single_replica) {
+            least_tablet_success_channel_num = 1;
+        }
         if (tablet_id == -1) {
             for (const auto the_tablet_id : it->second) {
                 _failed_channels[the_tablet_id].insert(node_id);
                 _failed_channels_msgs.emplace(the_tablet_id,
                                               err + ", host: " + node_channel->host());
-                if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
-                    _intolerable_failure_status =
-                            Status::InternalError(_failed_channels_msgs[the_tablet_id]);
+                if (_failed_channels[the_tablet_id].size() >= least_tablet_success_channel_num) {
+                    _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                            _failed_channels_msgs[the_tablet_id]);
                 }
             }
         } else {
             _failed_channels[tablet_id].insert(node_id);
             _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
-            if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
-                _intolerable_failure_status =
-                        Status::InternalError(_failed_channels_msgs[tablet_id]);
+            if (_failed_channels[tablet_id].size() >= least_tablet_success_channel_num) {
+                _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        _failed_channels_msgs[tablet_id]);
             }
         }
     }
@@ -393,7 +397,7 @@ Status VNodeChannel::open_wait() {
             delete _open_closure;
         }
         _open_closure = nullptr;
-        return Status::InternalError(
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                 "failed to open tablet writer, error={}, error_text={}, info={}",
                 berror(error_code), error_text, channel_info());
     }
@@ -527,7 +531,8 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("add row failed. {}", _cancel_msg);
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("add row failed. {}",
+                                                                   _cancel_msg);
         } else {
             return std::move(st.prepend("already stopped, can't add row. cancelled/eos: "));
         }
@@ -877,7 +882,8 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("wait close failed. {}", _cancel_msg);
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("wait close failed. {}",
+                                                                   _cancel_msg);
         } else {
             return std::move(
                     st.prepend("already stopped, skip waiting for close. cancelled/!eos: "));
@@ -904,7 +910,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         return Status::OK();
     }
 
-    return Status::InternalError(get_cancel_msg());
+    return Status::Error<ErrorCode::INTERNAL_ERROR, false>(get_cancel_msg());
 }
 
 void VNodeChannel::_close_check() {
@@ -1021,6 +1027,16 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     if (_output_tuple_desc == nullptr) {
         LOG(WARNING) << "unknown destination tuple descriptor, id=" << _tuple_desc_id;
         return Status::InternalError("unknown destination tuple descriptor");
+    }
+
+    if (_output_vexpr_ctxs.size() > 0 &&
+        _output_tuple_desc->slots().size() != _output_vexpr_ctxs.size()) {
+        LOG(WARNING) << "output tuple slot num should be equal to num of output exprs, "
+                     << "output_tuple_slot_num " << _output_tuple_desc->slots().size()
+                     << " output_expr_num " << _output_vexpr_ctxs.size();
+        return Status::InvalidArgument(
+                "output_tuple_slot_num {} should be equal to output_expr_num {}",
+                _output_tuple_desc->slots().size(), _output_vexpr_ctxs.size());
     }
 
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
@@ -1894,7 +1910,7 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         break;
     }
     case TYPE_DECIMAL128I: {
-        CHECK_VALIDATION_FOR_DECIMALV3(Decimal128I, Decimal128);
+        CHECK_VALIDATION_FOR_DECIMALV3(Decimal128I, Decimal128I);
         break;
     }
     case TYPE_ARRAY: {

@@ -23,8 +23,11 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
         qt_q02 """
         select value from orc_full_acid order by id;
         """
-        qt_q03 """
-        select * from orc_full_acid where value = 'CC' order by id;
+        qt_q04 """
+        select * from orc_full_acid_empty;
+        """
+        qt_q05 """
+        select count(*) from orc_full_acid_empty;
         """
     }
 
@@ -37,6 +40,12 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
         """
         qt_q03 """
         select * from orc_full_acid_par where value = 'BB' order by id;
+        """
+        qt_q04 """
+        select * from orc_full_acid_par_empty;
+        """
+        qt_q05 """
+        select count(*) from orc_full_acid_par_empty;
         """
     }
     String enabled = context.config.otherConfigs.get("enableHiveTest")

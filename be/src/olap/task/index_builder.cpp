@@ -155,6 +155,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         std::string segment_dir = _tablet->tablet_path();
         auto fs = output_rowset_meta->fs();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
+        size_t inverted_index_size = 0;
         for (auto& seg_ptr : segments) {
             std::string segment_filename = fmt::format(
                     "{}_{}.dat", output_rowset_meta->rowset_id().to_string(), seg_ptr->id());
@@ -198,6 +199,11 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 }
             }
 
+            if (return_columns.empty()) {
+                // no columns to read
+                break;
+            }
+
             // create iterator for each segment
             StorageReadOptions read_options;
             OlapReaderStatistics stats;
@@ -212,8 +218,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                              << "]: " << res.to_string();
                 return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
             }
-
-            std::shared_ptr<vectorized::Block> block = std::make_shared<vectorized::Block>(
+            auto block = vectorized::Block::create_unique(
                     output_rowset_schema->create_block(return_columns));
             while (true) {
                 auto st = iter->next_batch(block.get());
@@ -245,11 +250,18 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                             "CLuceneError occured: {}", e.what());
                 }
+                inverted_index_size += _inverted_index_builders[writer_sign]->file_size();
             }
 
             _olap_data_convertor->reset();
         }
         _inverted_index_builders.clear();
+        output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size() +
+                                               inverted_index_size);
+        output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
+                                                inverted_index_size);
+        output_rowset_meta->set_index_disk_size(output_rowset_meta->index_disk_size() +
+                                                inverted_index_size);
         LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
     }
 
@@ -264,12 +276,6 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
     for (auto i = 0; i < _alter_inverted_indexes.size(); ++i) {
         auto inverted_index = _alter_inverted_indexes[i];
         auto index_id = inverted_index.index_id;
-        auto converted_result = _olap_data_convertor->convert_column_data(i);
-        if (converted_result.first != Status::OK()) {
-            LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
-            return converted_result.first;
-        }
-
         auto column_name = inverted_index.columns[0];
         auto column_idx = tablet_schema->field_index(column_name);
         if (column_idx < 0) {
@@ -280,6 +286,11 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         auto column = tablet_schema->column(column_idx);
         auto writer_sign = std::make_pair(segment_idx, index_id);
         std::unique_ptr<Field> field(FieldFactory::create(column));
+        auto converted_result = _olap_data_convertor->convert_column_data(i);
+        if (converted_result.first != Status::OK()) {
+            LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
+            return converted_result.first;
+        }
         const auto* ptr = (const uint8_t*)converted_result.second->get_data();
         if (converted_result.second->get_nullmap()) {
             RETURN_IF_ERROR(_add_nullable(column_name, writer_sign, field.get(),

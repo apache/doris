@@ -283,7 +283,8 @@ public class DeleteHandler implements Writable {
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
 
                         List<TColumn> columnsDesc = new ArrayList<TColumn>();
-                        for (Column column : olapTable.getSchemaByIndexId(indexId)) {
+                        // using to update schema of the rowset, so full columns should be included
+                        for (Column column : olapTable.getSchemaByIndexId(indexId, true)) {
                             columnsDesc.add(column.toThrift());
                         }
 

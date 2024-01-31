@@ -329,6 +329,10 @@ public class TableRef implements ParseNode, Writable {
         return tableSnapshot;
     }
 
+    public Boolean haveDesc() {
+        return desc != null;
+    }
+
     /**
      * This method should only be called after the TableRef has been analyzed.
      */

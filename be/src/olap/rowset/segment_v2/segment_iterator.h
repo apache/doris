@@ -251,15 +251,13 @@ private:
 
     void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
 
-    void _update_max_row(const vectorized::Block* block);
-
     bool _check_apply_by_bitmap_index(ColumnPredicate* pred);
     bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
 
     std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
     std::string _gen_predicate_result_sign(ColumnPredicateInfo* predicate_info);
 
-    void _build_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
+    void _build_index_result_column(const uint16_t* sel_rowid_idx, uint16_t select_size,
                                     vectorized::Block* block, const std::string& pred_result_sign,
                                     const roaring::Roaring& index_result);
     void _output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
@@ -327,6 +325,8 @@ private:
         return 0;
     }
 
+    bool _need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column, size_t nrows_read);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -340,7 +340,6 @@ private:
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>
     std::unordered_map<std::string, std::pair<bool, roaring::Roaring>> _rowid_result_for_index;
-    std::vector<std::pair<uint32_t, uint32_t>> _split_row_ranges;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read
@@ -384,9 +383,6 @@ private:
     // the actual init process is delayed to the first call to next_batch()
     bool _lazy_inited;
     bool _inited;
-    bool _estimate_row_size;
-    // Read up to 100 rows at a time while waiting for the estimated row size.
-    int _wait_times_estimate_row_size;
 
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes

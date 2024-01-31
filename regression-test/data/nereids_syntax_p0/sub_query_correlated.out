@@ -489,3 +489,84 @@ true
 -- !doris_7643 --
 3	3
 
+-- !select_exists1 --
+\N	\N	0
+\N	\N	100
+
+-- !select_exists2 --
+
+-- !select_exists3 --
+\N	\N	0
+\N	\N	100
+
+-- !select_exists4 --
+\N	\N	100
+
+-- !select_exists5 --
+true
+true
+
+-- !select_exists6 --
+false
+false
+
+-- !select_exists7 --
+true
+true
+
+-- !select_exists8 --
+false
+true
+
+-- !select_exists9 --
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+
+-- !select_exists10 --
+
+-- !select_exists11 --
+\N	\N	0
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+\N	\N	100
+
+-- !select_exists12 --
+\N	\N	0
+

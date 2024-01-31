@@ -34,6 +34,7 @@ import com.clickhouse.data.value.UnsignedInteger;
 import com.clickhouse.data.value.UnsignedLong;
 import com.clickhouse.data.value.UnsignedShort;
 import com.google.common.base.Preconditions;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.vesoft.nebula.client.graph.data.ValueWrapper;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -90,6 +91,7 @@ public class JdbcExecutor {
     private int minIdleSize;
     private int maxIdleTime;
     private int maxWaitTime;
+    private boolean isKeepAlive;
     private TOdbcTableType tableType;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
@@ -105,12 +107,14 @@ public class JdbcExecutor {
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
         maxIdleTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDLE_TIME", "300000"));
         maxWaitTime = Integer.valueOf(System.getProperty("JDBC_MAX_WAIT_TIME", "5000"));
+        isKeepAlive = Boolean.valueOf(System.getProperty("JDBC_KEEP_ALIVE", "false"));
         minIdleSize = minPoolSize > 0 ? 1 : 0;
         LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
                 + ", maxPoolSize = " + maxPoolSize
                 + ", maxIdleTime = " + maxIdleTime
                 + ", maxWaitTime = " + maxWaitTime
-                + ", minIdleSize = " + minIdleSize);
+                + ", minIdleSize = " + minIdleSize
+                + ", isKeepAlive = " + isKeepAlive);
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
                 request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
     }
@@ -120,24 +124,54 @@ public class JdbcExecutor {
     }
 
     public void close() throws Exception {
-        if (resultSet != null) {
-            resultSet.close();
+        try {
+            if (stmt != null) {
+                try {
+                    stmt.cancel();
+                } catch (SQLException e) {
+                    LOG.error("Error cancelling statement", e);
+                }
+            }
+            if (conn != null && resultSet != null) {
+                abortReadConnection(conn, resultSet, tableType);
+                try {
+                    resultSet.close();
+                } catch (SQLException e) {
+                    LOG.error("Error closing resultSet", e);
+                }
+                try {
+                    stmt.close();
+                } catch (SQLException e) {
+                    LOG.error("Error closing statement", e);
+                }
+            }
+        } finally {
+            if (conn != null && !conn.isClosed()) {
+                try {
+                    conn.close();
+                } catch (SQLException e) {
+                    LOG.error("Error closing connection", e);
+                }
+            }
         }
-        if (stmt != null) {
-            stmt.close();
-        }
-        if (conn != null) {
-            conn.close();
-        }
+
         if (minIdleSize == 0) {
-            // it can be immediately closed if there is no need to maintain the cache of datasource
-            druidDataSource.close();
-            JdbcDataSource.getDataSource().getSourcesMap().clear();
-            druidDataSource = null;
+            // Close and remove the datasource if necessary
+            if (druidDataSource != null) {
+                druidDataSource.close();
+                JdbcDataSource.getDataSource().getSourcesMap().clear();
+                druidDataSource = null;
+            }
         }
-        resultSet = null;
-        stmt = null;
-        conn = null;
+    }
+
+    public void abortReadConnection(Connection connection, ResultSet resultSet, TOdbcTableType tableType)
+            throws SQLException {
+        if (!resultSet.isAfterLast() && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER)) {
+            // Abort connection before closing. Without this, the MySQL driver
+            // attempts to drain the connection by reading all the results.
+            connection.abort(MoreExecutors.directExecutor());
+        }
     }
 
     public int read() throws UdfRuntimeException {
@@ -409,6 +443,8 @@ public class JdbcExecutor {
 
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
             String jdbcPassword, TJdbcOperation op, TOdbcTableType tableType) throws UdfRuntimeException {
+        String druidDataSourceKey = JdbcDataSource.getDataSource().createCacheKey(jdbcUrl, jdbcUser, jdbcPassword,
+                driverUrl, driverClass);
         try {
             if (isNebula()) {
                 batchSizeNum = batchSize;
@@ -418,10 +454,10 @@ public class JdbcExecutor {
             } else {
                 ClassLoader parent = getClass().getClassLoader();
                 ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
-                druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
+                druidDataSource = JdbcDataSource.getDataSource().getSource(druidDataSourceKey);
                 if (druidDataSource == null) {
                     synchronized (druidDataSourceLock) {
-                        druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
+                        druidDataSource = JdbcDataSource.getDataSource().getSource(druidDataSourceKey);
                         if (druidDataSource == null) {
                             long start = System.currentTimeMillis();
                             DruidDataSource ds = new DruidDataSource();
@@ -439,12 +475,13 @@ public class JdbcExecutor {
                             setValidationQuery(ds, tableType);
                             ds.setTimeBetweenEvictionRunsMillis(maxIdleTime / 5);
                             ds.setMinEvictableIdleTimeMillis(maxIdleTime);
+                            ds.setKeepAlive(isKeepAlive);
                             druidDataSource = ds;
                             // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
                             // jdbcPassword) as key.
                             // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
                             // time greater than 10 minutes. then connection will be retrieved.
-                            JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
+                            JdbcDataSource.getDataSource().putSource(druidDataSourceKey, ds);
                             LOG.info("init datasource [" + (jdbcUrl + jdbcUser) + "] cost: " + (
                                     System.currentTimeMillis() - start) + " ms");
                         }

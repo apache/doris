@@ -945,6 +945,22 @@ public class OlapTable extends Table {
         return partition;
     }
 
+    // select the non-empty partition ids belonging to this table.
+    //
+    // ATTN: partitions not belonging to this table will be filtered.
+    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds) {
+        return partitionIds.stream()
+                .map(this::getPartition)
+                .filter(p -> p != null)
+                .filter(Partition::hasData)
+                .map(Partition::getId)
+                .collect(Collectors.toList());
+    }
+
+    public int getPartitionNum() {
+        return idToPartition.size();
+    }
+
     // get all partitions except temp partitions
     public Collection<Partition> getPartitions() {
         return idToPartition.values();
@@ -1111,15 +1127,15 @@ public class OlapTable extends Table {
         if (tblStats == null) {
             return true;
         }
-        long rowCount = getRowCount();
-        // TODO: Do we need to analyze an empty table?
-        if (rowCount == 0) {
-            return false;
-        }
         if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
                 .stream()
+                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                 .map(Column::getName)
                 .collect(Collectors.toSet()))) {
+            return true;
+        }
+        long rowCount = getRowCount();
+        if (rowCount > 0 && tblStats.rowCount == 0) {
             return true;
         }
         long updateRows = tblStats.updatedRows.get();
@@ -1234,7 +1250,13 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public boolean isPartitioned() {
+    public boolean isPartitionedTable() {
+        return !PartitionType.UNPARTITIONED.equals(partitionInfo.getType());
+    }
+
+    // Return true if data is distributed by one more partitions or buckets.
+    @Override
+    public boolean isPartitionDistributed() {
         int numSegs = 0;
         for (Partition part : getPartitions()) {
             numSegs += part.getDistributionInfo().getBucketNum();
@@ -1937,6 +1959,20 @@ public class OlapTable extends Table {
         tableProperty.buildDynamicSchema();
     }
 
+    public void setTimeSeriesCompactionEmptyRowsetsThreshold(long timeSeriesCompactionEmptyRowsetsThreshold) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                                                Long.valueOf(timeSeriesCompactionEmptyRowsetsThreshold).toString());
+        tableProperty.buildTimeSeriesCompactionEmptyRowsetsThreshold();
+    }
+
+    public Long getTimeSeriesCompactionEmptyRowsetsThreshold() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionEmptyRowsetsThreshold();
+        }
+        return null;
+    }
+
     public int getBaseSchemaVersion() {
         MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
         return baseIndexMeta.getSchemaVersion();
@@ -2281,10 +2317,14 @@ public class OlapTable extends Table {
         Set<String> allPartitions = table.getPartitionNames().stream().map(table::getPartition)
                 .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
         if (tableStats == null) {
-            return table.getBaseSchema().stream().collect(Collectors.toMap(Column::getName, v -> allPartitions));
+            return table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                    .collect(Collectors.toMap(Column::getName, v -> allPartitions));
         }
         Map<String, Set<String>> colToPart = new HashMap<>();
         for (Column col : table.getBaseSchema()) {
+            if (StatisticsUtil.isUnsupportedType(col.getType())) {
+                continue;
+            }
             long lastUpdateTime = tableStats.findColumnLastUpdateTime(col.getName());
             Set<String> partitions = table.getPartitionNames().stream()
                     .map(table::getPartition)
@@ -2314,6 +2354,17 @@ public class OlapTable extends Table {
     @Override
     public boolean isPartitionColumn(String columnName) {
         return getPartitionInfo().getPartitionColumns().stream()
-            .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
+                .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
+    }
+
+    /**
+     * For olap table, we need to acquire read lock when plan.
+     * Because we need to make sure the partition's version remain unchanged when plan.
+     *
+     * @return
+     */
+    @Override
+    public boolean needReadLockWhenPlan() {
+        return true;
     }
 }

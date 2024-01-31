@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <glog/logging.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,6 +52,7 @@
 #include "vec/common/memcpy_small.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_utils/string_utils.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -121,6 +121,14 @@ struct StringOP {
         chars.insert(string_value.data(), string_value.data() + string_value.size());
         offsets[index] = chars.size();
     }
+
+    static void push_value_string_reserved_and_allow_overflow(const std::string_view& string_value,
+                                                              int index, ColumnString::Chars& chars,
+                                                              ColumnString::Offsets& offsets) {
+        chars.insert_assume_reserved_and_allow_overflow(string_value.data(),
+                                                        string_value.data() + string_value.size());
+        offsets[index] = chars.size();
+    }
 };
 
 struct SubstringUtil {
@@ -148,30 +156,37 @@ struct SubstringUtil {
             check_set_nullable(argument_columns[i], null_map, col_const[i]);
         }
 
-        auto specific_str_column = assert_cast<const ColumnString*>(argument_columns[0].get());
-        auto specific_start_column =
+        const auto* specific_str_column =
+                assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* specific_start_column =
                 assert_cast<const ColumnVector<Int32>*>(argument_columns[1].get());
-        auto specific_len_column =
+        const auto* specific_len_column =
                 assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
-        if (col_const[1] && col_const[2]) {
-            vectors<true>(specific_str_column->get_chars(), specific_str_column->get_offsets(),
-                          specific_start_column->get_data(), specific_len_column->get_data(),
-                          null_map->get_data(), res->get_chars(), res->get_offsets());
-        } else {
-            vectors<false>(specific_str_column->get_chars(), specific_str_column->get_offsets(),
-                           specific_start_column->get_data(), specific_len_column->get_data(),
-                           null_map->get_data(), res->get_chars(), res->get_offsets());
+
+        auto vectors = vectors_utf8<false>;
+        bool is_ascii = simd::VStringFunctions::is_ascii(
+                {specific_str_column->get_chars().data(), specific_str_column->get_chars().size()});
+        if (col_const[1] && col_const[2] && is_ascii) {
+            vectors = vectors_ascii<true>;
+        } else if (col_const[1] && col_const[2]) {
+            vectors = vectors_utf8<true>;
+        } else if (is_ascii) {
+            vectors = vectors_ascii<false>;
         }
+        vectors(specific_str_column->get_chars(), specific_str_column->get_offsets(),
+                specific_start_column->get_data(), specific_len_column->get_data(),
+                null_map->get_data(), res->get_chars(), res->get_offsets());
+
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
     }
 
 private:
-    template <bool Const>
-    static void vectors(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
-                        const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
-                        NullMap& null_map, ColumnString::Chars& res_chars,
-                        ColumnString::Offsets& res_offsets) {
+    template <bool is_const>
+    static void vectors_utf8(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
+                             const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+                             NullMap& null_map, ColumnString::Chars& res_chars,
+                             ColumnString::Offsets& res_offsets) {
         size_t size = offsets.size();
         res_offsets.resize(size);
         res_chars.reserve(chars.size());
@@ -180,119 +195,104 @@ private:
         PMR::monotonic_buffer_resource pool {buf.data(), buf.size()};
         PMR::vector<size_t> index {&pool};
 
-        auto* __restrict data_ptr = chars.data();
-        auto* __restrict offset_ptr = offsets.data();
-
-        if constexpr (Const) {
-            const auto start_value = start[0];
-            const auto len_value = len[0];
-            if (start_value == 0 || len_value <= 0) {
+        if constexpr (is_const) {
+            if (start[0] == 0 || len[0] <= 0) {
                 for (size_t i = 0; i < size; ++i) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
                 }
+                return;
+            }
+        }
+
+        for (size_t i = 0; i < size; ++i) {
+            int str_size = offsets[i] - offsets[i - 1];
+            const char* str_data = (char*)chars.data() + offsets[i - 1];
+            int start_value = is_const ? start[0] : start[i];
+            int len_value = is_const ? len[0] : len[i];
+
+            // return empty string if start > src.length
+            if (start_value > str_size || str_size == 0 || start_value == 0 || len_value <= 0) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+
+            size_t byte_pos = 0;
+            index.clear();
+            for (size_t j = 0, char_size = 0; j < str_size; j += char_size) {
+                char_size = get_utf8_byte_length(str_data[j]);
+                index.push_back(j);
+                if (start_value > 0 && index.size() > start_value + len_value) {
+                    break;
+                }
+            }
+
+            int fixed_pos = start_value;
+            if (fixed_pos < -(int)index.size()) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+            if (fixed_pos < 0) {
+                fixed_pos = index.size() + fixed_pos + 1;
+            }
+            if (fixed_pos > index.size()) {
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map);
+                continue;
+            }
+
+            byte_pos = index[fixed_pos - 1];
+            size_t fixed_len = str_size - byte_pos;
+            if (fixed_pos + len_value <= index.size()) {
+                fixed_len = index[fixed_pos + len_value - 1] - byte_pos;
+            }
+
+            if (byte_pos <= str_size && fixed_len > 0) {
+                StringOP::push_value_string_reserved_and_allow_overflow(
+                        {str_data + byte_pos, fixed_len}, i, res_chars, res_offsets);
             } else {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+            }
+        }
+    }
+
+    template <bool is_const>
+    static void vectors_ascii(const ColumnString::Chars& chars,
+                              const ColumnString::Offsets& offsets,
+                              const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+                              NullMap& null_map, ColumnString::Chars& res_chars,
+                              ColumnString::Offsets& res_offsets) {
+        size_t size = offsets.size();
+        res_offsets.resize(size);
+
+        if constexpr (is_const) {
+            if (start[0] == 0 || len[0] <= 0) {
                 for (size_t i = 0; i < size; ++i) {
-                    const int str_size = offset_ptr[i] - offset_ptr[i - 1];
-                    const uint8_t* raw_str = data_ptr + offset_ptr[i - 1];
-                    // return empty string if start > src.length
-                    if (start_value > str_size || start_value < -str_size || str_size == 0) {
-                        StringOP::push_empty_string(i, res_chars, res_offsets);
-                        continue;
-                    }
-                    // reference to string_function.cpp: substring
-                    size_t byte_pos = 0;
-                    index.clear();
-                    for (size_t j = 0, char_size = 0;
-                         j < str_size &&
-                         (start_value <= 0 || index.size() <= start_value + len_value);
-                         j += char_size) {
-                        char_size = UTF8_BYTE_LENGTH[(unsigned char)(raw_str)[j]];
-                        index.push_back(j);
-                    }
-
-                    int fixed_pos = start_value;
-                    if (fixed_pos < 0) {
-                        fixed_pos = str_size + fixed_pos + 1;
-                    } else if (fixed_pos > index.size()) {
-                        StringOP::push_null_string(i, res_chars, res_offsets, null_map);
-                        continue;
-                    }
-
-                    byte_pos = index[fixed_pos - 1];
-                    int fixed_len = str_size - byte_pos;
-                    if (fixed_pos + len_value <= index.size()) {
-                        fixed_len = index[fixed_pos + len_value - 1] - byte_pos;
-                    }
-
-                    if (byte_pos <= str_size && fixed_len > 0) {
-                        // return StringRef(str.data + byte_pos, fixed_len);
-                        StringOP::push_value_string(
-                                std::string_view {reinterpret_cast<const char*>(raw_str + byte_pos),
-                                                  (size_t)fixed_len},
-                                i, res_chars, res_offsets);
-                    } else {
-                        StringOP::push_empty_string(i, res_chars, res_offsets);
-                    }
+                    StringOP::push_empty_string(i, res_chars, res_offsets);
                 }
+                return;
             }
+            res_chars.reserve(std::min(chars.size(), len[0] * size));
         } else {
-            PMR::vector<std::pair<const unsigned char*, int>> strs(&pool);
-            strs.resize(size);
-            for (int i = 0; i < size; ++i) {
-                strs[i].first = data_ptr + offset_ptr[i - 1];
-                strs[i].second = offset_ptr[i] - offset_ptr[i - 1];
+            res_chars.reserve(chars.size());
+        }
+
+        for (size_t i = 0; i < size; ++i) {
+            int str_size = offsets[i] - offsets[i - 1];
+            const char* str_data = (char*)chars.data() + offsets[i - 1];
+
+            int start_value = is_const ? start[0] : start[i];
+            int len_value = is_const ? len[0] : len[i];
+
+            if (start_value > str_size || start_value < -str_size || str_size == 0) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
             }
-
-            for (size_t i = 0; i < size; ++i) {
-                auto [raw_str, str_size] = strs[i];
-                const auto& start_value = start[i];
-                const auto& len_value = len[i];
-
-                // return empty string if start > src.length
-                if (start_value > str_size || str_size == 0 || start_value == 0 || len_value <= 0) {
-                    StringOP::push_empty_string(i, res_chars, res_offsets);
-                    continue;
-                }
-                // reference to string_function.cpp: substring
-                size_t byte_pos = 0;
-                index.clear();
-                for (size_t j = 0, char_size = 0; j < str_size; j += char_size) {
-                    char_size = UTF8_BYTE_LENGTH[(unsigned char)(raw_str)[j]];
-                    index.push_back(j);
-                    if (start_value > 0 && index.size() > start_value + len_value) {
-                        break;
-                    }
-                }
-
-                int fixed_pos = start_value;
-                if (fixed_pos < -(int)index.size()) {
-                    StringOP::push_empty_string(i, res_chars, res_offsets);
-                    continue;
-                }
-                if (fixed_pos < 0) {
-                    fixed_pos = index.size() + fixed_pos + 1;
-                }
-                if (fixed_pos > index.size()) {
-                    StringOP::push_null_string(i, res_chars, res_offsets, null_map);
-                    continue;
-                }
-
-                byte_pos = index[fixed_pos - 1];
-                int fixed_len = str_size - byte_pos;
-                if (fixed_pos + len_value <= index.size()) {
-                    fixed_len = index[fixed_pos + len_value - 1] - byte_pos;
-                }
-
-                if (byte_pos <= str_size && fixed_len > 0) {
-                    // return StringRef(str.data + byte_pos, fixed_len);
-                    StringOP::push_value_string(
-                            std::string_view {reinterpret_cast<const char*>(raw_str + byte_pos),
-                                              (size_t)fixed_len},
-                            i, res_chars, res_offsets);
-                } else {
-                    StringOP::push_empty_string(i, res_chars, res_offsets);
-                }
+            int fixed_pos = start_value - 1;
+            if (fixed_pos < 0) {
+                fixed_pos = str_size + fixed_pos + 1;
             }
+            size_t fixed_len = std::min(str_size - fixed_pos, len_value);
+            StringOP::push_value_string_reserved_and_allow_overflow(
+                    {str_data + fixed_pos, fixed_len}, i, res_chars, res_offsets);
         }
     }
 };
@@ -1803,6 +1803,7 @@ public:
         const auto& [right_column, right_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
+        DataTypePtr right_column_type = block.get_by_position(arguments[1]).type;
         DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
         auto dest_column_ptr = ColumnArray::create(make_nullable(src_column_type)->create_column(),
                                                    ColumnArray::ColumnOffsets::create());
@@ -1818,27 +1819,42 @@ public:
         dest_nested_column = dest_nullable_col->get_nested_column_ptr();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
-        if (auto col_left = check_and_get_column<ColumnString>(src_column.get())) {
-            if (auto col_right = check_and_get_column<ColumnString>(right_column.get())) {
-                if (right_const) {
-                    _execute_constant(*col_left, col_right->get_data_at(0), *dest_nested_column,
-                                      dest_offsets, dest_nested_null_map);
-                } else {
-                    _execute_vector(*col_left, *col_right, *dest_nested_column, dest_offsets,
-                                    dest_nested_null_map);
-                }
-
-                block.replace_by_position(result, std::move(dest_column_ptr));
-                return Status::OK();
-            }
+        auto col_left = check_and_get_column<ColumnString>(src_column.get());
+        if (!col_left) {
+            return Status::InternalError("Left operator of function {} can not be {}", get_name(),
+                                         src_column_type->get_name());
         }
-        return Status::RuntimeError("unimplements function {}", get_name());
+
+        auto col_right = check_and_get_column<ColumnString>(right_column.get());
+        if (!col_right) {
+            return Status::InternalError("Right operator of function {} can not be {}", get_name(),
+                                         right_column_type->get_name());
+        }
+
+        // split_by_string(ColumnString, "xxx")
+        if (right_const) {
+            _execute_constant_delimiter(*col_left, col_right->get_data_at(0), *dest_nested_column,
+                                        dest_offsets, dest_nested_null_map);
+        } else if (left_const) {
+            // split_by_string("xxx", ColumnString)
+            _execute_constant_src_string(col_left->get_data_at(0), *col_right, *dest_nested_column,
+                                         dest_offsets, dest_nested_null_map);
+        } else {
+            // split_by_string(ColumnString, ColumnString)
+            _execute_vector(*col_left, *col_right, *dest_nested_column, dest_offsets,
+                            dest_nested_null_map);
+        }
+
+        block.replace_by_position(result, std::move(dest_column_ptr));
+
+        return Status::OK();
     }
 
 private:
-    void _execute_constant(const ColumnString& src_column_string, const StringRef& delimiter_ref,
-                           IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
-                           NullMapType* dest_nested_null_map) {
+    void _execute_constant_delimiter(const ColumnString& src_column_string,
+                                     const StringRef& delimiter_ref, IColumn& dest_nested_column,
+                                     ColumnArray::Offsets64& dest_offsets,
+                                     NullMapType* dest_nested_null_map) const {
         ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -1958,7 +1974,59 @@ private:
         }
     }
 
-    size_t split_str(size_t& pos, const StringRef str_ref, StringRef delimiter_ref) {
+    void _execute_constant_src_string(const StringRef& str_ref, const ColumnString& delimiter_col,
+                                      IColumn& dest_nested_column,
+                                      ColumnArray::Offsets64& dest_offsets,
+                                      NullMapType* dest_nested_null_map) const {
+        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
+        ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
+        column_string_chars.reserve(0);
+
+        ColumnArray::Offset64 string_pos = 0;
+        ColumnArray::Offset64 dest_pos = 0;
+        const ColumnArray::Offset64 delimiter_offsets_size = delimiter_col.get_offsets().size();
+
+        for (size_t i = 0; i < delimiter_offsets_size; ++i) {
+            const StringRef delimiter_ref = delimiter_col.get_data_at(i);
+
+            if (delimiter_ref.size == 0) {
+                for (size_t str_pos = 0; str_pos < str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    str_pos++;
+                    const size_t new_size = old_size + 1;
+                    column_string_chars.resize(new_size);
+                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
+                    (*dest_nested_null_map).push_back(false);
+                    string_pos++;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            } else {
+                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    const size_t split_part_size = split_str(str_pos, str_ref, delimiter_ref);
+                    str_pos += delimiter_ref.size;
+                    const size_t new_size = old_size + split_part_size;
+                    column_string_chars.resize(new_size);
+                    if (split_part_size > 0) {
+                        memcpy_small_allow_read_write_overflow15(
+                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                split_part_size);
+                    }
+                    (*dest_nested_null_map).push_back(false);
+                    string_pos += split_part_size;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            }
+            dest_offsets.push_back(dest_pos);
+        }
+    }
+
+    size_t split_str(size_t& pos, const StringRef str_ref, StringRef delimiter_ref) const {
         size_t old_size = pos;
         size_t str_size = str_ref.size;
         while (pos < str_size &&
@@ -3211,7 +3279,7 @@ private:
     void integer_to_char_(int line_num, const int* num, ColumnString::Chars& chars,
                           IColumn::Offsets& offsets) {
         if (0 == *num) {
-            chars.push_back(' ');
+            chars.push_back('\0');
             offsets[line_num] = offsets[line_num - 1] + 1;
             return;
         }
@@ -3225,7 +3293,7 @@ private:
         }
         offsets[line_num] = offsets[line_num - 1] + k + 1;
         for (; k >= 0; --k) {
-            chars.push_back(bytes[k] ? bytes[k] : ' ');
+            chars.push_back(bytes[k] ? bytes[k] : '\0');
         }
 #else
         int k = 0;
@@ -3236,7 +3304,7 @@ private:
         }
         offsets[line_num] = offsets[line_num - 1] + 4 - k;
         for (; k < 4; ++k) {
-            chars.push_back(bytes[k] ? bytes[k] : ' ');
+            chars.push_back(bytes[k] ? bytes[k] : '\0');
         }
 #endif
     }

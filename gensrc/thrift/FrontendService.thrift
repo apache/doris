@@ -390,6 +390,22 @@ enum FrontendServiceVersion {
   V1
 }
 
+struct TDetailedReportParams {
+  1: optional Types.TUniqueId fragment_instance_id
+  2: optional RuntimeProfile.TRuntimeProfileTree profile
+  3: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+}
+
+
+struct TQueryStatistics {
+    // A thrift structure identical to the PQueryStatistics structure.
+    1: optional i64 scan_rows
+    2: optional i64 scan_bytes
+    3: optional i64 returned_rows
+    4: optional i64 cpu_ms
+    5: optional i64 max_peak_memory_bytes
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -447,6 +463,10 @@ struct TReportExecStatusParams {
   21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
 
   22: optional i32 finished_scan_ranges
+
+  23: optional list<TDetailedReportParams> detailed_report
+
+  24: optional TQueryStatistics query_statistics
 }
 
 struct TFeResult {
@@ -507,6 +527,8 @@ struct TMasterOpResult {
     3: optional TShowResultSet resultSet;
     4: optional Types.TUniqueId queryId;
     5: optional string status;
+    6: optional i32 statusCode;
+    7: optional string errMessage;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -1102,6 +1124,10 @@ struct TUpdateFollowerStatsCacheRequest {
     2: list<string> statsRows;
 }
 
+struct TInvalidateFollowerStatsCacheRequest {
+    1: optional string key;
+}
+
 struct TGetMetaReplica {
     1: optional i64 id
 }
@@ -1282,4 +1308,6 @@ service FrontendService {
     TGetMetaResult getMeta(1: TGetMetaRequest request)
 
     TGetBackendMetaResult getBackendMeta(1: TGetBackendMetaRequest request)
+
+    Status.TStatus invalidateStatsCache(1: TInvalidateFollowerStatsCacheRequest request)
 }

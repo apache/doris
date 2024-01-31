@@ -613,7 +613,7 @@ public class ScalarType extends Type {
         StringBuilder stringBuilder = new StringBuilder();
         switch (type) {
             case CHAR:
-                if (isWildcardVarchar()) {
+                if (isWildcardChar()) {
                     stringBuilder.append("character");
                 } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("char").append("(").append(len).append(")");

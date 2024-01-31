@@ -105,4 +105,110 @@ suite("test_insert") {
         sql 'select * from t3'
         result([[10]])
     }
+
+    def tableName = "test_insert_into_error"
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+        `gjjzjid` varchar(640) NULL,
+        `id` varchar(1000) NULL,
+        `gjjczbs` varchar(1000) NULL,
+        `gjjtbsj` datetime(6) NULL,
+        `jgsxmlbm` varchar(1000) NULL,
+        `jgsxjcssqdbm` varchar(1000) NULL,
+        `jcxwmc` varchar(1000) NULL,
+        `jcxwbh` varchar(1000) NULL,
+        `ssjg` varchar(1000) NULL,
+        `ssjgbm` varchar(1000) NULL,
+        `swtbm` varchar(1000) NULL,
+        `swtbmbm` varchar(1000) NULL,
+        `xzxdrmc` varchar(1000) NULL,
+        `xzxdrxz` varchar(1000) NULL,
+        `xzxdrzjlx` varchar(1000) NULL,
+        `xzxdrbm` varchar(1000) NULL,
+        `qyid` varchar(1000) NULL,
+        `zcdz` varchar(1000) NULL,
+        `xzqhdm` varchar(1000) NULL,
+        `jcxs` varchar(1000) NULL,
+        `jclb` varchar(1000) NULL,
+        `jcjggb` varchar(1000) NULL,
+        `jlxjy` varchar(1000) NULL,
+        `jcsj` varchar(1000) NULL,
+        `bsry` varchar(1000) NULL,
+        `bssj` varchar(1000) NULL,
+        `qylxr` varchar(1000) NULL,
+        `qylxfs` varchar(1000) NULL,
+        `jcjbqk` text NULL,
+        `yzqxsl` varchar(1000) NULL,
+        `zyqxsl` varchar(1000) NULL,
+        `ybqxsl` varchar(1000) NULL,
+        `wdyqxsl` varchar(1000) NULL,
+        `qtxysmdwt` varchar(1000) NULL,
+        `bz` varchar(1000) NULL,
+        `cjr` varchar(1000) NULL,
+        `cjsj` varchar(1000) NULL,
+        `xgr` varchar(1000) NULL,
+        `xgsj` varchar(1000) NULL,
+        `pid` varchar(1000) NULL,
+        `zzjgid` varchar(1000) NULL,
+        `sfyyjcxwbh` varchar(1000) NULL,
+        `jgsxmlmc` varchar(1000) NULL,
+        `jcsjjs` varchar(1000) NULL,
+        `tcqy` varchar(1000) NULL,
+        `zhpdjl` varchar(1000) NULL,
+        `cljy` varchar(1000) NULL,
+        `lhjcbm` varchar(1000) NULL,
+        `lhjcbmbm` varchar(1000) NULL,
+        `sfsyzglshxcjc` varchar(1000) NULL,
+        `yjcxwbh` varchar(1000) NULL,
+        `ssjgcj` varchar(1000) NULL,
+        `ssjgxzqh` varchar(1000) NULL,
+        `sfdm` varchar(1000) NULL,
+        `shxydmnb` varchar(1000) NULL,
+        `thyy` varchar(1000) NULL,
+        `sqhtsj` varchar(1000) NULL,
+        `tjsj` varchar(1000) NULL,
+        `bsrylxcf` varchar(1000) NULL,
+        `sjly` varchar(1000) NULL,
+        `sjpzlb` varchar(1000) NULL,
+        `sjpzlbqt` varchar(1000) NULL,
+        `rwly` varchar(1000) NULL,
+        `sfsjtc` varchar(1000) NULL,
+        `fclj` varchar(1000) NULL,
+        `sfsjfc` varchar(1000) NULL,
+        `jgdxlxs` varchar(1000) NULL,
+        `jcsjfw` varchar(1000) NULL,
+        `jcsjqtfw` varchar(1000) NULL,
+        `yyxsjcbcxx` varchar(1000) NULL,
+        `sftyksld` varchar(1000) NULL,
+        `xzxdrxkzbh` varchar(1000) NULL,
+        `ypscqyxkzbh` varchar(1000) NULL,
+        `jcfwdl` varchar(1000) NULL,
+        `jcsjqknr` varchar(1000) NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`gjjzjid`)
+        COMMENT '信息表'
+        DISTRIBUTED BY HASH(`gjjzjid`) BUCKETS AUTO
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "is_being_synced" = "false",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false",
+        "function_column.sequence_col" = "GJJTBSJ",
+        "enable_single_replica_compaction" = "false"
+        );
+        """
+
+        try {
+            sql """
+            INSERT INTO ${tableName} (`gjjzjid`,`id`,`gjjczbs`,`gjjtbsj`,`jgsxmlbm`,`jgsxjcssqdbm`,`jcxwmc`,`jcxwbh`,`ssjg`,`ssjgbm`,`swtbm`,`swtbmbm`,`xzxdrmc`,`xzxdrxz`,`xzxdrzjlx`,`xzxdrbm`,`qyid`,`zcdz`,`xzqhdm`,`jcxs`,`jclb`,`jcjggb`,`jlxjy`,`jcsj`,`bsry`,`bssj`,`qylxr`,`qylxfs`,`jcjbqk`,`yzqxsl`,`zyqxsl`,`ybqxsl`,`wdyqxsl`,`qtxysmdwt`,`bz`,`cjr`,`cjsj`,`xgr`,`xgsj`,`pid`,`zzjgid`,`sfyyjcxwbh`,`jgsxmlmc`,`jcsjjs`,`tcqy`,`zhpdjl`,`cljy`,`lhjcbm`,`lhjcbmbm`,`sfsyzglshxcjc`,`yjcxwbh`,`ssjgcj`,`ssjgxzqh`,`sfdm`,`shxydmnb`,`thyy`,`sqhtsj`,`tjsj`,`bsrylxcf`,`sjly`,`sjpzlb`,`sjpzlbqt`,`rwly`,`sfsjtc`,`fclj`,`sfsjfc`,`jgdxlxs`,`jcsjfw`,`jcsjqtfw`,`yyxsjcbcxx`,`sftyksld`,`xzxdrxkzbh`,`ypscqyxkzbh`,`jcfwdl`,`jcsjqknr`) VALUES('111111111111111','111111111111','I','2023-11-27 18:10:46.000000','11111111','1111111111','测试数据测试','测试数据测试','测试数据测试测试数据测试','111111111111111',null,null,'测试数据测试','02','001','111111111','1111111111111111','地址AAAAAAAAAAA','111111','0201','01','02','1','111111','张三','20230802000000','张三','0991-1234567','检测测试数据AAAA',0,0,2,0,null,null,'a1333caa946a4f1c99536a16b77f7368','20231106161214','a1333caa946a4f1c99536a16b77f7368','20231106164803','A3A05AAA0A470921127B3653913806F4','2182c9de517e4722b944f6f29bff08a7','1','测试数据bbbbbbbb','20230727000000','0','1','aaa',null,null,'0',null,'2','650000','AAAAAAAAAAAAA','AAAAAAAAAAAAAAA',null,null,'20231106164803','0991-1234567',null,'09,11',null,'07','0',null,'0','01,04','a56,a57',null,null,'0','测试数据','测试数据','01',null);
+            """
+        } catch(Exception e) {
+            logger.info(e.getMessage())
+            assertTrue(e.getMessage().contains("output_tuple_slot_num 78 should be equal to output_expr_num 77"))
+        }
+    } finally {
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+    }
 }

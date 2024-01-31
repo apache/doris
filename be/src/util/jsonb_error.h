@@ -85,7 +85,7 @@ private:
             "Invalid json value type",
             "Invalid scalar value",
             "Invalid key string",
-            "Key length exceeds maximum size allowed (64 bytes)",
+            "Key length exceeds maximum size allowed (256 bytes)",
             "Invalid string value",
             "Invalid JSON object",
             "Invalid JSON array",

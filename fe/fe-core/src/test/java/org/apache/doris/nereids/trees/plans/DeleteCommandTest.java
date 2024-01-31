@@ -73,7 +73,7 @@ public class DeleteCommandTest extends TestWithFeService implements PlanPatternM
     public void testFromClauseDelete() throws AnalysisException {
         String sql = "delete from t1 a using src join t2 on src.k1 = t2.k1 where t2.k1 = a.k1";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(parsed instanceof DeleteCommand);
+        Assertions.assertInstanceOf(DeleteCommand.class, parsed);
         DeleteCommand command = ((DeleteCommand) parsed);
         LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
         PlanChecker.from(connectContext, plan)
@@ -83,19 +83,22 @@ public class DeleteCommandTest extends TestWithFeService implements PlanPatternM
                         logicalOlapTableSink(
                                 logicalProject(
                                         logicalJoin(
-                                                logicalJoin(
-                                                        logicalProject(
-                                                                logicalFilter(
-                                                                        logicalOlapScan()
+                                                logicalProject(
+                                                        logicalJoin(
+                                                                logicalProject(
+                                                                        logicalFilter(
+                                                                                logicalOlapScan()
+                                                                        )
+                                                                ),
+                                                                logicalProject(
+                                                                        logicalFilter(
+                                                                                logicalOlapScan()
+                                                                        )
                                                                 )
-                                                        ),
-                                                        logicalProject(
-                                                                logicalOlapScan())
+                                                        )
                                                 ),
                                                 logicalProject(
-                                                        logicalFilter(
-                                                                logicalOlapScan()
-                                                        )
+                                                        logicalOlapScan()
                                                 )
                                         )
                                 )

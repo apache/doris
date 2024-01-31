@@ -173,7 +173,8 @@ public:
 
 private:
     void coordinator_callback(const Status& status, RuntimeProfile* profile,
-                              RuntimeProfile* load_channel_profile, bool done);
+                              RuntimeProfile* load_channel_profile, bool done,
+                              std::shared_ptr<QueryStatistics> query_statistics);
 
     // Id of this query
     TUniqueId _query_id;
@@ -218,7 +219,8 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _query_ctx(std::move(query_ctx)),
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
-                                              std::placeholders::_3, std::placeholders::_4)),
+                                              std::placeholders::_3, std::placeholders::_4,
+                                              std::placeholders::_5)),
           _set_rsc_info(false),
           _timeout_second(-1),
           _report_status_cb_impl(report_status_cb_impl) {
@@ -279,6 +281,9 @@ Status FragmentExecState::execute() {
 Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     if (!_cancelled) {
         std::lock_guard<std::mutex> l(_status_lock);
+        if (_cancelled) { // double check. may re-enter cuz MemLimiter
+            return Status::OK();
+        }
         if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
             _executor.set_is_report_on_cancel(false);
         }
@@ -301,13 +306,15 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const 
 // Also, the reported status will always reflect the most recent execution status,
 // including the final status when execution finishes.
 void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfile* profile,
-                                             RuntimeProfile* load_channel_profile, bool done) {
+                                             RuntimeProfile* load_channel_profile, bool done,
+                                             std::shared_ptr<QueryStatistics> query_statistics) {
     _report_status_cb_impl(
             {status, profile, load_channel_profile, done, _coord_addr, _query_id, -1,
              _fragment_instance_id, _backend_num, _executor.runtime_state(),
              std::bind(&FragmentExecState::update_status, this, std::placeholders::_1),
              std::bind(&PlanFragmentExecutor::cancel, &_executor, std::placeholders::_1,
-                       std::placeholders::_2)});
+                       std::placeholders::_2),
+             query_statistics});
     DCHECK(status.ok() || done); // if !status.ok() => done
 }
 
@@ -398,6 +405,14 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_finished_scan_ranges(req.runtime_state->num_finished_range());
 
     DCHECK(req.runtime_state != nullptr);
+
+    if (req.query_statistics) {
+        TQueryStatistics queryStatistics;
+        DCHECK(req.query_statistics->collect_dml_statistics());
+        req.query_statistics->to_thrift(&queryStatistics);
+        params.__set_query_statistics(queryStatistics);
+    }
+
     if (req.runtime_state->query_type() == TQueryType::LOAD && !req.done && req.status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
@@ -479,10 +494,9 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     VLOG_DEBUG << "reportExecStatus params is "
                << apache::thrift::ThriftDebugString(params).c_str();
     if (!exec_status.ok()) {
-        LOG(WARNING) << "report error status: " << exec_status.to_string()
-                     << " to coordinator: " << req.coord_addr
-                     << ", query id: " << print_id(req.query_id)
-                     << ", instance id: " << print_id(req.fragment_instance_id);
+        LOG_WARNING("Query {} instance {} report error status to coor {}:{}, error status: {}",
+                    print_id(req.query_id), print_id(req.fragment_instance_id),
+                    req.coord_addr.hostname, req.coord_addr.port, exec_status.code());
     }
     try {
         try {
@@ -548,6 +562,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state,
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.erase(exec_state->fragment_instance_id());
         if (all_done && query_ctx) {
+            LOG_INFO("Query {} finished", print_id(query_ctx->query_id));
             _query_ctx_map.erase(query_ctx->query_id);
         }
     }
@@ -654,6 +669,7 @@ void FragmentMgr::remove_pipeline_context(
     bool all_done = q_context->countdown();
     _pipeline_map.erase(f_context->get_fragment_instance_id());
     if (all_done) {
+        LOG_INFO("Query {} finished", print_id(query_id));
         _query_ctx_map.erase(query_id);
     }
 }
@@ -1012,7 +1028,8 @@ void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancel
     }
 
     if (!find_the_fragment) {
-        LOG(WARNING) << "Do not find the fragment instance id:" << fragment_id << " to cancel";
+        LOG(WARNING) << "Do not find the fragment instance id:" << print_id(fragment_id)
+                     << " to cancel";
     }
 }
 

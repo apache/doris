@@ -53,7 +53,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-class SlotBinder extends SubExprAnalyzer {
+/**
+ * SlotBinder is used to bind slot
+ */
+public class SlotBinder extends SubExprAnalyzer {
     /*
     bounded={table.a, a}
     unbound=a
@@ -260,18 +263,6 @@ class SlotBinder extends SubExprAnalyzer {
         return new BoundStar(slots);
     }
 
-    private boolean compareDbNameIgnoreClusterName(String unBoundDbName, String boundedDbName) {
-        if (unBoundDbName.equalsIgnoreCase(boundedDbName)) {
-            return true;
-        }
-        // boundedDbName example
-        int idx = boundedDbName.indexOf(ClusterNamespace.CLUSTER_DELIMITER);
-        if (idx > -1) {
-            return unBoundDbName.equalsIgnoreCase(boundedDbName.substring(idx + 1));
-        }
-        return false;
-    }
-
     private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
         return boundSlots.stream().distinct().filter(boundSlot -> {
             List<String> nameParts = unboundSlot.getNameParts();
@@ -311,7 +302,22 @@ class SlotBinder extends SubExprAnalyzer {
         }).collect(Collectors.toList());
     }
 
-    private boolean sameTableName(String boundSlot, String unboundSlot) {
+    /**
+     * compareDbNameIgnoreClusterName.
+     */
+    public static boolean compareDbNameIgnoreClusterName(String unBoundDbName, String boundedDbName) {
+        if (unBoundDbName.equalsIgnoreCase(boundedDbName)) {
+            return true;
+        }
+        // boundedDbName example
+        int idx = boundedDbName.indexOf(ClusterNamespace.CLUSTER_DELIMITER);
+        if (idx > -1) {
+            return unBoundDbName.equalsIgnoreCase(boundedDbName.substring(idx + 1));
+        }
+        return false;
+    }
+
+    public static boolean sameTableName(String boundSlot, String unboundSlot) {
         if (Config.lower_case_table_names != 1) {
             return boundSlot.equals(unboundSlot);
         } else {
