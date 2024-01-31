@@ -171,7 +171,7 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
             return Status::InternalError("Unknown expr node type: {}", texpr_node.node_type);
         }
     } catch (const Exception& e) {
-        return Status::Error(e.code());
+        return Status::Error(e.code(), e.message());
     }
     if (!(*expr)->data_type()) {
         return Status::InvalidArgument("Unknown expr type: {}", texpr_node.node_type);
