@@ -186,35 +186,33 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     }
 
     private ColumnStatistic castMinMax(ColumnStatistic colStats, DataType targetType) {
-        if (colStats.minExpr instanceof StringLiteral || colStats.maxExpr instanceof StringLiteral) {
+        ColumnStatistic defaultStats = new ColumnStatisticBuilder(colStats).setMaxExpr(null).setMinExpr(null)
+                .setMaxValue(Double.POSITIVE_INFINITY).setMinValue(Double.NEGATIVE_INFINITY)
+                .build();
+        if (colStats.minExpr instanceof StringLiteral && colStats.maxExpr instanceof StringLiteral) {
             if (targetType.isDateLikeType()) {
                 ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
-                if (colStats.minExpr != null) {
+                if (colStats.minExpr != null && colStats.maxExpr != null) {
                     try {
                         String strMin = colStats.minExpr.getStringValue();
                         DateLiteral dateMinLiteral = new DateLiteral(strMin);
                         long min = dateMinLiteral.getValue();
                         builder.setMinValue(min);
                         builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
-                    } catch (AnalysisException e) {
-                        // ignore exception. do not convert min
-                    }
-                }
-                if (colStats.maxExpr != null) {
-                    try {
                         String strMax = colStats.maxExpr.getStringValue();
                         DateLiteral dateMaxLiteral = new DateLiteral(strMax);
                         long max = dateMaxLiteral.getValue();
                         builder.setMaxValue(max);
                         builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
                     } catch (AnalysisException e) {
-                        // ignore exception. do not convert max
+                        // min/max convert failed, set +/- Infinity
+                        return defaultStats;
                     }
                 }
                 return builder.build();
             }
         }
-        return colStats;
+        return defaultStats;
     }
 
     @Override
