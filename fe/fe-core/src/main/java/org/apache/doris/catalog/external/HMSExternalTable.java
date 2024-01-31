@@ -458,9 +458,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public long getLastDdlTime() {
-        org.apache.hadoop.hive.metastore.api.Table table = ((HMSExternalCatalog) catalog).getClient()
-                .getTable(dbName, name);
-        Map<String, String> parameters = table.getParameters();
+        makeSureInitialized();
+        Map<String, String> parameters = remoteTable.getParameters();
         if (parameters == null || !parameters.containsKey(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) {
             return 0L;
         }
@@ -580,7 +579,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public boolean hasColumnStatistics(String colName) {
         Map<String, String> parameters = remoteTable.getParameters();
         return parameters.keySet().stream()
-            .filter(k -> k.startsWith(SPARK_COL_STATS + colName + ".")).findAny().isPresent();
+                .filter(k -> k.startsWith(SPARK_COL_STATS + colName + ".")).findAny().isPresent();
     }
 
     public boolean fillColumnStatistics(String colName, Map<StatsType, String> statsTypes, Map<String, String> stats) {
@@ -789,13 +788,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public boolean isDistributionColumn(String columnName) {
         return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
-            .collect(Collectors.toSet()).contains(columnName.toLowerCase());
+                .collect(Collectors.toSet()).contains(columnName.toLowerCase());
     }
 
     @Override
     public Set<String> getDistributionColumnNames() {
         return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
-            .collect(Collectors.toSet());
+                .collect(Collectors.toSet());
     }
 
     @Override
