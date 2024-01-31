@@ -712,6 +712,7 @@
                                 "sql-manual/sql-functions/numeric-functions/sin",
                                 "sql-manual/sql-functions/numeric-functions/cos",
                                 "sql-manual/sql-functions/numeric-functions/tan",
+                                "sql-manual/sql-functions/numeric-functions/tanh",
                                 "sql-manual/sql-functions/numeric-functions/asin",
                                 "sql-manual/sql-functions/numeric-functions/acos",
                                 "sql-manual/sql-functions/numeric-functions/atan",
