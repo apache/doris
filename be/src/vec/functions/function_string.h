@@ -2027,6 +2027,14 @@ public:
         std::tie(content_column, content_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
 
+        if (const auto* nullable = check_and_get_column<const ColumnNullable>(*content_column)) {
+            // Danger: Here must dispose the null map data first! Because
+            // argument_columns[0]=nullable->get_nested_column_ptr(); will release the mem
+            // of column nullable mem of null map
+            VectorizedUtils::update_null_map(null_map->get_data(), nullable->get_null_map_data());
+            content_column = nullable->get_nested_column_ptr();
+        }
+
         const auto* str_col = assert_cast<const ColumnString*>(content_column.get());
 
         [[maybe_unused]] const auto& [delimiter_col, delimiter_const] =
