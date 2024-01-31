@@ -1202,19 +1202,19 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     bool already_set_time_part = false; // skip time part in the end's setting.
 
     uint32_t part_used = 0;
-    constexpr int year_part = 1U << 0;
-    constexpr int month_part = 1U << 1;
-    constexpr int day_part = 1U << 2;
-    constexpr int weekday_part = 1U << 3;
-    constexpr int yearday_part = 1U << 4;
-    constexpr int week_num_part = 1U << 5;
-    constexpr int normal_date_part = year_part | month_part | day_part;
-    constexpr int special_date_part = weekday_part | yearday_part | week_num_part;
-    [[maybe_unused]] constexpr int date_part = normal_date_part | special_date_part;
-    constexpr int hour_part = 1U << 6;
-    constexpr int minute_part = 1U << 7;
-    constexpr int second_part = 1U << 8;
-    constexpr int time_part = hour_part | minute_part | second_part;
+    constexpr int YEAR_PART = 1U << 0;
+    constexpr int MONTH_PART = 1U << 1;
+    constexpr int DAY_PART = 1U << 2;
+    constexpr int NORMAL_DATE_PART = YEAR_PART | MONTH_PART | DAY_PART;
+    constexpr int WEEKDAY_PART = 1U << 3;
+    constexpr int YEARDAY_PART = 1U << 4;
+    constexpr int WEEK_NUM_PART = 1U << 5;
+    constexpr int SPECIAL_DATE_PART = WEEKDAY_PART | YEARDAY_PART | WEEK_NUM_PART;
+    [[maybe_unused]] constexpr int DATE_PART = NORMAL_DATE_PART | SPECIAL_DATE_PART;
+    constexpr int HOUR_PART = 1U << 6;
+    constexpr int MINUTE_PART = 1U << 7;
+    constexpr int SECOND_PART = 1U << 8;
+    constexpr int TIME_PART = HOUR_PART | MINUTE_PART | SECOND_PART;
 
     int half_day = 0; // 0 for am/none, 12 for pm.
     int weekday = -1;
@@ -1252,7 +1252,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 int_value += int_value >= 70 ? 1900 : 2000;
                 year = int_value;
                 val = tmp;
-                part_used |= year_part;
+                part_used |= YEAR_PART;
                 break;
             case 'Y':
                 // Year, numeric, four digits
@@ -1265,7 +1265,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 year = int_value;
                 val = tmp;
-                part_used |= year_part;
+                part_used |= YEAR_PART;
                 break;
                 // Month
             case 'm':
@@ -1276,7 +1276,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 month = int_value;
                 val = tmp;
-                part_used |= month_part;
+                part_used |= MONTH_PART;
                 break;
             case 'M':
                 int_value = check_word(const_cast<const char**>(s_month_name), val, val_end, &val);
@@ -1284,7 +1284,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                     return false;
                 }
                 month = int_value;
-                part_used |= month_part;
+                part_used |= MONTH_PART;
                 break;
             case 'b':
                 int_value = check_word(s_ab_month_name, val, val_end, &val);
@@ -1292,7 +1292,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                     return false;
                 }
                 month = int_value;
-                part_used |= month_part;
+                part_used |= MONTH_PART;
                 break;
                 // Day
             case 'd':
@@ -1303,7 +1303,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 day = int_value;
                 val = tmp;
-                part_used |= day_part;
+                part_used |= DAY_PART;
                 break;
             case 'D':
                 tmp = val + min(2, val_end - val);
@@ -1312,14 +1312,14 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 day = int_value;
                 val = tmp + min(2, val_end - tmp);
-                part_used |= day_part;
+                part_used |= DAY_PART;
                 break;
                 // Hour
             case 'h':
             case 'I':
             case 'l':
                 hour_system_12 = true;
-                part_used |= hour_part;
+                part_used |= HOUR_PART;
                 // Fall through
             case 'k':
             case 'H':
@@ -1329,7 +1329,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 hour = int_value;
                 val = tmp;
-                part_used |= hour_part;
+                part_used |= HOUR_PART;
                 break;
                 // Minute
             case 'i':
@@ -1339,7 +1339,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 minute = int_value;
                 val = tmp;
-                part_used |= minute_part;
+                part_used |= MINUTE_PART;
                 break;
                 // Second
             case 's':
@@ -1350,7 +1350,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 second = int_value;
                 val = tmp;
-                part_used |= second_part;
+                part_used |= SECOND_PART;
                 break;
                 // Micro second
             case 'f':
@@ -1380,7 +1380,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 int_value++;
                 weekday = int_value;
-                part_used |= weekday_part;
+                part_used |= WEEKDAY_PART;
                 break;
             case 'a':
                 int_value = check_word(s_ab_day_name, val, val_end, &val);
@@ -1389,7 +1389,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 int_value++;
                 weekday = int_value;
-                part_used |= weekday_part;
+                part_used |= WEEKDAY_PART;
                 break;
             case 'w':
                 tmp = val + min(1, val_end - val);
@@ -1404,7 +1404,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 weekday = int_value;
                 val = tmp;
-                part_used |= weekday_part;
+                part_used |= WEEKDAY_PART;
                 break;
             case 'j':
                 tmp = val + min(3, val_end - val);
@@ -1413,7 +1413,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 yearday = int_value;
                 val = tmp;
-                part_used |= yearday_part;
+                part_used |= YEARDAY_PART;
                 break;
             case 'u':
             case 'v':
@@ -1431,7 +1431,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                     return false;
                 }
                 val = tmp;
-                part_used |= week_num_part;
+                part_used |= WEEK_NUM_PART;
                 break;
                 // strict week number, must be used with %V or %v
             case 'x':
@@ -1443,7 +1443,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 strict_week_number_year = int_value;
                 val = tmp;
-                part_used |= week_num_part;
+                part_used |= WEEK_NUM_PART;
                 break;
             case 'r': {
                 VecDateTimeValue tmp_val;
@@ -1454,7 +1454,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 this->_minute = tmp_val._minute;
                 this->_second = tmp_val._second;
                 val = tmp;
-                part_used |= time_part;
+                part_used |= TIME_PART;
                 already_set_time_part = true;
                 break;
             }
@@ -1466,7 +1466,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 this->_hour = tmp_val._hour;
                 this->_minute = tmp_val._minute;
                 this->_second = tmp_val._second;
-                part_used |= time_part;
+                part_used |= TIME_PART;
                 already_set_time_part = true;
                 val = tmp;
                 break;
@@ -1523,7 +1523,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
             case 'S':
             case 'p':
             case 'T':
-                part_used |= time_part;
+                part_used |= TIME_PART;
                 break;
             default:
                 break;
@@ -1548,8 +1548,8 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     }
 
     // Compute timestamp type
-    if (part_used & date_part) {
-        if (part_used & time_part) {
+    if (part_used & DATE_PART) {
+        if (part_used & TIME_PART) {
             _type = TIME_DATETIME;
         } else {
             _type = TIME_DATE;
@@ -1598,10 +1598,10 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
         return true;
     }
     // complete default month/day
-    if (!(part_used & ~normal_date_part)) { // Ymd part only
-        if (!(part_used & day_part)) {
+    if (!(part_used & ~NORMAL_DATE_PART)) { // Ymd part only
+        if (!(part_used & DAY_PART)) {
             day = 1;
-            if (!(part_used & month_part)) {
+            if (!(part_used & MONTH_PART)) {
                 month = 1;
             }
         }
@@ -2189,20 +2189,20 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
     bool already_set_time_part = false; // skip time part in the end's setting.
 
     uint32_t part_used = 0;
-    constexpr int year_part = 1U << 0;
-    constexpr int month_part = 1U << 1;
-    constexpr int day_part = 1U << 2;
-    constexpr int weekday_part = 1U << 3;
-    constexpr int yearday_part = 1U << 4;
-    constexpr int week_num_part = 1U << 5;
-    constexpr int normal_date_part = year_part | month_part | day_part;
-    constexpr int special_date_part = weekday_part | yearday_part | week_num_part;
-    [[maybe_unused]] constexpr int date_part = normal_date_part | special_date_part;
-    constexpr int hour_part = 1U << 6;
-    constexpr int minute_part = 1U << 7;
-    constexpr int second_part = 1U << 8;
-    constexpr int frac_part = 1U << 9;
-    constexpr int time_part = hour_part | minute_part | second_part | frac_part;
+    constexpr int YEAR_PART = 1U << 0;
+    constexpr int MONTH_PART = 1U << 1;
+    constexpr int DAY_PART = 1U << 2;
+    constexpr int NORMAL_DATE_PART = YEAR_PART | MONTH_PART | DAY_PART;
+    constexpr int WEEKDAY_PART = 1U << 3;
+    constexpr int YEARDAY_PART = 1U << 4;
+    constexpr int WEEK_NUM_PART = 1U << 5;
+    constexpr int SPECIAL_DATE_PART = WEEKDAY_PART | YEARDAY_PART | WEEK_NUM_PART;
+    [[maybe_unused]] constexpr int DATE_PART = NORMAL_DATE_PART | SPECIAL_DATE_PART;
+    constexpr int HOUR_PART = 1U << 6;
+    constexpr int MINUTE_PART = 1U << 7;
+    constexpr int SECOND_PART = 1U << 8;
+    constexpr int FRAC_PART = 1U << 9;
+    constexpr int TIME_PART = HOUR_PART | MINUTE_PART | SECOND_PART | FRAC_PART;
 
     int half_day = 0; // 0 for am/none, 12 for pm.
     int weekday = -1;
@@ -2240,7 +2240,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 int_value += int_value >= 70 ? 1900 : 2000;
                 year = int_value;
                 val = tmp;
-                part_used |= year_part;
+                part_used |= YEAR_PART;
                 break;
             case 'Y':
                 // Year, numeric, four digits
@@ -2253,7 +2253,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 year = int_value;
                 val = tmp;
-                part_used |= year_part;
+                part_used |= YEAR_PART;
                 break;
                 // Month
             case 'm':
@@ -2264,7 +2264,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 month = int_value;
                 val = tmp;
-                part_used |= month_part;
+                part_used |= MONTH_PART;
                 break;
             case 'M':
                 int_value = check_word(const_cast<const char**>(s_month_name), val, val_end, &val);
@@ -2272,7 +2272,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                     return false;
                 }
                 month = int_value;
-                part_used |= month_part;
+                part_used |= MONTH_PART;
                 break;
             case 'b':
                 int_value = check_word(s_ab_month_name, val, val_end, &val);
@@ -2280,7 +2280,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                     return false;
                 }
                 month = int_value;
-                part_used |= month_part;
+                part_used |= MONTH_PART;
                 break;
                 // Day
             case 'd':
@@ -2291,7 +2291,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 day = int_value;
                 val = tmp;
-                part_used |= day_part;
+                part_used |= DAY_PART;
                 break;
             case 'D':
                 tmp = val + min(2, val_end - val);
@@ -2300,14 +2300,14 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 day = int_value;
                 val = tmp + min(2, val_end - tmp);
-                part_used |= day_part;
+                part_used |= DAY_PART;
                 break;
                 // Hour
             case 'h':
             case 'I':
             case 'l':
                 hour_system_12 = true;
-                part_used |= hour_part;
+                part_used |= HOUR_PART;
                 // Fall through
             case 'k':
             case 'H':
@@ -2317,7 +2317,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 hour = int_value;
                 val = tmp;
-                part_used |= hour_part;
+                part_used |= HOUR_PART;
                 break;
                 // Minute
             case 'i':
@@ -2327,7 +2327,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 minute = int_value;
                 val = tmp;
-                part_used |= minute_part;
+                part_used |= MINUTE_PART;
                 break;
                 // Second
             case 's':
@@ -2338,7 +2338,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 second = int_value;
                 val = tmp;
-                part_used |= second_part;
+                part_used |= SECOND_PART;
                 break;
             // Micro second
             case 'f':
@@ -2360,7 +2360,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 if constexpr (is_datetime) {
                     microsecond = int_value * int_exp10(6 - min(6, tmp - val));
-                    part_used |= frac_part;
+                    part_used |= FRAC_PART;
                 }
                 val = tmp;
                 break;
@@ -2383,7 +2383,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 int_value++;
                 weekday = int_value;
-                part_used |= weekday_part;
+                part_used |= WEEKDAY_PART;
                 break;
             case 'a':
                 int_value = check_word(s_ab_day_name, val, val_end, &val);
@@ -2392,7 +2392,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 int_value++;
                 weekday = int_value;
-                part_used |= weekday_part;
+                part_used |= WEEKDAY_PART;
                 break;
             case 'w':
                 tmp = val + min(1, val_end - val);
@@ -2407,7 +2407,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 weekday = int_value;
                 val = tmp;
-                part_used |= weekday_part;
+                part_used |= WEEKDAY_PART;
                 break;
             case 'j':
                 tmp = val + min(3, val_end - val);
@@ -2416,7 +2416,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 yearday = int_value;
                 val = tmp;
-                part_used |= yearday_part;
+                part_used |= YEARDAY_PART;
                 break;
             case 'u':
             case 'v':
@@ -2434,7 +2434,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                     return false;
                 }
                 val = tmp;
-                part_used |= week_num_part;
+                part_used |= WEEK_NUM_PART;
                 break;
                 // strict week number, must be used with %V or %v
             case 'x':
@@ -2446,7 +2446,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 }
                 strict_week_number_year = int_value;
                 val = tmp;
-                part_used |= week_num_part;
+                part_used |= WEEK_NUM_PART;
                 break;
             case 'r': {
                 if constexpr (is_datetime) {
@@ -2459,7 +2459,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                     this->date_v2_value_.minute_ = tmp_val.minute();
                     this->date_v2_value_.second_ = tmp_val.second();
                     val = tmp;
-                    part_used |= time_part;
+                    part_used |= TIME_PART;
                     already_set_time_part = true;
                     break;
                 } else {
@@ -2475,7 +2475,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                     this->date_v2_value_.hour_ = tmp_val.hour();
                     this->date_v2_value_.minute_ = tmp_val.minute();
                     this->date_v2_value_.second_ = tmp_val.second();
-                    part_used |= time_part;
+                    part_used |= TIME_PART;
                     already_set_time_part = true;
                     val = tmp;
                     break;
@@ -2535,7 +2535,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
             case 'S':
             case 'p':
             case 'T':
-                part_used |= time_part;
+                part_used |= TIME_PART;
                 break;
             default:
                 break;
@@ -2560,11 +2560,11 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
     }
 
     // Compute timestamp type
-    if (part_used & frac_part) {
+    if (part_used & FRAC_PART) {
         if constexpr (!is_datetime) {
             return false;
         }
-    } else if (part_used & time_part) {
+    } else if (part_used & TIME_PART) {
         if constexpr (!is_datetime) {
             return false;
         }
@@ -2617,10 +2617,10 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
         }
     }
     // complete default month/day
-    if (!(part_used & ~normal_date_part)) { // Ymd part only
-        if (!(part_used & day_part)) {
+    if (!(part_used & ~NORMAL_DATE_PART)) { // Ymd part only
+        if (!(part_used & DAY_PART)) {
             day = 1;
-            if (!(part_used & month_part)) {
+            if (!(part_used & MONTH_PART)) {
                 month = 1;
             }
         }
@@ -2637,7 +2637,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
     }
     if constexpr (is_datetime) {
         return check_range_and_set_time(year, month, day, hour, minute, second, microsecond,
-                                        !(part_used & ~time_part));
+                                        !(part_used & ~TIME_PART));
     } else {
         return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
     }
