@@ -527,6 +527,8 @@ struct TMasterOpResult {
     3: optional TShowResultSet resultSet;
     4: optional Types.TUniqueId queryId;
     5: optional string status;
+    6: optional i32 statusCode;
+    7: optional string errMessage;
 }
 
 struct TUpdateExportTaskStatusRequest {
