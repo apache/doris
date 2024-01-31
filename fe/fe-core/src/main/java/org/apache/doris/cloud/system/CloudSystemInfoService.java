@@ -275,6 +275,13 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    public void replayAddBackend(Backend newBackend) {
+        super.replayAddBackend(newBackend);
+        List<Backend> toAdd = new ArrayList<>();
+        toAdd.add(newBackend);
+        updateCloudClusterMap(toAdd, new ArrayList<>());
+    }
+
     public void replayDropBackend(Backend backend) {
         super.replayDropBackend(backend);
         List<Backend> toDel = new ArrayList<>();
