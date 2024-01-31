@@ -106,6 +106,9 @@ public:
 
     void insert(const InvertedIndexSearcherCache::CacheKey& cache_key, CacheValue* cache_value);
 
+    void insert(const InvertedIndexSearcherCache::CacheKey& cache_key, CacheValue* cache_value,
+                InvertedIndexCacheHandle* handle);
+
     // Lookup the given index_searcher in the cache.
     // If the index_searcher is found, the cache entry will be written into handle.
     // Return true if entry is found, otherwise return false.

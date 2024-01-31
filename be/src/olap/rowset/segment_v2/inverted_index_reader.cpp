@@ -217,7 +217,8 @@ Status InvertedIndexReader::handle_searcher_cache(
                                               mem_tracker.get(), type()));
         auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
                 std::move(searcher), mem_tracker->consumption(), UnixMillis());
-        InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value);
+        InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
+                                                       inverted_index_cache_handle);
         return Status::OK();
     }
 }

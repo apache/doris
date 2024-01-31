@@ -104,6 +104,12 @@ void InvertedIndexSearcherCache::insert(const InvertedIndexSearcherCache::CacheK
     release(lru_handle);
 }
 
+void InvertedIndexSearcherCache::insert(const InvertedIndexSearcherCache::CacheKey& cache_key,
+                                        CacheValue* cache_value, InvertedIndexCacheHandle* handle) {
+    auto* lru_handle = _insert(cache_key, cache_value);
+    *handle = InvertedIndexCacheHandle(_policy->cache(), lru_handle);
+}
+
 Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCache::CacheKey& key,
                                                    CacheValue* value) {
     auto deleter = [](const doris::CacheKey& key, void* value) {
