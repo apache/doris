@@ -485,6 +485,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params.setSlotNameToSchemaPos(columnNameToPosition);
     }
 
+    @Override
+    public int getScanRangeNum() {
+        Preconditions.checkNotNull(scanRangeLocations);
+        int i = 0;
+        for (TScanRangeLocations tScanRangeLocations : scanRangeLocations) {
+            TScanRange tScanRange = tScanRangeLocations.getScanRange();
+            TFileScanRange tFileScanRange = tScanRange.getExtScanRange().getFileScanRange();
+            i += tFileScanRange.getRangesSize();
+        }
+        return i;
+    }
+
     protected abstract TFileType getLocationType() throws UserException;
 
     protected abstract TFileType getLocationType(String location) throws UserException;

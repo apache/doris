@@ -63,7 +63,9 @@ public class MTMVCache {
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
                 new OriginStatement(mtmv.getQuerySql(), 0));
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
-
+        if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
+            mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
+        }
         Plan mvRewrittenPlan =
                 planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
         Plan mvPlan = mvRewrittenPlan instanceof LogicalResultSink

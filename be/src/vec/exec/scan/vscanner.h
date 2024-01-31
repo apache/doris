@@ -123,7 +123,11 @@ public:
 
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
-    void update_scan_cpu_timer() { _scan_cpu_timer += _cpu_watch.elapsed_time(); }
+    void update_scan_cpu_timer() {
+        int64_t cpu_time = _cpu_watch.elapsed_time();
+        _scan_cpu_timer += cpu_time;
+        _query_statistics->add_cpu_nanos(cpu_time);
+    }
 
     RuntimeState* runtime_state() { return _state; }
 

@@ -20,13 +20,10 @@
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
 
-#include <algorithm>
-#include <exception>
+#include <cstddef>
 #include <memory>
 #include <ostream>
-#include <vector>
 
 #include "common/exception.h"
 #include "common/status.h"
@@ -76,6 +73,7 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("(CAST {}({}) TO {})", child_name, child->data_type()->get_name(),
                              _target_data_type_name);
+    _prepare_finished = true;
     return Status::OK();
 }
 
@@ -85,13 +83,15 @@ const DataTypePtr& VCastExpr::get_target_type() const {
 
 doris::Status VCastExpr::open(doris::RuntimeState* state, VExprContext* context,
                               FunctionContext::FunctionStateScope scope) {
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    DCHECK(_prepare_finished);
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->open(state, context, scope));
     }
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
+    _open_finished = true;
     return Status::OK();
 }
 
@@ -102,6 +102,8 @@ void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
 
 doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block* block,
                                  int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col)
+            << _open_finished << _getting_const_col << _expr_name;
     // for each child call execute
     int column_id = 0;
     RETURN_IF_ERROR(_children[0]->execute(context, block, &column_id));

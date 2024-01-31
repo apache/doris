@@ -362,7 +362,8 @@ function reset_doris_session_variables() {
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     # Variable_name    Value    Default_Value    Changed
-    if ${cl} -e'show variables' | awk '{if ($4 == 1){print "set global " $1 "=" $3 ";"}}' >reset_session_variables; then
+    # "\x27" means single quote in awk
+    if ${cl} -e'show variables' | awk '{if ($4 == 1){print "set global " $1 "=\x27" $3 "\x27;"}}' >reset_session_variables; then
         cat reset_session_variables
         if ${cl} <reset_session_variables; then
             echo "INFO: reset session variables to default, succeed"
@@ -394,18 +395,18 @@ archive_doris_logs() {
 
 print_doris_fe_log() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.out--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.out--------------------"
     tail -n 100 "${DORIS_HOME}"/fe/log/fe.out
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.log--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.log--------------------"
     tail -n 100 "${DORIS_HOME}"/fe/log/fe.log
-    echo "WARNING: ----------------------------------------"
+    echo -e "WARNING: ----------------------------------------\n\n\n\n"
 }
 
 print_doris_be_log() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.out--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.out--------------------"
     tail -n 100 "${DORIS_HOME}"/be/log/be.out
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
     tail -n 100 "${DORIS_HOME}"/be/log/be.INFO
-    echo "WARNING: ----------------------------------------"
+    echo -e "WARNING: ----------------------------------------\n\n\n\n"
 }

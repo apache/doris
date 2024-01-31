@@ -1,4 +1,4 @@
-SELECT
+SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
     concat('https://github.com/', cast(v["repo"]["name"] as string), '/pull/') AS URL,
     count(distinct cast(v["actor"]["login"] as string)) AS authors
 FROM github_events

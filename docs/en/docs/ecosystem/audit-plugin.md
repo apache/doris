@@ -112,7 +112,7 @@ After executing install, the AuditLoader directory will be automatically generat
     zip -r -q -m auditloader.zip auditloader.jar plugin.properties plugin.conf
     ```
 
-### 创建库表
+### Create Audit Table
 
 In Doris, you need to create the library and table of the audit log. The table structure is as follows:
 
@@ -206,7 +206,7 @@ You can place the packaged auditloader.zip on an http server, or copy `auditload
 
 ### Installation
 
-通过以下语句安装 Audit Loader 插件：
+Install the audit loader plugin:
 
 ```sql
 INSTALL PLUGIN FROM [source] [PROPERTIES ("key"="value", ...)]

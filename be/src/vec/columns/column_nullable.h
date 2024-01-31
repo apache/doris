@@ -32,7 +32,6 @@
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
@@ -77,8 +76,7 @@ public:
                                       null_map_->assume_mutable());
     }
 
-    template <typename... Args,
-              typename = typename std::enable_if<IsMutableColumns<Args...>::value>::type>
+    template <typename... Args, typename = std::enable_if_t<IsMutableColumns<Args...>::value>>
     static MutablePtr create(Args&&... args) {
         return Base::create(std::forward<Args>(args)...);
     }

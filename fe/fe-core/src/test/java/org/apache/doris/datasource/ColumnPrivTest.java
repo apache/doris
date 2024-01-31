@@ -259,12 +259,28 @@ public class ColumnPrivTest extends TestWithFeService {
             }
 
             @Override
+            public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
+                return false;
+            }
+
+            @Override
             public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
                 return false;
             }
 
             @Override
             public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+                return false;
+            }
+
+            @Override
+            public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
+                return false;
+            }
+
+            @Override
+            public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName,
+                    PrivPredicate wanted) {
                 return false;
             }
 

@@ -75,7 +75,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             beNumber = sessionVariable.getBeNumberForTest();
             parallelInstance = 8;
         } else {
-            beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
+            beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
             parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
         }
     }

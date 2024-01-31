@@ -197,8 +197,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
             if (_scanner_ctx) {
                 DCHECK(!_eos && _num_scanners->value() > 0);
                 RETURN_IF_ERROR(_scanner_ctx->init());
-                LOG(INFO) << "yyyy instance " << print_id(state->fragment_instance_id())
-                          << " submit scanner ctx " << _scanner_ctx->debug_string();
                 RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
             }
             if (_shared_scan_opt) {
@@ -221,9 +219,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
                               : Status::OK());
         if (_scanner_ctx) {
             RETURN_IF_ERROR(_scanner_ctx->init());
-
-            LOG(INFO) << "yyyy instance " << print_id(state->fragment_instance_id())
-                      << " submit scanner ctx " << _scanner_ctx->debug_string();
             RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
         }
     }
@@ -331,7 +326,7 @@ void VScanNode::_start_scanners(const std::list<std::shared_ptr<ScannerDelegate>
         int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
         _scanner_ctx = pipeline::PipScannerContext::create_shared(
                 _state, this, _output_tuple_desc, _output_row_descriptor.get(), scanners, limit(),
-                _state->scan_queue_mem_limit(), _col_distribute_ids, max_queue_size);
+                _state->scan_queue_mem_limit(), max_queue_size);
     } else {
         _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc,
                                                      _output_row_descriptor.get(), scanners,

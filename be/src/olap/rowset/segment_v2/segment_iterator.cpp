@@ -852,6 +852,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
         // can apply 'match qeury' and 'equal query' and 'list query' for fulltext index.
         return (pred_in_compound ? pred->type() == PredicateType::MATCH
                                  : (pred->type() == PredicateType::MATCH ||
+                                    pred->type() == PredicateType::IS_NULL ||
+                                    pred->type() == PredicateType::IS_NOT_NULL ||
                                     PredicateTypeTraits::is_equal_or_list(pred->type())));
     }
 
@@ -2364,6 +2366,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
     }
 #endif
+    VLOG_DEBUG << "dump block " << block->dump_data(0, block->rows());
 
     // reverse block row order
     if (_opts.read_orderby_key_reverse) {

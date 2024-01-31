@@ -112,7 +112,7 @@ Status JniConnector::init(
     return Status::OK();
 }
 
-Status JniConnector::get_nex_block(Block* block, size_t* read_rows, bool* eof) {
+Status JniConnector::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     // Call org.apache.doris.common.jni.JniScanner#getNextBatchMeta
     // return the address of meta information
     JNIEnv* env = nullptr;

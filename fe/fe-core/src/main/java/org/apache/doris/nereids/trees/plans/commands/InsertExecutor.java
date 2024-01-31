@@ -166,11 +166,13 @@ public class InsertExecutor {
                 && isFromInsert;
         try {
             // TODO refactor this to avoid call legacy planner's function
+            int timeout = ctx.getExecTimeout();
             olapTableSink.init(ctx.queryId(), txnId, database.getId(),
-                    ctx.getExecTimeout(),
+                    timeout,
                     ctx.getSessionVariable().getSendBatchParallelism(),
                     false,
-                    isStrictMode);
+                    isStrictMode,
+                    timeout);
             olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
             if (!allowAutoPartition) {
                 olapTableSink.setAutoPartition(false);

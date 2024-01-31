@@ -81,7 +81,6 @@ void WorkloadSchedPolicyMgr::_schedule_workload() {
         if (list.size() == 0) {
             continue;
         }
-        LOG(INFO) << "[workload_schedule] get query list size=" << list.size();
 
         for (int i = 0; i < list.size(); i++) {
             WorkloadQueryInfo* query_info_ptr = &(list[i]);

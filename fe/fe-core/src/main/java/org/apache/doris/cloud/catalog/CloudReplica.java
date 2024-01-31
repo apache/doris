@@ -354,13 +354,6 @@ public class CloudReplica extends Replica {
         }
     }
 
-    public static CloudReplica read(DataInput in) throws IOException {
-        CloudReplica replica = new CloudReplica();
-        replica.readFields(in);
-        // TODO(luwei): persist and fill-up clusterToBackends to take full advantage of data cache
-        return replica;
-    }
-
     public long getDbId() {
         return dbId;
     }

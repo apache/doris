@@ -185,60 +185,7 @@ public:
         return Status::OK();
     }
 
-    virtual bool is_stateful() const { return false; }
-
     virtual bool can_fast_execute() const { return false; }
-
-    /** Should we evaluate this function while constant folding, if arguments are constants?
-      * Usually this is true. Notable counterexample is function 'sleep'.
-      * If we will call it during query analysis, we will sleep extra amount of time.
-      */
-    virtual bool is_suitable_for_constant_folding() const { return true; }
-
-    /** Some functions like ignore(...) or toTypeName(...) always return constant result which doesn't depend on arguments.
-      * In this case we can calculate result and assume that it's constant in stream header.
-      * There is no need to implement function if it has zero arguments.
-      * Must return ColumnConst with single row or nullptr.
-      */
-    virtual ColumnPtr get_result_if_always_returns_constant_and_has_arguments(
-            const Block& /*block*/, const ColumnNumbers& /*arguments*/) const {
-        return nullptr;
-    }
-
-    /** Function is called "injective" if it returns different result for different values of arguments.
-      * Example: hex, negate, tuple...
-      *
-      * Function could be injective with some arguments fixed to some constant values.
-      * Examples:
-      *  plus(const, x);
-      *  multiply(const, x) where x is an integer and constant is not divisible by two;
-      *  concat(x, 'const');
-      *  concat(x, 'const', y) where const contain at least one non-numeric character;
-      *  concat with FixedString
-      *  dictGet... functions takes name of dictionary as its argument,
-      *   and some dictionaries could be explicitly defined as injective.
-      *
-      * It could be used, for example, to remove useless function applications from GROUP BY.
-      *
-      * Sometimes, function is not really injective, but considered as injective, for purpose of query optimization.
-      * For example, to_string function is not injective for Float64 data type,
-      *  as it returns 'nan' for many different representation of NaNs.
-      * But we assume, that it is injective. This could be documented as implementation-specific behaviour.
-      *
-      * sample_block should contain data types of arguments and values of constants, if relevant.
-      */
-    virtual bool get_is_injective(const Block& /*sample_block*/) { return false; }
-
-    /** Function is called "deterministic", if it returns same result for same values of arguments.
-      * Most of functions are deterministic. Notable counterexample is rand().
-      * Sometimes, functions are "deterministic" in scope of single query
-      *  (even for distributed query), but not deterministic it general.
-      * Example: now(). Another example: functions that work with periodically updated dictionaries.
-      */
-
-    virtual bool is_deterministic() const = 0;
-
-    virtual bool is_deterministic_in_scope_of_query() const = 0;
 
     virtual bool is_use_default_implementation_for_constants() const = 0;
 
@@ -279,14 +226,6 @@ public:
     /// Get the main function name.
     virtual String get_name() const = 0;
 
-    /// See the comment for the same method in IFunctionBase
-    virtual bool is_deterministic() const = 0;
-
-    virtual bool is_deterministic_in_scope_of_query() const = 0;
-
-    /// Override and return true if function needs to depend on the state of the data.
-    virtual bool is_stateful() const = 0;
-
     /// Override and return true if function could take different number of arguments.
     virtual bool is_variadic() const = 0;
 
@@ -307,10 +246,6 @@ public:
 
     /// Returns indexes of arguments, that must be ColumnConst
     virtual ColumnNumbers get_arguments_that_are_always_constant() const = 0;
-    /// Returns indexes if arguments, that can be Nullable without making result of function Nullable
-    /// (for functions like is_null(x))
-    virtual ColumnNumbers get_arguments_that_dont_imply_nullable_return_type(
-            size_t number_of_arguments) const = 0;
 };
 
 using FunctionBuilderPtr = std::shared_ptr<IFunctionBuilder>;
@@ -351,9 +286,6 @@ public:
         return build_impl(arguments, return_type);
     }
 
-    bool is_deterministic() const override { return true; }
-    bool is_deterministic_in_scope_of_query() const override { return true; }
-    bool is_stateful() const override { return false; }
     bool is_variadic() const override { return false; }
 
     /// Default implementation. Will check only in non-variadic case.
@@ -366,10 +298,6 @@ public:
     }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
-    ColumnNumbers get_arguments_that_dont_imply_nullable_return_type(
-            size_t /*number_of_arguments*/) const override {
-        return {};
-    }
 
 protected:
     /// Get the result type by argument type. If the function does not apply to these arguments, throw an exception.
@@ -403,9 +331,6 @@ protected:
       */
     virtual bool use_default_implementation_for_low_cardinality_columns() const { return true; }
 
-    /// If it isn't, will convert all ColumnLowCardinality arguments to full columns.
-    virtual bool can_be_executed_on_low_cardinality_dictionary() const { return true; }
-
     /// return a real function object to execute. called in build(...).
     virtual FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                        const DataTypePtr& return_type) const = 0;
@@ -430,8 +355,6 @@ class IFunction : public std::enable_shared_from_this<IFunction>,
 public:
     String get_name() const override = 0;
 
-    bool is_stateful() const override { return false; }
-
     virtual Status execute_impl(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
                                 size_t input_rows_count) const override = 0;
@@ -445,11 +368,6 @@ public:
 
     /// all constancy check should use this function to do automatically
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
-    bool can_be_executed_on_low_cardinality_dictionary() const override {
-        return is_deterministic_in_scope_of_query();
-    }
-    bool is_deterministic() const override { return true; }
-    bool is_deterministic_in_scope_of_query() const override { return true; }
 
     bool is_use_default_implementation_for_constants() const override {
         return use_default_implementation_for_constants();
@@ -562,28 +480,10 @@ public:
         return function->close(context, scope);
     }
 
-    bool is_suitable_for_constant_folding() const override {
-        return function->is_suitable_for_constant_folding();
-    }
-    ColumnPtr get_result_if_always_returns_constant_and_has_arguments(
-            const Block& block, const ColumnNumbers& arguments_) const override {
-        return function->get_result_if_always_returns_constant_and_has_arguments(block, arguments_);
-    }
-
-    bool get_is_injective(const Block& sample_block) override {
-        return function->get_is_injective(sample_block);
-    }
-
-    bool is_deterministic() const override { return function->is_deterministic(); }
-
     bool can_fast_execute() const override {
         auto function_name = function->get_name();
         return function_name == "eq" || function_name == "ne" || function_name == "lt" ||
                function_name == "gt" || function_name == "le" || function_name == "ge";
-    }
-
-    bool is_deterministic_in_scope_of_query() const override {
-        return function->is_deterministic_in_scope_of_query();
     }
 
     IFunctionBase::Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
@@ -610,22 +510,12 @@ public:
         return function->check_number_of_arguments(number_of_arguments);
     }
 
-    bool is_deterministic() const override { return function->is_deterministic(); }
-    bool is_deterministic_in_scope_of_query() const override {
-        return function->is_deterministic_in_scope_of_query();
-    }
-
     String get_name() const override { return function->get_name(); }
-    bool is_stateful() const override { return function->is_stateful(); }
     bool is_variadic() const override { return function->is_variadic(); }
     size_t get_number_of_arguments() const override { return function->get_number_of_arguments(); }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override {
         return function->get_arguments_that_are_always_constant();
-    }
-    ColumnNumbers get_arguments_that_dont_imply_nullable_return_type(
-            size_t number_of_arguments) const override {
-        return function->get_arguments_that_dont_imply_nullable_return_type(number_of_arguments);
     }
 
 protected:
@@ -645,9 +535,6 @@ protected:
     }
     bool use_default_implementation_for_low_cardinality_columns() const override {
         return function->use_default_implementation_for_low_cardinality_columns();
-    }
-    bool can_be_executed_on_low_cardinality_dictionary() const override {
-        return function->can_be_executed_on_low_cardinality_dictionary();
     }
 
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,

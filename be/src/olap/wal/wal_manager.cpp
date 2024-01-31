@@ -198,9 +198,9 @@ size_t WalManager::get_wal_queue_size(int64_t table_id) {
             return 0;
         }
     } else {
-        //table_id is -1 meaning get all table wal size
-        for (auto it = _wal_queues.begin(); it != _wal_queues.end(); it++) {
-            count += it->second.size();
+        // table_id is -1 meaning get all table wal size
+        for (auto& [_, table_wals] : _wal_queues) {
+            count += table_wals.size();
         }
     }
     return count;
@@ -372,8 +372,8 @@ size_t WalManager::get_wal_table_size(int64_t table_id) {
 
 void WalManager::_stop_relay_wal() {
     std::lock_guard<std::shared_mutex> wrlock(_table_lock);
-    for (auto it = _table_map.begin(); it != _table_map.end(); it++) {
-        it->second->stop();
+    for (auto& [_, wal_table] : _table_map) {
+        wal_table->stop();
     }
 }
 

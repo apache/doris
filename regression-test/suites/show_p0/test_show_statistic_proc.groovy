@@ -23,6 +23,7 @@ suite("test_show_statistic_proc", "nonConcurrent") {
 
     sql """grant ADMIN_PRIV on *.*.* to test_show_statistic_proc_user1"""
 
+    sql """drop database if exists test_statistic_proc_db"""
     sql """create database test_statistic_proc_db"""
 
     def result1 = connect(user = 'test_show_statistic_proc_user1', password = '12345', url = context.config.jdbcUrl) {

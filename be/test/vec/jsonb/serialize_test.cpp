@@ -397,7 +397,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
         vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
         std::vector<BitmapValue>& container =
-                ((vectorized::ColumnComplexType<BitmapValue>*)bitmap_column.get())->get_data();
+                ((vectorized::ColumnBitmap*)bitmap_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;
             for (int j = 0; j <= i; ++j) {

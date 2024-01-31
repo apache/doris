@@ -69,6 +69,9 @@ public class WorkloadRuntimeStatusMgr {
                     auditEvent.scanRows = queryStats.scan_rows;
                     auditEvent.scanBytes = queryStats.scan_bytes;
                     auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
+                    auditEvent.cpuTimeMs = queryStats.cpu_ms;
+                    auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
+                    auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
                 }
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
             }
@@ -166,10 +169,16 @@ public class WorkloadRuntimeStatusMgr {
         return retQueryMap;
     }
 
+    public Map<Long, Map<String, TQueryStatistics>> getBeQueryStatsMap() {
+        return beToQueryStatsMap;
+    }
+
     private void mergeQueryStatistics(TQueryStatistics dst, TQueryStatistics src) {
         dst.scan_rows += src.scan_rows;
         dst.scan_bytes += src.scan_bytes;
         dst.cpu_ms += src.cpu_ms;
+        dst.shuffle_send_bytes += src.shuffle_send_bytes;
+        dst.shuffle_send_rows += src.shuffle_send_rows;
         if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
             dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
         }

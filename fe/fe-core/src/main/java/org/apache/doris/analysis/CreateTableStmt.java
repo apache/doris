@@ -98,7 +98,7 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("broker");
     }
 
-    // if auto bucket auto bucket enable, rewrite distribution bucket num &&
+    // if auto bucket enable, rewrite distribution bucket num &&
     // set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
     private static Map<String, String> maybeRewriteByAutoBucket(DistributionDesc distributionDesc,
             Map<String, String> properties) throws AnalysisException {
@@ -494,8 +494,8 @@ public class CreateTableStmt extends DdlStmt {
 
         if (engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             // before analyzing partition, handle the replication allocation info
-            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(tableName.getCtl(), tableName.getDb(),
-                    properties);
+            properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(tableName.getCtl(),
+                    tableName.getDb(), properties);
             // analyze partition
             if (partitionDesc != null) {
                 if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc) {

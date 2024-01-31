@@ -54,7 +54,7 @@ public:
 
     const char* what() const noexcept override { return to_string().c_str(); }
 
-    Status to_status() const { return Status::Error<false>(code(), to_string()); }
+    Status to_status() const { return Status(code(), _err_msg->_msg, _err_msg->_stack); }
 
 private:
     int _code;

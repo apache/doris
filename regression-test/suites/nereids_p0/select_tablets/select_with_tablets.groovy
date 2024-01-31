@@ -45,6 +45,7 @@ suite("select_with_tablets") {
     order_qt_select1 """ SELECT * FROM ${table_name1} """
 
     def res = sql """ show tablets from ${table_name1} where version = 2 """
+    res = deduplicate_tablets(res)
     assertTrue(res.size() == 1)
     assertTrue(res[0].size() == 21)
     assertEquals("2", res[0][4])
@@ -65,6 +66,7 @@ suite("select_with_tablets") {
     order_qt_select11 """ SELECT * FROM ${table_name1} PARTITION between_20_70 where id < 2"""
 
     res = sql """ show tablets from ${table_name1} where version = 1 """
+    res = deduplicate_tablets(res)
     assertTrue(res.size() == 2)
     assertEquals("1", res[0][4])
     assertEquals("1", res[1][4])
@@ -93,6 +95,7 @@ suite("select_with_tablets") {
     order_qt_no_partition_1 """ SELECT * FROM ${table_no_partition} """
 
     res = sql """ show tablets from ${table_no_partition} where version = 2 """
+    res = deduplicate_tablets(res)
 
     order_qt_no_partition_2 """ SELECT * FROM ${table_no_partition} TABLET(${res[0][0]}) """
     order_qt_no_partition_3 """ SELECT * FROM ${table_no_partition} TABLET(${res[1][0]}) """
