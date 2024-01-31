@@ -324,6 +324,10 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         }
     }
     for (const TabletSchemaSPtr& schema : schemas) {
+        if (schema->field_index(variant_col_unique_id) == -1) {
+            // maybe dropped
+            continue;
+        }
         for (const TabletColumn& col :
              schema->mutable_column_by_uid(variant_col_unique_id).sparse_columns()) {
             // Get subcolumns of this variant
@@ -346,6 +350,10 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
     // Types of subcolumns by path from all tuples.
     std::unordered_map<PathInData, DataTypes, PathInData::Hash> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
+        if (schema->field_index(variant_col_unique_id) == -1) {
+            // maybe dropped
+            continue;
+        }
         for (const TabletColumn& col :
              schema->mutable_column_by_uid(variant_col_unique_id).sparse_columns()) {
             // Get subcolumns of this variant
