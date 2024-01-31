@@ -471,8 +471,6 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
@@ -622,8 +620,6 @@ public:
 
     bool is_variadic() const override { return true; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
@@ -636,7 +632,7 @@ public:
                 assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
 
         if (arguments.size() > 1) {
-            auto& col = *block.get_by_position(arguments[1]).column;
+            const auto& col = *block.get_by_position(arguments[1]).column;
             auto string_ref = col.get_data_at(0);
             if (string_ref.size > 0) {
                 upper = *string_ref.data;
@@ -644,7 +640,7 @@ public:
         }
 
         if (arguments.size() > 2) {
-            auto& col = *block.get_by_position(arguments[2]).column;
+            const auto& col = *block.get_by_position(arguments[2]).column;
             auto string_ref = col.get_data_at(0);
             if (string_ref.size > 0) {
                 lower = *string_ref.data;
@@ -652,7 +648,7 @@ public:
         }
 
         if (arguments.size() > 3) {
-            auto& col = *block.get_by_position(arguments[3]).column;
+            const auto& col = *block.get_by_position(arguments[3]).column;
             auto string_ref = col.get_data_at(0);
             if (string_ref.size > 0) {
                 number = *string_ref.data;
@@ -721,8 +717,6 @@ public:
 
     bool is_variadic() const override { return true; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
@@ -732,10 +726,10 @@ public:
 
         auto res = ColumnString::create();
         auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const ColumnString& source_column = assert_cast<const ColumnString&>(*col);
+        const auto& source_column = assert_cast<const ColumnString&>(*col);
 
         if (arguments.size() == 2) {
-            auto& col = *block.get_by_position(arguments[1]).column;
+            const auto& col = *block.get_by_position(arguments[1]).column;
             n = col.get_int(0);
         } else if (arguments.size() > 2) {
             return Status::InvalidArgument(
@@ -758,8 +752,8 @@ public:
 private:
     static void vector(const ColumnString& src, int n, ColumnString& result) {
         const auto num_rows = src.size();
-        auto* chars = src.get_chars().data();
-        auto* offsets = src.get_offsets().data();
+        const auto* chars = src.get_chars().data();
+        const auto* offsets = src.get_offsets().data();
         result.get_chars().resize(src.get_chars().size());
         result.get_offsets().resize(src.get_offsets().size());
         memcpy_small_allow_read_write_overflow15(
@@ -799,8 +793,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -854,8 +846,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1870,8 +1860,6 @@ public:
         return std::make_shared<DataTypeString>();
     }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
@@ -2023,15 +2011,12 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         // Create a zero column to simply implement
-        auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res = ColumnString::create();
 
         auto& res_offsets = res->get_offsets();
@@ -2041,14 +2026,6 @@ public:
         bool content_const = false;
         std::tie(content_column, content_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
-
-        if (const auto* nullable = check_and_get_column<const ColumnNullable>(*content_column)) {
-            // Danger: Here must dispose the null map data first! Because
-            // argument_columns[0]=nullable->get_nested_column_ptr(); will release the mem
-            // of column nullable mem of null map
-            VectorizedUtils::update_null_map(null_map->get_data(), nullable->get_null_map_data());
-            content_column = nullable->get_nested_column_ptr();
-        }
 
         const auto* str_col = assert_cast<const ColumnString*>(content_column.get());
 
