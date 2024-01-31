@@ -224,20 +224,18 @@ public class MTMVRelationManager implements MTMVHookService {
             return;
         }
         for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
-            Table mtmv = null;
+            MTMV mtmv = null;
             try {
-                mtmv = Env.getCurrentEnv().getInternalCatalog()
+                mtmv = (MTMV) Env.getCurrentEnv().getInternalCatalog()
                         .getDbOrAnalysisException(mtmvInfo.getDbId())
                         .getTableOrAnalysisException(mtmvInfo.getTableId());
             } catch (AnalysisException e) {
                 LOG.warn(e);
                 continue;
             }
-            TableNameInfo tableNameInfo = new TableNameInfo(mtmv.getQualifiedDbName(),
-                    mtmv.getName());
             MTMVStatus status = new MTMVStatus(MTMVState.SCHEMA_CHANGE,
                     msgPrefix + baseTableInfo);
-            Env.getCurrentEnv().alterMTMVStatus(tableNameInfo, status);
+            mtmv.alterStatus(status);
         }
     }
 }

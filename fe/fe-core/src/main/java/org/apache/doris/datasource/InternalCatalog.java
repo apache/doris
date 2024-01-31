@@ -922,10 +922,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
 
+            Env.getCurrentEnv().getMtmvService().dropTable(table);
+
             DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, stmt.isForceDrop(), recycleTime);
             Env.getCurrentEnv().getEditLog().logDropTable(info);
-
-            Env.getCurrentEnv().getMtmvService().dropTable(table);
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
         } finally {
@@ -968,6 +968,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(),
                     tableId);
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
+            Env.getCurrentEnv().getMtmvService().dropTable(table);
         } finally {
             table.writeUnlock();
             db.writeUnlock();
