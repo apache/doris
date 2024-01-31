@@ -44,7 +44,7 @@ under the License.
 | 版本    | 日期      |  平台  |  链接  |
 |---|---|---|---|
 | v1.0   |  20240131 |  x64  | https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-streamloader-1.0.1-bin-x64.tar.xz|
-| v1.0   | 20240131  | arm | https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-streamloader-1.0.1-bin-arm64.tar.xz|
+| v1.0   | 20240131  | arm64 | https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-streamloader-1.0.1-bin-arm64.tar.xz|
 
 :::note
 获取结果即为可执行二进制。
