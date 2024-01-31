@@ -129,7 +129,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 filter.addTargetSlot(scanSlot, probeExpr, scan);
                 ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
                 ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-                ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeExpr).first, scanSlot);
+                ctx.setTargetsOnScanNode(ctx.getAliasTransferPair(probeSlot).first, scanSlot);
             }
         } else {
             filter = new RuntimeFilter(generator.getNextId(),
@@ -139,7 +139,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
             this.addAppliedRuntimeFilter(filter);
             ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
             ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-            ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeSlot).first, scanSlot);
+            ctx.setTargetsOnScanNode(ctx.getAliasTransferPair(probeSlot).first, scanSlot);
             ctx.setRuntimeFilterIdentityToFilter(src, type, builderNode, filter);
         }
         return true;
