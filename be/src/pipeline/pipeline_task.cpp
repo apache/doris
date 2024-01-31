@@ -230,6 +230,10 @@ Status PipelineTask::execute(bool* eos) {
     // The status must be runnable
     *eos = false;
     if (!_opened) {
+        if (has_dependency()) {
+            set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
+            return Status::OK();
+        }
         {
             SCOPED_RAW_TIMER(&time_spent);
             auto st = _open();
@@ -241,10 +245,6 @@ Status PipelineTask::execute(bool* eos) {
                 return Status::OK();
             }
             RETURN_IF_ERROR(st);
-        }
-        if (has_dependency()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
-            return Status::OK();
         }
         if (!source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
@@ -297,7 +297,7 @@ Status PipelineTask::execute(bool* eos) {
             }
         }
     }
-    if (*eos) { // now only join node have add_dependency, and join probe could start when the join sink is eos
+    if (*eos) { // now only join node/set operation node have add_dependency, and join probe could start when the join sink is eos
         _finish_p_dependency();
     }
 
