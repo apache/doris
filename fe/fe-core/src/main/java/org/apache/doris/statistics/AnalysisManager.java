@@ -709,7 +709,7 @@ public class AnalysisManager implements Writable {
         boolean success = true;
         for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
             // Skip master
-            if (selfNode.equals(frontend.getHost())) {
+            if (selfNode.getHost().equals(frontend.getHost())) {
                 continue;
             }
             success = success && statisticsCache.invalidateStats(frontend, request);

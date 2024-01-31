@@ -324,7 +324,6 @@ public class CacheTest extends TestWithFeService {
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
-        statisticsCache.syncLoadColStats(1L, 1L, "any");
         new Expectations() {
             {
                 statisticsCache.sendStats((Frontend) any, (TUpdateFollowerStatsCacheRequest) any);
@@ -369,7 +368,6 @@ public class CacheTest extends TestWithFeService {
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
-        statisticsCache.syncLoadColStats(1L, 1L, "any");
         new Expectations() {
             {
                 statisticsCache.sendStats((Frontend) any, (TUpdateFollowerStatsCacheRequest) any);
