@@ -34,6 +34,7 @@ import com.clickhouse.data.value.UnsignedInteger;
 import com.clickhouse.data.value.UnsignedLong;
 import com.clickhouse.data.value.UnsignedShort;
 import com.google.common.base.Preconditions;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.vesoft.nebula.client.graph.data.ValueWrapper;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -123,24 +124,54 @@ public class JdbcExecutor {
     }
 
     public void close() throws Exception {
-        if (resultSet != null) {
-            resultSet.close();
+        try {
+            if (stmt != null) {
+                try {
+                    stmt.cancel();
+                } catch (SQLException e) {
+                    LOG.error("Error cancelling statement", e);
+                }
+            }
+            if (conn != null && resultSet != null) {
+                abortReadConnection(conn, resultSet, tableType);
+                try {
+                    resultSet.close();
+                } catch (SQLException e) {
+                    LOG.error("Error closing resultSet", e);
+                }
+                try {
+                    stmt.close();
+                } catch (SQLException e) {
+                    LOG.error("Error closing statement", e);
+                }
+            }
+        } finally {
+            if (conn != null && !conn.isClosed()) {
+                try {
+                    conn.close();
+                } catch (SQLException e) {
+                    LOG.error("Error closing connection", e);
+                }
+            }
         }
-        if (stmt != null) {
-            stmt.close();
-        }
-        if (conn != null) {
-            conn.close();
-        }
+
         if (minIdleSize == 0) {
-            // it can be immediately closed if there is no need to maintain the cache of datasource
-            druidDataSource.close();
-            JdbcDataSource.getDataSource().getSourcesMap().clear();
-            druidDataSource = null;
+            // Close and remove the datasource if necessary
+            if (druidDataSource != null) {
+                druidDataSource.close();
+                JdbcDataSource.getDataSource().getSourcesMap().clear();
+                druidDataSource = null;
+            }
         }
-        resultSet = null;
-        stmt = null;
-        conn = null;
+    }
+
+    public void abortReadConnection(Connection connection, ResultSet resultSet, TOdbcTableType tableType)
+            throws SQLException {
+        if (!resultSet.isAfterLast() && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER)) {
+            // Abort connection before closing. Without this, the MySQL driver
+            // attempts to drain the connection by reading all the results.
+            connection.abort(MoreExecutors.directExecutor());
+        }
     }
 
     public int read() throws UdfRuntimeException {
