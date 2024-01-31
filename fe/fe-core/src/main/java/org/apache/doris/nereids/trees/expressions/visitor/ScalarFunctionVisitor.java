@@ -376,6 +376,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
@@ -1849,6 +1850,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitTan(Tan tan, C context) {
         return visitScalarFunction(tan, context);
+    }
+
+    default R visitTanh(Tanh tanh, C context) {
+        return visitScalarFunction(tanh, context);
     }
 
     default R visitTimeDiff(TimeDiff timeDiff, C context) {
