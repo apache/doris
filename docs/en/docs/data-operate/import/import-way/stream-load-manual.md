@@ -40,7 +40,7 @@ In comparison to single-threaded load using `curl`, Doris-Streamloader is a clie
 - **Resilience and continuity:** in case of partial load failures, it can resume data loading from the point of failure.
 - **Automatic retry mechanism:** in case of loading failures, it can automatically retry a default number of times. If the loading remains unsuccessful, it will print the command for manual retry.
 
-See [Doris-Streamloader](../docs/ecosystem/doris-parallel-streamload) for detailed instructions and best practices.
+See [Doris-Streamloader](../docs/ecosystem/doris-streamloader) for detailed instructions and best practices.
 :::
 
 ## Basic Principles
