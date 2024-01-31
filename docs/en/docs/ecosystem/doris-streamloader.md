@@ -45,8 +45,8 @@ Source Code: https://github.com/apache/doris-streamloader/
 
 | Version | Date |  Architecture  |  Link  |
 |---|---|---|---|
-| v1.0   |  20231110 |  x86  | https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-streamloader-1.0.1-bin-x64.tar.xz |
-| v1.0   | 20231110  | aarch | https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-streamloader-1.0.1-bin-arm64.tar.xz |
+| v1.0   |  20240131 |  x64  | https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-streamloader-1.0.1-bin-x64.tar.xz |
+| v1.0   | 20240131  | arm | https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-streamloader-1.0.1-bin-arm64.tar.xz |
 
 
 
