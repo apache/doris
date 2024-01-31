@@ -17,6 +17,8 @@
 
 #include "olap/wal/wal_dirs_info.h"
 
+#include <string>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
@@ -105,6 +107,12 @@ void WalDirInfo::update_wal_dir_pre_allocated(size_t increase_pre_allocated,
     set_pre_allocated(increase_pre_allocated, decrease_pre_allocated);
 }
 
+std::string WalDirInfo::get_wal_dir_info_string() {
+    return "[" + _wal_dir + ": limit " + std::to_string(_limit) + " Bytes, used " +
+           std::to_string(_used) + " Bytes, pre allocated " + std::to_string(_pre_allocated) +
+           " Bytes, available " + std::to_string(available()) + "Bytes.]\n";
+}
+
 Status WalDirsInfo::add(const std::string& wal_dir, size_t limit, size_t used,
                         size_t pre_allocated) {
     for (const auto& it : _wal_dirs_info_vec) {
@@ -153,6 +161,14 @@ size_t WalDirsInfo::get_max_available_size() {
                                             return info1->available() < info2->available();
                                         }))
                              ->available();
+}
+
+std::string WalDirsInfo::get_wal_dirs_info_string() {
+    std::string wal_dirs_info_string;
+    for (const auto& wal_dir_info : _wal_dirs_info_vec) {
+        wal_dirs_info_string += wal_dir_info->get_wal_dir_info_string();
+    }
+    return wal_dirs_info_string;
 }
 
 Status WalDirsInfo::update_wal_dir_limit(const std::string& wal_dir, size_t limit) {

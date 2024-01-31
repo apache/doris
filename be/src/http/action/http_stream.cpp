@@ -407,8 +407,10 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
                                       : req->header(HttpHeaders::CONTENT_LENGTH))
                           << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
                           << max_available_size << " Bytes). ";
-                return Status::Error<EXCEEDED_LIMIT>(
-                        "There is no space for group commit async wal.");
+                std::stringstream ss;
+                ss << "There is no space for group commit async WAL. WAL dir info: "
+                   << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
+                return Status::Error<EXCEEDED_LIMIT>(ss.str());
             }
         }
     }
