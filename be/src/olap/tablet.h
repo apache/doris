@@ -149,9 +149,6 @@ public:
     Status modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                           std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
 
-    static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
-            const std::vector<RowsetMetaSharedPtr>& rowset_metas);
-
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
     /// Delete stale rowset by timing. This delete policy uses now() minutes
     /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset

@@ -110,6 +110,9 @@ public:
 
     virtual int64_t max_version_unlocked() const { return _tablet_meta->max_version().second; }
 
+    static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
+            const std::vector<RowsetMetaSharedPtr>& rowset_metas);
+
     ////////////////////////////////////////////////////////////////////////////
     // begin MoW functions
     ////////////////////////////////////////////////////////////////////////////
