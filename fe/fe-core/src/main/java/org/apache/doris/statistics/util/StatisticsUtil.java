@@ -609,7 +609,7 @@ public class StatisticsUtil {
             Table icebergTable = Env.getCurrentEnv()
                     .getExtMetaCacheMgr()
                     .getIcebergMetadataCache()
-                    .getIcebergTable(table);
+                    .getIcebergTable(table.getCatalog(), table.getDbName(), table.getName());
             TableScan tableScan = icebergTable.newScan().includeColumnStats();
             for (FileScanTask task : tableScan.planFiles()) {
                 rowCount += task.file().recordCount();

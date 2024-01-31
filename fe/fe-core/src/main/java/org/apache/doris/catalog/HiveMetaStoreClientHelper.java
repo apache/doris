@@ -770,7 +770,7 @@ public class HiveMetaStoreClientHelper {
         try {
             hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema());
         } catch (Exception e) {
-            throw new RuntimeException("Cannot get hudi table schema.");
+            throw new RuntimeException("Cannot get hudi table schema.", e);
         }
         return hudiSchema;
     }
