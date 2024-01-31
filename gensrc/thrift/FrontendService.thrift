@@ -1161,7 +1161,8 @@ struct TGetBinlogLagResult {
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
-    2: list<string> statsRows;
+    2: optional list<string> statsRows;
+    3: optional string colStatsData;
 }
 
 struct TInvalidateFollowerStatsCacheRequest {
