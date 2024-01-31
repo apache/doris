@@ -64,7 +64,7 @@ It's recommended to deploy 2.0 Alpha version in a new test cluster for testing b
 - Vertical compaction divides the schema into column groups, and then merges data by column, which can effectively reduce the memory overhead of compaction and improve the execution speed of compaction.
 - In the actual test, the memory used by vertical compaction is only 1/10 of the original compaction algorithm, and the compaction rate is increased by 15%.
 
-	Refer to: [https://doris.apache.org/docs/dev/advanced/best-practice/compaction/#vertical-compaction](https://doris.apache.org/docs/dev/query-acceleration/hight-concurrent-point-query)
+	Refer to: [https://doris.apache.org/docs/dev/advanced/best-practice/compaction/#vertical-compaction](https://doris.apache.org/docs/dev/advanced/best-practice/compaction/#vertical-compaction)
 
 ### 4. Separation of Hot and Cold Data
 
