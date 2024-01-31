@@ -42,8 +42,8 @@ under the License.
 
 | 版本    | 日期      |  平台  |  链接  |
 |---|---|---|---|
-| v1.0   |  20231110 |  x86  | selectdb-tools.oss-cn-beijing.aliyuncs.com/laihui/x64/v2.0/parallel_streamload （待定链接，需替换）|
-| v1.0   | 20231110  | aarch | selectdb-tools.oss-cn-beijing.aliyuncs.com/laihui/arm/v2.0/parallel_streamload （待定链接，需替换）|
+| v1.0   |  20231110 |  x86  | https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-streamloader-1.0.1-bin-x64.tar.xz|
+| v1.0   | 20231110  | aarch | https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-streamloader-1.0.1-bin-arm64.tar.xz|
 
 :::note
 获取结果即为可执行二进制。

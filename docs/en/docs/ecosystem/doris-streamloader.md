@@ -43,8 +43,8 @@ Source Code: https://github.com/apache/doris-streamloader/
 
 | Version | Date |  Architecture  |  Link  |
 |---|---|---|---|
-| v1.0   |  20231110 |  x86  | selectdb-tools.oss-cn-beijing.aliyuncs.com/laihui/x64/v2.0/parallel_streamload |
-| v1.0   | 20231110  | aarch | selectdb-tools.oss-cn-beijing.aliyuncs.com/laihui/arm/v2.0/parallel_streamload |
+| v1.0   |  20231110 |  x86  | https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-streamloader-1.0.1-bin-x64.tar.xz |
+| v1.0   | 20231110  | aarch | https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-streamloader-1.0.1-bin-arm64.tar.xz |
 
 :::note
 The obtained result is the executable binary.
