@@ -823,11 +823,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public String getPartitionName(long partitionId) throws AnalysisException {
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                getDbName(), getName(), getPartitionColumnTypes());
-        Map<String, Long> partitionNameToIdMap = hivePartitionValues.getPartitionNameToIdMap();
+        Map<String, Long> partitionNameToIdMap = getHivePartitionValues().getPartitionNameToIdMap();
         for (Entry<String, Long> entry : partitionNameToIdMap.entrySet()) {
             if (entry.getValue().equals(partitionId)) {
                 return entry.getKey();
@@ -836,9 +832,16 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         throw new AnalysisException("can not find partition,  partitionId: " + partitionId);
     }
 
+    private HiveMetaStoreCache.HivePartitionValues getHivePartitionValues() {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        return cache.getPartitionValues(
+                getDbName(), getName(), getPartitionColumnTypes());
+    }
+
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(long partitionId, PartitionItem item) throws AnalysisException {
-        long partitionLastModifyTime = getPartitionLastModifyTime(item);
+    public MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException {
+        long partitionLastModifyTime = getPartitionLastModifyTime(partitionId);
         return new MTMVTimestampSnapshot(partitionLastModifyTime);
     }
 
@@ -851,7 +854,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         long maxVersionTime = 0L;
         long visibleVersionTime;
         for (Entry<Long, PartitionItem> entry : getPartitionItems().entrySet()) {
-            visibleVersionTime = getPartitionLastModifyTime(entry.getValue());
+            visibleVersionTime = getPartitionLastModifyTime(entry.getKey());
             if (visibleVersionTime > maxVersionTime) {
                 maxVersionTime = visibleVersionTime;
                 partitionId = entry.getKey();
@@ -860,18 +863,32 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return new MTMVMaxTimestampSnapshot(partitionId, maxVersionTime);
     }
 
-    private long getPartitionLastModifyTime(PartitionItem item) throws AnalysisException {
+    private long getPartitionLastModifyTime(long partitionId) throws AnalysisException {
+        return getPartitionById(partitionId).getLastModifiedTime();
+    }
+
+    private HivePartition getPartitionById(long partitionId) throws AnalysisException {
+        PartitionItem item = getPartitionItems().get(partitionId);
+        List<List<String>> partitionValuesList = transferPartitionItemToPartitionValues(item);
+        List<HivePartition> partitions = getPartitionsByPartitionValues(partitionValuesList);
+        if (partitions.size() != 1) {
+            throw new AnalysisException("partition not normal, size: " + partitions.size());
+        }
+        return partitions.get(0);
+    }
+
+    private List<HivePartition> getPartitionsByPartitionValues(List<List<String>> partitionValuesList) {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        return cache.getAllPartitionsWithCache(getDbName(), getName(),
+                partitionValuesList);
+    }
+
+    private List<List<String>> transferPartitionItemToPartitionValues(PartitionItem item) {
         List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(1);
         partitionValuesList.add(
                 ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
-        List<HivePartition> resPartitions = cache.getAllPartitionsWithCache(getDbName(), getName(),
-                partitionValuesList);
-        if (resPartitions.size() != 1) {
-            throw new AnalysisException("partition not normal, size: " + resPartitions.size());
-        }
-        return resPartitions.get(0).getLastModifiedTime();
+        return partitionValuesList;
     }
 }
 

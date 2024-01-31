@@ -91,8 +91,7 @@ public class MTMVUtil {
                 LOG.warn("can not found related partition: " + partitionId);
                 return false;
             }
-            isSyncWithPartition = isSyncWithPartition(mtmv, partitionId, relatedTable, relatedPartitionId,
-                    relatedPartitionItems.get(relatedPartitionId));
+            isSyncWithPartition = isSyncWithPartition(mtmv, partitionId, relatedTable, relatedPartitionId);
         }
         return isSyncWithPartition && isSyncWithAllBaseTables(mtmv, partitionId, tables, excludedTriggerTables);
 
@@ -208,7 +207,7 @@ public class MTMVUtil {
                     throw new AnalysisException("can not found related partition");
                 }
                 boolean isSyncWithPartition = isSyncWithPartition(mtmv, partitionId, mtmvRelatedTableIf,
-                        relatedPartitionId, relatedPartitionItems.get(relatedPartitionId));
+                        relatedPartitionId);
                 if (!isSyncWithPartition) {
                     res.add(mtmvRelatedTableIf.getName());
                 }
@@ -306,9 +305,9 @@ public class MTMVUtil {
      */
     private static boolean isSyncWithPartition(MTMV mtmv, Long mtmvPartitionId,
             MTMVRelatedTableIf relatedTable,
-            Long relatedPartitionId, PartitionItem relatedPartitionItem) throws AnalysisException {
+            Long relatedPartitionId) throws AnalysisException {
         MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable
-                .getPartitionSnapshot(relatedPartitionId, relatedPartitionItem);
+                .getPartitionSnapshot(relatedPartitionId);
         String relatedPartitionName = relatedTable.getPartitionName(relatedPartitionId);
         String mtmvPartitionName = mtmv.getPartitionName(mtmvPartitionId);
         return mtmv.getRefreshSnapshot()
@@ -467,14 +466,13 @@ public class MTMVUtil {
         MTMVRefreshPartitionSnapshot refreshPartitionSnapshot = new MTMVRefreshPartitionSnapshot();
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
-            Map<Long, PartitionItem> relatedPartitionItems = relatedTable.getPartitionItems();
             List<Long> relatedPartitionIds = getMTMVPartitionRelatedPartitions(
                     mtmv.getPartitionItems().get(partitionId),
                     relatedTable);
 
             for (Long relatedPartitionId : relatedPartitionIds) {
                 MTMVSnapshotIf partitionSnapshot = relatedTable
-                        .getPartitionSnapshot(relatedPartitionId, relatedPartitionItems.get(relatedPartitionId));
+                        .getPartitionSnapshot(relatedPartitionId);
                 refreshPartitionSnapshot.getPartitions()
                         .put(relatedTable.getPartitionName(relatedPartitionId), partitionSnapshot);
             }

@@ -2578,7 +2578,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(long partitionId, PartitionItem item) throws AnalysisException {
+    public MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException {
         long visibleVersion = getPartitionOrAnalysisException(partitionId).getVisibleVersion();
         return new MTMVVersionSnapshot(visibleVersion);
     }
