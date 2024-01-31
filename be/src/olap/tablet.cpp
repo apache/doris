@@ -391,8 +391,8 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
         }
 
         if (calc_delete_bitmap_ver.first <= calc_delete_bitmap_ver.second) {
-            Status res =
-                    capture_consistent_rowsets(calc_delete_bitmap_ver, &calc_delete_bitmap_rowsets);
+            Status res = capture_consistent_rowsets_unlocked(calc_delete_bitmap_ver,
+                                                             &calc_delete_bitmap_rowsets);
             // Because the data in memory has been changed, can't return an error.
             CHECK(res.ok()) << "fail to capture_consistent_rowsets, res: " << res;
 
@@ -858,43 +858,12 @@ void Tablet::acquire_version_and_rowsets(
     }
 }
 
-Status Tablet::capture_consistent_rowsets(const Version& spec_version,
-                                          std::vector<RowsetSharedPtr>* rowsets) const {
+Status Tablet::capture_consistent_rowsets_unlocked(const Version& spec_version,
+                                                   std::vector<RowsetSharedPtr>* rowsets) const {
     std::vector<Version> version_path;
     RETURN_IF_ERROR(
             capture_consistent_versions_unlocked(spec_version, &version_path, false, false));
     RETURN_IF_ERROR(_capture_consistent_rowsets_unlocked(version_path, rowsets));
-    return Status::OK();
-}
-
-Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
-                                                    std::vector<RowsetSharedPtr>* rowsets) const {
-    DCHECK(rowsets != nullptr);
-    rowsets->reserve(version_path.size());
-    for (auto& version : version_path) {
-        bool is_find = false;
-        do {
-            auto it = _rs_version_map.find(version);
-            if (it != _rs_version_map.end()) {
-                is_find = true;
-                rowsets->push_back(it->second);
-                break;
-            }
-
-            auto it_expired = _stale_rs_version_map.find(version);
-            if (it_expired != _stale_rs_version_map.end()) {
-                is_find = true;
-                rowsets->push_back(it_expired->second);
-                break;
-            }
-        } while (false);
-
-        if (!is_find) {
-            return Status::Error<CAPTURE_ROWSET_ERROR>(
-                    "fail to find Rowset for version. tablet={}, version={}", tablet_id(),
-                    version.to_string());
-        }
-    }
     return Status::OK();
 }
 

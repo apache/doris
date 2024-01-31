@@ -168,8 +168,9 @@ public:
     void acquire_version_and_rowsets(
             std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
 
-    Status capture_consistent_rowsets(const Version& spec_version,
-                                      std::vector<RowsetSharedPtr>* rowsets) const;
+    Status capture_consistent_rowsets_unlocked(
+            const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
+
     // If skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
@@ -470,8 +471,6 @@ private:
     /// Delete stale rowset by version. This method not only delete the version in expired rowset map,
     /// but also delete the version in rowset meta vector.
     void _delete_stale_rowset_by_version(const Version& version);
-    Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
-                                                std::vector<RowsetSharedPtr>* rowsets) const;
 
     uint32_t _calc_cumulative_compaction_score(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
