@@ -18,11 +18,9 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -37,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
-import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -175,7 +172,6 @@ public class RuntimeFilterContext {
     public Map<CTEId, PhysicalCTEProducer> getCteProduceMap() {
         return cteProducerMap;
     }
-
 
     public Set<CTEId> getProcessedCTE() {
         return processedCTE;
