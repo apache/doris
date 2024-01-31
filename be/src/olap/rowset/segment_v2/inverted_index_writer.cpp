@@ -115,21 +115,19 @@ public:
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
                         _segment_file_name, _index_meta->index_id(),
                         _index_meta->get_index_suffix());
-                auto searcher_variant = InvertedIndexReader::create_index_searcher(
-                        _fs, index_dir, index_file_name, mem_tracker.get(),
+                IndexSearcherPtr searcher;
+                auto st = InvertedIndexReader::create_index_searcher(
+                        &searcher, _fs, index_dir, index_file_name, mem_tracker.get(),
                         InvertedIndexReaderType::FULLTEXT);
-                if (UNLIKELY(!searcher_variant.has_value())) {
-                    auto err = searcher_variant.error();
-                    LOG(ERROR) << "insert inverted index searcher cache error:" << err;
+                if (UNLIKELY(!st.ok())) {
+                    LOG(ERROR) << "insert inverted index searcher cache error:" << st;
                     return;
                 }
-                auto* cache_value = new InvertedIndexSearcherCache::CacheValue();
-                cache_value->index_searcher = std::move(searcher_variant.value());
-                cache_value->size = mem_tracker->consumption();
+                auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
+                        std::move(searcher), mem_tracker->consumption(), UnixMillis());
                 InvertedIndexSearcherCache::CacheKey searcher_cache_key(
                         (index_dir / index_file_name).native());
-                auto inverted_index_cache_handle = InvertedIndexSearcherCache::instance()->insert(
-                        searcher_cache_key, cache_value);
+                InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value);
             }
         }
     }

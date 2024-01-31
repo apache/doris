@@ -98,9 +98,10 @@ bool InvertedIndexSearcherCache::lookup(const InvertedIndexSearcherCache::CacheK
     return true;
 }
 
-InvertedIndexCacheHandle InvertedIndexSearcherCache::insert(
-        const InvertedIndexSearcherCache::CacheKey& cache_key, CacheValue* cache_value) {
-    return InvertedIndexCacheHandle(_policy->cache(), _insert(cache_key, cache_value));
+void InvertedIndexSearcherCache::insert(const InvertedIndexSearcherCache::CacheKey& cache_key,
+                                        CacheValue* cache_value) {
+    auto* lru_handle = _insert(cache_key, cache_value);
+    release(lru_handle);
 }
 
 Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCache::CacheKey& key,

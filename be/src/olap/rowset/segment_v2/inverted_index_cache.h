@@ -83,8 +83,14 @@ public:
     // Holding an opened index_searcher.
     struct CacheValue : public LRUCacheValueBase {
         IndexSearcherPtr index_searcher;
-    };
 
+        CacheValue() = default;
+        explicit CacheValue(IndexSearcherPtr searcher, size_t mem_size, int64_t visit_time)
+                : index_searcher(std::move(searcher)) {
+            size = mem_size;
+            last_visit_time = visit_time;
+        }
+    };
     // Create global instance of this class.
     // "capacity" is the capacity of lru cache.
     static InvertedIndexSearcherCache* create_global_instance(size_t capacity,
@@ -98,8 +104,7 @@ public:
 
     InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards);
 
-    InvertedIndexCacheHandle insert(const InvertedIndexSearcherCache::CacheKey& cache_key,
-                                    CacheValue* cache_value);
+    void insert(const InvertedIndexSearcherCache::CacheKey& cache_key, CacheValue* cache_value);
 
     // Lookup the given index_searcher in the cache.
     // If the index_searcher is found, the cache entry will be written into handle.
@@ -180,6 +185,10 @@ public:
 
     IndexSearcherPtr get_index_searcher() {
         return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))->index_searcher;
+    }
+
+    InvertedIndexSearcherCache::CacheValue* get_index_cache_value() {
+        return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle));
     }
 
 private:

@@ -135,11 +135,10 @@ public:
     virtual Status handle_searcher_cache(InvertedIndexCacheHandle* inverted_index_cache_handle,
                                          OlapReaderStatistics* stats);
 
-    static Result<IndexSearcherPtr> create_index_searcher(io::FileSystemSPtr fs,
-                                                          const io::Path& index_dir,
-                                                          const std::string& index_file_name,
-                                                          MemTracker* mem_tracker,
-                                                          InvertedIndexReaderType reader_type);
+    static Status create_index_searcher(IndexSearcherPtr* searcher, io::FileSystemSPtr fs,
+                                        const io::Path& index_dir,
+                                        const std::string& index_file_name, MemTracker* mem_tracker,
+                                        InvertedIndexReaderType reader_type);
 
 protected:
     friend class InvertedIndexIterator;

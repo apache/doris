@@ -212,27 +212,28 @@ Status InvertedIndexReader::handle_searcher_cache(
         // searcher cache miss
         auto mem_tracker = std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
-        auto searcher_variant = DORIS_TRY(create_index_searcher(_fs, _index_dir, _index_file_name,
-                                                                mem_tracker.get(), type()));
-        auto* cache_value = new InvertedIndexSearcherCache::CacheValue();
-        cache_value->index_searcher = std::move(searcher_variant);
-        cache_value->size = mem_tracker->consumption();
-        *inverted_index_cache_handle =
-                InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value);
+        IndexSearcherPtr searcher;
+        RETURN_IF_ERROR(create_index_searcher(&searcher, _fs, _index_dir, _index_file_name,
+                                              mem_tracker.get(), type()));
+        auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
+                std::move(searcher), mem_tracker->consumption(), UnixMillis());
+        InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value);
         return Status::OK();
     }
 }
 
-Result<IndexSearcherPtr> InvertedIndexReader::create_index_searcher(
-        io::FileSystemSPtr fs, const io::Path& index_dir, const std::string& index_file_name,
-        MemTracker* mem_tracker, InvertedIndexReaderType reader_type) {
+Status InvertedIndexReader::create_index_searcher(IndexSearcherPtr* searcher, io::FileSystemSPtr fs,
+                                                  const io::Path& index_dir,
+                                                  const std::string& index_file_name,
+                                                  MemTracker* mem_tracker,
+                                                  InvertedIndexReaderType reader_type) {
     auto index_file_path = index_dir / index_file_name;
     bool exists = false;
-    RETURN_IF_ERROR_RESULT(fs->exists(index_file_path, &exists));
+    RETURN_IF_ERROR(fs->exists(index_file_path, &exists));
     if (!exists) {
         LOG(WARNING) << "inverted index: " << index_file_path << " not exist.";
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "inverted index input file {} not found", index_file_path.native()));
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "inverted index input file {} not found", index_file_path.native());
     }
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
     bool open_idx_file_cache = true;
@@ -240,18 +241,12 @@ Result<IndexSearcherPtr> InvertedIndexReader::create_index_searcher(
             DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()),
             index_file_name.c_str(), config::inverted_index_read_buffer_size, open_idx_file_cache);
 
-    auto builder_result = IndexSearcherBuilder::create_index_searcher_builder(reader_type);
-    if (UNLIKELY(!builder_result.has_value())) {
-        return ResultError(builder_result.error());
-    }
-    auto index_searcher_builder = std::move(builder_result.value());
+    auto index_searcher_builder =
+            DORIS_TRY(IndexSearcherBuilder::create_index_searcher_builder(reader_type));
 
-    auto searcher_result = index_searcher_builder->get_index_searcher(directory);
-    if (UNLIKELY(!searcher_result.has_value())) {
-        return ResultError(searcher_result.error());
-    }
-
-    return searcher_result;
+    auto searcher_result = DORIS_TRY(index_searcher_builder->get_index_searcher(directory));
+    *searcher = searcher_result;
+    return Status::OK();
 };
 
 Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
