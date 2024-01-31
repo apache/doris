@@ -91,8 +91,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public static final Set<String> SUPPORTED_HUDI_FILE_FORMATS;
 
     private static final Map<StatsType, String> MAP_SPARK_STATS_TO_DORIS;
-    private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
-    private static final String TBL_PROP_INSERT_ONLY = "insert_only";
 
     private static final String TBL_PROP_TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
 
