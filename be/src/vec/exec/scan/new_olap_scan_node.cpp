@@ -84,6 +84,7 @@ Status NewOlapScanNode::prepare(RuntimeState* state) {
     // if you want to add some profile in scan node, even it have not new VScanner object
     // could add here, not in the _init_profile() function
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
+    _key_range_counter = ADD_COUNTER(_runtime_profile, "KeyRangesNum", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -593,6 +594,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     auto build_new_scanner = [&](BaseTabletSPtr tablet, int64_t version,
                                  const std::vector<OlapScanRange*>& key_ranges,
                                  TabletReader::ReadSource read_source) {
+        COUNTER_UPDATE(_key_range_counter, key_ranges.size());
         auto scanner =
                 NewOlapScanner::create_shared(this, NewOlapScanner::Params {
                                                             _state,
