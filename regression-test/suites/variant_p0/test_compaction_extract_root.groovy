@@ -90,10 +90,10 @@ suite("test_compaction_extract_root", "nonConcurrent") {
         union  all select 5, '{"a": 1123}' as json_str union all select 5, '{"a": 11245, "b" : 42005}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
     // // fix cast to string tobe {}
-    qt_select_b_1 """ SELECT count(cast(v:b as string)) FROM ${tableName};"""
-    qt_select_b_2 """ SELECT count(cast(v:b as int)) FROM ${tableName};"""
+    qt_select_b_1 """ SELECT count(cast(v['b'] as string)) FROM ${tableName};"""
+    qt_select_b_2 """ SELECT count(cast(v['b'] as int)) FROM ${tableName};"""
 
-    qt_select_1_bfcompact """select v:b from test_t where k = 0 and cast(v:a as int) = 11245;"""
+    qt_select_1_bfcompact """select v['b'] from test_t where k = 0 and cast(v['a'] as int) = 11245;"""
 
     //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
     String[][] tablets = sql """ show tablets from ${tableName}; """
@@ -146,8 +146,8 @@ suite("test_compaction_extract_root", "nonConcurrent") {
     }
     assert (rowCount <= 8)
     // fix cast to string tobe {}
-    qt_select_b_3 """ SELECT count(cast(v:b as string)) FROM ${tableName};"""
-    qt_select_b_4 """ SELECT count(cast(v:b as int)) FROM ${tableName};"""
+    qt_select_b_3 """ SELECT count(cast(v['b'] as string)) FROM ${tableName};"""
+    qt_select_b_4 """ SELECT count(cast(v['b'] as int)) FROM ${tableName};"""
 
-    qt_select_1 """select v:b from test_t where k = 0 and cast(v:a as int) = 11245;"""
+    qt_select_1 """select v['b'] from test_t where k = 0 and cast(v['a'] as int) = 11245;"""
 }

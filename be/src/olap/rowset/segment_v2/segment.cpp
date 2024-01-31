@@ -493,8 +493,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
         const auto* node = _sub_column_tree.find_leaf(tablet_column.path_info());
         if (!node) {
             // sparse_columns have this path, read from root
-            if (sparse_node != nullptr && sparse_node->is_scalar() &&
-                sparse_node->children.empty()) {
+            if (sparse_node != nullptr && sparse_node->is_leaf_node()) {
                 RETURN_IF_ERROR(_new_iterator_with_variant_root(
                         tablet_column, iter, root, sparse_node->data.file_column_type));
             } else {
@@ -508,25 +507,23 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
         return Status::OK();
     }
 
-    // Init iterators with extra path info.
-    // TODO If this segment does not contain any data correspond to the relatate path,
-    // then we could optimize to generate a default iterator
-    // This file doest not contain this column, so only read from sparse column
-    // to avoid read amplification
-    if (node != nullptr && node->is_scalar() && node->children.empty() && sparse_node == nullptr) {
+    if (node != nullptr && node->is_leaf_node() && sparse_node == nullptr) {
+        // Node contains column without any child sub columns and no corresponding sparse columns
         // Direct read extracted columns
         const auto* node = _sub_column_tree.find_leaf(tablet_column.path_info());
         ColumnIterator* it;
         RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
         iter->reset(it);
-    } else if ((node != nullptr && !node->children.empty()) ||
+    } else if ((node != nullptr && node->is_none_leaf_node()) ||
                (node != nullptr && sparse_node != nullptr)) {
+        // Node contains column with children columns or has correspoding sparse columns
         // Create reader with hirachical data
         RETURN_IF_ERROR(
                 HierarchicalDataReader::create(iter, tablet_column.path_info(), node, root));
     } else {
-        // sparse columns have this path, read from root
+        // No such node, read from either sparse column or default column
         if (sparse_node != nullptr) {
+            // sparse columns have this path, read from root
             RETURN_IF_ERROR(_new_iterator_with_variant_root(tablet_column, iter, root,
                                                             sparse_node->data.file_column_type));
         } else {
