@@ -117,11 +117,6 @@ struct ProcessHashTableBuild {
             for (uint32_t i = 1; i < _rows; i++) {
                 if ((*null_map)[i]) {
                     *has_null_key = true;
-                    if constexpr (with_other_conjuncts &&
-                                  (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                                   JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN)) {
-                        _parent->_build_indexes_null->emplace_back(i);
-                    }
                 }
             }
             if (short_circuit_for_null && *has_null_key) {
@@ -136,8 +131,8 @@ struct ProcessHashTableBuild {
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr, true, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
-        hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
-                                         _rows);
+        hash_table_ctx.hash_table->template build<JoinOpType, with_other_conjuncts>(
+                hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), _rows);
         hash_table_ctx.bucket_nums.resize(_batch_size);
         hash_table_ctx.bucket_nums.shrink_to_fit();
 
@@ -302,13 +297,6 @@ private:
 
     std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
-
-    /*
-     * For null aware anti/semi join with other join conjuncts, we do need to care about the rows in
-     * build side with null keys,
-     * because the other join conjuncts' result maybe change null to false(null & false == false).
-     */
-    std::shared_ptr<std::vector<uint32_t>> _build_indexes_null;
 
     DataTypes _right_table_data_types;
     DataTypes _left_table_data_types;
