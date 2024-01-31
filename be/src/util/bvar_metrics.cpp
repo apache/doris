@@ -131,7 +131,9 @@ std::string BvarMetricEntity::to_prometheus(const std::string& registry_name) {
 
 
 template class BvarAdderMetric<int64_t>;
+template class BvarAdderMetric<uint64_t>;
 template class BvarAdderMetric<double>;
 template void BvarMetricEntity::register_metric(const std::string& name, BvarAdderMetric<int64_t> metric);
+template void BvarMetricEntity::register_metric(const std::string& name, BvarAdderMetric<uint64_t> metric);
 // template void BvarMetricEntity::register_metric(const std::string& name, T metric) 
 } // namespace doris

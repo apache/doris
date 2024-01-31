@@ -28,6 +28,7 @@
 #include "runtime/group_commit_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_points.h"
+#include "util/doris_bvar_metrics.h" 
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_finder.h"
@@ -154,7 +155,8 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
     state->update_num_bytes_load_total(bytes);
     g_group_commit_load_rows << rows;
     g_group_commit_load_bytes << bytes;
-
+    DorisBvarMetrics::instance()->load_rows->increment(rows);
+    DorisBvarMetrics::instance()->load_bytes->increment(bytes);
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(

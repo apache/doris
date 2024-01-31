@@ -13,6 +13,7 @@
 
 #include "gutil/bits.h"
 #include "runtime/thread_context.h"
+#include "util/doris_bvar_metrics.h" 
 #include "util/doris_metrics.h"
 #include "util/time.h"
 
@@ -378,6 +379,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
     THREAD_MEM_TRACKER_TRANSFER_TO(e->bytes, tracker);
     DorisMetrics::instance()->lru_cache_memory_bytes->increment(e->bytes);
+    DorisBvarMetrics::instance()->lru_cache_memory_bytes->increment(e->bytes);
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);

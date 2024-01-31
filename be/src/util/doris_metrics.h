@@ -48,7 +48,7 @@ public:
     IntCounter* fragment_request_duration_us = nullptr;
     IntCounter* query_scan_bytes = nullptr;
     IntCounter* query_scan_rows = nullptr;
-
+    
     IntCounter* push_requests_success_total = nullptr;
     IntCounter* push_requests_fail_total = nullptr;
     IntCounter* push_request_duration_us = nullptr;
