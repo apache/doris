@@ -1659,7 +1659,8 @@ visible_functions = {
         [['money_format'], 'STRING', ['DECIMAL64'], ''],
         [['money_format'], 'STRING', ['DECIMAL128'], ''],
         [['split_part'], 'STRING', ['STRING', 'STRING', 'INT'], 'ALWAYS_NULLABLE'],
-        [['substring_index'], 'STRING', ['STRING', 'STRING', 'INT'], 'ALWAYS_NULLABLE']
+        [['substring_index'], 'STRING', ['STRING', 'STRING', 'INT'], 'ALWAYS_NULLABLE'],
+        [['url_decode'], 'STRING', ['STRING'], '']
     ],
 
 
