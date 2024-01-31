@@ -407,9 +407,8 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
                                       : req->header(HttpHeaders::CONTENT_LENGTH))
                           << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
                           << max_available_size
-                          << " Bytes). So we set this load to \"group commit\"=sync_mode\" "
-                             "automatically.";
-                return Status::Error<EXCEEDED_LIMIT>("Http load size too large.");
+                          << " Bytes). ";
+                return Status::Error<EXCEEDED_LIMIT>("There is no space for group commit async wal.");
             }
         }
     }
