@@ -663,6 +663,12 @@ primaryExpression
                 (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
                 | unitsAmount=valueExpression)
             RIGHT_PAREN                                                                        #dateCeil
+    | name=CURRENT_DATE                                                                        #currentDate
+    | name=CURRENT_TIME                                                                        #currentTime
+    | name=CURRENT_TIMESTAMP                                                                   #currentTimestamp
+    | name=LOCALTIME                                                                           #localTime
+    | name=LOCALTIMESTAMP                                                                      #localTimestamp
+    | name=CURRENT_USER                                                                        #currentUser
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS dataType RIGHT_PAREN                                  #cast
@@ -947,7 +953,10 @@ nonReserved
     | CREATION
     | CRON
     | CURRENT_CATALOG
+    | CURRENT_DATE
+    | CURRENT_TIME
     | CURRENT_TIMESTAMP
+    | CURRENT_USER
     | DATA
     | DATE
     | DATE_ADD
@@ -1036,6 +1045,8 @@ nonReserved
     | LINES
     | LINK
     | LOCAL
+    | LOCALTIME
+    | LOCALTIMESTAMP
     | LOCATION
     | LOCK
     | LOGICAL

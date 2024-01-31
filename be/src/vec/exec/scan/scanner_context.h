@@ -178,7 +178,6 @@ protected:
                    int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
                    pipeline::ScanLocalStateBase* local_state,
                    std::shared_ptr<pipeline::ScanDependency> dependency);
-    virtual void _dispose_coloate_blocks_not_in_queue() {}
 
     void _set_scanner_done();
 

@@ -214,4 +214,10 @@ class DateLiteralTest {
         new DateTimeV2Literal("2020.02.01 00.00.00.000001");
         Assertions.assertThrows(AnalysisException.class, () -> new DateTimeV2Literal("2020.02.01 00.00.00.0000001"));
     }
+
+    @Test
+    void testSuffixSpace() {
+        new DateLiteral("2016-07-02  ");
+        new DateLiteral("2016-07-02 00:00:00  ");
+    }
 }

@@ -139,6 +139,8 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
                                             false, hash_table_ctx.hash_table->get_bucket_size());
         hash_table_ctx.hash_table->pre_build_idxs(hash_table_ctx.bucket_nums,
                                                   need_judge_null ? null_map : nullptr);
+        COUNTER_SET(_parent->_probe_arena_memory_usage,
+                    (int64_t)hash_table_ctx.serialized_keys_size(false));
     }
     return typename HashTableType::State(_parent->_probe_columns);
 }

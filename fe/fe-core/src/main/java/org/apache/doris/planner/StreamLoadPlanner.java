@@ -46,6 +46,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.task.StreamLoadTask;
@@ -266,8 +267,9 @@ public class StreamLoadPlanner {
         } else {
             olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
         }
+        int txnTimeout = timeout == 0 ? ConnectContext.get().getExecTimeout() : timeout;
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
-                taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
+                taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), txnTimeout);
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
@@ -492,8 +494,10 @@ public class StreamLoadPlanner {
         } else {
             olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
         }
+        int txnTimeout = timeout == 0 ? ConnectContext.get().getExecTimeout() : timeout;
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
+                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(),
+                txnTimeout);
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
