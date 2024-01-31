@@ -118,7 +118,6 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
 
     _scan_dependency = dependency_sptr();
 
-    set_scan_ranges(state, info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
     for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
         RETURN_IF_ERROR(
@@ -137,6 +136,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
     // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
     RETURN_IF_ERROR(_init_profile());
+    set_scan_ranges(state, info.scan_ranges);
     // if you want to add some profile in scan node, even it have not new VScanner object
     // could add here, not in the _init_profile() function
     _prepare_rf_timer(_runtime_profile.get());
