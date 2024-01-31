@@ -119,6 +119,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
@@ -543,6 +544,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ConvertTo.class, "convert_to"),
             scalar(ConvertTz.class, "convert_tz"),
             scalar(Cos.class, "cos"),
+            scalar(Cosh.class, "cosh"),
             scalar(CosineDistance.class, "cosine_distance"),
             scalar(CountEqual.class, "countequal"),
             scalar(CreateMap.class, "map"),

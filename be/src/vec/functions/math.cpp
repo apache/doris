@@ -79,6 +79,11 @@ struct CosName {
 };
 using FunctionCos = FunctionMathUnary<UnaryFunctionPlain<CosName, std::cos>>;
 
+struct CoshName {
+    static constexpr auto name = "cosh";
+};
+using FunctionCosh = FunctionMathUnary<UnaryFunctionPlain<CoshName, std::cosh>>;
+
 struct EImpl {
     static constexpr auto name = "e";
     static constexpr double value = 2.7182818284590452353602874713526624977572470;
@@ -393,6 +398,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAsin>();
     factory.register_function<FunctionAtan>();
     factory.register_function<FunctionCos>();
+    factory.register_function<FunctionCosh>();
     factory.register_alias("ceil", "dceil");
     factory.register_alias("ceil", "ceiling");
     factory.register_function<FunctionE>();
