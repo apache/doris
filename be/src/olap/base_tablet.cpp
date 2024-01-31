@@ -136,6 +136,10 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
 
+    // construct _timestamped_versioned_tracker from rs and stale rs meta
+    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
+                                                             _tablet_meta->all_stale_rs_metas());
+
     // if !_tablet_meta->all_rs_metas()[0]->tablet_schema(),
     // that mean the tablet_meta is still no upgrade to doris 1.2 versions.
     // Before doris 1.2 version, rowset metas don't have tablet schema.
