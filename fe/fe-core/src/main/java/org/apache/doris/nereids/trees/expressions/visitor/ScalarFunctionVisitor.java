@@ -119,6 +119,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
@@ -818,6 +819,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCos(Cos cos, C context) {
         return visitScalarFunction(cos, context);
+    }
+
+    default R visitCosh(Cosh cosh, C context) {
+        return visitScalarFunction(cosh, context);
     }
 
     default R visitCosineDistance(CosineDistance cosineDistance, C context) {
