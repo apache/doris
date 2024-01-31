@@ -297,7 +297,8 @@ void update_least_schema_internal(
                                       .parent_unique_id = variant_col_unique_id,
                                       .path_info = tuple_paths[i]});
         if (update_sparse_column) {
-            common_schema->append_sparse_column(common_column);
+            common_schema->mutable_column_by_uid(variant_col_unique_id)
+                    .append_sparse_column(common_column);
         } else {
             common_schema->append_column(common_column);
         }
@@ -323,7 +324,8 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         }
     }
     for (const TabletSchemaSPtr& schema : schemas) {
-        for (const TabletColumn& col : schema->sparse_columns()) {
+        for (const TabletColumn& col :
+             schema->mutable_column_by_uid(variant_col_unique_id).sparse_columns()) {
             // Get subcolumns of this variant
             if (!col.path_info().empty() && col.parent_unique_id() > 0 &&
                 col.parent_unique_id() == variant_col_unique_id &&
@@ -344,7 +346,8 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
     // Types of subcolumns by path from all tuples.
     std::unordered_map<PathInData, DataTypes, PathInData::Hash> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
-        for (const TabletColumn& col : schema->sparse_columns()) {
+        for (const TabletColumn& col :
+             schema->mutable_column_by_uid(variant_col_unique_id).sparse_columns()) {
             // Get subcolumns of this variant
             if (!col.path_info().empty() && col.parent_unique_id() > 0 &&
                 col.parent_unique_id() == variant_col_unique_id &&
@@ -604,7 +607,8 @@ void _append_column(const TabletColumn& parent_variant,
     if (!is_sparse) {
         to_append->append_column(std::move(tablet_column));
     } else {
-        to_append->append_sparse_column(std::move(tablet_column));
+        to_append->mutable_column_by_uid(parent_variant.unique_id())
+                .append_sparse_column(std::move(tablet_column));
     }
 }
 

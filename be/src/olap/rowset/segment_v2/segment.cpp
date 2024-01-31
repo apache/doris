@@ -396,30 +396,33 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         if (iter == column_path_to_footer_ordinal.end()) {
             continue;
         }
+        const ColumnMetaPB& column_pb = footer.columns(iter->second);
         ColumnReaderOptions opts;
         opts.kept_in_memory = _tablet_schema->is_in_memory();
         std::unique_ptr<ColumnReader> reader;
-        RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
-                                             _file_reader, &reader));
+        RETURN_IF_ERROR(
+                ColumnReader::create(opts, column_pb, footer.num_rows(), _file_reader, &reader));
         _sub_column_tree.add(
                 iter->first,
-                SubcolumnReader {std::move(reader),
-                                 vectorized::DataTypeFactory::instance().create_data_type(
-                                         footer.columns(iter->second))});
-    }
-    // init sparse columns paths and type info
-    for (uint32_t ordinal = 0; ordinal < footer.sparse_columns().size(); ++ordinal) {
-        auto& column_pb = footer.sparse_columns(ordinal);
-        if (column_pb.has_column_path_info()) {
-            vectorized::PathInData path;
-            path.from_protobuf(column_pb.column_path_info());
-            // Read from root column, so reader is nullptr
-            _sparse_column_tree.add(
-                    path, SubcolumnReader {nullptr,
-                                           vectorized::DataTypeFactory::instance().create_data_type(
-                                                   column_pb)});
+                SubcolumnReader {
+                        std::move(reader),
+                        vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
+        // init sparse columns paths and type info
+        for (uint32_t ordinal = 0; ordinal < column_pb.sparse_columns().size(); ++ordinal) {
+            auto& spase_column_pb = column_pb.sparse_columns(ordinal);
+            if (spase_column_pb.has_column_path_info()) {
+                vectorized::PathInData path;
+                path.from_protobuf(spase_column_pb.column_path_info());
+                // Read from root column, so reader is nullptr
+                _sparse_column_tree.add(
+                        path,
+                        SubcolumnReader {nullptr,
+                                         vectorized::DataTypeFactory::instance().create_data_type(
+                                                 spase_column_pb)});
+            }
         }
     }
+
     return Status::OK();
 }
 

@@ -150,6 +150,10 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
         init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
                          tablet_schema);
     }
+    // add sparse column to footer
+    for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
+        init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i), tablet_schema);
+    }
 }
 
 Status SegmentWriter::init() {
@@ -252,12 +256,6 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     };
 
     RETURN_IF_ERROR(_create_writers(*_tablet_schema, col_ids, create_column_writer));
-
-    // add sparse column to footer
-    for (uint32_t i = 0; i < _tablet_schema->num_sparse_columns(); i++) {
-        init_column_meta(_footer.add_sparse_columns(), -1, _tablet_schema->sparse_column_at(i),
-                         _tablet_schema);
-    }
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {
