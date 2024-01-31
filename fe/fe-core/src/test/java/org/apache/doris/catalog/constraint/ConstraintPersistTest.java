@@ -28,6 +28,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalTable;
+import org.apache.doris.common.Pair;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -53,6 +54,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatchSupported {
 
@@ -142,6 +144,52 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
             EditLog.loadJournal(Env.getCurrentEnv(), 0L, journalEntity);
         }
         Assertions.assertTrue(tableIf.getConstraintsMap().isEmpty());
+    }
+
+    @Test
+    void replayDropConstraintLogTest() throws Exception {
+        Config.edit_log_type = "local";
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        DataOutput output = new DataOutputStream(outputStream);
+        List<Pair<Short, AlterConstraintLog>> logs = new CopyOnWriteArrayList<>();
+        EditLog editLog = new EditLog("");
+        new MockUp<EditLog>() {
+            @Mock
+            public void logAddConstraint(AlterConstraintLog log) {
+                logs.add(Pair.of(OperationType.OP_ADD_CONSTRAINT, log));
+            }
+
+            @Mock
+            public void logDropConstraint(AlterConstraintLog log) {
+                logs.add(Pair.of(OperationType.OP_DROP_CONSTRAINT, log));
+            }
+        };
+        new MockUp<Env>() {
+            @Mock
+            public EditLog getEditLog() {
+                return editLog;
+            }
+        };
+        addConstraint("alter table t1 add constraint pk primary key (k1)");
+        addConstraint("alter table t2 add constraint pk primary key (k1)");
+        addConstraint("alter table t1 add constraint uk unique (k1)");
+        addConstraint("alter table t1 add constraint fk foreign key (k1) references t2(k1)");
+        TableIf tableIf = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv());
+        Assertions.assertEquals(3, tableIf.getConstraintsMap().size());
+        dropConstraint("alter table t1 drop constraint uk");
+        dropConstraint("alter table t1 drop constraint pk");
+        dropConstraint("alter table t2 drop constraint pk");
+        Assertions.assertEquals(0, tableIf.getConstraintsMap().size());
+        for (Pair<Short, AlterConstraintLog> log : logs) {
+            JournalEntity journalEntity = new JournalEntity();
+            journalEntity.setData(log.second);
+            journalEntity.setOpCode(log.first);
+            journalEntity.write(output);
+        }
+        Assertions.assertEquals(0, tableIf.getConstraintsMap().size());
+        Assertions.assertEquals(0, tableIf.getConstraintsMap().size());
     }
 
     @Test
