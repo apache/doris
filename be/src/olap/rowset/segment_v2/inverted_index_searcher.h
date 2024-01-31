@@ -19,6 +19,11 @@
 
 #include <CLucene.h>
 
+#include <memory>
+#include <optional>
+#include <variant>
+
+#include "common/status.h"
 #include "inverted_index_query_type.h"
 
 namespace lucene {
