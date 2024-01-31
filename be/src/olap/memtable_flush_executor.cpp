@@ -222,27 +222,20 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
 Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>& flush_token,
                                                  RowsetWriter* rowset_writer,
                                                  bool is_high_priority) {
-    if (!is_high_priority) {
-        if (rowset_writer->type() == BETA_ROWSET) {
-            // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
-            flush_token = std::make_unique<FlushToken>(_flush_pool.get());
-        } else {
-            // alpha rowset do not support flush in CONCURRENT.
-            // and not support alpha rowset now.
-            return Status::InternalError<false>("not support alpha rowset load now.");
-        }
-    } else {
-        if (rowset_writer->type() == BETA_ROWSET) {
-            // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
-            flush_token = std::make_unique<FlushToken>(_high_prio_flush_pool.get());
-        } else {
-            // alpha rowset do not support flush in CONCURRENT.
-            // and not support alpha rowset now.
-            return Status::InternalError<false>("not support alpha rowset load now.");
-        }
+    switch (rowset_writer->type()) {
+    case ALPHA_ROWSET:
+        // alpha rowset do not support flush in CONCURRENT.  and not support alpha rowset now.
+        return Status::InternalError<false>("not support alpha rowset load now.");
+    case BETA_ROWSET: {
+        // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
+        ThreadPool* pool = is_high_priority ? _high_prio_flush_pool.get() : _flush_pool.get();
+        flush_token = std::make_unique<FlushToken>(pool);
+        flush_token->set_rowset_writer(rowset_writer);
+        return Status::OK();
     }
-    flush_token->set_rowset_writer(rowset_writer);
-    return Status::OK();
+    default:
+        return Status::InternalError<false>("unknown rowset type.");
+    }
 }
 
 void MemTableFlushExecutor::_register_metrics() {
