@@ -221,15 +221,19 @@ class Suite implements GroovyInterceptable {
 
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
-            def masterFe = cluster.getMasterFe()
-            for (def i=0; masterFe == null && i<30; i++) {
-                masterFe = cluster.getMasterFe()
+            Frontend fe = null
+            for (def i=0; fe == null && i<30; i++) {
+                if (options.connectToFollower) {
+                    fe = cluster.getOneFollowerFe()
+                } else {
+                    fe = cluster.getMasterFe()
+                }
                 Thread.sleep(1000)
             }
-            assertNotNull(masterFe)
+            assertNotNull(fe)
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
-                    masterFe.host, masterFe.queryPort)
+                    fe.host, fe.queryPort)
             def conn = DriverManager.getConnection(url, user, password)
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
             logger.info("try create database if not exists {}", context.dbName)
