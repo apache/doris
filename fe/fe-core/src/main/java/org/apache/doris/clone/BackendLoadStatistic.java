@@ -39,6 +39,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class BackendLoadStatistic {
     private static final Logger LOG = LogManager.getLogger(BackendLoadStatistic.class);
@@ -295,14 +297,14 @@ public class BackendLoadStatistic {
             if (Math.abs(pathStat.getUsedPercent() - avgUsedPercent)
                     > Math.max(avgUsedPercent * Config.balance_load_score_threshold, 0.025)) {
                 if (pathStat.getUsedPercent() > avgUsedPercent) {
-                    pathStat.setClazz(Classification.HIGH);
+                    pathStat.setLocalClazz(Classification.HIGH);
                     highCounter++;
                 } else if (pathStat.getUsedPercent() < avgUsedPercent) {
-                    pathStat.setClazz(Classification.LOW);
+                    pathStat.setLocalClazz(Classification.LOW);
                     lowCounter++;
                 }
             } else {
-                pathStat.setClazz(Classification.MID);
+                pathStat.setLocalClazz(Classification.MID);
                 midCounter++;
             }
         }
@@ -508,9 +510,9 @@ public class BackendLoadStatistic {
                 continue;
             }
 
-            if (pathStat.getClazz() == Classification.LOW) {
+            if (pathStat.getLocalClazz() == Classification.LOW) {
                 low.add(pathStat.getPathHash());
-            } else if (pathStat.getClazz() == Classification.HIGH) {
+            } else if (pathStat.getLocalClazz() == Classification.HIGH) {
                 high.add(pathStat.getPathHash());
             } else {
                 mid.add(pathStat.getPathHash());
@@ -529,9 +531,9 @@ public class BackendLoadStatistic {
                 continue;
             }
 
-            if (pathStat.getClazz() == Classification.LOW) {
+            if (pathStat.getLocalClazz() == Classification.LOW) {
                 low.add(pathStat);
-            } else if (pathStat.getClazz() == Classification.HIGH) {
+            } else if (pathStat.getLocalClazz() == Classification.HIGH) {
                 high.add(pathStat);
             } else {
                 mid.add(pathStat);
@@ -569,9 +571,22 @@ public class BackendLoadStatistic {
         return pathStatistics;
     }
 
-    public long getAvailPathNum(TStorageMedium medium) {
-        return pathStatistics.stream().filter(
-                p -> p.getDiskState() == DiskState.ONLINE && p.getStorageMedium() == medium).count();
+    RootPathLoadStatistic getPathStatisticByPathHash(long pathHash) {
+        return pathStatistics.stream().filter(pathStat -> pathStat.getPathHash() == pathHash)
+                .findFirst().orElse(null);
+    }
+
+    public List<RootPathLoadStatistic> getAvailPaths(TStorageMedium medium) {
+        return getAvailPathStream(medium).collect(Collectors.toList());
+    }
+
+    public boolean hasAvailPathWithGlobalClazz(TStorageMedium medium, Classification globalClazz) {
+        return getAvailPathStream(medium).anyMatch(pathStat -> pathStat.getGlobalClazz() == globalClazz);
+    }
+
+    private Stream<RootPathLoadStatistic> getAvailPathStream(TStorageMedium medium) {
+        return pathStatistics.stream()
+                .filter(p -> p.getDiskState() == DiskState.ONLINE && p.getStorageMedium() == medium);
     }
 
     public boolean hasMedium(TStorageMedium medium) {

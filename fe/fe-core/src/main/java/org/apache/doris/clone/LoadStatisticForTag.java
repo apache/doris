@@ -21,6 +21,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.BackendLoadStatistic.LoadScore;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.resource.Tag;
@@ -38,6 +39,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 /*
@@ -144,6 +146,7 @@ public class LoadStatisticForTag {
         // classify all backends
         for (TStorageMedium medium : TStorageMedium.values()) {
             classifyBackendByLoad(medium);
+            classifyBackendDiskGlobalUsages(medium);
         }
 
         // sort be stats by mix load score
@@ -243,6 +246,58 @@ public class LoadStatisticForTag {
 
         LOG.debug("classify backend by load. medium: {} avg load score: {}. low/mid/high: {}/{}/{}",
                 medium, avgLoadScore, lowCounter, midCounter, highCounter);
+    }
+
+    private void classifyBackendDiskGlobalUsages(TStorageMedium medium) {
+        double urgentDiffUsageThreshold;
+        if (Config.be_rebalancer_fuzzy_test) {
+            urgentDiffUsageThreshold = 0;
+        } else {
+            urgentDiffUsageThreshold = Config.balance_load_score_threshold
+                    + Config.urgent_balance_disk_usage_extra_threshold;
+            if (urgentDiffUsageThreshold <= 0) {
+                return;
+            }
+        }
+
+        double totalDiskUsages = 0;
+        int totalDiskNum = 0;
+        for (BackendLoadStatistic beStat : getBackendLoadStatistics()) {
+            if (!beStat.isAvailable()) {
+                continue;
+            }
+            for (RootPathLoadStatistic pathStat : beStat.getAvailPaths(medium)) {
+                if (pathStat.getCapacityB() > 1L) {
+                    totalDiskUsages += pathStat.getUsedPercent();
+                    totalDiskNum++;
+                }
+            }
+        }
+
+        if (totalDiskNum == 0) {
+            return;
+        }
+
+        double avgDiskUsage = totalDiskUsages / totalDiskNum;
+        double urgentDiskUsage = avgDiskUsage + urgentDiffUsageThreshold;
+
+        for (BackendLoadStatistic beStat : getBackendLoadStatistics()) {
+            if (!beStat.isAvailable()) {
+                continue;
+            }
+            for (RootPathLoadStatistic pathStat : beStat.getAvailPaths(medium)) {
+                if (pathStat.getCapacityB() > 1L) {
+                    double usage = pathStat.getUsedPercent();
+                    if (usage > urgentDiskUsage) {
+                        pathStat.setGlobalClazz(Classification.HIGH);
+                    } else if (usage > avgDiskUsage) {
+                        pathStat.setGlobalClazz(Classification.MID);
+                    } else {
+                        pathStat.setGlobalClazz(Classification.LOW);
+                    }
+                }
+            }
+        }
     }
 
     private static void sortBeStats(List<BackendLoadStatistic> beStats, TStorageMedium medium) {
@@ -353,7 +408,7 @@ public class LoadStatisticForTag {
                 pathStat.add(String.valueOf(pathStatistic.getCapacityB()));
                 pathStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
                         pathStatistic.getUsedCapacityB() * 100 / (double) pathStatistic.getCapacityB())));
-                pathStat.add(pathStatistic.getClazz().name());
+                pathStat.add(pathStatistic.getLocalClazz().name());
                 pathStat.add(pathStatistic.getDiskState().name());
                 statistics.add(pathStat);
             }
@@ -373,6 +428,82 @@ public class LoadStatisticForTag {
 
     public List<BackendLoadStatistic> getBackendLoadStatistics() {
         return beLoadStatistics;
+    }
+
+    public boolean getLowHighBEsWithIsUrgent(List<BackendLoadStatistic> lowBEs, List<BackendLoadStatistic> highBEs,
+            TStorageMedium medium) {
+        if (getUrgentLowHighBEs(lowBEs, highBEs, medium)) {
+            return true;
+        } else {
+            lowBEs.clear();
+            highBEs.clear();
+            List<BackendLoadStatistic> midBEs = Lists.newArrayList();
+            getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
+            return false;
+        }
+    }
+
+    private boolean getUrgentLowHighBEs(List<BackendLoadStatistic> lowBEs, List<BackendLoadStatistic> highBEs,
+            TStorageMedium medium) {
+        List<BackendLoadStatistic> midBEs = Lists.newArrayList();
+        for (BackendLoadStatistic beStat : getBackendLoadStatistics()) {
+            if (!beStat.isAvailable()) {
+                continue;
+            }
+            if (beStat.hasAvailPathWithGlobalClazz(medium, Classification.HIGH)) {
+                highBEs.add(beStat);
+            } else if (beStat.hasAvailPathWithGlobalClazz(medium, Classification.LOW)) {
+                lowBEs.add(beStat);
+            } else if (beStat.hasAvailPathWithGlobalClazz(medium, Classification.MID)) {
+                midBEs.add(beStat);
+            }
+        }
+
+        if (lowBEs.isEmpty()) {
+            lowBEs.addAll(midBEs);
+        }
+
+        if (lowBEs.isEmpty() && highBEs.size() > 1 && Config.enable_urgent_balance_no_low_backend) {
+            // all backend will exchange tablets among themselves.
+            lowBEs.addAll(highBEs);
+        }
+
+        if (lowBEs.isEmpty() || highBEs.isEmpty()) {
+            lowBEs.clear();
+            highBEs.clear();
+            return false;
+        }
+
+        BiConsumer<List<BackendLoadStatistic>, Boolean> resortBeStats = (beStats, choseMinPathElseMaxPath) -> {
+            List<Pair<BackendLoadStatistic, Double>> bePairs = Lists.newArrayList();
+            for (BackendLoadStatistic beStat : beStats) {
+                double score = -1.0;
+                for (RootPathLoadStatistic pathStat : beStat.getAvailPaths(medium)) {
+                    if (pathStat.getCapacityB() > 1) {
+                        double usage = pathStat.getUsedPercent();
+                        if (score < 0 || (choseMinPathElseMaxPath && usage < score)
+                                || (!choseMinPathElseMaxPath && usage > score)) {
+                            score = usage;
+                        }
+                    }
+                }
+                bePairs.add(Pair.of(beStat, score));
+            }
+            Collections.sort(bePairs, new Pair.PairComparator<Pair<BackendLoadStatistic, Double>>());
+
+            beStats.clear();
+            bePairs.forEach(pair -> beStats.add(pair.key()));
+        };
+
+        resortBeStats.accept(lowBEs, true);
+        resortBeStats.accept(highBEs, false);
+
+        LOG.debug("urgent backends' classification lowBe {}, highBe {}, medium: {}",
+                lowBEs.stream().map(BackendLoadStatistic::getBeId).collect(Collectors.toList()),
+                highBEs.stream().map(BackendLoadStatistic::getBeId).collect(Collectors.toList()),
+                medium);
+
+        return true;
     }
 
     /*

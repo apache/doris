@@ -25,12 +25,14 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPair;
 import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPairComparator;
+import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -45,6 +47,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /*
  * BeLoadRebalancer strategy:
@@ -79,12 +82,9 @@ public class BeLoadRebalancer extends Rebalancer {
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             LoadStatisticForTag clusterStat, TStorageMedium medium) {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
-
-        // get classification of backends
         List<BackendLoadStatistic> lowBEs = Lists.newArrayList();
-        List<BackendLoadStatistic> midBEs = Lists.newArrayList();
         List<BackendLoadStatistic> highBEs = Lists.newArrayList();
-        clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
+        boolean isUrgent = clusterStat.getLowHighBEsWithIsUrgent(lowBEs, highBEs, medium);
 
         if (lowBEs.isEmpty() && highBEs.isEmpty()) {
             LOG.debug("cluster is balance with medium: {}. skip", medium);
@@ -136,20 +136,24 @@ public class BeLoadRebalancer extends Rebalancer {
                 continue;
             }
 
-            // classify the paths.
-            Set<Long> pathLow = Sets.newHashSet();
-            Set<Long> pathMid = Sets.newHashSet();
-            Set<Long> pathHigh = Sets.newHashSet();
-            beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, medium);
-            // we only select tablets from available mid and high load path
-            pathHigh.addAll(pathMid);
-
-            // get all tablets on this backend, and shuffle them for random selection
-            List<Long> tabletIds = invertedIndex.getTabletIdsByBackendIdAndStorageMedium(beStat.getBeId(), medium);
-            Collections.shuffle(tabletIds);
+            boolean choseHighDisk = isUrgent && beStat.hasAvailPathWithGlobalClazz(medium, Classification.HIGH);
 
             // for each path, we try to select at most BALANCE_SLOT_NUM_FOR_PATH tablets
             Map<Long, Integer> remainingPaths = Maps.newHashMap();
+            Set<Long> pathHigh = null;
+            if (choseHighDisk) {
+                pathHigh = beStat.getAvailPaths(medium).stream().filter(RootPathLoadStatistic::isGlobalHighUsage)
+                        .map(RootPathLoadStatistic::getBeId).collect(Collectors.toSet());
+            } else {
+                // classify the paths.
+                pathHigh = Sets.newHashSet();
+                Set<Long> pathLow = Sets.newHashSet();
+                Set<Long> pathMid = Sets.newHashSet();
+                beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, medium);
+                // we only select tablets from available mid and high load path
+                pathHigh.addAll(pathMid);
+            }
+
             for (Long pathHash : pathHigh) {
                 int availBalanceNum = pathSlot.getAvailableBalanceNum(pathHash);
                 if (availBalanceNum > 0) {
@@ -161,8 +165,23 @@ public class BeLoadRebalancer extends Rebalancer {
                 continue;
             }
 
+            // get all tablets on this backend, and shuffle them for random selection
+            List<Pair<Long, Long>> tabletIdSizes = invertedIndex.getTabletSizeByBackendIdAndStorageMedium(
+                    beStat.getBeId(), medium);
+            if (!isUrgent || tabletIdSizes.size() < Config.urgent_balance_pick_large_tablet_num_threshold
+                    || Config.urgent_balance_pick_large_tablet_percentage >= 1.0
+                    || Config.urgent_balance_pick_large_tablet_percentage <= 0) {
+                Collections.shuffle(tabletIdSizes);
+            } else {
+                Collections.sort(tabletIdSizes, new Pair.PairComparator<Pair<Long, Long>>());
+                int startIndex = (int) (tabletIdSizes.size()
+                        * (1 - Config.urgent_balance_pick_large_tablet_percentage));
+                Collections.shuffle(tabletIdSizes.subList(startIndex, tabletIdSizes.size()));
+            }
+
             // select tablet from shuffled tablets
-            for (Long tabletId : tabletIds) {
+            for (int j = tabletIdSizes.size() - 1; j >= 0; j--) {
+                long tabletId = tabletIdSizes.get(j).key();
                 if (clusterAvailableBEnum <= invertedIndex.getReplicasByTabletId(tabletId).size()) {
                     continue;
                 }
@@ -197,7 +216,7 @@ public class BeLoadRebalancer extends Rebalancer {
                             System.currentTimeMillis());
                     tabletCtx.setTag(clusterStat.getTag());
                     // balance task's priority is always LOW
-                    tabletCtx.setPriority(Priority.LOW);
+                    tabletCtx.setPriority(isUrgent ? Priority.NORMAL : Priority.LOW);
 
                     alternativeTablets.add(tabletCtx);
                     if (--numOfLowPaths <= 0) {
@@ -224,6 +243,7 @@ public class BeLoadRebalancer extends Rebalancer {
         return alternativeTablets;
     }
 
+
     /*
      * Create a clone task of this selected tablet for balance.
      * 1. Check if this tablet has replica on high load backend. If not, the balance will be cancelled.
@@ -239,17 +259,16 @@ public class BeLoadRebalancer extends Rebalancer {
         }
 
         // get classification of backends
-        List<BackendLoadStatistic> lowBe = Lists.newArrayList();
-        List<BackendLoadStatistic> midBe = Lists.newArrayList();
-        List<BackendLoadStatistic> highBe = Lists.newArrayList();
-        clusterStat.getBackendStatisticByClass(lowBe, midBe, highBe, tabletCtx.getStorageMedium());
+        List<BackendLoadStatistic> lowBEs = Lists.newArrayList();
+        List<BackendLoadStatistic> highBEs = Lists.newArrayList();
+        boolean isUrgent = clusterStat.getLowHighBEsWithIsUrgent(lowBEs, highBEs, tabletCtx.getStorageMedium());
 
-        if (lowBe.isEmpty() && highBe.isEmpty()) {
+        if (lowBEs.isEmpty() && highBEs.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "cluster is balance");
         }
 
         // if all low backends is not available, return
-        if (lowBe.stream().noneMatch(BackendLoadStatistic::isAvailable)) {
+        if (lowBEs.stream().noneMatch(BackendLoadStatistic::isAvailable)) {
             throw new SchedException(Status.UNRECOVERABLE, "all low load backends is unavailable");
         }
 
@@ -258,19 +277,19 @@ public class BeLoadRebalancer extends Rebalancer {
         // Check if this tablet has replica on high load backend.
         // Also create a set to save hosts of this tablet.
         Set<String> hosts = Sets.newHashSet();
-        boolean hasHighReplica = false;
-        for (Replica replica : replicas) {
-            if (highBe.stream().anyMatch(b -> b.getBeId() == replica.getBackendId())) {
-                hasHighReplica = true;
+        List<BackendLoadStatistic> replicaHighBEs = Lists.newArrayList();
+        for (BackendLoadStatistic beStat : highBEs) {
+            if (replicas.stream().anyMatch(replica -> beStat.getBeId() == replica.getBackendId())) {
+                replicaHighBEs.add(beStat);
             }
-            Backend be = infoService.getBackend(replica.getBackendId());
+            Backend be = infoService.getBackend(beStat.getBeId());
             if (be == null) {
                 throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
-                        "backend is dropped: " + replica.getBackendId());
+                        "backend is dropped: " + beStat.getBeId());
             }
             hosts.add(be.getHost());
         }
-        if (!hasHighReplica) {
+        if (replicaHighBEs.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
                     "no replica on high load backend");
         }
@@ -295,7 +314,7 @@ public class BeLoadRebalancer extends Rebalancer {
 
         // Select a low load backend as destination.
         List<BackendLoadStatistic> candidates = Lists.newArrayList();
-        for (BackendLoadStatistic beStat : lowBe) {
+        for (BackendLoadStatistic beStat : lowBEs) {
             if (beStat.isAvailable() && replicas.stream().noneMatch(r -> r.getBackendId() == beStat.getBeId())) {
                 // check if on same host.
                 Backend lowBackend = infoService.getBackend(beStat.getBeId());
@@ -316,10 +335,14 @@ public class BeLoadRebalancer extends Rebalancer {
                     continue;
                 }
 
-                if (!Config.be_rebalancer_fuzzy_test && !clusterStat.isMoreBalanced(
-                        tabletCtx.getSrcBackendId(), beStat.getBeId(), tabletCtx.getTabletId(),
-                        tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
-                    continue;
+                if (!Config.be_rebalancer_fuzzy_test && !isUrgent) {
+                    boolean moreBalanced = replicaHighBEs.stream().anyMatch(highBeStat ->
+                            clusterStat.isMoreBalanced(highBeStat.getBeId(), beStat.getBeId(),
+                            tabletCtx.getTabletId(), tabletCtx.getTabletSize(),
+                            tabletCtx.getStorageMedium()));
+                    if (!moreBalanced) {
+                        continue;
+                    }
                 }
 
                 PathSlot slot = backendsWorkingSlots.get(beStat.getBeId());
@@ -351,7 +374,17 @@ public class BeLoadRebalancer extends Rebalancer {
             beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
 
             pathLow.addAll(pathMid);
-            pathLow.stream().forEach(path -> candFitPaths.add(new BePathLoadStatPair(beStat, path)));
+            for (RootPathLoadStatistic path : pathLow) {
+                if (!Config.be_rebalancer_fuzzy_test && isUrgent && path.isGlobalHighUsage()) {
+                    continue;
+                }
+                candFitPaths.add(new BePathLoadStatPair(beStat, path));
+            }
+        }
+
+        if (candFitPaths.isEmpty()) {
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                    "unable to find low dest backend to fit in paths");
         }
 
         BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(candFitPaths);
@@ -359,6 +392,7 @@ public class BeLoadRebalancer extends Rebalancer {
         for (BePathLoadStatPair bePathLoadStat : candFitPaths) {
             BackendLoadStatistic beStat = bePathLoadStat.getBackendLoadStatistic();
             RootPathLoadStatistic pathStat = bePathLoadStat.getPathLoadStatistic();
+
             PathSlot slot = backendsWorkingSlots.get(beStat.getBeId());
             if (slot == null) {
                 continue;
