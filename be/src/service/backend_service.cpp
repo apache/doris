@@ -53,6 +53,7 @@
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
@@ -360,26 +361,20 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
 }
 } // namespace
 
-using apache::thrift::TException;
-using apache::thrift::TProcessor;
-using apache::thrift::TMultiplexedProcessor;
-using apache::thrift::transport::TTransportException;
-using apache::thrift::concurrency::ThreadFactory;
-
 BaseBackendService::BaseBackendService(ExecEnv* exec_env)
         : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {}
+
+BaseBackendService::~BaseBackendService() = default;
 
 BackendService::BackendService(StorageEngine& engine, ExecEnv* exec_env)
         : BaseBackendService(exec_env), _engine(engine) {}
 
-Status BaseBackendService::create_service(ExecEnv* exec_env, int port,
-                                          std::unique_ptr<ThriftServer>* server) {
-    if (config::is_cloud_mode()) {
-        // TODO(plat1ko): cloud mode
-        return Status::NotSupported("Currently only support local storage engine");
-    }
-    auto service =
-            std::make_shared<BackendService>(exec_env->storage_engine().to_local(), exec_env);
+BackendService::~BackendService() = default;
+
+Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, int port,
+                                      std::unique_ptr<ThriftServer>* server) {
+    auto service = std::make_shared<BackendService>(engine, exec_env);
+    service->_agent_server->start_workers(engine, exec_env);
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve
     // be requests
@@ -695,12 +690,37 @@ void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
 
 void BackendService::make_snapshot(TAgentResult& return_value,
                                    const TSnapshotRequest& snapshot_request) {
-    _agent_server->make_snapshot(_engine, return_value, snapshot_request);
+    std::string snapshot_path;
+    bool allow_incremental_clone = false;
+    Status status = _engine.snapshot_mgr()->make_snapshot(snapshot_request, &snapshot_path,
+                                                          &allow_incremental_clone);
+    if (!status) {
+        LOG_WARNING("failed to make snapshot")
+                .tag("tablet_id", snapshot_request.tablet_id)
+                .tag("schema_hash", snapshot_request.schema_hash)
+                .error(status);
+    } else {
+        LOG_INFO("successfully make snapshot")
+                .tag("tablet_id", snapshot_request.tablet_id)
+                .tag("schema_hash", snapshot_request.schema_hash)
+                .tag("snapshot_path", snapshot_path);
+        return_value.__set_snapshot_path(snapshot_path);
+        return_value.__set_allow_incremental_clone(allow_incremental_clone);
+    }
+
+    status.to_thrift(&return_value.status);
+    return_value.__set_snapshot_version(snapshot_request.preferred_snapshot_version);
 }
 
 void BackendService::release_snapshot(TAgentResult& return_value,
                                       const std::string& snapshot_path) {
-    _agent_server->release_snapshot(_engine, return_value, snapshot_path);
+    Status status = _engine.snapshot_mgr()->release_snapshot(snapshot_path);
+    if (!status) {
+        LOG_WARNING("failed to release snapshot").tag("snapshot_path", snapshot_path).error(status);
+    } else {
+        LOG_INFO("successfully release snapshot").tag("snapshot_path", snapshot_path);
+    }
+    status.to_thrift(&return_value.status);
 }
 
 void BackendService::ingest_binlog(TIngestBinlogResult& result,
@@ -903,29 +923,84 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
     }
 }
 
+void BaseBackendService::get_tablet_stat(TTabletStatResult& result) {
+    LOG(ERROR) << "get_tablet_stat is not implemented";
+}
+
+int64_t BaseBackendService::get_trash_used_capacity() {
+    LOG(ERROR) << "get_trash_used_capacity is not implemented";
+    return 0;
+}
+
+void BaseBackendService::get_stream_load_record(TStreamLoadRecordResult& result,
+                                                int64_t last_stream_record_time) {
+    LOG(ERROR) << "get_stream_load_record is not implemented";
+}
+
+void BaseBackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
+    LOG(ERROR) << "get_disk_trash_used_capacity is not implemented";
+}
+
+void BaseBackendService::clean_trash() {
+    LOG(ERROR) << "clean_trash is not implemented";
+}
+
+void BaseBackendService::make_snapshot(TAgentResult& return_value,
+                                       const TSnapshotRequest& snapshot_request) {
+    LOG(ERROR) << "make_snapshot is not implemented";
+    return_value.__set_status(Status::NotSupported("make_snapshot is not implemented").to_thrift());
+}
+
+void BaseBackendService::release_snapshot(TAgentResult& return_value,
+                                          const std::string& snapshot_path) {
+    LOG(ERROR) << "release_snapshot is not implemented";
+    return_value.__set_status(
+            Status::NotSupported("release_snapshot is not implemented").to_thrift());
+}
+
+void BaseBackendService::check_storage_format(TCheckStorageFormatResult& result) {
+    LOG(ERROR) << "check_storage_format is not implemented";
+}
+
+void BaseBackendService::ingest_binlog(TIngestBinlogResult& result,
+                                       const TIngestBinlogRequest& request) {
+    LOG(ERROR) << "ingest_binlog is not implemented";
+    result.__set_status(Status::NotSupported("ingest_binlog is not implemented").to_thrift());
+}
+
+void BaseBackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
+                                             const TQueryIngestBinlogRequest& request) {
+    LOG(ERROR) << "query_ingest_binlog is not implemented";
+    result.__set_status(TIngestBinlogStatus::UNKNOWN);
+    result.__set_err_msg("query_ingest_binlog is not implemented");
+}
+
 void BaseBackendService::pre_cache_async(TPreCacheAsyncResponse& response,
                                          const TPreCacheAsyncRequest& request) {
-    LOG(FATAL) << "BackendService is not implemented";
+    LOG(ERROR) << "pre_cache_async is not implemented";
+    response.__set_status(Status::NotSupported("pre_cache_async is not implemented").to_thrift());
 }
 
 void BaseBackendService::check_pre_cache(TCheckPreCacheResponse& response,
                                          const TCheckPreCacheRequest& request) {
-    LOG(FATAL) << "BackendService is not implemented";
+    LOG(ERROR) << "check_pre_cache is not implemented";
+    response.__set_status(Status::NotSupported("check_pre_cache is not implemented").to_thrift());
 }
 
 void BaseBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
                                                const TSyncLoadForTabletsRequest& request) {
-    LOG(FATAL) << "BackendService is not implemented";
+    LOG(ERROR) << "sync_load_for_tablets is not implemented";
 }
 
 void BaseBackendService::get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
                                                   const TGetTopNHotPartitionsRequest& request) {
-    LOG(FATAL) << "BackendService is not implemented";
+    LOG(ERROR) << "get_top_n_hot_partitions is not implemented";
 }
 
 void BaseBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
                                          const TWarmUpTabletsRequest& request) {
-    LOG(FATAL) << "BackendService is not implemented";
+    LOG(ERROR) << "warm_up_tablets is not implemented";
+    response.__set_status(Status::NotSupported("warm_up_tablets is not implemented").to_thrift());
 }
 
 } // namespace doris
