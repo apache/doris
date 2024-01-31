@@ -283,18 +283,6 @@ Tablet::Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* 
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
-    // if !_tablet_meta->all_rs_metas()[0]->tablet_schema(),
-    // that mean the tablet_meta is still no upgrade to doris 1.2 versions.
-    // Before doris 1.2 version, rowset metas don't have tablet schema.
-    // And when upgrade to doris 1.2 version,
-    // all rowset metas will be set the tablet schmea from tablet meta.
-    if (_tablet_meta->all_rs_metas().empty() || !_tablet_meta->all_rs_metas()[0]->tablet_schema()) {
-        _max_version_schema = _tablet_meta->tablet_schema();
-    } else {
-        _max_version_schema =
-                tablet_schema_with_merged_max_schema_version(_tablet_meta->all_rs_metas());
-    }
-    DCHECK(_max_version_schema);
 }
 
 bool Tablet::set_tablet_schema_into_rowset_meta() {
@@ -604,31 +592,6 @@ void Tablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool 
             _engine.add_unused_rowset(rs);
         }
     }
-}
-
-TabletSchemaSPtr Tablet::tablet_schema_with_merged_max_schema_version(
-        const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
-    RowsetMetaSharedPtr max_schema_version_rs = *std::max_element(
-            rowset_metas.begin(), rowset_metas.end(),
-            [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
-                return !a->tablet_schema()
-                               ? true
-                               : (!b->tablet_schema()
-                                          ? false
-                                          : a->tablet_schema()->schema_version() <
-                                                    b->tablet_schema()->schema_version());
-            });
-    TabletSchemaSPtr target_schema = max_schema_version_rs->tablet_schema();
-    if (target_schema->num_variant_columns() > 0) {
-        // For variant columns tablet schema need to be the merged wide tablet schema
-        std::vector<TabletSchemaSPtr> schemas;
-        std::transform(rowset_metas.begin(), rowset_metas.end(), std::back_inserter(schemas),
-                       [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
-        static_cast<void>(
-                vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
-        VLOG_DEBUG << "dump schema: " << target_schema->dump_structure();
-    }
-    return target_schema;
 }
 
 RowsetSharedPtr Tablet::_rowset_with_largest_size() {
