@@ -22,8 +22,6 @@ suite("partition_mv_rewrite_dimension_2_5") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    // tmp disable to rewrite, will be removed in the future
-//    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN, OLAP_SCAN_PARTITION_PRUNE'"
 
     sql """
     drop table if exists orders
@@ -189,9 +187,8 @@ suite("partition_mv_rewrite_dimension_2_5") {
         }
     }
 
-    // query partial
+    // Todo: query partial
     // agg function + query partial
-//
 //    def mv_name_1 = "mv_name_1"
 //    def mv_stmt_1 = """select
 //            sum(o_totalprice) as sum_total,
@@ -279,7 +276,6 @@ suite("partition_mv_rewrite_dimension_2_5") {
 
     // view partial
     // group by + query partial
-
     def mv_name_5 = "mv_name_5"
     def mv_stmt_5 = """select o_orderdate, o_shippriority, o_comment, l_orderkey, o_orderkey 
             from orders  
@@ -324,7 +320,7 @@ suite("partition_mv_rewrite_dimension_2_5") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_5};"""
 
 
-    // union rewriting
+    // Todo: union rewriting
     // agg function + union rewriting
 //    def mv_name_7 = "mv_name_7"
 //    def mv_stmt_7 = """select

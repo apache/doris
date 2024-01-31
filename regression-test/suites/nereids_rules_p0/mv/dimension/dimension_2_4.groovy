@@ -22,8 +22,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    // tmp disable to rewrite, will be removed in the future
-//    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN, OLAP_SCAN_PARTITION_PRUNE'"
 
     sql """
     drop table if exists orders
@@ -189,9 +187,8 @@ suite("partition_mv_rewrite_dimension_2_4") {
         }
     }
 
-    // query partial
+    // Todo: query partial
     // agg function + query partial
-//
 //    def mv_name_1 = "mv_name_1"
 //    def mv_stmt_1 = """select
 //            sum(o_totalprice) as sum_total,
@@ -280,7 +277,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
     // view partial
     // agg function + view partial
-
     def mv_name_4 = "mv_name_4"
     def mv_stmt_4 = """select 
             o_totalprice, 
@@ -314,7 +310,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
 
     // group by + query partial
-
     def mv_name_5 = "mv_name_5"
     def mv_stmt_5 = """select o_orderdate, o_shippriority, o_comment 
             from orders 
@@ -344,7 +339,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
 
     // agg function + group by + view partial
-
     def mv_name_6 = "mv_name_6"
     def mv_stmt_6 = """select  o_orderdate, o_shippriority, o_comment,
             sum(o_totalprice) as sum_total, 
@@ -386,7 +380,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
 
 
-    // union rewriting
+    // Todo: union rewriting
     // agg function + union rewriting
 //    def mv_name_7 = "mv_name_7"
 //    def mv_stmt_7 = """select
@@ -485,7 +479,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
     // predicate compensate
     // agg function + predicate compensate
-
     def mv_name_10 = "mv_name_10"
     def mv_stmt_10 = """select 
             sum(o_totalprice) as sum_total, 
@@ -575,7 +568,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_16};"""
 
     // agg function + group by + predicate compensate
-
     def mv_name_12 = "mv_name_12"
     def mv_stmt_12 = """select o_orderdate, o_shippriority, o_comment , o_totalprice, 
             sum(o_totalprice) as sum_total, 

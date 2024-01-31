@@ -22,8 +22,6 @@ suite("partition_mv_rewrite_dimension_2_2") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    // tmp disable to rewrite, will be removed in the future
-//    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN, OLAP_SCAN_PARTITION_PRUNE'"
 
     sql """
     drop table if exists orders
@@ -150,7 +148,7 @@ suite("partition_mv_rewrite_dimension_2_2") {
         }
     }
 
-    // join + filter
+    // inner join + filter on different position
     def mv_stmt_0 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders.o_orderkey 
         from (select l_shipdate, l_partkey, l_suppkey, l_orderkey from lineitem where l_shipdate = '2023-10-17') t
         inner join orders 

@@ -148,7 +148,7 @@ suite("partition_mv_rewrite_dimension_2_1") {
         }
     }
 
-    // join + filter
+    // left join + filter on different position
     def mv_stmt_0 = """select t.l_shipdate, o_orderdate, t.l_partkey, t.l_suppkey, orders.o_orderkey 
         from (select l_shipdate, l_partkey, l_suppkey, l_orderkey from lineitem where l_shipdate = '2023-10-17') t
         left join orders 

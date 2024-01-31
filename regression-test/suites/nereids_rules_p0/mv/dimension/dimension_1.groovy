@@ -400,6 +400,9 @@ suite("partition_mv_rewrite_dimension_1") {
         from lineitem 
         inner join orders 
         on lineitem.l_orderkey = orders.o_orderkey"""
+
+    // Todo: right/cross/full/semi/anti join
+    // Currently, only left join and inner join are supported.
 //    def join_type_stmt_3 = """
 //        select l_shipdate, o_orderdate, l_partkey, l_suppkey
 //        from lineitem
@@ -424,7 +427,6 @@ suite("partition_mv_rewrite_dimension_1") {
 //        from lineitem
 //        anti join orders
 //        on lineitem.l_orderkey = orders.o_orderkey"""
-    // Currently, only left join and inner join are supported.
     def join_type_stmt_list = [join_type_stmt_1, join_type_stmt_2]
     for (int i = 0; i < join_type_stmt_list.size(); i++) {
         logger.info("i:" + i)
@@ -560,7 +562,7 @@ suite("partition_mv_rewrite_dimension_1") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ${agg_mv_name_3};"""
 
 
-    // query partittial rewriting
+    // Todo: query partittial rewriting
 //    def query_partition_mv_name_1 = "query_partition_mv_name_1"
 //    def query_partition_mv_stmt_1 = """
 //        select l_shipdate, o_orderdate, l_partkey, l_suppkey, count(*)
@@ -605,7 +607,7 @@ suite("partition_mv_rewrite_dimension_1") {
     compare_res(view_partition_sql_1 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${view_partition_mv_name_1};"""
 
-    // union rewrte
+    // Todo: union rewrte
 //    def union_mv_name_1 = "union_mv_name_1"
 //    def union_mv_stmt_1 = """
 //        select l_shipdate, o_orderdate, l_partkey, count(*)
@@ -657,7 +659,7 @@ suite("partition_mv_rewrite_dimension_1") {
     compare_res(predicate_sql_1 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${predicate_mv_name_1};"""
 
-    // project rewriting
+    // Todo: project rewriting
 //    def rewriting_mv_name_1 = "rewriting_mv_name_1"
 //    def rewriting_mv_stmt_1 = """
 //        select o_orderdate, o_shippriority, o_comment, o_orderkey, o_shippriority + o_custkey,

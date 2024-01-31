@@ -22,8 +22,6 @@ suite("partition_mv_rewrite_dimension_2_6") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    // tmp disable to rewrite, will be removed in the future
-//    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN, OLAP_SCAN_PARTITION_PRUNE'"
 
     sql """
     drop table if exists orders
@@ -189,9 +187,8 @@ suite("partition_mv_rewrite_dimension_2_6") {
         }
     }
 
-    // query partial rewriting
+    // Todo: query partial rewriting
     // union rewriting
-
 //    def mv_name_1 = "mv_name_1"
 //    def mv_stmt_1 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, count(*)
 //        from lineitem
@@ -214,7 +211,6 @@ suite("partition_mv_rewrite_dimension_2_6") {
 //    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_1};"""
 
     // predicate compensate
-//
 //    def mv_name_2 = "mv_name_2"
 //    def mv_stmt_2 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey, count(*)
 //        from lineitem
@@ -238,7 +234,6 @@ suite("partition_mv_rewrite_dimension_2_6") {
 
 
     // project rewriting
-//
 //    def mv_name_3 = "mv_name_3"
 //    def mv_stmt_3 = """select o_orderdate, o_shippriority, o_comment, l_suppkey, o_shippriority + o_custkey,
 //        case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end cnt_1,
@@ -262,7 +257,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
 //    }
 //    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_3};"""
 //
-    // view partial rewriting
+    // Todo: view partial rewriting
     // union rewriting
 //    def mv_name_4 = "mv_name_4"
 //    def mv_stmt_4 = """select l_shipdate, l_partkey, l_orderkey
@@ -284,7 +279,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
 //        contains "${mv_name_4}(${mv_name_4})"
 //    }
 //    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_4};"""
-//
+
     // predicate compensate
     def mv_name_5 = "mv_name_5"
     def mv_stmt_5 = """select l_shipdate, l_partkey, l_orderkey 
@@ -332,9 +327,8 @@ suite("partition_mv_rewrite_dimension_2_6") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_6};"""
 
 
-    // union rewriting
+    // Todo: union rewriting
     // predicate compensate
-
 //    def mv_name_7 = "mv_name_7"
 //    def mv_stmt_7 = """select l_shipdate, o_orderdate, l_partkey
 //        from lineitem
@@ -358,7 +352,6 @@ suite("partition_mv_rewrite_dimension_2_6") {
 //
 //
 //    // project rewriting
-//
 //    def mv_name_8 = "mv_name_8"
 //    def mv_stmt_8 = """select l_shipdate, o_orderdate, l_partkey
 //        from lineitem
@@ -379,7 +372,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
 //        contains "${mv_name_8}(${mv_name_8})"
 //    }
 //    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_8};"""
-//
+
     // predicate compensate
     // project rewriting
     def mv_name_9 = "mv_name_9"

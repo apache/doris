@@ -22,8 +22,6 @@ suite("partition_mv_rewrite_dimension_2_3") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    // tmp disable to rewrite, will be removed in the future
-//    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN, OLAP_SCAN_PARTITION_PRUNE'"
 
     sql """
     drop table if exists orders
@@ -259,7 +257,7 @@ suite("partition_mv_rewrite_dimension_2_3") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_3};"""
 
 
-    // query partial
+    // Todo: query partial
 //    def mv_name_4 = "mv_name_4"
 //    def mv_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey
 //        from lineitem
@@ -301,7 +299,7 @@ suite("partition_mv_rewrite_dimension_2_3") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_5};"""
 
 
-    // union rewriting
+    // Todo: union rewriting
 //    def mv_name_6 = "mv_name_6"
 //    def mv_stmt_6 = """select l_shipdate, o_orderdate, l_partkey
 //        from lineitem
@@ -323,7 +321,6 @@ suite("partition_mv_rewrite_dimension_2_3") {
 //    }
 
     // predicate compensate
-
     def mv_name_7 = "mv_name_7"
     def mv_stmt_7 = """select l_shipdate, o_orderdate, l_partkey 
         from lineitem 
