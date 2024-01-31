@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## IPv4NumToString
+## IPV4_NUM_TO_STRING
 
 <version since="dev">
 
-IPv4NumToString
+IPV4_NUM_TO_STRING
 
 </version>
 
@@ -34,7 +34,7 @@ IPv4NumToString
 
 #### Syntax
 
-`VARCHAR IPv4NumToString(BIGINT ipv4_num)`
+`VARCHAR IPV4_NUM_TO_STRING(BIGINT ipv4_num)`
 
 接受一个类型为Int16、Int32、Int64 且大端表示的 IPv4 的地址，返回相应 IPv4 的字符串表现形式，格式为A.B.C.D（以点分割的十进制数字）。
 
@@ -45,17 +45,17 @@ IPv4NumToString
 ### example
 
 ```
-mysql> select ipv4numtostring(3232235521);
+mysql> select IPV4_NUM_TO_STRING(3232235521);
 +-----------------------------+
-| ipv4numtostring(3232235521) |
+| IPV4_NUM_TO_STRING(3232235521) |
 +-----------------------------+
 | 192.168.0.1                 |
 +-----------------------------+
 1 row in set (0.01 sec)
 
-mysql> select num,ipv4numtostring(num) from ipv4_bi;
+mysql> select num,IPV4_NUM_TO_STRING(num) from ipv4_bi;
 +------------+------------------------+
-| num        | ipv4numtostring(`num`) |
+| num        | IPV4_NUM_TO_STRING(`num`) |
 +------------+------------------------+
 |         -1 | NULL                   |
 |          0 | 0.0.0.0                |
@@ -68,4 +68,4 @@ mysql> select num,ipv4numtostring(num) from ipv4_bi;
 
 ### keywords
 
-IPV4NUMTOSTRING, IP
+IPV4_NUM_TO_STRING, IP
