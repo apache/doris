@@ -72,7 +72,7 @@ private:
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
 
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _sort_blocks_memory_usage = nullptr;
 
     // topn top value
     vectorized::Field old_top {vectorized::Field::Types::Null};

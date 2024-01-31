@@ -141,8 +141,10 @@ struct ProcessHashTableBuild {
         hash_table_ctx.bucket_nums.resize(_batch_size);
         hash_table_ctx.bucket_nums.shrink_to_fit();
 
-        COUNTER_UPDATE(_parent->_hash_table_memory_usage,
-                       hash_table_ctx.hash_table->get_byte_size());
+        COUNTER_SET(_parent->_hash_table_memory_usage,
+                    (int64_t)hash_table_ctx.hash_table->get_byte_size());
+        COUNTER_SET(_parent->_build_arena_memory_usage,
+                    (int64_t)hash_table_ctx.serialized_keys_size(true));
         return Status::OK();
     }
 
