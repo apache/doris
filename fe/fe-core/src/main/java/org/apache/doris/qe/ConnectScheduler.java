@@ -122,6 +122,15 @@ public class ConnectScheduler {
         return connectionMap.get(connectionId);
     }
 
+    public ConnectContext getContextWithQueryId(String queryId) {
+        for (ConnectContext context : connectionMap.values()) {
+            if (queryId.equals(DebugUtil.printId(context.queryId))) {
+                return context;
+            }
+        }
+        return null;
+    }
+
     public void cancelQuery(String queryId) {
         for (ConnectContext ctx : connectionMap.values()) {
             TUniqueId qid = ctx.queryId();

@@ -247,7 +247,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
         if (current_offset < _batch_size) {
             while (probe_index < probe_rows) {
                 if constexpr (ignore_null && need_null_map_for_probe) {
-                    if ((*null_map)[probe_index]) {
+                    if (!is_mark_join && (*null_map)[probe_index]) {
                         if constexpr (probe_all) {
                             // only full outer / left outer need insert the data of right table
                             if (LIKELY(current_offset < _build_block_rows.size())) {
@@ -294,8 +294,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     if (is_mark_join) {
                         ++current_offset;
                         bool null_result =
-                                (need_null_map_for_probe && (*null_map)[probe_index] &&
-                                 !accept_null_value) ||
+                                (ignore_null && need_null_map_for_probe &&
+                                 (*null_map)[probe_index] && !accept_null_value) ||
                                 (find_result.is_found() && _join_node->_has_null_in_build_side);
                         if (null_result) {
                             mark_column->insert_null();
@@ -312,7 +312,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     if (is_mark_join) {
                         ++current_offset;
                         bool null_result =
-                                (need_null_map_for_probe && (*null_map)[probe_index]) ||
+                                (ignore_null && need_null_map_for_probe &&
+                                 (*null_map)[probe_index]) ||
                                 (!find_result.is_found() && _join_node->_has_null_in_build_side);
                         if (null_result) {
                             mark_column->insert_null();
@@ -941,11 +942,11 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     // And then, we set matched_map to the join result to do the mark join's filtering.
                     for (size_t i = 1; i < row_count; ++i) {
                         if (!same_to_prev[i]) {
-                            helper.insert_value(filter_map[i - 1]);
+                            helper.insert_value(!filter_map[i - 1]);
                             filter_map[i - 1] = true;
                         }
                     }
-                    helper.insert_value(filter_map[row_count - 1]);
+                    helper.insert_value(!filter_map[row_count - 1]);
                     filter_map[row_count - 1] = true;
                 } else {
                     int end_row_idx;

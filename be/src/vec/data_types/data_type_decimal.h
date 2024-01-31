@@ -85,34 +85,11 @@ constexpr size_t max_decimal_precision<Decimal64>() {
 }
 template <>
 constexpr size_t max_decimal_precision<Decimal128>() {
-    return 38;
+    return 27;
 }
 template <>
 constexpr size_t max_decimal_precision<Decimal128I>() {
     return 38;
-}
-
-template <typename T>
-constexpr typename T::NativeType max_decimal_value() {
-    return 0;
-}
-template <>
-constexpr Int32 max_decimal_value<Decimal32>() {
-    return 999999999;
-}
-template <>
-constexpr Int64 max_decimal_value<Decimal64>() {
-    return 999999999999999999;
-}
-template <>
-constexpr Int128 max_decimal_value<Decimal128>() {
-    return static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-           static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
-}
-template <>
-constexpr Int128 max_decimal_value<Decimal128I>() {
-    return static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-           static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
 }
 
 DataTypePtr create_decimal(UInt64 precision, UInt64 scale, bool use_v2);

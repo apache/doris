@@ -2477,6 +2477,10 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
         }
     }
 
+    // ptr == format means input value string is "", not do parse format failed here
+    if (ptr == format) {
+        return false;
+    }
     // continue to iterate pattern if has
     // to find out if it has time part.
     while (ptr < end) {

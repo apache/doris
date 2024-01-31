@@ -42,7 +42,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 /*
 
  * This DiskBalancer is different from other Balancers which takes care of cluster-wide data balancing.
@@ -125,14 +124,16 @@ public class DiskRebalancer extends Rebalancer {
         List<BackendLoadStatistic> highBEs = Lists.newArrayList();
         clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
 
-        if (Config.tablet_rebalancer_type.equalsIgnoreCase("partition")) {
-            PartitionRebalancer rebalancer = (PartitionRebalancer) Env.getCurrentEnv()
-                    .getTabletScheduler().getRebalancer();
-            if (rebalancer != null && rebalancer.checkCacheEmptyForLong()) {
-                midBEs.addAll(lowBEs);
-                midBEs.addAll(highBEs);
-            }
-        } else if (!(lowBEs.isEmpty() && highBEs.isEmpty())) {
+        Rebalancer rebalancer = FeConstants.runningUnitTest ? null
+                : Env.getCurrentEnv().getTabletScheduler().getRebalancer();
+        if (rebalancer != null && rebalancer.unPickOverLongTime(clusterStat.getTag(), medium)) {
+            midBEs.addAll(lowBEs);
+            midBEs.addAll(highBEs);
+            lowBEs.clear();
+            highBEs.clear();
+        }
+
+        if (!(lowBEs.isEmpty() && highBEs.isEmpty())) {
             // the cluster is not balanced
             if (prioBackends.isEmpty()) {
                 LOG.info("cluster is not balanced with medium: {}. skip", medium);
@@ -206,6 +207,10 @@ public class DiskRebalancer extends Rebalancer {
             // select tablet from shuffled tablets
             for (Long tabletId : tabletIds) {
                 if (alternativeTabletIds.contains(tabletId)) {
+                    continue;
+                }
+                if (!Config.enable_disk_balance_for_single_replica
+                        && invertedIndex.getReplicasByTabletId(tabletId).size() <= 1) {
                     continue;
                 }
                 Replica replica = invertedIndex.getReplica(tabletId, beStat.getBeId());

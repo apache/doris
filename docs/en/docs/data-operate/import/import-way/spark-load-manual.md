@@ -30,7 +30,7 @@ Spark load realizes the preprocessing of load data by spark, improves the perfor
 
 Spark load uses the resources of the spark cluster to sort the data to be imported, and Doris be writes files directly, which can greatly reduce the resource usage of the Doris cluster, and is very good for historical mass data migration to reduce the resource usage and load of the Doris cluster. Effect.
 
-If users do not have the resources of Spark cluster and want to complete the migration of external storage historical data conveniently and quickly, they can use [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) . Compared with Spark load, importing Broker load will consume more resources on the Doris cluster.
+If users do not have the resources of Spark cluster and want to complete the migration of external storage historical data conveniently and quickly, they can use [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD) . Compared with Spark load, importing Broker load will consume more resources on the Doris cluster.
 
 Spark load is an asynchronous load method. Users need to create spark type load job by MySQL protocol and view the load results by `show load`.
 
@@ -132,7 +132,7 @@ In the existing Doris import process, the data structure of global dictionary is
 
 ## Hive Bitmap UDF
 
-Spark supports loading hive-generated bitmap data directly into Doris, see [hive-bitmap-udf documentation](../../../ecosystem/hive-bitmap-udf.md)
+Spark supports loading hive-generated bitmap data directly into Doris, see [hive-bitmap-udf documentation](../../../ecosystem/hive-bitmap-udf)
 
 ## Basic operation
 
@@ -648,7 +648,7 @@ The data type applicable to the aggregate column of the doris table is bitmap ty
 
 There is no need to build a global dictionary, just specify the corresponding field in the load command, the format is: ```doris field name=binary_bitmap (hive table field name)```
 
-Similarly, the binary (bitmap) type of data import is currently only supported when the upstream data source is a hive table,You can refer to the use of hive bitmap [hive-bitmap-udf](../../../ecosystem/hive-bitmap-udf.md)
+Similarly, the binary (bitmap) type of data import is currently only supported when the upstream data source is a hive table,You can refer to the use of hive bitmap [hive-bitmap-udf](../../../ecosystem/hive-bitmap-udf)
 
 ### Show Load
 

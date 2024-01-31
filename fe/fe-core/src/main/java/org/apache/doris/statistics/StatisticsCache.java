@@ -39,9 +39,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -139,19 +137,6 @@ public class StatisticsCache {
         columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(tblId, idxId, colName));
     }
 
-    public void syncInvalidate(long tblId, long idxId, String colName) {
-        StatisticsCacheKey cacheKey = new StatisticsCacheKey(tblId, idxId, colName);
-        columnStatisticsCache.synchronous().invalidate(cacheKey);
-        TInvalidateFollowerStatsCacheRequest request = new TInvalidateFollowerStatsCacheRequest();
-        request.key = GsonUtils.GSON.toJson(cacheKey);
-        for (Frontend frontend : Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER)) {
-            if (StatisticsUtil.isMaster(frontend)) {
-                continue;
-            }
-            invalidateStats(frontend, request);
-        }
-    }
-
     public void updateColStatsCache(long tblId, long idxId, String colName, ColumnStatistic statistic) {
         columnStatisticsCache.synchronous().put(new StatisticsCacheKey(tblId, idxId, colName), Optional.of(statistic));
     }
@@ -201,7 +186,6 @@ public class StatisticsCache {
         if (CollectionUtils.isEmpty(recentStatsUpdatedCols)) {
             return;
         }
-        Map<StatisticsCacheKey, ColumnStatistic> keyToColStats = new HashMap<>();
         for (ResultRow r : recentStatsUpdatedCols) {
             try {
                 StatsId statsId = new StatsId(r);
@@ -211,7 +195,6 @@ public class StatisticsCache {
                 final StatisticsCacheKey k =
                         new StatisticsCacheKey(tblId, idxId, colId);
                 final ColumnStatistic c = ColumnStatistic.fromResultRow(r);
-                keyToColStats.put(k, c);
                 putCache(k, c);
             } catch (Throwable t) {
                 LOG.warn("Error when preheating stats cache", t);
@@ -265,7 +248,7 @@ public class StatisticsCache {
     }
 
     @VisibleForTesting
-    public void invalidateStats(Frontend frontend, TInvalidateFollowerStatsCacheRequest request) {
+    public boolean invalidateStats(Frontend frontend, TInvalidateFollowerStatsCacheRequest request) {
         TNetworkAddress address = new TNetworkAddress(frontend.getHost(), frontend.getRpcPort());
         FrontendService.Client client = null;
         try {
@@ -273,11 +256,13 @@ public class StatisticsCache {
             client.invalidateStatsCache(request);
         } catch (Throwable t) {
             LOG.warn("Failed to sync invalidate to follower: {}", address, t);
+            return false;
         } finally {
             if (client != null) {
                 ClientPool.frontendPool.returnObject(address, client);
             }
         }
+        return true;
     }
 
     public void putCache(StatisticsCacheKey k, ColumnStatistic c) {

@@ -348,7 +348,7 @@ void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_ti
         }
     }
     *max_time = local_max_time;
-    *min_time = local_min_time;
+    *min_time = local_min_time == INT64_MAX ? 0 : local_min_time;
 }
 
 int64_t ExchangeSinkBuffer::get_sum_rpc_time() {

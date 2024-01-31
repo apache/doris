@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
@@ -95,6 +96,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -225,6 +227,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         we record the lowest expression cost as group cost to avoid missing this group.
         */
         if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
+            boolean isReliable = groupExpression.getPlan().getExpressions().stream()
+                    .noneMatch(e -> stats.isInputSlotsUnknown(e.getInputSlots()));
+            groupExpression.getOwnerGroup().setStatsReliable(isReliable);
             groupExpression.getOwnerGroup().setStatistics(stats);
         } else {
             // the reason why we update col stats here.
@@ -320,6 +325,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, Void context) {
         jdbcScan.getExpressions();
         return computeCatalogRelation(jdbcScan);
+    }
+
+    @Override
+    public Statistics visitLogicalOdbcScan(LogicalOdbcScan odbcScan, Void context) {
+        odbcScan.getExpressions();
+        return computeCatalogRelation(odbcScan);
     }
 
     @Override
@@ -462,6 +473,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, Void context) {
         return computeCatalogRelation(jdbcScan);
+    }
+
+    @Override
+    public Statistics visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, Void context) {
+        return computeCatalogRelation(odbcScan);
     }
 
     @Override
@@ -616,8 +632,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache;
-            if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().enableStats
-                    || !FeConstants.enableInternalSchemaDb
+            if (!FeConstants.enableInternalSchemaDb
                     || shouldIgnoreThisCol) {
                 cache = ColumnStatistic.UNKNOWN;
             } else {
@@ -631,9 +646,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (!cache.isUnKnown) {
                 rowCount = Math.max(rowCount, cache.count);
             }
-            columnStatisticMap.put(slotReference, cache);
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
+                columnStatisticMap.put(slotReference, cache);
+            } else {
+                columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+            }
         }
-        return new Statistics(rowCount, columnStatisticMap);
+        Statistics stats = new Statistics(rowCount, columnStatisticMap);
+        stats = normalizeCatalogRelationColumnStatsRowCount(stats);
+        return stats;
+    }
+
+    private Statistics normalizeCatalogRelationColumnStatsRowCount(Statistics stats) {
+        for (Expression slot : stats.columnStatistics().keySet()) {
+            ColumnStatistic colStats = stats.findColumnStatistics(slot);
+            Preconditions.checkArgument(colStats != null,
+                    "can not find col stats for %s  in table", slot.toSql());
+            stats.addColumnStats(slot,
+                    new ColumnStatisticBuilder(colStats).setCount(stats.getRowCount()).build());
+        }
+        return stats;
     }
 
     private Statistics computeTopN(TopN topN) {

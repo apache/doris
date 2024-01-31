@@ -166,7 +166,12 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
             order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
             order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
-            order_qt_ex_tb21  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
+            order_qt_ex_tb21_1  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
+            order_qt_ex_tb21_2  """ select `key`, `id` from ${ex_tb21} where `key` like 2 order by id;"""
+            order_qt_ex_tb21_3  """ select `key`, `id` from ${ex_tb21} where `key` in (1,2) order by id;"""
+            order_qt_ex_tb21_4  """ select `key`, `id` from ${ex_tb21} where abs(`key`) = 2 order by id;"""
+            order_qt_ex_tb21_5  """ select `key`, `id` from ${ex_tb21} where `key` between 1 and 2 order by id;"""
+            order_qt_ex_tb21_6  """ select `key`, `id` from ${ex_tb21} where `key` = case when id = 1 then 1 else 0 end order by id;"""
             order_qt_information_schema """ show tables from information_schema; """
             order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
             order_qt_dt """select * from ${dt}; """
@@ -386,17 +391,17 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             explain {
                 sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05' and timestamp0 > '2022-01-01';")
 
-                contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (timestamp0 > '2022-01-01 00:00:00')"
+                contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (`timestamp0` > '2022-01-01 00:00:00')"
             }
             explain {
                 sql ("select k6, k8 from test1 where nvl(k6, null) = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(k6, NULL) = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(`k6`, NULL) = 1)"
             }
             explain {
                 sql ("select k6, k8 from test1 where nvl(nvl(k6, null),null) = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(ifnull(k6, NULL), NULL) = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(ifnull(`k6`, NULL), NULL) = 1)"
             }
             sql """ admin set frontend config ("enable_func_pushdown" = "false"); """
             explain {

@@ -158,7 +158,8 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true, msg);
-        LOG_WARNING("Instance {} cancelled, reason {}", print_id(_fragment_instance_id),
+        LOG_WARNING("Query {} instance {} cancelled, reason {}, message {}", print_id(_query_id),
+                    print_id(_fragment_instance_id), PPlanFragmentCancelReason_Name(reason),
                     msg.substr(0, 50));
 
         // Print detail informations below when you debugging here.
@@ -669,6 +670,8 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(ExecNode
             std::make_shared<SetSinkOperatorBuilder<is_intersect>>(node->id(), node);
     RETURN_IF_ERROR(build_pipeline->set_sink(sink_builder));
 
+    std::vector<PipelinePtr> all_pipelines;
+    all_pipelines.emplace_back(build_pipeline);
     for (int child_id = 1; child_id < node->children_count(); ++child_id) {
         auto probe_pipeline = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(child_id), probe_pipeline));
@@ -676,6 +679,9 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(ExecNode
                 std::make_shared<SetProbeSinkOperatorBuilder<is_intersect>>(node->id(), child_id,
                                                                             node);
         RETURN_IF_ERROR(probe_pipeline->set_sink(probe_sink_builder));
+        //eg: These sinks must be completed one by one in order, child(1) must wait child(0) build finish
+        probe_pipeline->add_dependency(all_pipelines[child_id - 1]);
+        all_pipelines.emplace_back(probe_pipeline);
     }
 
     OperatorBuilderPtr source_builder =
@@ -874,7 +880,8 @@ void PipelineFragmentContext::send_report(bool done) {
              _fragment_instance_id, _backend_num, _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2)});
+                       std::placeholders::_2),
+             _dml_query_statistics()});
 }
 
 } // namespace doris::pipeline

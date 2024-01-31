@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -156,9 +155,23 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                     });
                 })
             ),
-            // Convert having to filter
             RuleType.FILL_UP_HAVING_PROJECT.build(
-                logicalHaving().then(having -> new LogicalFilter<>(having.getConjuncts(), having.child()))
+                    logicalHaving(logicalProject()).then(having -> {
+                        LogicalProject<Plan> project = having.child();
+                        Set<Slot> projectOutputSet = project.getOutputSet();
+                        Set<Slot> notExistedInProject = having.getExpressions().stream()
+                                .map(Expression::getInputSlots)
+                                .flatMap(Set::stream)
+                                .filter(s -> !projectOutputSet.contains(s))
+                                .collect(Collectors.toSet());
+                        if (notExistedInProject.size() == 0) {
+                            return null;
+                        }
+                        List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
+                                .addAll(project.getProjects()).addAll(notExistedInProject).build();
+                        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()),
+                                having.withChildren(new LogicalProject<>(projects, project.child())));
+                    })
             )
         );
     }

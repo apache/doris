@@ -1135,6 +1135,9 @@ public class OlapTable extends Table {
             return true;
         }
         long rowCount = getRowCount();
+        if (rowCount > 0 && tblStats.rowCount == 0) {
+            return true;
+        }
         long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
         return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
@@ -1954,6 +1957,20 @@ public class OlapTable extends Table {
         tableProperty.modifyTableProperties(
                 PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, Boolean.valueOf(isDynamicSchema).toString());
         tableProperty.buildDynamicSchema();
+    }
+
+    public void setTimeSeriesCompactionEmptyRowsetsThreshold(long timeSeriesCompactionEmptyRowsetsThreshold) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                                                Long.valueOf(timeSeriesCompactionEmptyRowsetsThreshold).toString());
+        tableProperty.buildTimeSeriesCompactionEmptyRowsetsThreshold();
+    }
+
+    public Long getTimeSeriesCompactionEmptyRowsetsThreshold() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionEmptyRowsetsThreshold();
+        }
+        return null;
     }
 
     public int getBaseSchemaVersion() {

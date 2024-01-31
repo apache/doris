@@ -39,6 +39,7 @@ SELECT
 
 ```sql
 SELECT
+    [hint_statement, ...]
     [ALL | DISTINCT | DISTINCTROW | ALL EXCEPT ( col_name1 [, col_name2, col_name3, ...] )]
     select_expr [, select_expr ...]
     [FROM table_references
@@ -87,6 +88,8 @@ SELECT
 
 12. `[TABLET tids] TABLESAMPLE n [ROWS | PERCENT] [REPEATABLE seek]`: 在FROM子句中限制表的读取行数，根据指定的行数或百分比从表中伪随机的选择数个Tablet，REPEATABLE指定种子数可使选择的样本再次返回，此外也可手动指定TableID，注意这只能用于OLAP表。
 
+13. `hint_statement`: 在selectlist前面使用hint表示可以通过hint去影响优化器的行为以期得到想要的执行计划，详情可参考[joinHint 使用文档](https://doris.apache.org/zh-CN/docs/query-acceleration/hint/joinHint.md)
+    
 **语法约束：**
 
 1. SELECT也可用于检索计算的行而不引用任何表。

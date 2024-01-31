@@ -166,11 +166,12 @@ bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const
 }
 
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {
-    if (precision_value < min_decimal_precision() ||
-        precision_value > max_decimal_precision<Decimal128>()) {
+    auto max_precision =
+            use_v2 ? max_decimal_precision<Decimal128>() : max_decimal_precision<Decimal128I>();
+    if (precision_value < min_decimal_precision() || precision_value > max_precision) {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Wrong precision {}, min: {}, max: {}", precision_value,
-                               min_decimal_precision(), max_decimal_precision<Decimal128>());
+                               min_decimal_precision(), max_precision);
     }
 
     if (static_cast<UInt64>(scale_value) > precision_value) {
@@ -228,10 +229,16 @@ Int64 max_decimal_value<Decimal64>(UInt32 precision) {
 }
 template <>
 Int128 max_decimal_value<Decimal128>(UInt32 precision) {
+    return DecimalV2Value::get_max_decimal().value() /
+           DataTypeDecimal<Decimal128>::get_scale_multiplier(
+                   (UInt64)max_decimal_precision<Decimal128>() - precision);
+}
+template <>
+Int128 max_decimal_value<Decimal128I>(UInt32 precision) {
     return (static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
             static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll) /
            DataTypeDecimal<Decimal128>::get_scale_multiplier(
-                   (UInt64)max_decimal_precision<Decimal128>() - precision);
+                   (UInt64)max_decimal_precision<Decimal128I>() - precision);
 }
 
 template <typename T>
@@ -249,9 +256,15 @@ Int64 min_decimal_value<Decimal64>(UInt32 precision) {
                                          (UInt64)max_decimal_precision<Decimal64>() - precision);
 }
 template <>
-Int128 min_decimal_value<Decimal128>(UInt32 precision) {
+Int128 min_decimal_value<Decimal128I>(UInt32 precision) {
     return -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
              static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll) /
+           DataTypeDecimal<Decimal128>::get_scale_multiplier(
+                   (UInt64)max_decimal_precision<Decimal128I>() - precision);
+}
+template <>
+Int128 min_decimal_value<Decimal128>(UInt32 precision) {
+    return DecimalV2Value::get_min_decimal().value() /
            DataTypeDecimal<Decimal128>::get_scale_multiplier(
                    (UInt64)max_decimal_precision<Decimal128>() - precision);
 }

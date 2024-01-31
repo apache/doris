@@ -285,6 +285,20 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         }
     }
 
+    if (UNLIKELY((http_req->header(HttpHeaders::CONTENT_LENGTH).empty() &&
+                  !ctx->is_chunked_transfer))) {
+        LOG(WARNING) << "content_length is empty and transfer-encoding!=chunked, please set "
+                        "content_length or transfer-encoding=chunked";
+        return Status::InvalidArgument(
+                "content_length is empty and transfer-encoding!=chunked, please set content_length "
+                "or transfer-encoding=chunked");
+    } else if (UNLIKELY(!http_req->header(HttpHeaders::CONTENT_LENGTH).empty() &&
+                        ctx->is_chunked_transfer)) {
+        LOG(WARNING) << "please do not set both content_length and transfer-encoding";
+        return Status::InvalidArgument(
+                "please do not set both content_length and transfer-encoding");
+    }
+
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
         try {
             ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));

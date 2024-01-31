@@ -386,6 +386,20 @@ public class StmtExecutor {
         return masterOpExecutor.getProxyStatus();
     }
 
+    public int getProxyStatusCode() {
+        if (masterOpExecutor == null) {
+            return MysqlStateType.UNKNOWN.ordinal();
+        }
+        return masterOpExecutor.getProxyStatusCode();
+    }
+
+    public String getProxyErrMsg() {
+        if (masterOpExecutor == null) {
+            return MysqlStateType.UNKNOWN.name();
+        }
+        return masterOpExecutor.getProxyErrMsg();
+    }
+
     public boolean isSyncLoadKindStmt() {
         if (parsedStmt == null) {
             return false;
@@ -452,6 +466,11 @@ public class StmtExecutor {
                     LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
                     parsedStmt = null;
                     planner = null;
+                    // Attention: currently exception from nereids does not mean an Exception to user terminal
+                    // unless user does not allow fallback to lagency planner. But state of query
+                    // has already been set to Error in this case, it will have some side effect on profile result
+                    // and audit log. So we need to reset state to OK if query cancel be processd by lagency.
+                    context.getState().reset();
                     context.getState().setNereids(false);
                     executeByLegacy(queryId);
                 }
@@ -711,6 +730,7 @@ public class StmtExecutor {
             } else {
                 analyzer = new Analyzer(context.getEnv(), context);
                 parsedStmt.analyze(analyzer);
+                parsedStmt.checkPriv();
             }
 
             if (prepareStmt instanceof PrepareStmt && !isExecuteStmt) {
@@ -1199,11 +1219,21 @@ public class StmtExecutor {
     // Handle kill statement.
     private void handleKill() throws DdlException {
         KillStmt killStmt = (KillStmt) parsedStmt;
+        ConnectContext killCtx = null;
         int id = killStmt.getConnectionId();
-        ConnectContext killCtx = context.getConnectScheduler().getContext(id);
-        if (killCtx == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);
+        String queryId = killStmt.getQueryId();
+        if (id == -1) {
+            killCtx = context.getConnectScheduler().getContextWithQueryId(queryId);
+            if (killCtx == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_QUERY, queryId);
+            }
+        } else {
+            killCtx = context.getConnectScheduler().getContext(id);
+            if (killCtx == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);
+            }
         }
+
         if (context == killCtx) {
             // Suicide
             context.setKilled();
@@ -1503,6 +1533,7 @@ public class StmtExecutor {
             // in some case may block all fragment handle threads
             // details see issue https://github.com/apache/doris/issues/16203
             LOG.warn("cancel fragment query_id:{} cause {}", DebugUtil.printId(context.queryId()), e.getMessage());
+            // BUG: we could reach hear for timeout error ...
             coordBase.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
             fetchResultSpan.recordException(e);
             throw e;

@@ -251,7 +251,7 @@ Through the above 4 steps, we can smoothly use the resource division function af
    
    ```sql
    CREATE DATABASE db1 PROPERTIES (
-   "replication_allocation" = "tag.location.group_a:1, tag.location.group_b:2"
+   "replication_allocation" = "tag.location.group_c:1, tag.location.group_b:2"
    )
    ```
 
@@ -262,7 +262,7 @@ Through the above 4 steps, we can smoothly use the resource division function af
    (k1 int, k2 int)
    distributed by hash(k1) buckets 1
    properties(
-   "replication_allocation"="tag.location.group_c:1, tag.location.group_b:2"
+   "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
    )
    ```
 

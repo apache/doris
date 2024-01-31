@@ -678,6 +678,18 @@ Default：1048576  （1M）
 
 http header size configuration parameter, the default value is 1M.
 
+#### `http_sql_submitter_max_worker_threads`
+
+Default：2
+
+The max number work threads of http sql submitter
+
+#### `http_load_submitter_max_worker_threads`
+
+Default：2
+
+The max number work threads of http upload submitter
+
 ### Query Engine
 
 #### `default_max_query_instances`

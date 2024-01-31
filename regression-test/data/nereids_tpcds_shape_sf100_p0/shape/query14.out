@@ -28,7 +28,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalOlapScan[catalog_sales]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter((d2.d_year >= 2000)(d2.d_year <= 2002))
+------------------------filter((d2.d_year <= 2002)(d2.d_year >= 2000))
 --------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
@@ -42,7 +42,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalOlapScan[web_sales]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter((d3.d_year <= 2002)(d3.d_year >= 2000))
+------------------------filter((d3.d_year >= 2000)(d3.d_year <= 2002))
 --------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
@@ -81,7 +81,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalOlapScan[web_sales]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter((date_dim.d_year >= 2000)(date_dim.d_year <= 2002))
+------------------------filter((date_dim.d_year <= 2002)(date_dim.d_year >= 2000))
 --------------------------PhysicalOlapScan[date_dim]
 ----PhysicalResultSink
 ------PhysicalTopN
@@ -136,7 +136,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------------------------PhysicalOlapScan[catalog_sales]
 ----------------------------------------------PhysicalDistribute
 ------------------------------------------------PhysicalProject
---------------------------------------------------filter((date_dim.d_year = 2002)(date_dim.d_moy = 11))
+--------------------------------------------------filter((date_dim.d_moy = 11)(date_dim.d_year = 2002))
 ----------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject

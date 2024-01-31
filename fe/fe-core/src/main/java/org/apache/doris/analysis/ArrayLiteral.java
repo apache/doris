@@ -44,6 +44,9 @@ public class ArrayLiteral extends LiteralExpr {
         Type itemType = Type.NULL;
         boolean containsNull = true;
         for (LiteralExpr expr : exprs) {
+            if (!ArrayType.ARRAY.supportSubType(expr.getType())) {
+                throw new AnalysisException("Invalid item type in Array, not support " + expr.getType());
+            }
             if (itemType == Type.NULL) {
                 itemType = expr.getType();
             } else {
@@ -119,6 +122,16 @@ public class ArrayLiteral extends LiteralExpr {
     public String getStringValueForArray() {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.getStringValueForArray()));
+        return "[" + StringUtils.join(list, ", ") + "]";
+    }
+
+    @Override
+    public String getStringValueInFe() {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> {
+            // we should use type to decide we output array is suitable for json format
+            list.add(getStringLiteralForComplexType(v));
+        });
         return "[" + StringUtils.join(list, ", ") + "]";
     }
 
