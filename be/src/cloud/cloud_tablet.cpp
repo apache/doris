@@ -28,6 +28,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "io/cache/block/block_file_cache_factory.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_writer.h"
@@ -37,7 +38,9 @@ namespace doris {
 using namespace ErrorCode;
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
-        : BaseTablet(std::move(tablet_meta)), _engine(engine) {}
+        : BaseTablet(std::move(tablet_meta)), _engine(engine) {
+    _tablet_path = remote_tablet_path(_tablet_meta->tablet_id());
+}
 
 CloudTablet::~CloudTablet() = default;
 

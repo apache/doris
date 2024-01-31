@@ -280,9 +280,6 @@ Tablet::Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* 
         _tablet_path = fmt::format("{}/{}/{}/{}/{}", _data_dir->path(), DATA_PREFIX,
                                    _tablet_meta->shard_id(), tablet_id(), schema_hash());
     }
-    // construct _timestamped_versioned_tracker from rs and stale rs meta
-    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
-                                                             _tablet_meta->all_stale_rs_metas());
 }
 
 bool Tablet::set_tablet_schema_into_rowset_meta() {
