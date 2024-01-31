@@ -179,8 +179,12 @@ public:
 
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
-            LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
-            return nullptr;
+            // use original name as signature without variadic arguments
+            iter = function_creators.find(name);
+            if (iter == function_creators.end()) {
+                LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
+                return nullptr;
+            }
         }
 
         return iter->second()->build(arguments, return_type);

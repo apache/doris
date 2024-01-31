@@ -60,8 +60,8 @@ public:
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
-    DataTypes get_variadic_argument_types() const override {
-        return {std::make_shared<vectorized::DataTypeObject>()};
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<vectorized::DataTypeObject>(), std::make_shared<DataTypeString>()};
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {

@@ -73,7 +73,7 @@ public abstract class PushDownToProjectionFunction extends ScalarFunction {
         }
         SlotReference slotRef = new SlotReference(StatementScopeIdGenerator.newExprId(),
                 topColumnSlot.getName(), topColumnSlot.getDataType(),
-                topColumnSlot.nullable(), topColumnSlot.getQualifier(),
+                topColumnSlot.nullable(), topColumnSlot.getQualifier(), topColumnSlot.getTable().get(),
                 topColumnSlot.getColumn().get(), Optional.of(topColumnSlot.getInternalName()),
                 fullPaths);
         ctx.addPathSlotRef(topColumnSlot, fullPaths, slotRef, pushedFunction);
