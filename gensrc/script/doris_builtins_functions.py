@@ -1263,6 +1263,7 @@ visible_functions = {
         [['abs'], 'DECIMAL128', ['DECIMAL128'], ''],
         [['acos'], 'DOUBLE', ['DOUBLE'], ''],
         [['atan'], 'DOUBLE', ['DOUBLE'], ''],
+        [['atan2'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], ''],
         [['asin'], 'DOUBLE', ['DOUBLE'], ''],
 
         [['bin'], 'VARCHAR', ['BIGINT'], ''],

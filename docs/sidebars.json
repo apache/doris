@@ -718,6 +718,7 @@
                                 "sql-manual/sql-functions/numeric-functions/asin",
                                 "sql-manual/sql-functions/numeric-functions/acos",
                                 "sql-manual/sql-functions/numeric-functions/atan",
+                                "sql-manual/sql-functions/numeric-functions/atan2",
                                 "sql-manual/sql-functions/numeric-functions/e",
                                 "sql-manual/sql-functions/numeric-functions/pi",
                                 "sql-manual/sql-functions/numeric-functions/exp",
