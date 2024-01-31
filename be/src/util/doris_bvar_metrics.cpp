@@ -23,6 +23,9 @@ namespace doris {
 #define INIT_INT64_BVAR_METRIC(name, type, unit, description, group_name, labels, core) \
     name = std::make_shared<BvarAdderMetric<int64_t>>(type, unit, #name, description, group_name, labels, core);
 
+#define INIT_UINT64_BVAR_METRIC(name, type, unit, description, group_name, labels, core) \
+    name = std::make_shared<BvarAdderMetric<uint64_t>>(type, unit, #name, description, group_name, labels, core);
+
 #define ENTITY_REGISTER_METRICS(name, type)                        \
 auto name##_ptr = std::make_shared<BvarMetricEntity>(#name, type); \
 entities_map_[#name].push_back(name##_ptr);                        \
@@ -72,7 +75,8 @@ DorisBvarMetrics::DorisBvarMetrics() {
                            "", "engine_requests_total", Labels({{"type", "storage_migrate"}, {"status", "total"}}), false);
     INIT_INT64_BVAR_METRIC(storage_migrate_v2_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
                            "", "engine_requests_total", Labels({{"type", "storage_migrate_v2"}, {"status", "total"}}), false);
-    INIT_INT64_BVAR_METRIC(storage_migrate_v2_requests_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,  "", "engine_requests_total", Labels({{"type", "storage_migrate_v2"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(storage_migrate_v2_requests_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,  
+                           "", "engine_requests_total", Labels({{"type", "storage_migrate_v2"}, {"status", "failed"}}), false);
     INIT_INT64_BVAR_METRIC(delete_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, 
                            "", "engine_requests_total", Labels({{"type", "delete"}, {"status", "total"}}), false);
     INIT_INT64_BVAR_METRIC(delete_requests_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,  
@@ -109,6 +113,105 @@ DorisBvarMetrics::DorisBvarMetrics() {
                            "", "engine_requests_total", Labels({{"type", "publish"}, {"status", "total"}}), false);
     INIT_INT64_BVAR_METRIC(publish_task_failed_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
                            "", "engine_requests_total", Labels({{"type", "publish"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(segment_read_total, BvarMetricType::COUNTER, BvarMetricUnit::OPERATIONS, 
+                           "(segment_v2) total number of segments read", "segment_read", Labels({{"type", "segment_read_total"}}), false)
+    INIT_INT64_BVAR_METRIC(segment_row_total, BvarMetricType::COUNTER, BvarMetricUnit::ROWS, 
+                           "(segment_v2) total number of rows in queried segments (before index pruning)", "segment_read", Labels({{"type", "segment_row_total"}}), false)
+    INIT_INT64_BVAR_METRIC(stream_load_txn_begin_request_total, BvarMetricType::COUNTER, BvarMetricUnit::OPERATIONS, 
+                           "", "stream_load_txn_request", Labels({{"type", "begin"}}), false)
+    INIT_INT64_BVAR_METRIC(stream_load_txn_commit_request_total, BvarMetricType::COUNTER, BvarMetricUnit::OPERATIONS, 
+                           "", "stream_load_txn_request", Labels({{"type", "commit"}}), false)
+    INIT_INT64_BVAR_METRIC(stream_load_txn_rollback_request_total, BvarMetricType::COUNTER, BvarMetricUnit::OPERATIONS, 
+                           "", "stream_load_txn_request", Labels({{"type", "rollback"}}), false)
+    INIT_INT64_BVAR_METRIC(stream_receive_bytes_total, BvarMetricType::COUNTER, BvarMetricUnit::BYTES, 
+                           "", "stream_load", Labels({{"type", "receive_bytes"}}), false)
+    INIT_INT64_BVAR_METRIC(stream_load_rows_total, BvarMetricType::COUNTER, BvarMetricUnit::ROWS, 
+                           "", "stream_load", Labels({{"type", "load_rows"}}), false)
+    INIT_INT64_BVAR_METRIC(load_rows, BvarMetricType::COUNTER, BvarMetricUnit::ROWS,  
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(load_bytes, BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(memtable_flush_total, BvarMetricType::COUNTER, BvarMetricUnit::OPERATIONS, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(memtable_flush_duration_us, BvarMetricType::COUNTER, BvarMetricUnit::MICROSECONDS, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(memory_pool_bytes_total, BvarMetricType::GAUGE, BvarMetricUnit::BYTES,
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(process_thread_num, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,  
+                           "", "", Labels(), true)
+    INIT_INT64_BVAR_METRIC(process_fd_num_used, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, 
+                           "", "", Labels(), true)
+    INIT_INT64_BVAR_METRIC(process_fd_num_limit_soft, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,  
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(process_fd_num_limit_hard, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(tablet_cumulative_max_compaction_score, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(tablet_base_max_compaction_score, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(all_rowsets_num, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(all_segments_num, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(compaction_used_permits, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(compaction_waitting_permits, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,  
+                           "", "", Labels(), false)
+    // INIT_INT64_BVAR_METRIC(tablet_version_num_distribution, BvarMetricType::HISTOGRAM, BvarMetricUnit::NOUNIT, 
+    //                        "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(query_scan_bytes_per_second, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, 
+                           "", "", Labels(), true)
+    INIT_INT64_BVAR_METRIC(local_file_reader_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(s3_file_reader_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(hdfs_file_reader_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM,
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(broker_file_reader_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(local_file_writer_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM,
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(s3_file_writer_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM,  
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(file_created_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM,  
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(s3_file_created_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(local_bytes_read_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(s3_bytes_read_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(local_bytes_written_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(s3_bytes_written_total, BvarMetricType::COUNTER, BvarMetricUnit::FILESYSTEM,
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(local_file_open_reading, BvarMetricType::GAUGE, BvarMetricUnit::FILESYSTEM,  
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(s3_file_open_reading, BvarMetricType::GAUGE, BvarMetricUnit::FILESYSTEM,  
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(hdfs_file_open_reading, BvarMetricType::GAUGE, BvarMetricUnit::FILESYSTEM, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(broker_file_open_reading, BvarMetricType::GAUGE, BvarMetricUnit::FILESYSTEM, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(local_file_open_writing, BvarMetricType::GAUGE, BvarMetricUnit::FILESYSTEM, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(s3_file_open_writing, BvarMetricType::GAUGE, BvarMetricUnit::FILESYSTEM,  
+                           "", "", Labels(), false)
+    INIT_UINT64_BVAR_METRIC(query_cache_memory_total_byte, BvarMetricType::GAUGE, BvarMetricUnit::BYTES,
+                           "", "", Labels(), true)
+    INIT_UINT64_BVAR_METRIC(query_cache_sql_total_count, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,
+                           "", "", Labels(), true)
+    INIT_UINT64_BVAR_METRIC(query_cache_partition_total_count, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,
+                           "", "", Labels(), true)
+    INIT_INT64_BVAR_METRIC(lru_cache_memory_bytes, BvarMetricType::GAUGE, BvarMetricUnit::BYTES,
+                           "", "", Labels(), true)
+    INIT_UINT64_BVAR_METRIC(upload_total_byte, BvarMetricType::GAUGE, BvarMetricUnit::BYTES,
+                           "", "", Labels(), true)
+    INIT_INT64_BVAR_METRIC(upload_rowset_count, BvarMetricType::COUNTER, BvarMetricUnit::ROWSETS, 
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(upload_fail_count, BvarMetricType::COUNTER, BvarMetricUnit::ROWSETS,
+                           "", "", Labels(), false)
+    
     
     ENTITY_REGISTER_METRICS(fragment_requests_total, BvarMetricType::COUNTER)
     ENTITY_REGISTER_METRICS(fragment_request_duration_us, BvarMetricType::COUNTER)
@@ -148,7 +251,54 @@ DorisBvarMetrics::DorisBvarMetrics() {
     ENTITY_REGISTER_METRICS(cumulative_compaction_bytes_total, BvarMetricType::COUNTER)
     ENTITY_REGISTER_METRICS(publish_task_request_total, BvarMetricType::COUNTER)
     ENTITY_REGISTER_METRICS(publish_task_failed_total, BvarMetricType::COUNTER)
-    
+    ENTITY_REGISTER_METRICS(segment_read_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(segment_row_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(stream_load_txn_begin_request_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(stream_load_txn_commit_request_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(stream_load_txn_rollback_request_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(stream_receive_bytes_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(stream_load_rows_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(load_rows, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(load_bytes, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(memtable_flush_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(memtable_flush_duration_us, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(memory_pool_bytes_total, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(process_thread_num, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(process_fd_num_used, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(process_fd_num_limit_soft, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(process_fd_num_limit_hard, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(tablet_cumulative_max_compaction_score, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(tablet_base_max_compaction_score, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(all_rowsets_num, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(all_segments_num, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(compaction_used_permits, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(compaction_waitting_permits, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(local_file_reader_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(query_scan_bytes_per_second, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(s3_file_reader_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(hdfs_file_reader_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(broker_file_reader_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(local_file_writer_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(s3_file_writer_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(file_created_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(s3_file_created_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(local_bytes_read_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(s3_bytes_read_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(local_bytes_written_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(s3_bytes_written_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(local_file_open_reading, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(s3_file_open_reading, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(hdfs_file_open_reading, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(broker_file_open_reading, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(local_file_open_writing, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(s3_file_open_writing, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(query_cache_memory_total_byte, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(query_cache_sql_total_count, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(query_cache_partition_total_count, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(lru_cache_memory_bytes, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(upload_total_byte, BvarMetricType::GAUGE)
+    ENTITY_REGISTER_METRICS(upload_rowset_count, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(upload_fail_count, BvarMetricType::COUNTER)
 }
 
 void DorisBvarMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,
@@ -156,23 +306,6 @@ void DorisBvarMetrics::initialize(bool init_system_metrics, const std::set<std::
     if (init_system_metrics) {
         system_metrics_ = std::make_unique<SystemBvarMetrics>();
     }
-    auto file_create_total_ptr =
-            std::make_shared<BvarMetricEntity>("file_create_total", BvarMetricType::COUNTER);
-    entities_map_["file_create_total"].push_back(file_create_total_ptr);
-    file_create_total_ptr->register_metric("file_create_total", g_adder_file_created_total);
-
-    auto timeout_canceled_fragment_count =
-            std::make_shared<BvarMetricEntity>("timeout_canceled", BvarMetricType::GAUGE);
-    entities_map_["timeout_canceled"].push_back(timeout_canceled_fragment_count);
-    timeout_canceled_fragment_count->register_metric("timeout_canceled_fragment_count",
-                                         g_adder_timeout_canceled_fragment_count);
-
-    auto test_ptr = std::make_shared<BvarMetricEntity>("test", BvarMetricType::COUNTER);
-    entities_map_["test"].push_back(test_ptr);
-
-    test_ptr->register_metric("fragment_request_duration", g_adder_fragment_request_duration_us);
-    test_ptr->register_metric("query_scan_byte", g_adder_query_scan_bytes);
-    test_ptr->register_metric("segment_read_total", g_adder_segment_read_total);
 }
 
 void DorisBvarMetrics::register_entity(BvarMetricEntity entity) {
@@ -197,31 +330,4 @@ std::string DorisBvarMetrics::to_prometheus() const{
     if (system_metrics_) ss << system_metrics_->to_prometheus(s_registry_name_);
     return ss.str();
 }
-
-// timeout_canceled_fragment_count_entity
-BvarAdderMetric<int64_t> g_adder_timeout_canceled_fragment_count(BvarMetricType::GAUGE,
-                                                                 BvarMetricUnit::NOUNIT,
-                                                                 "timeout_canceled_fragment_count",
-                                                                 "", "", Labels());
-BvarAdderMetric<int64_t> g_adder_file_created_total(BvarMetricType::COUNTER,
-                                                    BvarMetricUnit::FILESYSTEM,
-                                                    "file_created_total", "", "", Labels());
-// test_entity
-BvarAdderMetric<int64_t> g_adder_fragment_requests_total(BvarMetricType::COUNTER,
-                                                         BvarMetricUnit::REQUESTS,
-                                                         "fragment_requests_total",
-                                                         "Total fragment requests received.", "",
-                                                         Labels());
-BvarAdderMetric<int64_t> g_adder_fragment_request_duration_us(BvarMetricType::COUNTER,
-                                                              BvarMetricUnit::REQUESTS,
-                                                              "fragment_request_duration_us", "",
-                                                              "", Labels());
-BvarAdderMetric<int64_t> g_adder_query_scan_bytes(BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
-                                                  "query_scan_bytes", "", "", Labels());
-BvarAdderMetric<int64_t> g_adder_segment_read_total(BvarMetricType::COUNTER,
-                                                    BvarMetricUnit::OPERATIONS,
-                                                    "segment_read_total",
-                                                    "(segment_v2) toal number of segments read",
-                                                    "segment_read",
-                                                    Labels({{"type", "segment_read_total"}}));
 } // namespace doris

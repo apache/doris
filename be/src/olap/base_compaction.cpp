@@ -30,6 +30,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_meta.h"
 #include "runtime/thread_context.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/thread.h"
 #include "util/trace.h"
@@ -84,7 +85,8 @@ Status BaseCompaction::execute_compact_impl() {
     // 4. add metric to base compaction
     DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
-
+    DorisBvarMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
+    DorisBvarMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
     return Status::OK();
 }
 

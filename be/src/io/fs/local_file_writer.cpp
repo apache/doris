@@ -76,6 +76,8 @@ LocalFileWriter::LocalFileWriter(Path path, int fd, FileSystemSPtr fs, bool sync
     _opened = true;
     DorisMetrics::instance()->local_file_open_writing->increment(1);
     DorisMetrics::instance()->local_file_writer_total->increment(1);
+    DorisBvarMetrics::instance()->local_file_open_writing->increment(1);
+    DorisBvarMetrics::instance()->local_file_writer_total->increment(1);
 }
 
 LocalFileWriter::LocalFileWriter(Path path, int fd)
@@ -87,8 +89,11 @@ LocalFileWriter::~LocalFileWriter() {
     }
     DorisMetrics::instance()->local_file_open_writing->increment(-1);
     DorisMetrics::instance()->file_created_total->increment(1);
-    g_adder_file_created_total.increment(1);
+    DorisBvarMetrics::instance()->local_file_open_writing->increment(-1);
+    DorisBvarMetrics::instance()->file_created_total->increment(1);
+    // g_adder_file_created_total.increment(1);
     DorisMetrics::instance()->local_bytes_written_total->increment(_bytes_appended);
+    DorisBvarMetrics::instance()->local_bytes_written_total->increment(_bytes_appended);
 }
 
 Status LocalFileWriter::close() {

@@ -27,6 +27,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/doris_bvar_metrics.h" 
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column_const.h"
@@ -272,6 +273,8 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
         _state->update_num_bytes_load_total(_batching_bytes - new_bt_bytes);
         DorisMetrics::instance()->load_rows->increment(_batching_rows - new_bt_rows);
         DorisMetrics::instance()->load_bytes->increment(_batching_bytes - new_bt_bytes);
+        DorisBvarMetrics::instance()->load_rows->increment(_batching_rows - new_bt_rows);
+        DorisBvarMetrics::instance()->load_bytes->increment(_batching_bytes - new_bt_bytes);
         _batching_rows = new_bt_rows;
         _batching_bytes = new_bt_bytes;
     }

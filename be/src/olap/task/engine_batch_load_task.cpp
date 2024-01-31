@@ -331,7 +331,7 @@ Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
                                          std::vector<TTabletInfo>* tablet_info_vec) {
     VLOG_DEBUG << "begin to process delete data. request=" << ThriftDebugString(request);
     DorisMetrics::instance()->delete_requests_total->increment(1);
-
+    DorisBvarMetrics::instance()->delete_requests_total->increment(1);
     Status res = Status::OK();
 
     if (tablet_info_vec == nullptr) {
@@ -353,6 +353,7 @@ Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
                                                    tablet_info_vec);
     if (!res.ok()) {
         DorisMetrics::instance()->delete_requests_failed->increment(1);
+        DorisBvarMetrics::instance()->delete_requests_failed->increment(1);
     }
     return res;
 }

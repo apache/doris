@@ -44,6 +44,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
+#include "util/doris_bvar_metrics.h" 
 #include "util/doris_metrics.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
@@ -391,7 +392,8 @@ Status VTabletWriterV2::write(Block& input_block) {
     _state->update_num_bytes_load_total(input_bytes);
     DorisMetrics::instance()->load_rows->increment(input_rows);
     DorisMetrics::instance()->load_bytes->increment(input_bytes);
-
+    DorisBvarMetrics::instance()->load_rows->increment(input_rows);
+    DorisBvarMetrics::instance()->load_bytes->increment(input_bytes);
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
 

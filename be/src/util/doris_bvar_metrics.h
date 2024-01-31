@@ -92,7 +92,7 @@ public:
 
     std::shared_ptr<BvarAdderMetric<int64_t>> memtable_flush_total;
     std::shared_ptr<BvarAdderMetric<int64_t>> memtable_flush_duration_us;
-    //Gauge  line 95 to 120
+
     std::shared_ptr<BvarAdderMetric<int64_t>> memory_pool_bytes_total;
     std::shared_ptr<BvarAdderMetric<int64_t>> process_thread_num;
     std::shared_ptr<BvarAdderMetric<int64_t>> process_fd_num_used;
@@ -119,7 +119,6 @@ public:
     // by metric calculator
     std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_bytes_per_second;
     
-    //Counter
     // Metrics related with file reader/writer
     std::shared_ptr<BvarAdderMetric<int64_t>> local_file_reader_total;
     std::shared_ptr<BvarAdderMetric<int64_t>> s3_file_reader_total;
@@ -133,13 +132,82 @@ public:
     std::shared_ptr<BvarAdderMetric<int64_t>> s3_bytes_read_total;
     std::shared_ptr<BvarAdderMetric<int64_t>> local_bytes_written_total;
     std::shared_ptr<BvarAdderMetric<int64_t>> s3_bytes_written_total;
-    //Gauge
+
     std::shared_ptr<BvarAdderMetric<int64_t>> local_file_open_reading;
     std::shared_ptr<BvarAdderMetric<int64_t>> s3_file_open_reading;
     std::shared_ptr<BvarAdderMetric<int64_t>> hdfs_file_open_reading;
     std::shared_ptr<BvarAdderMetric<int64_t>> broker_file_open_reading;
     std::shared_ptr<BvarAdderMetric<int64_t>> local_file_open_writing;
     std::shared_ptr<BvarAdderMetric<int64_t>> s3_file_open_writing;
+
+    // Size of some global containers
+    std::shared_ptr<BvarAdderMetric<uint64_t>> rowset_count_generated_and_in_use;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> unused_rowsets_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> broker_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> data_stream_receiver_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> fragment_endpoint_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> active_scan_context_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> fragment_instance_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> load_channel_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> result_buffer_block_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> result_block_queue_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> routine_load_task_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> small_file_cache_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> stream_load_pipe_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> new_stream_load_pipe_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> brpc_endpoint_stub_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> brpc_function_endpoint_stub_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> tablet_writer_count;
+
+    std::shared_ptr<BvarAdderMetric<uint64_t>> segcompaction_mem_consumption;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> compaction_mem_consumption;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> load_mem_consumption;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> load_channel_mem_consumption;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> memtable_memory_limiter_mem_consumption;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> query_mem_consumption;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> schema_change_mem_consumption;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> storage_migration_mem_consumption;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> tablet_meta_mem_consumption;
+
+    // Cache metrics
+    std::shared_ptr<BvarAdderMetric<uint64_t>> query_cache_memory_total_byte;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> query_cache_sql_total_count;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> query_cache_partition_total_count;
+
+    std::shared_ptr<BvarAdderMetric<int64_t>> lru_cache_memory_bytes;
+
+    std::shared_ptr<BvarAdderMetric<uint64_t>> scanner_thread_pool_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> add_batch_task_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> send_batch_thread_pool_thread_num;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> send_batch_thread_pool_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> fragment_thread_pool_queue_size;
+
+    // Upload metrics
+    std::shared_ptr<BvarAdderMetric<uint64_t>> upload_total_byte;
+    std::shared_ptr<BvarAdderMetric<int64_t>> upload_rowset_count;
+    std::shared_ptr<BvarAdderMetric<int64_t>> upload_fail_count;
+
+    std::shared_ptr<BvarAdderMetric<uint64_t>> light_work_pool_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> heavy_work_pool_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> heavy_work_active_threads;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> light_work_active_threads;
+
+    std::shared_ptr<BvarAdderMetric<uint64_t>> heavy_work_pool_max_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> light_work_pool_max_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> heavy_work_max_threads;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> light_work_max_threads;
+
+    std::shared_ptr<BvarAdderMetric<uint64_t>> flush_thread_pool_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> flush_thread_pool_thread_num;
+
+    std::shared_ptr<BvarAdderMetric<uint64_t>> local_scan_thread_pool_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> local_scan_thread_pool_thread_num;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> remote_scan_thread_pool_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> remote_scan_thread_pool_thread_num;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> limited_scan_thread_pool_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> limited_scan_thread_pool_thread_num;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> group_local_scan_thread_pool_queue_size;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> group_local_scan_thread_pool_thread_num;
     
     static DorisBvarMetrics* instance() {
         static DorisBvarMetrics metrics;
@@ -168,12 +236,4 @@ private:
                        std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
 
 };
-
-extern BvarAdderMetric<int64_t> g_adder_timeout_canceled_fragment_count;
-extern BvarAdderMetric<int64_t> g_adder_file_created_total;
-
-extern BvarAdderMetric<int64_t> g_adder_fragment_request_duration_us;
-extern BvarAdderMetric<int64_t> g_adder_query_scan_bytes;
-extern BvarAdderMetric<int64_t> g_adder_segment_read_total;
-
 } // namespace doris

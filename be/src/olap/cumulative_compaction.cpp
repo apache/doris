@@ -30,6 +30,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_meta.h"
 #include "runtime/thread_context.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/time.h"
 #include "util/trace.h"
@@ -90,7 +91,8 @@ Status CumulativeCompaction::execute_compact_impl() {
     // 6. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
-
+    DorisBvarMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
+    DorisBvarMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
     return Status::OK();
 }
 

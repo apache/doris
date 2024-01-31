@@ -29,6 +29,7 @@
 #include "olap/schema_change.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -46,6 +47,7 @@ EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request)
 Status EngineAlterTabletTask::execute() {
     SCOPED_ATTACH_TASK(_mem_tracker);
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
+    DorisBvarMetrics::instance()->create_rollup_requests_total->increment(1);
     Status res = Status::OK();
     try {
         res = SchemaChangeHandler::process_alter_tablet_v2(_alter_tablet_req);
@@ -54,6 +56,7 @@ Status EngineAlterTabletTask::execute() {
     }
     if (!res.ok()) {
         DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
+        DorisBvarMetrics::instance()->create_rollup_requests_failed->increment(1);
         return res;
     }
     return res;

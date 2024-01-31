@@ -56,8 +56,8 @@
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
-#include "util/doris_metrics.h"
 #include "util/doris_bvar_metrics.h"
+#include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/network_util.h"
@@ -332,6 +332,7 @@ void Daemon::calculate_metrics_thread() {
             int64_t current_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
             int64_t qps = (current_query_bytes - lst_query_bytes) / (interval + 1);
             DorisMetrics::instance()->query_scan_bytes_per_second->set_value(qps < 0 ? 0 : qps);
+            DorisBvarMetrics::instance()->query_scan_bytes_per_second->set_value(qps < 0 ? 0 : qps);
             lst_query_bytes = current_query_bytes;
 
             if (config::enable_system_metrics) {
@@ -356,6 +357,15 @@ void Daemon::calculate_metrics_thread() {
                         &lst_net_send_bytes, &lst_net_receive_bytes);
             }
             update_rowsets_and_segments_num_metrics();
+
+            DorisMetrics::instance()->all_rowsets_num->set_value(
+                    StorageEngine::instance()->tablet_manager()->get_rowset_nums());
+            DorisMetrics::instance()->all_segments_num->set_value(
+                    StorageEngine::instance()->tablet_manager()->get_segment_nums());
+            DorisBvarMetrics::instance()->all_rowsets_num->set_value(
+                    StorageEngine::instance()->tablet_manager()->get_rowset_nums());
+            DorisBvarMetrics::instance()->all_segments_num->set_value(
+                    StorageEngine::instance()->tablet_manager()->get_segment_nums());
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
 }

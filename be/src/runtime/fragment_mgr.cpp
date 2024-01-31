@@ -1140,7 +1140,7 @@ void FragmentMgr::cancel_worker() {
         // TODO(zhiqiang): It seems that timeout_canceled_fragment_count is
         // designed to count canceled fragment of non-pipeline query.
         timeout_canceled_fragment_count->increment(to_cancel.size());
-        g_adder_timeout_canceled_fragment_count.increment(to_cancel.size());
+        // g_adder_timeout_canceled_fragment_count.increment(to_cancel.size());
         
         for (auto& id : to_cancel) {
             cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT);
