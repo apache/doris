@@ -235,10 +235,11 @@ private:
     Status _wait_flying_segcompaction();
     Status _create_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
-    Status _segcompaction_if_necessary();
+    Status _segcompaction_if_necessary(bool last_batch = false);
     Status _segcompaction_rename_last_segments();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
-    Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
+    Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments,
+                                                   bool last_batch = false);
     bool _is_segcompacted() const { return _num_segcompacted > 0; }
     bool _check_and_set_is_doing_segcompaction();
     Status _rename_compacted_segments(int64_t begin, int64_t end);

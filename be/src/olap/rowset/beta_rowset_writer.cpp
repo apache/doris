@@ -321,7 +321,7 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
  *     length is beyond (config::segcompaction_batch_size / 2)
  */
 Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
-        SegCompactionCandidatesSharedPtr& segments) {
+        SegCompactionCandidatesSharedPtr& segments, bool last_batch) {
     segments = std::make_shared<SegCompactionCandidates>();
     // skip last (maybe active) segment
     int32_t last_segment = _num_segment - 1;
@@ -356,7 +356,7 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         task_bytes += segment->file_reader()->size();
     }
     size_t s = segments->size();
-    if (segid == last_segment && s <= (config::segcompaction_batch_size / 2)) {
+    if (!last_batch && segid == last_segment && s <= (config::segcompaction_batch_size / 2)) {
         // we didn't collect enough segments, better to do it in next
         // round to compact more at once
         segments->clear();
@@ -506,7 +506,7 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
     return !_is_doing_segcompaction.exchange(true);
 }
 
-Status BetaRowsetWriter::_segcompaction_if_necessary() {
+Status BetaRowsetWriter::_segcompaction_if_necessary(bool last_batch) {
     Status status = Status::OK();
     // leave _check_and_set_is_doing_segcompaction as the last condition
     // otherwise _segcompacting_cond will never get notified
@@ -516,17 +516,29 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
+
+    auto num_candidates = _num_segment - _segcompacted_point;
     if (_segcompaction_status.load() != OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>(
                 "BetaRowsetWriter::_segcompaction_if_necessary meet invalid state, error code: {}",
                 _segcompaction_status.load());
-    } else if ((_num_segment - _segcompacted_point) >= config::segcompaction_batch_size) {
+    } else if (num_candidates >= config::segcompaction_batch_size ||
+               // the wider the table, the fewer segments we have to keep
+               (last_batch && (num_candidates * _context.tablet_schema->num_columns() >
+                               config::segcompaction_last_batch_score))) {
+        if (last_batch) {
+            LOG(INFO) << "last batch segment compaction, tablet_id:" << _context.tablet_id
+                      << ", score: " << num_candidates * _context.tablet_schema->num_columns()
+                      << ", compacted point: " << _segcompacted_point;
+        }
         SegCompactionCandidatesSharedPtr segments;
-        status = _find_longest_consecutive_small_segment(segments);
+        status = _find_longest_consecutive_small_segment(segments, last_batch);
         if (LIKELY(status.ok()) && (!segments->empty())) {
             LOG(INFO) << "submit segcompaction task, tablet_id:" << _context.tablet_id
-                      << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
-                      << ", segcompacted_point:" << _segcompacted_point;
+                      << " rowset_id:" << _context.rowset_id
+                      << " total segment num:" << _num_segment
+                      << ", segcompacted_point:" << _segcompacted_point
+                      << ", current batch segment num: " << segments->size();
             status = _engine.submit_seg_compaction_task(_segcompaction_worker, segments);
             if (status.ok()) {
                 return status;
@@ -668,6 +680,13 @@ Status BetaRowsetWriter::_close_file_writers() {
             _is_doing_segcompaction = false;
             _segcompacting_cond.notify_all();
         } else {
+            RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
+                                           "segcompaction failed when build new rowset");
+            // compact all remaining segments, and since we can't submit a segcompaction
+            // when `_is_doing_segcompaction` is true, wait for the flying segcompaction
+            // to finish first, before doing the check
+            RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_if_necessary(true),
+                                           "segcompaction failed when build new rowset");
             RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
                                            "segcompaction failed when build new rowset");
         }

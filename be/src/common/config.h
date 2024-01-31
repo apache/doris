@@ -1013,6 +1013,9 @@ DECLARE_Bool(enable_segcompaction);
 // Max number of segments allowed in a single segcompaction task.
 DECLARE_Int32(segcompaction_batch_size);
 
+// the score threshold for last batch
+DECLARE_Int32(segcompaction_last_batch_score);
+
 // Max row count allowed in a single source segment, bigger segments will be skipped.
 DECLARE_Int32(segcompaction_candidate_max_rows);
 
