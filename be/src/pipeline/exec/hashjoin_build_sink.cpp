@@ -76,12 +76,6 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         _shared_hash_table_dependency->block();
         p._shared_hashtable_controller->append_dependency(p.node_id(),
                                                           _shared_hash_table_dependency);
-    } else {
-        if ((p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-             p._join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
-            p._have_other_join_conjunct) {
-            _build_indexes_null = std::make_shared<std::vector<uint32_t>>();
-        }
     }
 
     _build_blocks_memory_usage =
@@ -496,7 +490,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 state, local_state._shared_state->build_block.get(), &local_state, use_global_rf));
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
-        local_state._shared_state->build_indexes_null = local_state._build_indexes_null;
         if (_shared_hashtable_controller) {
             _shared_hash_table_context->status = Status::OK();
             // arena will be shared with other instances.
@@ -542,7 +535,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                         _shared_hash_table_context->hash_table_variants));
 
         local_state._shared_state->build_block = _shared_hash_table_context->block;
-        local_state._build_indexes_null = _shared_hash_table_context->build_indexes_null;
         local_state._shared_state->build_indexes_null =
                 _shared_hash_table_context->build_indexes_null;
         const bool use_global_rf =
