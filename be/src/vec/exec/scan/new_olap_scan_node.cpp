@@ -34,7 +34,9 @@
 #include <variant>
 #include <vector>
 
-#include "common/config.h"
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -494,22 +496,30 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     bool is_dup_mow_key = false;
     size_t segment_count = 0;
     std::vector<TabletReader::ReadSource> tablets_read_source;
-    tablets_read_source.reserve(_scan_ranges.size());
     std::vector<std::vector<size_t>> tablet_rs_seg_count;
-    tablet_rs_seg_count.reserve(_scan_ranges.size());
-    std::vector<std::pair<BaseTabletSPtr, int64_t /* version */>> tablets_to_scan;
-    tablets_to_scan.reserve(_scan_ranges.size());
+    std::vector<TabletWithVersion> tablets_to_scan;
 
-    std::vector<TabletWithVersion> tablets;
+    tablets_read_source.reserve(_scan_ranges.size());
+    tablet_rs_seg_count.reserve(_scan_ranges.size());
+    tablets_to_scan.reserve(_scan_ranges.size());
 
     for (auto&& scan_range : _scan_ranges) {
         auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
         int64_t version = 0;
         std::from_chars(scan_range->version.data(),
                         scan_range->version.data() + scan_range->version.size(), version);
-        tablets.emplace_back(
-                TabletWithVersion {std::dynamic_pointer_cast<Tablet>(tablet), version});
         tablets_to_scan.emplace_back(std::move(tablet), version);
+    }
+
+    if (config::is_cloud_mode()) {
+        std::vector<std::function<Status()>> tasks;
+        tasks.reserve(_scan_ranges.size());
+        for (auto&& [tablet, version] : tablets_to_scan) {
+            tasks.emplace_back([tablet, version]() {
+                return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
+            });
+        }
+        RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
     }
 
     bool enable_parallel_scan = _state->enable_parallel_scan();
@@ -564,7 +574,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         }
 
         ParallelScannerBuilder<NewOlapScanNode> scanner_builder(
-                this, tablets, _scanner_profile, key_ranges, _state, _limit_per_scanner,
+                this, tablets_to_scan, _scanner_profile, key_ranges, _state, _limit_per_scanner,
                 is_dup_mow_key, _olap_scan_node.is_preaggregation);
 
         int max_scanners_count = _state->parallel_scan_max_scanners_count();
