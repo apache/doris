@@ -97,9 +97,9 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.ColStatsData;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.InvalidateStatsTarget;
-import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.query.QueryStats;
@@ -3053,11 +3053,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TStatus updateStatsCache(TUpdateFollowerStatsCacheRequest request) throws TException {
         StatisticsCacheKey k = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
-        List<ResultRow> rows = request.statsRows.stream()
-                .map(s -> GsonUtils.GSON.fromJson(s, ResultRow.class))
-                .collect(Collectors.toList());
-        ColumnStatistic c = ColumnStatistic.fromResultRow(rows);
-        if (c != ColumnStatistic.UNKNOWN) {
+        ColStatsData data = GsonUtils.GSON.fromJson(request.colStatsData, ColStatsData.class);
+        ColumnStatistic c = data.toColumnStatistic();
+        if (c == ColumnStatistic.UNKNOWN) {
+            Env.getCurrentEnv().getStatisticsCache().invalidate(k.tableId, k.idxId, k.colName);
+        } else {
             Env.getCurrentEnv().getStatisticsCache().updateColStatsCache(k.tableId, k.idxId, k.colName, c);
         }
         // Return Ok anyway
