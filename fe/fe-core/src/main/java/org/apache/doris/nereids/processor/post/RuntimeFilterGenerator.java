@@ -256,9 +256,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             CascadesContext context) {
         join.right().accept(this, context);
         join.left().accept(this, context);
-        if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
-            join.right().getOutput().forEach(slot ->
-                    context.getRuntimeFilterContext().aliasTransferMapRemove(slot));
+        if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType())
+                || JoinUtils.isNullAwareMarkJoin(join)) {
+            join.right().getOutput().forEach(
+                    slot -> context.getRuntimeFilterContext().aliasTransferMapRemove(slot));
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
@@ -442,9 +443,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         join.right().accept(this, context);
         join.left().accept(this, context);
 
-        if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
-            join.right().getOutput().forEach(slot ->
-                    context.getRuntimeFilterContext().aliasTransferMapRemove(slot));
+        if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType())
+                || JoinUtils.isNullAwareMarkJoin(join)) {
+            join.right().getOutput().forEach(
+                    slot -> context.getRuntimeFilterContext().aliasTransferMapRemove(slot));
             return join;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
@@ -618,7 +620,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                                        RuntimeFilterContext ctx, Slot slot) {
         if (slot == null || !ctx.aliasTransferMapContains(slot)) {
             return false;
-        } else if (DENIED_JOIN_TYPES.contains(physicalJoin.getJoinType()) || physicalJoin.isMarkJoin()) {
+        } else if (DENIED_JOIN_TYPES.contains(physicalJoin.getJoinType())
+                || JoinUtils.isNullAwareMarkJoin(physicalJoin)) {
             return false;
         } else {
             return true;

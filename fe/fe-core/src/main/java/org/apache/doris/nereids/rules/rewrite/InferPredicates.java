@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableSet;
@@ -62,7 +63,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, JobContext context) {
         join = visitChildren(this, join, context);
-        if (join.isMarkJoin()) {
+        if (JoinUtils.hasMarkConjuncts(join)) {
             return join;
         }
         Plan left = join.left();

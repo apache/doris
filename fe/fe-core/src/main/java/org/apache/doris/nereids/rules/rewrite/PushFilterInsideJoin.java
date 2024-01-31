@@ -39,7 +39,6 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalJoin())
-                .whenNot(filter -> filter.child().isMarkJoin())
                 // TODO: current just handle cross/inner join.
                 .when(filter -> filter.child().getJoinType().isCrossJoin()
                         || filter.child().getJoinType().isInnerJoin())

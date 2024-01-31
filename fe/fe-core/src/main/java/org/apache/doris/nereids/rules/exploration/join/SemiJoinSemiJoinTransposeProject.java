@@ -55,7 +55,6 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 .when(this::typeChecker)
                 .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child(), false))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> join.left().isAllSlots())
                 .then(topSemi -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();

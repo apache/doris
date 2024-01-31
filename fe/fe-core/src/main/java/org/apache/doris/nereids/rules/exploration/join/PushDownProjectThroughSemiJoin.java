@@ -54,7 +54,7 @@ public class PushDownProjectThroughSemiJoin implements ExplorationRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalJoin(logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)), group())
+                logicalJoin(logicalProject(logicalJoin()), group())
                     .when(j -> j.left().child().getJoinType().isLeftSemiOrAntiJoin())
                     // Just pushdown project with non-column expr like (t.id + 1)
                     .whenNot(j -> j.left().isAllSlots())
@@ -65,7 +65,7 @@ public class PushDownProjectThroughSemiJoin implements ExplorationRuleFactory {
                         return topJoin.withChildren(newLeft, topJoin.right());
                     }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN_LEFT),
 
-                logicalJoin(group(), logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)))
+                logicalJoin(group(), logicalProject(logicalJoin()))
                     .when(j -> j.right().child().getJoinType().isLeftSemiOrAntiJoin())
                     // Just pushdown project with non-column expr like (t.id + 1)
                     .whenNot(j -> j.right().isAllSlots())
