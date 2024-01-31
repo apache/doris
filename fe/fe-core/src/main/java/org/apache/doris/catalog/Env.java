@@ -1377,6 +1377,9 @@ public class Env {
                 VariableMgr.setGlobalPipelineTask(newVal);
                 LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
                         + "to parallel_fragment_exec_instance_num: {}", newVal);
+                // similar reason as above, need to upgrade enable_nereids_planner to true
+                VariableMgr.enableNereidsPlanner();
+                LOG.info("upgrade FE from 1.x to 2.x, set enable_nereids_planner to new default value: true");
             }
         }
 
