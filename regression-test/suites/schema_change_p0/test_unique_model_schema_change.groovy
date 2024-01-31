@@ -58,7 +58,7 @@ suite("test_unique_model_schema_change","p0") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
-               sleep(3000)
+               sleep(6000)
                sql """ insert into ${tbName} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
                qt_sql """ SELECT * FROM ${tbName}  """
                sql """ DROP TABLE  ${tbName} """
@@ -78,7 +78,7 @@ suite("test_unique_model_schema_change","p0") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
-               sleep(3000)
+               sleep(6000)
                sql """ insert into ${tbName} values(123456689, 'Alice', 0, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
                qt_sql """ SELECT * FROM ${tbName}  """
                sql """ DROP TABLE  ${tbName} """
@@ -100,7 +100,7 @@ suite("test_unique_model_schema_change","p0") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
-               sleep(3000)
+               sleep(6000)
                sql """ insert into ${tbName} values(123456689, 'Alice', 0, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
                qt_sql """ SELECT * FROM ${tbName}  """
                sql """ DROP TABLE  ${tbName} """
@@ -121,7 +121,7 @@ suite("test_unique_model_schema_change","p0") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
-               sleep(3000)
+               sleep(6000)
                sql """ insert into ${tbName} values(123456689, 'Alice', 567, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
                qt_sql """ SELECT * FROM ${tbName}  """
                sql """ DROP TABLE  ${tbName} """
@@ -142,7 +142,7 @@ suite("test_unique_model_schema_change","p0") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
-               sleep(3000)
+               sleep(6000)
                sql """ insert into ${tbName} values(123456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
                qt_sql """ SELECT * FROM ${tbName}  """
                sql """ DROP TABLE  ${tbName} """
@@ -164,7 +164,7 @@ suite("test_unique_model_schema_change","p0") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
-               sleep(3000)
+               sleep(6000)
                sql """ insert into ${tbName} values(123456689, 'Alice', 88889494646, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
                qt_sql """ SELECT * FROM ${tbName}  """
                sql """ DROP TABLE  ${tbName} """
@@ -184,7 +184,7 @@ suite("test_unique_model_schema_change","p0") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
-               sleep(3000)
+               sleep(6000)
                sql """ insert into ${tbName} values(123456689, 'Alice', 555888555, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
                qt_sql """ SELECT * FROM ${tbName}  """
                sql """ DROP TABLE  ${tbName} """
@@ -206,7 +206,7 @@ suite("test_unique_model_schema_change","p0") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
-               sleep(3000)
+               sleep(6000)
                sql """ insert into ${tbName} values(123456689, 'Alice', 189.9, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
                qt_sql """ SELECT * FROM ${tbName}  """
                sql """ DROP TABLE  ${tbName} """
@@ -229,7 +229,7 @@ suite("test_unique_model_schema_change","p0") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
-               sleep(3000)
+               sleep(6000)
                sql """ insert into ${tbName} values(123456689, 'Alice', 189.479, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
                qt_sql """ SELECT * FROM ${tbName}  """
                sql """ DROP TABLE  ${tbName} """
@@ -250,7 +250,7 @@ suite("test_unique_model_schema_change","p0") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
-               sleep(3000)
+               sleep(6000)
                sql """ insert into ${tbName} values(123456689, 'Alice', 16499.6464689, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
                qt_sql """ SELECT * FROM ${tbName}  """
                sql """ DROP TABLE  ${tbName} """
@@ -270,8 +270,152 @@ suite("test_unique_model_schema_change","p0") {
      while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
-               sleep(3000)
+               sleep(6000)
                sql """ insert into ${tbName} values(123456689, 'Alice', "2024-01-01", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
+               qt_sql """ SELECT * FROM ${tbName}  """
+               sql """ DROP TABLE  ${tbName} """
+               break
+          } else {
+               sleep(2000)
+               if (max_try_time < 1){
+                    assertEquals(1,2)
+               }
+          }
+     }
+
+
+     //Test the unique model by adding a key column with DATETIME
+     sql initTable
+     sql initTableData
+     sql """ alter  table ${tbName} add  column anniversary DATETIME KEY DEFAULT "1997-01-01 00:00:00" AFTER username """
+     while (max_try_time--){
+          String result = getJobState(tbName)
+          if (result == "FINISHED") {
+               sleep(6000)
+               sql """ insert into ${tbName} values(123456689, 'Alice', "2024-01-04 09:00:00", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
+               qt_sql """ SELECT * FROM ${tbName}  """
+               sql """ DROP TABLE  ${tbName} """
+               break
+          } else {
+               sleep(2000)
+               if (max_try_time < 1){
+                    assertEquals(1,2)
+               }
+          }
+     }
+
+
+     //Test the unique model by adding a key column with DATETIME
+     sql initTable
+     sql initTableData
+     sql """ alter  table ${tbName} add  column anniversary DATETIME KEY DEFAULT "1997-01-01 00:00:00" AFTER username """
+     while (max_try_time--){
+          String result = getJobState(tbName)
+          if (result == "FINISHED") {
+               sleep(6000)
+               sql """ insert into ${tbName} values(123456689, 'Alice', "2024-01-04 09:00:00", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
+               qt_sql """ SELECT * FROM ${tbName}  """
+               sql """ DROP TABLE  ${tbName} """
+               break
+          } else {
+               sleep(2000)
+               if (max_try_time < 1){
+                    assertEquals(1,2)
+               }
+          }
+     }
+
+     //Test the unique model by adding a key column with CHAR
+     sql initTable
+     sql initTableData
+     sql """ alter  table ${tbName} add  column teacher CHAR KEY DEFAULT "F" AFTER username """
+     while (max_try_time--){
+          String result = getJobState(tbName)
+          if (result == "FINISHED") {
+               sleep(6000)
+               sql """ insert into ${tbName} values(123456689, 'Alice', "T", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
+               qt_sql """ SELECT * FROM ${tbName}  """
+               sql """ DROP TABLE  ${tbName} """
+               break
+          } else {
+               sleep(2000)
+               if (max_try_time < 1){
+                    assertEquals(1,2)
+               }
+          }
+     }
+
+     //Test the unique model by adding a key column with STRING
+     sql initTable
+     sql initTableData
+     sql """ alter  table ${tbName} add  column comment STRING KEY DEFAULT "我是小说家" AFTER username """
+     while (max_try_time--){
+          String result = getJobState(tbName)
+          if (result == "FINISHED") {
+               sleep(6000)
+               sql """ insert into ${tbName} values(123456689, 'Alice', '我是侦探家', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
+               qt_sql """ SELECT * FROM ${tbName}  """
+               sql """ DROP TABLE  ${tbName} """
+               break
+          } else {
+               sleep(2000)
+               if (max_try_time < 1){
+                    assertEquals(1,2)
+               }
+          }
+     }
+
+     //Test the unique model by adding a key column with bitmap
+     sql initTable
+     sql initTableData
+     sql """ alter  table ${tbName} add  column device_id   bitmap    KEY  DEFAULT "to_bitmap(243)" AFTER username """
+     while (max_try_time--){
+          String result = getJobState(tbName)
+          if (result == "FINISHED") {
+               sleep(6000)
+               sql """ insert into ${tbName} values(123456689, 'Alice', to_bitmap(243), 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
+               qt_sql """ SELECT * FROM ${tbName}  """
+               sql """ DROP TABLE  ${tbName} """
+               break
+          } else {
+               sleep(2000)
+               if (max_try_time < 1){
+                    assertEquals(1,2)
+               }
+          }
+     }
+
+
+     //Test the unique model by adding a key column with Map
+     sql initTable
+     sql initTableData
+     sql """ alter  table ${tbName} add  column m   Map<STRING, INT>    KEY  DEFAULT "{'a': 100, 'b': 200}" AFTER username """
+     while (max_try_time--){
+          String result = getJobState(tbName)
+          if (result == "FINISHED") {
+               sleep(6000)
+               sql """ insert into ${tbName} values(123456689, 'Alice', '{'a': 100, 'b': 200}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
+               qt_sql """ SELECT * FROM ${tbName}  """
+               sql """ DROP TABLE  ${tbName} """
+               break
+          } else {
+               sleep(2000)
+               if (max_try_time < 1){
+                    assertEquals(1,2)
+               }
+          }
+     }
+
+
+     //Test the unique model by adding a key column with JSON
+     sql initTable
+     sql initTableData
+     sql """ alter  table ${tbName} add  column   j    JSON    KEY  DEFAULT "{'a': 100, 'b': 200}" AFTER username """
+     while (max_try_time--){
+          String result = getJobState(tbName)
+          if (result == "FINISHED") {
+               sleep(6000)
+               sql """ insert into ${tbName} values(123456689, 'Alice', '{"k1":"v31", "k2": 300}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
                qt_sql """ SELECT * FROM ${tbName}  """
                sql """ DROP TABLE  ${tbName} """
                break
