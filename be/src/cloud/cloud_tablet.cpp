@@ -30,6 +30,7 @@
 #include "io/cache/block/block_file_cache_factory.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 
@@ -43,6 +44,23 @@ CloudTablet::~CloudTablet() = default;
 
 bool CloudTablet::exceed_version_limit(int32_t limit) {
     return _approximate_num_rowsets.load(std::memory_order_relaxed) > limit;
+}
+
+Status CloudTablet::capture_consistent_rowsets_unlocked(
+        const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const {
+    Versions version_path;
+    auto st = _timestamped_version_tracker.capture_consistent_versions(spec_version, &version_path);
+    if (!st.ok()) {
+        // Check no missed versions or req version is merged
+        auto missed_versions = get_missed_versions(spec_version.second);
+        if (missed_versions.empty()) {
+            st.set_code(VERSION_ALREADY_MERGED); // Reset error code
+        }
+        st.append(" tablet_id=" + std::to_string(tablet_id()));
+        return st;
+    }
+    VLOG_DEBUG << "capture consitent versions: " << version_path;
+    return _capture_consistent_rowsets_unlocked(version_path, rowsets);
 }
 
 Status CloudTablet::capture_rs_readers(const Version& spec_version,
