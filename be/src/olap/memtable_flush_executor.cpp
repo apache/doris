@@ -238,6 +238,18 @@ Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>& fl
     }
 }
 
+Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>& flush_token,
+                                                 RowsetWriter* rowset_writer,
+                                                 ThreadPool* wg_flush_pool_ptr) {
+    if (rowset_writer->type() == BETA_ROWSET) {
+        flush_token = std::make_unique<FlushToken>(wg_flush_pool_ptr);
+    } else {
+        return Status::InternalError<false>("not support alpha rowset load now.");
+    }
+    flush_token->set_rowset_writer(rowset_writer);
+    return Status::OK();
+}
+
 void MemTableFlushExecutor::_register_metrics() {
     REGISTER_HOOK_METRIC(flush_thread_pool_queue_size,
                          [this]() { return _flush_pool->get_queue_size(); });
