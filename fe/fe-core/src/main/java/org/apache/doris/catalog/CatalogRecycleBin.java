@@ -1100,6 +1100,45 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return Stream.of(dbInfos, tableInfos, partitionInfos).flatMap(Collection::stream).collect(Collectors.toList());
     }
 
+    public synchronized Map<Long, Pair<Long, Long>> getDbToRecycleSize() {
+        Map<Long, Pair<Long, Long>> dbToRecycleSize = new HashMap<>();
+        for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
+            RecycleTableInfo tableInfo = entry.getValue();
+            Table table = tableInfo.getTable();
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            long dataSize = table.getDataSize(false);
+            long remoteDataSize = ((OlapTable) table).getRemoteDataSize();
+            dbToRecycleSize.compute(tableInfo.getDbId(), (k, v) -> {
+                if (v == null) {
+                    return Pair.of(dataSize, remoteDataSize);
+                } else {
+                    v.first += dataSize;
+                    v.second += remoteDataSize;
+                    return v;
+                }
+            });
+        }
+
+        for (Map.Entry<Long, RecyclePartitionInfo> entry : idToPartition.entrySet()) {
+            RecyclePartitionInfo partitionInfo = entry.getValue();
+            Partition partition = partitionInfo.getPartition();
+            long dataSize = partition.getDataSize(false);
+            long remoteDataSize = partition.getRemoteDataSize();
+            dbToRecycleSize.compute(partitionInfo.getDbId(), (k, v) -> {
+                if (v == null) {
+                    return Pair.of(dataSize, remoteDataSize);
+                } else {
+                    v.first += dataSize;
+                    v.second += remoteDataSize;
+                    return v;
+                }
+            });
+        }
+        return dbToRecycleSize;
+    }
+
     // Need to add "synchronized", because when calling /dump api to dump image,
     // this class is not protected by any lock, will throw ConcurrentModificationException.
     @Override
