@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -76,9 +75,6 @@ public class MaterializedViewUtils {
                 break;
             }
         }
-        if (columnExpr == null) {
-            return Optional.empty();
-        }
         if (!(columnExpr instanceof SlotReference)) {
             return Optional.empty();
         }
@@ -89,15 +85,11 @@ public class MaterializedViewUtils {
         // check sql pattern
         IncrementCheckerContext context = new IncrementCheckerContext(columnSlot);
         materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, context);
-        if (context.getTableColumnList().isEmpty() || !context.isPctPossible()) {
+        if (context.getPartitionRelatedTableAndColumnList().isEmpty() || !context.isPctPossible()) {
             return Optional.empty();
         }
         // TODO support to return only one related table info, support multi later
-        Pair<TableIf, Column> tableIfColumnPair = context.getTableColumnList().get(0);
-        if (context.getTableIdAndRelationMapping().get(tableIfColumnPair.key().getId()).size() > 1) {
-            // if partition referenced column is in multi table, can not increment update
-            return Optional.empty();
-        }
+        Pair<TableIf, Column> tableIfColumnPair = context.getPartitionRelatedTableAndColumnList().get(0);
         return Optional.of(new RelatedTableInfo(new BaseTableInfo(tableIfColumnPair.key()),
                 context.isPctPossible(),
                 tableIfColumnPair.value().getName()));
@@ -232,24 +224,28 @@ public class MaterializedViewUtils {
         @Override
         public Void visitLogicalRelation(LogicalRelation relation, IncrementCheckerContext context) {
             if (!(relation instanceof LogicalCatalogRelation)) {
-                return visit(relation, context);
-            }
-            // record tableId and relation, to check the self join
-            context.addTableIdAndRelation(((LogicalCatalogRelation)relation).getTable().getId(), relation);
-            // TODO: 2024/1/31 support only one partition referenced column, support multi later
-            if (!context.getTableColumnList().isEmpty()) {
-                return visit(relation, context);
+                return null;
             }
             LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) relation;
             TableIf table = logicalCatalogRelation.getTable();
+            // if self join, can't infer partition column
+            if (!context.getTableIdAndRelationMapping().get(table.getId()).isEmpty()) {
+                context.setPctPossible(false);
+                return null;
+            }
+            // record tableId and relation, to check the self join
+            context.addTableIdAndRelation(((LogicalCatalogRelation) relation).getTable().getId(), relation);
+            // TODO: 2024/1/31 support only one partition referenced column, support multi later
+            if (!context.getPartitionRelatedTableAndColumnList().isEmpty()) {
+                return null;
+            }
             if (!(table instanceof MTMVRelatedTableIf)) {
-                return visit(relation, context);
+                return null;
             }
             MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
             PartitionType type = relatedTable.getPartitionType();
-
             if (PartitionType.UNPARTITIONED.equals(type)) {
-                return visit(relation, context);
+                return null;
             }
             Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
             Column mvReferenceColumn = context.getMvPartitionColumn().getColumn().get();
@@ -265,7 +261,8 @@ public class MaterializedViewUtils {
                 IncrementCheckerContext context) {
             Set<Expression> groupByExprSet = new HashSet<>(aggregate.getGroupByExpressions());
             if (groupByExprSet.isEmpty()) {
-                return visit(aggregate, context);
+                context.setPctPossible(false);
+                return null;
             }
             Set<Column> originalGroupbyExprSet = new HashSet<>();
             groupByExprSet.forEach(groupExpr -> {
@@ -329,7 +326,7 @@ public class MaterializedViewUtils {
     private static final class IncrementCheckerContext {
         private final SlotReference mvPartitionColumn;
         private boolean pctPossible = true;
-        private final List<Pair<TableIf, Column>> tableColumnList = new ArrayList<>();
+        private final List<Pair<TableIf, Column>> partitionRelatedTableAndColumnList = new ArrayList<>();
         // This record the table id and relation mapping, because a table maybe used repeatedly.
         private final Multimap<Long, LogicalRelation> tableIdAndRelationMapping = HashMultimap.create();
 
@@ -350,11 +347,11 @@ public class MaterializedViewUtils {
         }
 
         public void addTableColumn(TableIf relatedTable, Column partitionColumn) {
-            tableColumnList.add(Pair.of(relatedTable, partitionColumn));
+            partitionRelatedTableAndColumnList.add(Pair.of(relatedTable, partitionColumn));
         }
 
-        public List<Pair<TableIf, Column>> getTableColumnList() {
-            return tableColumnList;
+        public List<Pair<TableIf, Column>> getPartitionRelatedTableAndColumnList() {
+            return partitionRelatedTableAndColumnList;
         }
 
         public Multimap<Long, LogicalRelation> getTableIdAndRelationMapping() {
