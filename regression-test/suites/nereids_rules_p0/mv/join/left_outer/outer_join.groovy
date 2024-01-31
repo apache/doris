@@ -179,7 +179,9 @@ suite("outer_join") {
     (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
     (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
     (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
+    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx'),
+    (6, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx'),
+    (7, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
     """
 
     sql """
@@ -488,6 +490,26 @@ suite("outer_join") {
     check_rewrite(mv6_1, query6_1, "mv6_1")
     order_qt_query6_1_after "${query6_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_1"""
+
+
+    // should compensate predicate o_orderdate = '2023-12-10' on mv
+    def mv6_2 = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
+        from lineitem 
+        left join (select * from orders where o_orderdate = '2023-12-10' ) t2 
+        on lineitem.l_orderkey = t2.o_orderkey;
+    """
+    def query6_2 = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
+        from lineitem 
+        left join orders 
+        on lineitem.l_orderkey = orders.o_orderkey 
+        where o_orderdate = '2023-12-10' order by 1, 2, 3, 4, 5;
+    """
+    order_qt_query6_2_before "${query6_2}"
+    check_rewrite(mv6_2, query6_2, "mv6_2")
+    order_qt_query6_2_after "${query6_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_2"""
 
 
     // filter inside + left + right

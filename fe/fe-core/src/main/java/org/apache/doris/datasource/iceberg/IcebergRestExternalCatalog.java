@@ -18,9 +18,9 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.datasource.CatalogProperty;
-import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
 import org.apache.doris.datasource.iceberg.rest.DorisIcebergRestResolvedIO;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.S3Properties;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.Constants;
@@ -58,9 +58,8 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
     private Configuration replaceS3Properties(Configuration conf) {
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        String credentials = catalogProperties
-                .getOrDefault(Constants.AWS_CREDENTIALS_PROVIDER, DataLakeAWSCredentialsProvider.class.getName());
-        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, credentials);
+        String defaultProviderList = String.join(",", S3Properties.AWS_CREDENTIALS_PROVIDERS);
+        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, defaultProviderList);
         String usePahStyle = catalogProperties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "true");
         // Set path style
         conf.set(PropertyConverter.USE_PATH_STYLE, usePahStyle);

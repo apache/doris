@@ -238,6 +238,13 @@
                         "lakehouse/multi-catalog/jdbc"
                     ]
                 },
+                {
+                    "type": "category",
+                    "label": "Cloud Service Authentication",
+                    "items": [
+                        "lakehouse/cloud-auth/cloud-auth"
+                    ]
+                },
                 "lakehouse/file",
                 "lakehouse/filecache",
                 "lakehouse/external-statistics",
@@ -705,6 +712,7 @@
                                 "sql-manual/sql-functions/numeric-functions/sin",
                                 "sql-manual/sql-functions/numeric-functions/cos",
                                 "sql-manual/sql-functions/numeric-functions/tan",
+                                "sql-manual/sql-functions/numeric-functions/tanh",
                                 "sql-manual/sql-functions/numeric-functions/asin",
                                 "sql-manual/sql-functions/numeric-functions/acos",
                                 "sql-manual/sql-functions/numeric-functions/atan",
@@ -1251,7 +1259,8 @@
                     "label": "User Privilege and Ldap",
                     "items": [
                         "admin-manual/privilege-ldap/user-privilege",
-                        "admin-manual/privilege-ldap/ldap"
+                        "admin-manual/privilege-ldap/ldap",
+                        "admin-manual/privilege-ldap/ranger"
                     ]
                 },
                 {
@@ -1375,6 +1384,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.4",
                 "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",

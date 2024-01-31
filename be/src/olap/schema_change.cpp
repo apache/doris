@@ -1381,14 +1381,14 @@ Status SchemaChangeHandler::_calc_delete_bitmap_for_mow_table(TabletSharedPtr ne
     for (auto rowset_ptr : rowsets) {
         std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
         std::shared_lock<std::shared_mutex> rlock(new_tablet->get_header_lock());
-        RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
+        RETURN_IF_ERROR(Tablet::update_delete_bitmap_without_lock(new_tablet, rowset_ptr));
     }
 
     // step 3
     std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
     std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-    int64_t new_max_version = new_tablet->max_version_unlocked().second;
+    int64_t new_max_version = new_tablet->max_version_unlocked();
     rowsets.clear();
     if (max_version < new_max_version) {
         LOG(INFO) << "alter table for unique with merge-on-write, calculate delete bitmap of "
@@ -1397,8 +1397,8 @@ Status SchemaChangeHandler::_calc_delete_bitmap_for_mow_table(TabletSharedPtr ne
         RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets({max_version + 1, new_max_version},
                                                                &rowsets));
     }
-    for (auto rowset_ptr : rowsets) {
-        RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
+    for (auto&& rowset_ptr : rowsets) {
+        RETURN_IF_ERROR(Tablet::update_delete_bitmap_without_lock(new_tablet, rowset_ptr));
     }
     // step 4
     RETURN_IF_ERROR(new_tablet->set_tablet_state(TabletState::TABLET_RUNNING));

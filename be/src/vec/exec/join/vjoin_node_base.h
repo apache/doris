@@ -50,7 +50,8 @@ using JoinOpVariants =
                      std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
+                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
 
 class VJoinNodeBase : public ExecNode {
 public:
@@ -121,6 +122,9 @@ protected:
 
     // for some join, when build side rows is empty, we could return directly by add some additional null data in probe table.
     bool _empty_right_table_need_probe_dispose = false;
+
+    size_t _mark_column_id;
+
     std::unique_ptr<RowDescriptor> _output_row_desc;
     std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     // output expr

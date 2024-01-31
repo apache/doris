@@ -42,6 +42,8 @@ class TabletJobInfoPB;
 class TabletStatsPB;
 class TabletIndexPB;
 
+Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency);
+
 class CloudMetaMgr {
 public:
     CloudMetaMgr() = default;

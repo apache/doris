@@ -36,6 +36,7 @@ import java.time.Year;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 
 /**
  * Date literal in Nereids.
@@ -100,7 +101,7 @@ public class DateLiteral extends Literal {
 
     // normalize yymmdd -> yyyymmdd
     static String normalizeBasic(String s) {
-        java.util.function.UnaryOperator<String> normalizeTwoDigit = (input) -> {
+        UnaryOperator<String> normalizeTwoDigit = (input) -> {
             String yy = input.substring(0, 2);
             int year = Integer.parseInt(yy);
             if (year >= 0 && year <= 69) {
@@ -265,6 +266,8 @@ public class DateLiteral extends Literal {
         try {
             TemporalAccessor dateTime;
 
+            // remove suffix ' '
+            s = s.trim();
             // parse condition without '-' and ':'
             boolean containsPunctuation = false;
             for (int i = 0; i < s.length(); i++) {

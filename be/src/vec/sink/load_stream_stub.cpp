@@ -390,7 +390,9 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
                 int64_t delay_ms = dp->param<int64>("delay_ms", 1000);
                 bthread_usleep(delay_ms * 1000);
             });
-            ret = brpc::StreamWrite(_stream_id, buf);
+            brpc::StreamWriteOptions options;
+            options.write_in_background = config::enable_brpc_stream_write_background;
+            ret = brpc::StreamWrite(_stream_id, buf, &options);
         }
         DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.stream_write_failed", { ret = EPIPE; });
         switch (ret) {

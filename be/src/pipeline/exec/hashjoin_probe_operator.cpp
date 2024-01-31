@@ -44,6 +44,12 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     for (size_t i = 0; i < _other_join_conjuncts.size(); i++) {
         RETURN_IF_ERROR(p._other_join_conjuncts[i]->clone(state, _other_join_conjuncts[i]));
     }
+
+    _mark_join_conjuncts.resize(p._mark_join_conjuncts.size());
+    for (size_t i = 0; i < _mark_join_conjuncts.size(); i++) {
+        RETURN_IF_ERROR(p._mark_join_conjuncts[i]->clone(state, _mark_join_conjuncts[i]));
+    }
+
     _construct_mutable_join_block();
     _probe_column_disguise_null.reserve(_probe_expr_ctxs.size());
     _probe_arena_memory_usage =
@@ -83,6 +89,7 @@ void HashJoinProbeLocalState::prepare_for_next() {
     _build_index = 0;
     _ready_probe = false;
     _last_probe_match = -1;
+    _last_probe_null_mark = -1;
     _prepare_probe_block();
 }
 
@@ -234,42 +241,6 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         source_state = SourceState::FINISHED;
         return Status::OK();
     }
-    if (local_state._shared_state->_has_null_in_build_side &&
-        _short_circuit_for_null_in_build_side && _is_mark_join) {
-        /// `_has_null_in_build_side` means have null value in build side.
-        /// `_short_circuit_for_null_in_build_side` means short circuit if has null in build side(e.g. null aware left anti join).
-        /// We need to create a column as mark with all rows set to NULL.
-        auto block_rows = local_state._probe_block.rows();
-        if (block_rows == 0) {
-            if (local_state._probe_eos) {
-                source_state = SourceState::FINISHED;
-            }
-            return Status::OK();
-        }
-
-        vectorized::Block temp_block;
-        //get probe side output column
-        for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-            temp_block.insert(local_state._probe_block.get_by_position(i));
-        }
-        auto mark_column =
-                vectorized::ColumnNullable::create(vectorized::ColumnUInt8::create(block_rows, 0),
-                                                   vectorized::ColumnUInt8::create(block_rows, 1));
-        temp_block.insert({std::move(mark_column),
-                           make_nullable(std::make_shared<vectorized::DataTypeUInt8>()), ""});
-
-        {
-            SCOPED_TIMER(local_state._join_filter_timer);
-            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
-                    local_state._conjuncts, &temp_block, temp_block.columns()));
-        }
-
-        RETURN_IF_ERROR(local_state._build_output_block(&temp_block, output_block, false));
-        temp_block.clear();
-        local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
-        local_state.reached_limit(output_block, source_state);
-        return Status::OK();
-    }
 
     //TODO: this short circuit maybe could refactor, no need to check at here.
     if (local_state._shared_state->empty_right_table_need_probe_dispose) {
@@ -330,6 +301,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
 
     Status st;
     if (local_state._probe_index < local_state._probe_block.rows()) {
+        local_state._build_indexes_null = local_state._shared_state->build_indexes_null;
         DCHECK(local_state._has_set_need_null_map_for_probe);
         RETURN_IF_CATCH_EXCEPTION({
             std::visit(
@@ -540,7 +512,8 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     DCHECK(tnode.__isset.hash_join_node);
     const bool probe_dispose_null =
             _match_all_probe || _build_unique || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-            _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN;
+            _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN || _join_op == TJoinOp::LEFT_ANTI_JOIN ||
+            _join_op == TJoinOp::LEFT_SEMI_JOIN;
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     std::vector<bool> probe_not_ignore_null(eq_join_conjuncts.size());
     size_t conjuncts_index = 0;
@@ -575,6 +548,20 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         DCHECK(!_build_unique);
         DCHECK(_have_other_join_conjunct);
     }
+
+    if (tnode.hash_join_node.__isset.mark_join_conjuncts &&
+        !tnode.hash_join_node.mark_join_conjuncts.empty()) {
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(
+                tnode.hash_join_node.mark_join_conjuncts, _mark_join_conjuncts));
+        DCHECK(_is_mark_join);
+
+        /// We make mark join conjuncts as equal conjuncts for null aware join,
+        /// so `_mark_join_conjuncts` should be empty if this is null aware join.
+        DCHECK_EQ(_mark_join_conjuncts.empty(),
+                  _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                          _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
+    }
+
     return Status::OK();
 }
 
@@ -603,6 +590,11 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
+
+    for (auto& conjunct : _mark_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+    }
+
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
     DCHECK(_build_side_child != nullptr);
     // right table data types
@@ -621,6 +613,11 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
+
+    for (auto& conjunct : _mark_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
+    }
+
     return Status::OK();
 }
 

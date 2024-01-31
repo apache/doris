@@ -391,7 +391,6 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
 
     std::unordered_map<std::string, int> _colname_to_slot_id;
-    std::vector<int> _col_distribute_ids;
 
     TPushAggOp::type _push_down_agg_type;
 

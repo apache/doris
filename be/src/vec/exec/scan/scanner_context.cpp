@@ -45,6 +45,9 @@ namespace doris::vectorized {
 
 using namespace std::chrono_literals;
 
+static bvar::Status<int64_t> g_bytes_in_scanner_queue("doris_bytes_in_scanner_queue", 0);
+static bvar::Status<int64_t> g_num_running_scanners("doris_num_running_scanners", 0);
+
 ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* output_tuple_desc,
                                const RowDescriptor* output_row_descriptor,
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
@@ -179,6 +182,9 @@ Status ScannerContext::init() {
     _free_blocks_capacity = _max_thread_num * _block_per_scanner;
     auto block = get_free_block();
     _estimated_block_bytes = std::max(block->allocated_bytes(), (size_t)16);
+    int min_blocks = (config::min_bytes_in_scanner_queue + _estimated_block_bytes - 1) /
+                     _estimated_block_bytes;
+    _free_blocks_capacity = std::max(_free_blocks_capacity, min_blocks);
     return_free_block(std::move(block));
 
 #ifndef BE_TEST
@@ -258,6 +264,7 @@ void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& 
     }
     _blocks_queue_added_cv.notify_one();
     _queued_blocks_memory_usage->add(_cur_bytes_in_queue - old_bytes_in_queue);
+    g_bytes_in_scanner_queue.set_value(_cur_bytes_in_queue);
 }
 
 bool ScannerContext::empty_in_queue(int id) {
@@ -266,7 +273,7 @@ bool ScannerContext::empty_in_queue(int id) {
 }
 
 Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block,
-                                            bool* eos, int id, bool wait) {
+                                            bool* eos, int id) {
     std::vector<vectorized::BlockUPtr> merge_blocks;
     {
         std::unique_lock l(_transfer_lock);
@@ -288,9 +295,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         }
 
         // Wait for block from queue
-        if (wait) {
-            // scanner batch wait time
+        {
             SCOPED_TIMER(_scanner_wait_batch_timer);
+            // scanner batch wait time
             while (!(!_blocks_queue.empty() || done() || !status().ok() || state->is_cancelled())) {
                 if (!is_scheduled && _num_running_scanners == 0 && should_be_scheduled()) {
                     LOG(INFO) << debug_string();
@@ -334,6 +341,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         }
     }
 
+    g_bytes_in_scanner_queue.set_value(_cur_bytes_in_queue);
     if (!merge_blocks.empty()) {
         vectorized::MutableBlock m(block->get());
         for (auto& merge_block : merge_blocks) {
@@ -375,6 +383,7 @@ Status ScannerContext::validate_block_schema(Block* block) {
 void ScannerContext::inc_num_running_scanners(int32_t inc) {
     std::lock_guard l(_transfer_lock);
     _num_running_scanners += inc;
+    g_num_running_scanners.set_value(_num_running_scanners);
 }
 
 void ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
@@ -484,10 +493,10 @@ void ScannerContext::push_back_scanner_and_reschedule(std::shared_ptr<ScannerDel
     // before we call the following if() block.
     {
         --_num_running_scanners;
+        g_num_running_scanners.set_value(_num_running_scanners);
         if (scanner->_scanner->need_to_close()) {
             --_num_unfinished_scanners;
             if (_num_unfinished_scanners == 0) {
-                _dispose_coloate_blocks_not_in_queue();
                 _is_finished = true;
                 _set_scanner_done();
                 _blocks_queue_added_cv.notify_one();

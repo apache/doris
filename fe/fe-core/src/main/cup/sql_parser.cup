@@ -4014,9 +4014,9 @@ show_param ::=
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where, null);
     :}
-    | KW_SCHEMAS KW_FROM ident:catalogName
+    | KW_SCHEMAS KW_FROM ident:catalogName opt_wild_where
     {:
-        RESULT = new ShowDbStmt(null, null, catalogName);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, catalogName);
     :}
     /* Catalog */
     | KW_CATALOGS opt_wild_where
@@ -4172,11 +4172,11 @@ show_param ::=
     :}
     | KW_RESOURCES opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowResourcesStmt(parser.where, orderByClause, limitClause);
+        RESULT = new ShowResourcesStmt(parser.wild, parser.where, orderByClause, limitClause);
     :}
-    | KW_WORKLOAD KW_GROUPS
+    | KW_WORKLOAD KW_GROUPS opt_wild_where
     {:
-        RESULT = new ShowWorkloadGroupsStmt();
+        RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
     :}
     | KW_WORKLOAD KW_SCHEDULE KW_POLICY
     {:

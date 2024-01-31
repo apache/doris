@@ -328,8 +328,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             }
         }
 
-        static_cast<void>(local_tablet->commit_phase_update_delete_bitmap(
-                rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
+        static_cast<void>(BaseTablet::commit_phase_update_delete_bitmap(
+                local_tablet, rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
                 calc_delete_bitmap_token.get(), nullptr));
         static_cast<void>(calc_delete_bitmap_token->wait());
     }
