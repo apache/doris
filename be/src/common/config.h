@@ -101,7 +101,7 @@ DECLARE_Int32(brpc_port);
 DECLARE_Int32(arrow_flight_sql_port);
 
 // If priority_networks is incorrect but cannot be modified, set public_access_ip as BE’s real IP.
-// For ADBC client fetch result, default is empty, the ADBC client uses the backend ip to fetch the result.
+// For ADBC client fetch result, the default is empty, the ADBC client uses the backend ip to fetch the result.
 // If ADBC client cannot access the backend ip, can set public_access_ip to modify the fetch result ip.
 DECLARE_mString(public_access_ip);
 
