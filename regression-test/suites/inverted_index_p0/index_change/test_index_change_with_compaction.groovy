@@ -132,7 +132,7 @@ suite("test_index_change_with_compaction") {
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
-        String[][] tablets = sql """ show tablets from ${tableName}; """
+        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // create inverted index
         sql """ CREATE INDEX idx_user_id ON ${tableName}(`user_id`) USING INVERTED """
@@ -142,9 +142,9 @@ suite("test_index_change_with_compaction") {
         wait_for_latest_op_on_table_finish(tableName, timeout)
 
         // trigger compactions for all tablets in ${tableName}
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            backend_id = tablet[2]
+        for (def tablet in tablets) {
+            String tablet_id = tablet.TabletId
+            backend_id = tablet.BackendId
             StringBuilder sb = new StringBuilder();
             sb.append("curl -X POST http://")
             sb.append(backendId_to_backendIP.get(backend_id))
@@ -177,12 +177,12 @@ suite("test_index_change_with_compaction") {
         sql "build index idx_city on ${tableName}"
 
         // wait for all compactions done
-        for (String[] tablet in tablets) {
+        for (def tablet in tablets) {
             boolean running = true
             do {
                 Thread.sleep(1000)
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
+                String tablet_id = tablet.TabletId
+                backend_id = tablet.BackendId
                 StringBuilder sb = new StringBuilder();
                 sb.append("curl -X GET http://")
                 sb.append(backendId_to_backendIP.get(backend_id))
@@ -206,12 +206,11 @@ suite("test_index_change_with_compaction") {
         }
 
         int rowCount = 0
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
+        for (def tablet in tablets) {
+            String tablet_id = tablet.TabletId
             StringBuilder sb = new StringBuilder();
-            def compactionStatusUrlIndex = 18
             sb.append("curl -X GET ")
-            sb.append(tablet[compactionStatusUrlIndex])
+            sb.append(tablet.CompactionStatus)
             String command = sb.toString()
             // wait for cleaning stale_rowsets
             process = command.execute()
@@ -227,7 +226,7 @@ suite("test_index_change_with_compaction") {
             }
         }
 
-        String[][] dedup_tablets = deduplicate_tablets(tablets)
+        def dedup_tablets = deduplicate_tablets(tablets)
 
         // In the p0 testing environment, there are no expected operations such as scaling down BE (backend) services
         // if tablets or dedup_tablets is empty, exception is thrown, and case fail
