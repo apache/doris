@@ -297,6 +297,28 @@ public class DatabaseTransactionMgr {
         return infos;
     }
 
+    public List<List<String>> getTxnStateInfoList(String labelRegex) {
+        List<List<String>> infos = Lists.newArrayList();
+        List<TransactionState> transactionStateCollection = Lists.newArrayList();
+        readLock();
+        try {
+            transactionStateCollection.addAll(idToFinalStatusTransactionState.values());
+            transactionStateCollection.addAll(idToRunningTransactionState.values());
+            // get transaction order by txn id desc
+            transactionStateCollection.stream()
+                    .filter(transactionState -> (transactionState.getLabel().matches(labelRegex)))
+                    .sorted(TransactionState.TXN_ID_COMPARATOR)
+                    .forEach(t -> {
+                        List<String> info = Lists.newArrayList();
+                        getTxnStateInfo(t, info);
+                        infos.add(info);
+                    });
+        } finally {
+            readUnlock();
+        }
+        return infos;
+    }
+
     private void getTxnStateInfo(TransactionState txnState, List<String> info) {
         info.add(String.valueOf(txnState.getTransactionId()));
         info.add(txnState.getLabel());
