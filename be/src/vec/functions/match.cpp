@@ -19,6 +19,7 @@
 
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_points.h"
 
 namespace doris::vectorized {
 
@@ -154,6 +155,11 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
                                        InvertedIndexCtx* inverted_index_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
                                        ColumnUInt8::Container& result) const {
+    DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchAny not support execute_match");
+    })
+
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
@@ -199,6 +205,11 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
                                        InvertedIndexCtx* inverted_index_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
                                        ColumnUInt8::Container& result) const {
+    DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchAll not support execute_match");
+    })
+
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
@@ -250,6 +261,11 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
                                           InvertedIndexCtx* inverted_index_ctx,
                                           const ColumnArray::Offsets64* array_offsets,
                                           ColumnUInt8::Container& result) const {
+    DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchPhrase not support execute_match");
+    })
+
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
@@ -315,6 +331,11 @@ Status FunctionMatchPhrasePrefix::execute_match(
         const std::string& column_name, const std::string& match_query_str, size_t input_rows_count,
         const ColumnString* string_col, InvertedIndexCtx* inverted_index_ctx,
         const ColumnArray::Offsets64* array_offsets, ColumnUInt8::Container& result) const {
+    DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchPhrasePrefix not support execute_match");
+    })
+
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
