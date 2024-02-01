@@ -381,6 +381,10 @@ size_t WalManager::get_max_available_size() {
     return _wal_dirs_info->get_max_available_size();
 }
 
+std::string WalManager::get_wal_dirs_info_string() {
+    return _wal_dirs_info->get_wal_dirs_info_string();
+}
+
 Status WalManager::update_wal_dir_limit(const std::string& wal_dir, size_t limit) {
     return _wal_dirs_info->update_wal_dir_limit(wal_dir, limit);
 }

@@ -61,6 +61,7 @@ public:
                                         size_t decrease_pre_allocated);
     Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
     size_t get_max_available_size();
+    std::string get_wal_dirs_info_string();
 
     // replay wal
     Status create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
