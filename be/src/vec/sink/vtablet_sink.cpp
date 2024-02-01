@@ -426,7 +426,7 @@ VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
         : OlapTableSink(pool, row_desc, texprs, status) {
     _is_vectorized = true;
     // From the thrift expressions create the real exprs.
-    vectorized::VExpr::create_expr_trees(pool, texprs, &_output_vexpr_ctxs);
+    *status = vectorized::VExpr::create_expr_trees(pool, texprs, &_output_vexpr_ctxs);
     _name = "VOlapTableSink";
 }
 
