@@ -35,11 +35,6 @@
 
 #include "util/sse_util.hpp"
 
-#ifdef DORIS_WITH_LZO
-#include <lzo/lzo1c.h>
-#include <lzo/lzo1x.h>
-#endif
-
 #include <stdarg.h>
 
 #include "common/logging.h"

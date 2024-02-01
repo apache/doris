@@ -16,10 +16,26 @@
 // under the License.
 
 #include "exec/decompressor.h"
+#include "orc/Exceptions.hh"
+#include "olap/utils.h"
+#include "util/crc32c.h"
+
+
+namespace orc {
+/**
+ * Decompress the bytes in to the output buffer.
+ * @param inputAddress the start of the input
+ * @param inputLimit one past the last byte of the input
+ * @param outputAddress the start of the output buffer
+ * @param outputLimit one past the last byte of the output buffer
+ * @result the number of bytes decompressed
+ */
+uint64_t lzoDecompress(const char* inputAddress, const char* inputLimit, char* outputAddress,
+                       char* outputLimit);
+} // namespace orc
 
 namespace doris {
 
-#ifdef DORIS_WITH_LZO
 // Lzop
 const uint8_t LzopDecompressor::LZOP_MAGIC[9] = {0x89, 0x4c, 0x5a, 0x4f, 0x00,
                                                  0x0d, 0x0a, 0x1a, 0x0a};
@@ -153,26 +169,17 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
         memmove(output, ptr, compressed_size);
         ptr += compressed_size;
     } else {
-        // decompress
-        *decompressed_len = uncompressed_size;
-        // we must use lzo_uint defined in lzoconf.h
-        // DO NOT use 32-bit integer!
-        lzo_uint d_sz;
-        // the 4th arg type of lzo1x_decompress_safe() is an address of lzo_uint,
-        // lzo_uint may be compiled to 64-bit integer rather than 32-bit integer,
-        // so lzo1x_decompress_safe() may write 8 bytes data on that address,
-        // passing address of a 32-bit integer to the 4th arg is dangerous,
-        // memory of nearby variable could be overwritten unexpectly.
-        int ret = lzo1x_decompress_safe(ptr, compressed_size, output, &d_sz, nullptr);
-        if (ret != LZO_E_OK || d_sz != *decompressed_len) {
+        try {
+            *decompressed_len = orc::lzoDecompress((const char*)ptr, (const char*)(ptr + compressed_size), 
+                                                   (char*)output, (char*)(output + uncompressed_size));
+        } catch (const orc::ParseError & err) {
             std::stringstream ss;
-            ss << "Lzo decompression failed with ret: " << ret
-               << " decompressed len: " << d_sz << " expected: " << *decompressed_len;
+            ss << "Lzo decompression failed: " << err.what();
             return Status::InternalError(ss.str());
         }
 
         RETURN_IF_ERROR(checksum(_header_info.output_checksum_type, "decompressed", out_checksum,
-                                 output, d_sz));
+                                 output, *decompressed_len));
         ptr += compressed_size;
     }
 
@@ -312,10 +319,12 @@ Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
     uint32_t computed_checksum;
     if (_header_info.header_checksum_type == CHECK_CRC32) {
         computed_checksum = CRC32_INIT_VALUE;
-        computed_checksum = lzo_crc32(computed_checksum, header, cur - header);
+        computed_checksum = crc32c::Extend(computed_checksum, (const char*)header, cur - header);
+        //computed_checksum = lzo_crc32(computed_checksum, header, cur - header);
     } else {
         computed_checksum = ADLER32_INIT_VALUE;
-        computed_checksum = lzo_adler32(computed_checksum, header, cur - header);
+        computed_checksum = olap_adler32(computed_checksum, (const char*)header, cur - header);
+        //computed_checksum = lzo_adler32(computed_checksum, header, cur - header);
     }
 
     if (computed_checksum != expected_checksum) {
@@ -361,10 +370,12 @@ Status LzopDecompressor::checksum(LzoChecksum type, const std::string& source, u
     case CHECK_NONE:
         return Status::OK();
     case CHECK_CRC32:
-        computed_checksum = lzo_crc32(CRC32_INIT_VALUE, ptr, len);
+        //computed_checksum = lzo_crc32(CRC32_INIT_VALUE, ptr, len);
+        computed_checksum = crc32c::Extend(CRC32_INIT_VALUE, (const char*)ptr, len);
         break;
     case CHECK_ADLER:
-        computed_checksum = lzo_adler32(ADLER32_INIT_VALUE, ptr, len);
+        //computed_checksum = lzo_adler32(ADLER32_INIT_VALUE, ptr, len);
+        computed_checksum = olap_adler32(ADLER32_INIT_VALUE, (const char*)ptr, len);
         break;
     default:
         std::stringstream ss;
@@ -394,6 +405,5 @@ std::string LzopDecompressor::debug_info() {
        << " output checksum type: " << _header_info.output_checksum_type;
     return ss.str();
 }
-#endif // DORIS_WITH_LZO
 
 } // namespace doris
