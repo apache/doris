@@ -19,6 +19,7 @@ package org.apache.doris.plugin;
 
 import org.apache.doris.plugin.dialect.HttpDialectUtils;
 import org.apache.doris.utframe.UtPortUtils;
+
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
