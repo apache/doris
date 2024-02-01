@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+/*
+This suite is a two dimensional test case file.
+It mainly tests the inner join and filter positions.
+ */
 suite("partition_mv_rewrite_dimension_2_2") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"

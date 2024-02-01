@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+/*
+This suite is a one dimensional test case file.
+ */
 suite("partition_mv_rewrite_dimension_1") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
