@@ -76,9 +76,9 @@ bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t pr
     if (prefix > IPV6_BINARY_LENGTH * 8U) {
         prefix = IPV6_BINARY_LENGTH * 8U;
     }
-    size_t i = 0;
+    size_t i = IPV6_BINARY_LENGTH - 1;
 
-    for (; prefix >= 8; ++i, prefix -= 8) {
+    for (; prefix >= 8; --i, prefix -= 8) {
         if (addr[i] != cidr_addr[i]) {
             return false;
         }

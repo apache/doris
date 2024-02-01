@@ -34,32 +34,35 @@ suite("test_is_ip_address_in_range_function") {
         );
         """
 
-    sql "insert into test_is_ip_address_in_range_function values(1, '127.0.0.1', '127.0.0.0/8')"
-    sql "insert into test_is_ip_address_in_range_function values(2, '128.0.0.1', '127.0.0.0/8')"
-    sql "insert into test_is_ip_address_in_range_function values(3, 'ffff::1', 'ffff::/16')"
-    sql "insert into test_is_ip_address_in_range_function values(4, 'fffe::1', 'ffff::/16')"
-    sql "insert into test_is_ip_address_in_range_function values(5, '192.168.99.255', '192.168.100.0/22')"
-    sql "insert into test_is_ip_address_in_range_function values(6, '192.168.100.1', '192.168.100.0/22')"
-    sql "insert into test_is_ip_address_in_range_function values(7, '192.168.103.255', '192.168.100.0/22')"
-    sql "insert into test_is_ip_address_in_range_function values(8, '192.168.104.0', '192.168.100.0/22')"
-    sql "insert into test_is_ip_address_in_range_function values(9, '::192.168.99.255', '::192.168.100.0/118')"
-    sql "insert into test_is_ip_address_in_range_function values(10, '::192.168.100.1', '::192.168.100.0/118')"
-    sql "insert into test_is_ip_address_in_range_function values(11, '::192.168.103.255', '::192.168.100.0/118')"
-    sql "insert into test_is_ip_address_in_range_function values(12, '::192.168.104.0', '::192.168.100.0/118')"
-    sql "insert into test_is_ip_address_in_range_function values(13, '192.168.100.1', '192.168.100.0/22')"
-    sql "insert into test_is_ip_address_in_range_function values(14, '192.168.100.1', '192.168.100.0/24')"
-    sql "insert into test_is_ip_address_in_range_function values(15, '192.168.100.1', '192.168.100.0/32')"
-    sql "insert into test_is_ip_address_in_range_function values(16, '::192.168.100.1', '::192.168.100.0/118')"
-    sql "insert into test_is_ip_address_in_range_function values(17, '::192.168.100.1', '::192.168.100.0/120')"
-    sql "insert into test_is_ip_address_in_range_function values(18, '::192.168.100.1', '::192.168.100.0/128')"
-    sql "insert into test_is_ip_address_in_range_function values(19, '192.168.100.1', '192.168.100.0/22')"
-    sql "insert into test_is_ip_address_in_range_function values(20, '192.168.103.255', '192.168.100.0/24')"
-    sql "insert into test_is_ip_address_in_range_function values(21, '::192.168.100.1', '::192.168.100.0/118')"
-    sql "insert into test_is_ip_address_in_range_function values(22, '::192.168.103.255', '::192.168.100.0/120')"
-    sql "insert into test_is_ip_address_in_range_function values(23, '127.0.0.1', 'ffff::/16')"
-    sql "insert into test_is_ip_address_in_range_function values(24, '127.0.0.1', '::127.0.0.1/128')"
-    sql "insert into test_is_ip_address_in_range_function values(25, '::1', '127.0.0.0/8')"
-    sql "insert into test_is_ip_address_in_range_function values(26, '::127.0.0.1', '127.0.0.1/32')"
+    sql """
+        insert into test_is_ip_address_in_range_function values
+        (1, '127.0.0.1', '127.0.0.0/8'),
+        (2, '128.0.0.1', '127.0.0.0/8'),
+        (3, 'ffff::1', 'ffff::/16'),
+        (4, 'fffe::1', 'ffff::/16'),
+        (5, '192.168.99.255', '192.168.100.0/22'),
+        (6, '192.168.100.1', '192.168.100.0/22'),
+        (7, '192.168.103.255', '192.168.100.0/22'),
+        (8, '192.168.104.0', '192.168.100.0/22'),
+        (9, '::192.168.99.255', '::192.168.100.0/118'),
+        (10, '::192.168.100.1', '::192.168.100.0/118'),
+        (11, '::192.168.103.255', '::192.168.100.0/118'),
+        (12, '::192.168.104.0', '::192.168.100.0/118'),
+        (13, '192.168.100.1', '192.168.100.0/22'),
+        (14, '192.168.100.1', '192.168.100.0/24'),
+        (15, '192.168.100.1', '192.168.100.0/32'),
+        (16, '::192.168.100.1', '::192.168.100.0/118'),
+        (17, '::192.168.100.1', '::192.168.100.0/120'),
+        (18, '::192.168.100.1', '::192.168.100.0/128'),
+        (19, '192.168.100.1', '192.168.100.0/22'),
+        (20, '192.168.103.255', '192.168.100.0/24'),
+        (21, '::192.168.100.1', '::192.168.100.0/118'),
+        (22, '::192.168.103.255', '::192.168.100.0/120'),
+        (23, '127.0.0.1', 'ffff::/16'),
+        (24, '127.0.0.1', '::127.0.0.1/128'),
+        (25, '::1', '127.0.0.0/8'),
+        (26, '::127.0.0.1', '127.0.0.1/32')
+        """
 
     qt_sql "select id, is_ip_address_in_range(addr, cidr) from test_is_ip_address_in_range_function order by id"
 

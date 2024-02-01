@@ -112,13 +112,14 @@ void formatIPv6(const unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_
     struct {
         Int64 base, len;
     } best {-1, 0}, cur {-1, 0};
-    std::array<UInt16, IPV6_BINARY_LENGTH / sizeof(UInt16)> words {};
+    constexpr size_t WORD_NUMS = IPV6_BINARY_LENGTH / sizeof(UInt16);
+    std::array<UInt16, WORD_NUMS> words {};
 
     /** Preprocess:
         *    Copy the input (bytewise) array into a wordwise array.
         *    Find the longest run of 0x00's in src[] for :: shorthanding. */
     for (size_t i = 0; i < (IPV6_BINARY_LENGTH - zeroed_tail_bytes_count); i += 2) {
-        words[i / 2] = (src[i] << 8) | src[i + 1];
+        words[WORD_NUMS - i / 2 - 1] = (src[i + 1] << 8) | src[i];
     }
 
     for (size_t i = 0; i < words.size(); i++) {

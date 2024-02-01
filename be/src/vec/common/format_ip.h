@@ -202,7 +202,7 @@ void formatIPv6(const unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_
 
 /** Unsafe (no bounds-checking for src nor dst), optimized version of parsing IPv6 string.
 *
-* Parses the input string `src` and stores binary big-endian value into buffer pointed by `dst`,
+* Parses the input string `src` and stores binary little-endian value into buffer pointed by `dst`,
 * which should be long enough. In case of failure zeroes IPV6_BINARY_LENGTH bytes of buffer pointed by `dst`.
 *
 * WARNING - this function is adapted to work with ReadBuffer, where src is the position reference (ReadBuffer::position())
@@ -263,8 +263,8 @@ inline bool parseIPv6(T*& src, EOFfunction eof, unsigned char* dst, int32_t firs
                 return clear_dst();
         }
 
-        if (*src == '.') /// mixed IPv4 parsing
-        {
+        /// mixed IPv4 parsing
+        if (*src == '.') {
             if (groups <= 1 && zptr == nullptr) /// IPv4 block can't be the first
                 return clear_dst();
 
@@ -322,13 +322,15 @@ inline bool parseIPv6(T*& src, EOFfunction eof, unsigned char* dst, int32_t firs
     /// either all 8 groups or all-zeroes block should be present
     if (groups < 8 && zptr == nullptr) return clear_dst();
 
-    if (zptr != nullptr) /// process all-zeroes block
-    {
+    /// process all-zeroes block
+    if (zptr != nullptr) {
         size_t msize = iter - zptr;
         std::memmove(dst + IPV6_BINARY_LENGTH - msize, zptr, msize);
         std::memset(zptr, '\0', IPV6_BINARY_LENGTH - (iter - dst));
     }
 
+    /// transfer to little-endian
+    std::reverse(dst, dst + IPV6_BINARY_LENGTH);
     return true;
 }
 
