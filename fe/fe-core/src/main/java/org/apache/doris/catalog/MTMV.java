@@ -32,6 +32,8 @@ import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
+import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
+import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -69,6 +71,8 @@ public class MTMV extends OlapTable {
     private MTMVRelation relation;
     @SerializedName("mpi")
     private MTMVPartitionInfo mvPartitionInfo;
+    @SerializedName("rs")
+    private MTMVRefreshSnapshot refreshSnapshot;
     // Should update after every fresh, not persist
     private MTMVCache cache;
 
@@ -96,6 +100,7 @@ public class MTMV extends OlapTable {
         this.mvProperties = params.mvProperties;
         this.mvPartitionInfo = params.mvPartitionInfo;
         this.relation = params.relation;
+        this.refreshSnapshot = new MTMVRefreshSnapshot();
         mvRwLock = new ReentrantReadWriteLock(true);
     }
 
@@ -145,7 +150,8 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public void addTaskResult(MTMVTask task, MTMVRelation relation) {
+    public void addTaskResult(MTMVTask task, MTMVRelation relation,
+            Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots) {
         try {
             writeMvLock();
             if (task.getStatus() == TaskStatus.SUCCESS) {
@@ -165,6 +171,7 @@ public class MTMV extends OlapTable {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
+            this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
         } finally {
             writeMvUnlock();
         }
@@ -177,7 +184,7 @@ public class MTMV extends OlapTable {
 
     public long getGracePeriod() {
         if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
-            return Long.parseLong(mvProperties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
+            return Long.parseLong(mvProperties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) * 1000;
         } else {
             return 0L;
         }
@@ -222,6 +229,10 @@ public class MTMV extends OlapTable {
         return mvPartitionInfo;
     }
 
+    public MTMVRefreshSnapshot getRefreshSnapshot() {
+        return refreshSnapshot;
+    }
+
     public void readMvLock() {
         this.mvRwLock.readLock().lock();
     }
@@ -256,6 +267,7 @@ public class MTMV extends OlapTable {
         mvProperties = materializedView.mvProperties;
         relation = materializedView.relation;
         mvPartitionInfo = materializedView.mvPartitionInfo;
+        refreshSnapshot = materializedView.refreshSnapshot;
     }
 
 }
