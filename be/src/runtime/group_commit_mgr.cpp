@@ -25,6 +25,7 @@
 #include "client_cache.h"
 #include "common/compiler_util.h"
 #include "common/config.h"
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "util/debug_points.h"
@@ -392,6 +393,8 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     // status: exec_plan_fragment result
     // st: commit txn rpc status
     // result_status: commit txn result
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
+                    { st = Status::InternalError(""); });
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
         if (!config::group_commit_wait_replay_wal_finish) {
@@ -405,6 +408,9 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         std::string wal_path;
         RETURN_IF_ERROR(_exec_env->wal_mgr()->get_wal_path(txn_id, wal_path));
         RETURN_IF_ERROR(_exec_env->wal_mgr()->add_recover_wal(db_id, table_id, txn_id, wal_path));
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->update_wal_dir_pre_allocated(
+                WalManager::get_base_wal_path(wal_path), 0,
+                load_block_queue->block_queue_pre_allocated()));
     }
     std::stringstream ss;
     ss << "finish group commit, db_id=" << db_id << ", table_id=" << table_id << ", label=" << label
@@ -419,6 +425,12 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         ss << ", rows=" << state->num_rows_load_success();
     }
     LOG(INFO) << ss.str();
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
+        std ::string msg = _exec_env->wal_mgr()->get_wal_dirs_info_string();
+        LOG(INFO) << "debug promise set: " << msg;
+        ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
+                Status ::InternalError(msg));
+    };);
     return st;
 }
 
