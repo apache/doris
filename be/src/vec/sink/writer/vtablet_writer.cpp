@@ -46,7 +46,7 @@
 #include <utility>
 #include <vector>
 
-#include "common/config.h"
+#include "cloud/config.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -417,6 +417,7 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_backend_id(_node_id);
     request->set_enable_profile(_state->enable_profile());
     request->set_is_incremental(is_incremental);
+    request->set_txn_expiration(_parent->_txn_expiration);
 
     auto open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
     auto open_closure = AutoReleaseClosure<
@@ -1133,6 +1134,12 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
         }
     }
 
+    if (config::is_cloud_mode() &&
+        (!table_sink.__isset.txn_timeout_s || table_sink.txn_timeout_s <= 0)) {
+        return Status::InternalError("The txn_timeout_s of TDataSink is invalid");
+    }
+    _txn_expiration = ::time(nullptr) + table_sink.txn_timeout_s;
+
     if (table_sink.__isset.load_channel_timeout_s) {
         _load_channel_timeout_s = table_sink.load_channel_timeout_s;
     } else {
@@ -1616,9 +1623,7 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     if (_state->query_options().dry_run_query) {
         return status;
     }
-    LOG(INFO) << "temporary log query id: " << print_id(_state->query_id())
-              << ", instance id: " << print_id(_state->fragment_instance_id())
-              << ", block rows: " << input_block.rows();
+
     // check out of limit
     RETURN_IF_ERROR(_send_new_partition_batch());
 

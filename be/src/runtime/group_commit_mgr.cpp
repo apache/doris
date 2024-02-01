@@ -48,14 +48,15 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - start);
         if (duration.count() > LoadBlockQueue::MEM_BACK_PRESSURE_WAIT_TIMEOUT) {
-            return Status::TimedOut(
+            return Status::TimedOut<false>(
                     "Wal memory back pressure wait too much time! Load block queue txn id: {}, "
-                    "label: {}, instance id: {}",
-                    txn_id, label, load_instance_id.to_string());
+                    "label: {}, instance id: {}, consumed memory: {}",
+                    txn_id, label, load_instance_id.to_string(),
+                    _all_block_queues_bytes->load(std::memory_order_relaxed));
         }
     }
     if (UNLIKELY(runtime_state->is_cancelled())) {
-        return Status::Cancelled(runtime_state->cancel_reason());
+        return Status::Cancelled<false>(runtime_state->cancel_reason());
     }
     RETURN_IF_ERROR(status);
     if (block->rows() > 0) {
@@ -126,7 +127,7 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
         _get_cond.wait_for(l, std::chrono::milliseconds(left_milliseconds));
     }
     if (runtime_state->is_cancelled()) {
-        auto st = Status::Cancelled(runtime_state->cancel_reason());
+        auto st = Status::Cancelled<false>(runtime_state->cancel_reason());
         _cancel_without_lock(st);
         return st;
     }
@@ -157,8 +158,8 @@ void LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
 Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
     std::unique_lock l(mutex);
     if (_need_commit) {
-        return Status::InternalError("block queue is set need commit, id=" +
-                                     load_instance_id.to_string());
+        return Status::InternalError<false>("block queue is set need commit, id=" +
+                                            load_instance_id.to_string());
     }
     _load_ids.emplace(load_id);
     return Status::OK();
@@ -204,7 +205,7 @@ Status GroupCommitTable::get_first_block_load_queue(
                 }
             }
             if (!is_schema_version_match) {
-                return Status::DataQualityError("schema version not match");
+                return Status::DataQualityError<false>("schema version not match");
             }
             if (!_need_plan_fragment) {
                 _need_plan_fragment = true;
@@ -220,14 +221,14 @@ Status GroupCommitTable::get_first_block_load_queue(
                         return Status::OK();
                     }
                 } else if (base_schema_version < load_block_queue->schema_version) {
-                    return Status::DataQualityError("schema version not match");
+                    return Status::DataQualityError<false>("schema version not match");
                 }
                 load_block_queue.reset();
             }
         }
     }
-    return Status::InternalError("can not get a block queue for table_id: " +
-                                 std::to_string(_table_id));
+    return Status::InternalError<false>("can not get a block queue for table_id: " +
+                                        std::to_string(_table_id));
 }
 
 Status GroupCommitTable::_create_group_commit_load(
@@ -272,7 +273,7 @@ Status GroupCommitTable::_create_group_commit_load(
             },
             10000L);
     RETURN_IF_ERROR(st);
-    st = Status::create(result.status);
+    st = Status::create<false>(result.status);
     if (!st.ok()) {
         LOG(WARNING) << "create group commit load error, st=" << st.to_string();
     }
@@ -366,7 +367,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                     client->loadTxnRollback(result, request);
                 },
                 10000L);
-        result_status = Status::create(result.status);
+        result_status = Status::create<false>(result.status);
     }
     std::shared_ptr<LoadBlockQueue> load_block_queue;
     {

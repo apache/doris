@@ -2366,6 +2366,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
     }
 #endif
+    VLOG_DEBUG << "dump block " << block->dump_data(0, block->rows());
 
     // reverse block row order
     if (_opts.read_orderby_key_reverse) {

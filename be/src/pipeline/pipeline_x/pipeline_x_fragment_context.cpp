@@ -533,7 +533,6 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         if (local_params.__isset.runtime_filter_params) {
             runtime_filter_mgr->set_runtime_filter_params(local_params.runtime_filter_params);
         }
-        RETURN_IF_ERROR(runtime_filter_mgr->init());
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
         _runtime_filter_states.push_back(std::move(filterparams));

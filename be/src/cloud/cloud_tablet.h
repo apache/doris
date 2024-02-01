@@ -37,6 +37,9 @@ public:
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
 
+    Status capture_consistent_rowsets_unlocked(
+            const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
+
     size_t tablet_footprint() override {
         return _approximate_data_size.load(std::memory_order_relaxed);
     }
@@ -95,7 +98,7 @@ public:
     int64_t get_cloud_base_compaction_score() const;
     int64_t get_cloud_cumu_compaction_score() const;
 
-    int64_t local_max_version() const { return _max_version; }
+    int64_t max_version_unlocked() const override { return _max_version; }
     int64_t base_compaction_cnt() const { return _base_compaction_cnt; }
     int64_t cumulative_compaction_cnt() const { return _cumulative_compaction_cnt; }
     int64_t cumulative_layer_point() const {

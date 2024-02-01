@@ -100,9 +100,12 @@ ExchangeSinkBuffer<Parent>::~ExchangeSinkBuffer() = default;
 
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::close() {
-    _instance_to_broadcast_package_queue.clear();
-    _instance_to_package_queue.clear();
-    _instance_to_request.clear();
+    // Could not clear the queue here, because there maybe a running rpc want to
+    // get a request from the queue, and clear method will release the request
+    // and it will core.
+    //_instance_to_broadcast_package_queue.clear();
+    //_instance_to_package_queue.clear();
+    //_instance_to_request.clear();
 }
 
 template <typename Parent>

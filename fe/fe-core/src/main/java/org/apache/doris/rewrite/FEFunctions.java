@@ -58,12 +58,12 @@ public class FEFunctions {
     /**
      * date and time function
      */
-    @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIME")
+    @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIMEV2")
     public static FloatLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         long firstTimestamp = ((DateLiteral) first).unixTimestamp(TimeUtils.getTimeZone());
         long secondTimestamp = ((DateLiteral) second).unixTimestamp(TimeUtils.getTimeZone());
-        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) / 1000,
-            FloatLiteral.getDefaultTimeType(Type.TIME));
+        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) * 1000,
+                FloatLiteral.getDefaultTimeType(Type.TIMEV2));
     }
 
     @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")

@@ -42,6 +42,7 @@ public class ShowTransactionStmt extends ShowStmt {
     private long txnId = -1;
     private String label = "";
     private TransactionStatus status = TransactionStatus.UNKNOWN;
+    private boolean labelMatch = false;
 
     public ShowTransactionStmt(String dbName, Expr whereClause) {
         this.dbName = dbName;
@@ -62,6 +63,10 @@ public class ShowTransactionStmt extends ShowStmt {
 
     public TransactionStatus getStatus() {
         return status;
+    }
+
+    public boolean labelMatch() {
+        return labelMatch;
     }
 
     @Override
@@ -95,7 +100,7 @@ public class ShowTransactionStmt extends ShowStmt {
                     valid = false;
                     break CHECK;
                 }
-            } else {
+            } else if (!(whereClause instanceof LikePredicate)) {
                 valid = false;
                 break CHECK;
             }
@@ -123,10 +128,16 @@ public class ShowTransactionStmt extends ShowStmt {
             } else {
                 valid = false;
             }
+
+            if (whereClause instanceof LikePredicate && leftKey.equalsIgnoreCase("label")) {
+                //Only supports label like matching
+                labelMatch = true;
+                label = label.replaceAll("%", ".*");
+            }
         }
 
         if (!valid) {
-            throw new AnalysisException("Where clause should looks like one of them: id = 123 or label = 'label' "
+            throw new AnalysisException("Where clause should looks like one of them: id = 123 or label =/like 'label' "
                     + "or status = 'prepare/precommitted/committed/visible/aborted'");
         }
     }

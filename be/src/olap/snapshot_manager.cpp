@@ -270,8 +270,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     // keep segments_overlap same as origin rowset
     context.segments_overlap = rowset_meta->segments_overlap();
 
-    std::unique_ptr<RowsetWriter> rs_writer;
-    RETURN_IF_ERROR(RowsetFactory::create_rowset_writer(_engine, context, false, &rs_writer));
+    auto rs_writer = DORIS_TRY(RowsetFactory::create_rowset_writer(_engine, context, false));
 
     res = rs_writer->add_rowset(org_rowset);
     if (!res.ok()) {
@@ -517,13 +516,13 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     res = check_version_continuity(consistent_rowsets);
                     if (res.ok() && max_cooldowned_version < version) {
                         // Pick consistent rowsets of remaining required version
-                        res = ref_tablet->capture_consistent_rowsets(
+                        res = ref_tablet->capture_consistent_rowsets_unlocked(
                                 {max_cooldowned_version + 1, version}, &consistent_rowsets);
                     }
                 } else {
                     // get shortest version path
-                    res = ref_tablet->capture_consistent_rowsets(Version(0, version),
-                                                                 &consistent_rowsets);
+                    res = ref_tablet->capture_consistent_rowsets_unlocked(Version(0, version),
+                                                                          &consistent_rowsets);
                 }
                 if (!res.ok()) {
                     LOG(WARNING) << "fail to select versions to span. res=" << res;
@@ -531,7 +530,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
                 *allow_incremental_clone = false;
             } else {
-                version = ref_tablet->max_version_unlocked().second;
+                version = ref_tablet->max_version_unlocked();
                 *allow_incremental_clone = true;
             }
 

@@ -20,6 +20,7 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
+import org.apache.doris.cloud.proto.Cloud.ClusterPB.Type;
 import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -51,8 +52,11 @@ import java.util.stream.Collectors;
 public class CloudClusterChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudClusterChecker.class);
 
-    public CloudClusterChecker() {
+    private CloudSystemInfoService cloudSystemInfoService;
+
+    public CloudClusterChecker(CloudSystemInfoService cloudSystemInfoService) {
         super("cloud cluster check", Config.cloud_cluster_check_interval_second * 1000L);
+        this.cloudSystemInfoService = cloudSystemInfoService;
     }
 
     /**
@@ -116,7 +120,7 @@ public class CloudClusterChecker extends MasterDaemon {
                     b.setTagMap(newTagMap);
                     toAdd.add(b);
                 }
-                Env.getCurrentSystemInfo().updateCloudBackends(toAdd, new ArrayList<>());
+                cloudSystemInfoService.updateCloudBackends(toAdd, new ArrayList<>());
             }
         );
     }
@@ -132,15 +136,15 @@ public class CloudClusterChecker extends MasterDaemon {
                 LOG.debug("begin to drop clusterId: {}", delId);
                 List<Backend> toDel =
                         new ArrayList<>(finalClusterIdToBackend.getOrDefault(delId, new ArrayList<>()));
-                Env.getCurrentSystemInfo().updateCloudBackends(new ArrayList<>(), toDel);
+                cloudSystemInfoService.updateCloudBackends(new ArrayList<>(), toDel);
                 // del clusterName
-                String delClusterName = Env.getCurrentSystemInfo().getClusterNameByClusterId(delId);
+                String delClusterName = cloudSystemInfoService.getClusterNameByClusterId(delId);
                 if (delClusterName.isEmpty()) {
                     LOG.warn("can't get delClusterName, clusterId: {}, plz check", delId);
                     return;
                 }
                 // del clusterID
-                Env.getCurrentSystemInfo().dropCluster(delId, delClusterName);
+                cloudSystemInfoService.dropCluster(delId, delClusterName);
             }
         );
     }
@@ -201,12 +205,12 @@ public class CloudClusterChecker extends MasterDaemon {
                 // change all be's cluster_name
                 currentBes.forEach(b -> b.setCloudClusterName(newClusterName));
                 // update clusterNameToId
-                Env.getCurrentSystemInfo().updateClusterNameToId(newClusterName, currentClusterName, cid);
+                cloudSystemInfoService.updateClusterNameToId(newClusterName, currentClusterName, cid);
                 // update tags
                 currentBes.forEach(b -> Env.getCurrentEnv().getEditLog().logModifyBackend(b));
             }
 
-            String currentClusterStatus = Env.getCurrentSystemInfo().getCloudStatusById(cid);
+            String currentClusterStatus = cloudSystemInfoService.getCloudStatusById(cid);
 
             // For old versions that do no have status field set
             ClusterStatus clusterStatus = cp.hasClusterStatus() ? cp.getClusterStatus() : ClusterStatus.NORMAL;
@@ -285,89 +289,20 @@ public class CloudClusterChecker extends MasterDaemon {
                 continue;
             }
 
-            Env.getCurrentSystemInfo().updateCloudBackends(toAdd, toDel);
+            cloudSystemInfoService.updateCloudBackends(toAdd, toDel);
         }
     }
 
     @Override
     protected void runAfterCatalogReady() {
-        Map<String, List<Backend>> clusterIdToBackend = Env.getCurrentSystemInfo().getCloudClusterIdToBackend();
-        //rpc to ms, to get mysql user can use cluster_id
-        // NOTE: rpc args all empty, use cluster_unique_id to get a instance's all cluster info.
-        Cloud.GetClusterResponse response = CloudSystemInfoService.getCloudCluster("", "", "");
-        if (!response.hasStatus() || !response.getStatus().hasCode()
-                || (response.getStatus().getCode() != Cloud.MetaServiceCode.OK
-                && response.getStatus().getCode() != MetaServiceCode.CLUSTER_NOT_FOUND)) {
-            LOG.warn("failed to get cloud cluster due to incomplete response, "
-                    + "cloud_unique_id={}, response={}", Config.cloud_unique_id, response);
-        } else {
-            // clusterId -> clusterPB
-            Map<String, ClusterPB> remoteClusterIdToPB = new HashMap<>();
-            Set<String> localClusterIds = clusterIdToBackend.keySet();
-
-            try {
-                // cluster_ids diff remote <clusterId, nodes> and local <clusterId, nodes>
-                // remote - local > 0, add bes to local
-                checkToAddCluster(remoteClusterIdToPB, localClusterIds);
-
-                // local - remote > 0, drop bes from local
-                checkToDelCluster(remoteClusterIdToPB, localClusterIds, clusterIdToBackend);
-
-                if (remoteClusterIdToPB.keySet().size() != clusterIdToBackend.keySet().size()) {
-                    LOG.warn("impossible cluster id size not match, check it local {}, remote {}",
-                            clusterIdToBackend, remoteClusterIdToPB);
-                }
-                // clusterID local == remote, diff nodes
-                checkDiffNode(remoteClusterIdToPB, clusterIdToBackend);
-
-                // check mem map
-                checkFeNodesMapValid();
-            } catch (Exception e) {
-                LOG.warn("diff cluster has exception, {}", e.getMessage(), e);
-            }
-        }
-
-        // Metric
-        clusterIdToBackend = Env.getCurrentSystemInfo().getCloudClusterIdToBackend();
-        Map<String, String> clusterNameToId = Env.getCurrentSystemInfo().getCloudClusterNameToId();
-        for (Map.Entry<String, String> entry : clusterNameToId.entrySet()) {
-            long aliveNum = 0L;
-            List<Backend> bes = clusterIdToBackend.get(entry.getValue());
-            if (bes == null || bes.size() == 0) {
-                LOG.info("cant get be nodes by cluster {}, bes {}", entry, bes);
-                continue;
-            }
-            for (Backend backend : bes) {
-                MetricRepo.CLOUD_CLUSTER_BACKEND_ALIVE.computeIfAbsent(backend.getAddress(), key -> {
-                    GaugeMetricImpl<Integer> backendAlive = new GaugeMetricImpl<>("backend_alive", MetricUnit.NOUNIT,
-                            "backend alive or not");
-                    backendAlive.addLabel(new MetricLabel("cluster_id", entry.getValue()));
-                    backendAlive.addLabel(new MetricLabel("cluster_name", entry.getKey()));
-                    backendAlive.addLabel(new MetricLabel("address", key));
-                    MetricRepo.DORIS_METRIC_REGISTER.addMetrics(backendAlive);
-                    return backendAlive;
-                }).setValue(backend.isAlive() ? 1 : 0);
-                aliveNum = backend.isAlive() ? aliveNum + 1 : aliveNum;
-            }
-
-            MetricRepo.CLOUD_CLUSTER_BACKEND_ALIVE_TOTAL.computeIfAbsent(entry.getKey(), key -> {
-                GaugeMetricImpl<Long> backendAliveTotal = new GaugeMetricImpl<>("backend_alive_total",
-                        MetricUnit.NOUNIT, "backend alive num in cluster");
-                backendAliveTotal.addLabel(new MetricLabel("cluster_id", entry.getValue()));
-                backendAliveTotal.addLabel(new MetricLabel("cluster_name", key));
-                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(backendAliveTotal);
-                return backendAliveTotal;
-            }).setValue(aliveNum);
-        }
-
-        LOG.info("daemon cluster get cluster info succ, current cloudClusterIdToBackendMap: {}",
-                Env.getCurrentSystemInfo().getCloudClusterIdToBackend());
-        getObserverFes();
+        getCloudBackends();
+        updateCloudMetrics();
+        getCloudObserverFes();
     }
 
     private void checkFeNodesMapValid() {
         LOG.debug("begin checkFeNodesMapValid");
-        Map<String, List<Backend>> clusterIdToBackend = Env.getCurrentSystemInfo().getCloudClusterIdToBackend();
+        Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend();
         Set<String> clusterIds = new HashSet<>();
         Set<String> clusterNames = new HashSet<>();
         clusterIdToBackend.forEach((clusterId, bes) -> {
@@ -381,7 +316,7 @@ public class CloudClusterChecker extends MasterDaemon {
             });
         });
 
-        Map<String, String> nameToId = Env.getCurrentSystemInfo().getCloudClusterNameToId();
+        Map<String, String> nameToId = cloudSystemInfoService.getCloudClusterNameToId();
         nameToId.forEach((clusterName, clusterId) -> {
             if (!clusterIdToBackend.containsKey(clusterId)) {
                 LOG.warn("impossible, somewhere err, clusterId {}, clusterName {}, clusterNameToIdMap {}",
@@ -403,7 +338,7 @@ public class CloudClusterChecker extends MasterDaemon {
         }
     }
 
-    private void getObserverFes() {
+    private void getCloudObserverFes() {
         Cloud.GetClusterResponse response = CloudSystemInfoService
                 .getCloudCluster(Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
         if (!response.hasStatus() || !response.getStatus().hasCode()
@@ -468,6 +403,85 @@ public class CloudClusterChecker extends MasterDaemon {
             CloudSystemInfoService.updateFrontends(toAdd, toDel);
         } catch (DdlException e) {
             LOG.warn("update cloud frontends exception e: {}, msg: {}", e, e.getMessage());
+        }
+    }
+
+    private void getCloudBackends() {
+        Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend();
+        //rpc to ms, to get mysql user can use cluster_id
+        // NOTE: rpc args all empty, use cluster_unique_id to get a instance's all cluster info.
+        Cloud.GetClusterResponse response = CloudSystemInfoService.getCloudCluster("", "", "");
+        if (!response.hasStatus() || !response.getStatus().hasCode()
+                || (response.getStatus().getCode() != Cloud.MetaServiceCode.OK
+                && response.getStatus().getCode() != MetaServiceCode.CLUSTER_NOT_FOUND)) {
+            LOG.warn("failed to get cloud cluster due to incomplete response, "
+                    + "cloud_unique_id={}, response={}", Config.cloud_unique_id, response);
+            return;
+        }
+        Set<String> localClusterIds = clusterIdToBackend.keySet();
+        // clusterId -> clusterPB
+        Map<String, ClusterPB> remoteClusterIdToPB = response.getClusterList().stream()
+                .filter(c -> c.getType() != Type.SQL)
+                .collect(Collectors.toMap(ClusterPB::getClusterId, clusterPB -> clusterPB));
+        LOG.info("get cluster info  clusterIds: {}", remoteClusterIdToPB);
+
+        try {
+            // cluster_ids diff remote <clusterId, nodes> and local <clusterId, nodes>
+            // remote - local > 0, add bes to local
+            checkToAddCluster(remoteClusterIdToPB, localClusterIds);
+
+            // local - remote > 0, drop bes from local
+            checkToDelCluster(remoteClusterIdToPB, localClusterIds, clusterIdToBackend);
+
+            if (remoteClusterIdToPB.keySet().size() != clusterIdToBackend.keySet().size()) {
+                LOG.warn("impossible cluster id size not match, check it local {}, remote {}",
+                        clusterIdToBackend, remoteClusterIdToPB);
+            }
+            // clusterID local == remote, diff nodes
+            checkDiffNode(remoteClusterIdToPB, clusterIdToBackend);
+
+            // check mem map
+            checkFeNodesMapValid();
+        } catch (Exception e) {
+            LOG.warn("diff cluster has exception, {}", e.getMessage(), e);
+
+        }
+        LOG.info("daemon cluster get cluster info succ, current cloudClusterIdToBackendMap: {} clusterNameToId {}",
+                cloudSystemInfoService.getCloudClusterIdToBackend(), cloudSystemInfoService.getCloudClusterNameToId());
+    }
+
+    private void updateCloudMetrics() {
+        // Metric
+        Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend();
+        Map<String, String> clusterNameToId = cloudSystemInfoService.getCloudClusterNameToId();
+        for (Map.Entry<String, String> entry : clusterNameToId.entrySet()) {
+            long aliveNum = 0L;
+            List<Backend> bes = clusterIdToBackend.get(entry.getValue());
+            if (bes == null || bes.size() == 0) {
+                LOG.info("cant get be nodes by cluster {}, bes {}", entry, bes);
+                continue;
+            }
+            for (Backend backend : bes) {
+                MetricRepo.CLOUD_CLUSTER_BACKEND_ALIVE.computeIfAbsent(backend.getAddress(), key -> {
+                    GaugeMetricImpl<Integer> backendAlive = new GaugeMetricImpl<>("backend_alive", MetricUnit.NOUNIT,
+                            "backend alive or not");
+                    backendAlive.addLabel(new MetricLabel("cluster_id", entry.getValue()));
+                    backendAlive.addLabel(new MetricLabel("cluster_name", entry.getKey()));
+                    backendAlive.addLabel(new MetricLabel("address", key));
+                    MetricRepo.DORIS_METRIC_REGISTER.addMetrics(backendAlive);
+                    return backendAlive;
+                }).setValue(backend.isAlive() ? 1 : 0);
+                aliveNum = backend.isAlive() ? aliveNum + 1 : aliveNum;
+            }
+
+            MetricRepo.CLOUD_CLUSTER_BACKEND_ALIVE_TOTAL.computeIfAbsent(entry.getKey(), key -> {
+                GaugeMetricImpl<Long> backendAliveTotal = new GaugeMetricImpl<>("backend_alive_total",
+                        MetricUnit.NOUNIT, "backend alive num in cluster");
+                backendAliveTotal.addLabel(new MetricLabel("cluster_id", entry.getValue()));
+                backendAliveTotal.addLabel(new MetricLabel("cluster_name", key));
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(backendAliveTotal);
+                return backendAliveTotal;
+            }).setValue(aliveNum);
         }
     }
 }

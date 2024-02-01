@@ -111,7 +111,7 @@ public:
     //  override in Scan  MultiCastSink
     virtual RuntimeFilterDependency* filterdependency() { return nullptr; }
 
-    std::shared_ptr<QueryStatistics> query_statistics_ptr() { return _query_statistics; }
+    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
 
 protected:
     friend class OperatorXBase;
@@ -424,6 +424,8 @@ public:
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
 
+    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
+
 protected:
     DataSinkOperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
@@ -447,6 +449,8 @@ protected:
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 class DataSinkOperatorXBase : public OperatorBase {

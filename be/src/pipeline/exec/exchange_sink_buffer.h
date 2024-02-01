@@ -273,7 +273,6 @@ private:
     static constexpr int QUEUE_CAPACITY_FACTOR = 64;
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
     std::shared_ptr<Dependency> _finish_dependency;
-    QueryStatistics* _statistics = nullptr;
     std::atomic<bool> _should_stop {false};
 };
 

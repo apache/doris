@@ -61,22 +61,35 @@ public class PrivPredicate {
 
     // alter
     public static final PrivPredicate ALTER = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            Privilege.ALTER_PRIV),
+                    Privilege.ALTER_PRIV),
             Operator.OR);
 
     // create
     public static final PrivPredicate CREATE = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            Privilege.CREATE_PRIV),
+                    Privilege.CREATE_PRIV),
+            Operator.OR);
+
+    // alter create
+    public static final PrivPredicate ALTER_CREATE = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+                    Privilege.ALTER_PRIV,
+                    Privilege.CREATE_PRIV),
+            Operator.OR);
+
+    // alter create drop
+    public static final PrivPredicate ALTER_CREATE_DROP = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+                    Privilege.ALTER_PRIV,
+                    Privilege.CREATE_PRIV,
+                    Privilege.DROP_PRIV),
             Operator.OR);
 
     // drop
     public static final PrivPredicate DROP = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            Privilege.DROP_PRIV),
+                    Privilege.DROP_PRIV),
             Operator.OR);
 
     // select
     public static final PrivPredicate SELECT = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            Privilege.SELECT_PRIV),
+                    Privilege.SELECT_PRIV),
             Operator.OR);
 
     // operator
@@ -107,7 +120,7 @@ public class PrivPredicate {
         this.op = op;
     }
 
-    public static PrivPredicate of(PrivBitSet privs, Operator op) {
+    private static PrivPredicate of(PrivBitSet privs, Operator op) {
         final PrivPredicate predicate = new PrivPredicate(privs, op);
         return predicate;
     }

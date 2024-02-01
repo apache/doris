@@ -88,11 +88,10 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
         RETURN_IF_ERROR(
                 p._probe_expr_ctxs[i]->clone(state, Base::_shared_state->probe_expr_ctxs[i]));
     }
-    _memory_usage_counter = ADD_LABEL_COUNTER(Base::profile(), "MemoryUsage");
-    _hash_table_memory_usage =
-            ADD_CHILD_COUNTER(Base::profile(), "HashTable", TUnit::BYTES, "MemoryUsage");
+    _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
+                                                            TUnit::BYTES, "MemoryUsage", 1);
     _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
-            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage");
+            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
 
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _build_table_convert_timer = ADD_TIMER(Base::profile(), "BuildConvertToPartitionedTime");
@@ -656,9 +655,8 @@ void AggSinkLocalState<DependencyType, Derived>::_init_hash_method(
                 is_nullable);
     } else {
         if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32,
-                                            vectorized::AggregateDataPtr,
-                                            vectorized::AggregatedMethodVariants>(
-                    _agg_data->method_variant, probe_exprs)) {
+                                            vectorized::AggregateDataPtr>(_agg_data->method_variant,
+                                                                          probe_exprs)) {
             _agg_data->init(Type::serialized);
         }
     }

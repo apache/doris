@@ -406,6 +406,8 @@ struct TQueryStatistics {
     5: optional i64 max_peak_memory_bytes
     6: optional i64 current_used_memory_bytes
     7: optional i64 workload_group_id
+    8: optional i64 shuffle_send_bytes
+    9: optional i64 shuffle_send_rows
 }
 
 struct TReportWorkloadRuntimeStatusParams {
@@ -1177,7 +1179,8 @@ struct TGetBinlogLagResult {
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
-    2: list<string> statsRows;
+    2: optional list<string> statsRows;
+    3: optional string colStatsData;
 }
 
 struct TInvalidateFollowerStatsCacheRequest {

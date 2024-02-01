@@ -150,7 +150,7 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
     int64_t max_version = _tablet->max_version().second;
     DCHECK(max_version >= rowset->version().second);
     if (max_version > rowset->version().second) {
-        RETURN_IF_ERROR(_tablet->capture_consistent_rowsets(
+        RETURN_IF_ERROR(_tablet->capture_consistent_rowsets_unlocked(
                 {rowset->version().second + 1, max_version}, &tmp_rowsets));
     }
 
@@ -187,9 +187,9 @@ Status FullCompaction::_full_compaction_calc_delete_bitmap(const RowsetSharedPtr
     std::vector<RowsetSharedPtr> specified_rowsets(1, rowset);
 
     OlapStopWatch watch;
-    RETURN_IF_ERROR(_tablet->calc_delete_bitmap(published_rowset, segments, specified_rowsets,
-                                                delete_bitmap, cur_version, nullptr,
-                                                rowset_writer));
+    RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(_tablet, published_rowset, segments,
+                                                   specified_rowsets, delete_bitmap, cur_version,
+                                                   nullptr, rowset_writer));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });

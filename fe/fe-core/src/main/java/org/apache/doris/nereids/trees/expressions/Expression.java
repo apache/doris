@@ -18,18 +18,22 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.analyzer.PlaceholderExpression;
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
@@ -249,7 +253,19 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * Whether the expression is a constant.
      */
     public boolean isConstant() {
-        if (this instanceof AggregateFunction) {
+        if (this instanceof AssertNumRowsElement
+                || this instanceof AggregateFunction
+                || this instanceof Lambda
+                || this instanceof MaxValue
+                || this instanceof OrderExpression
+                || this instanceof PlaceholderExpression
+                || this instanceof Properties
+                || this instanceof SubqueryExpr
+                || this instanceof UnboundVariable
+                || this instanceof Variable
+                || this instanceof VariableDesc
+                || this instanceof WindowExpression
+                || this instanceof WindowFrame) {
             // agg_fun(literal) is not constant, the result depends on the group by keys
             return false;
         }

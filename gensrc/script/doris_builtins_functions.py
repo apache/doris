@@ -1015,6 +1015,7 @@ visible_functions = {
 
         [['to_days'], 'INT', ['DATEV2'], ''],
         [['time_to_sec'], 'INT', ['TIME'], ''],
+        [['time_to_sec'], 'INT', ['TIMEV2'], ''],
         [['sec_to_time'], 'TIME', ['INT'], ''],
 
         [['year'], 'SMALLINT', ['DATETIMEV2'], ''],
@@ -1279,6 +1280,7 @@ visible_functions = {
         [['conv'], 'VARCHAR', ['VARCHAR', 'TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
         [['conv'], 'VARCHAR', ['STRING', 'TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
         [['cos'], 'DOUBLE', ['DOUBLE'], ''],
+        [['cosh'], 'DOUBLE', ['DOUBLE'], ''],
 
         [['degrees'], 'DOUBLE', ['DOUBLE'], ''],
 
@@ -1395,6 +1397,7 @@ visible_functions = {
         [['sqrt', 'dsqrt'], 'DOUBLE', ['DOUBLE'], ''],
         
         [['tan'], 'DOUBLE', ['DOUBLE'], ''],
+        [['tanh'], 'DOUBLE', ['DOUBLE'], ''],
         [['truncate'], 'DOUBLE', ['DOUBLE'], ''],
         [['truncate'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
         [['truncate'], 'DECIMAL32', ['DECIMAL32', 'INT'], ''],
@@ -2233,7 +2236,8 @@ null_result_with_one_null_param_functions = [
     'ST_GeometryFromText',
     'ST_LineFromText',
     'ST_Polygon',
-    'ST_Contains'
+    'ST_Contains',
+    'from_unixtime'
 ]
 
 invisible_functions = [
