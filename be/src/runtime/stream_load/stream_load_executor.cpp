@@ -45,7 +45,7 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "thrift/protocol/TDebugProtocol.h"
-#include "util/doris_bvar_metrics.h" 
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
@@ -100,7 +100,8 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                 DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
                 DorisMetrics::instance()->stream_load_rows_total->increment(
                         ctx->number_loaded_rows);
-                DorisBvarMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
+                DorisBvarMetrics::instance()->stream_receive_bytes_total->increment(
+                        ctx->receive_bytes);
                 DorisBvarMetrics::instance()->stream_load_rows_total->increment(
                         ctx->number_loaded_rows);
             }
@@ -182,7 +183,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
 Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     DorisMetrics::instance()->stream_load_txn_begin_request_total->increment(1);
     DorisBvarMetrics::instance()->stream_load_txn_begin_request_total->increment(1);
-    
+
     TLoadTxnBeginRequest request;
     set_request_auth(&request, ctx->auth);
     request.db = ctx->db;

@@ -32,7 +32,7 @@ public:
     std::shared_ptr<BvarAdderMetric<int64_t>> fragment_request_duration_us;
     std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_bytes;
     std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_rows;
-    
+
     std::shared_ptr<BvarAdderMetric<int64_t>> push_requests_success_total;
     std::shared_ptr<BvarAdderMetric<int64_t>> push_requests_fail_total;
     std::shared_ptr<BvarAdderMetric<int64_t>> push_request_duration_us;
@@ -114,11 +114,11 @@ public:
     std::shared_ptr<BvarAdderMetric<int64_t>> compaction_waitting_permits;
 
     // HistogramMetric* tablet_version_num_distribution;
-    
+
     // The following metrics will be calculated
     // by metric calculator
     std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_bytes_per_second;
-    
+
     // Metrics related with file reader/writer
     std::shared_ptr<BvarAdderMetric<int64_t>> local_file_reader_total;
     std::shared_ptr<BvarAdderMetric<int64_t>> s3_file_reader_total;
@@ -208,17 +208,17 @@ public:
     std::shared_ptr<BvarAdderMetric<uint64_t>> limited_scan_thread_pool_thread_num;
     std::shared_ptr<BvarAdderMetric<uint64_t>> group_local_scan_thread_pool_queue_size;
     std::shared_ptr<BvarAdderMetric<uint64_t>> group_local_scan_thread_pool_thread_num;
-    
+
     static DorisBvarMetrics* instance() {
         static DorisBvarMetrics metrics;
         return &metrics;
     }
 
     void initialize(
-        bool init_system_metrics = false,
-        const std::set<std::string>& disk_devices = std::set<std::string>(),
-        const std::vector<std::string>& network_interfaces = std::vector<std::string>());
-    
+            bool init_system_metrics = false,
+            const std::set<std::string>& disk_devices = std::set<std::string>(),
+            const std::vector<std::string>& network_interfaces = std::vector<std::string>());
+
     void register_entity(BvarMetricEntity entity);
     // SystemBvarMetrics* get_system_bvar_metrics() { return system_metrics_.get(); }
 
@@ -229,11 +229,9 @@ private:
 
 private:
     static const std::string s_registry_name_;
-    
+
     std::unique_ptr<SystemBvarMetrics> system_metrics_;
 
-    std::unordered_map<std::string, 
-                       std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
-
+    std::unordered_map<std::string, std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
 };
 } // namespace doris

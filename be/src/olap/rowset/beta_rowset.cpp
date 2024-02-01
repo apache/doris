@@ -42,7 +42,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
-#include "util/doris_bvar_metrics.h" 
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 
 namespace doris {

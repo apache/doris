@@ -17,11 +17,12 @@
 
 #pragma once
 
-#include "util/bvar_metrics.h"
-#include <vector>
-#include <string>
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <vector>
+
+#include "util/bvar_metrics.h"
 
 namespace doris {
 
@@ -37,7 +38,7 @@ struct ProcMetrics;
 class SystemBvarMetrics {
 public:
     SystemBvarMetrics();
-    
+
     ~SystemBvarMetrics();
 
     std::string to_prometheus(const std::string& registry_name) const;
@@ -57,9 +58,7 @@ private:
     std::map<std::string, CpuBvarMetrics*> cpu_metrics_;
     char* line_ptr_ = nullptr;
     size_t line_buf_size_ = 0;
-    
-    std::unordered_map<std::string, 
-                       std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
 
+    std::unordered_map<std::string, std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
 };
 } // namespace doris

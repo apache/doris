@@ -25,14 +25,12 @@ class HttpRequest;
 
 class BvarMetricsAction : public HttpHandlerWithAuth {
 public:
-    BvarMetricsAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
-                  TPrivilegeType::type type)
+    BvarMetricsAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type)
             : HttpHandlerWithAuth(exec_env, hier, type) {}
 
     ~BvarMetricsAction() override = default;
 
     void handle(HttpRequest* req) override;
-
 };
 
 } // namespace doris

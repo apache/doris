@@ -44,7 +44,7 @@ std::ostream& operator<<(std::ostream& os, BvarMetricType type) {
 }
 
 template <typename T>
-T BvarAdderMetric<T>::get_value(){
+T BvarAdderMetric<T>::get_value() {
     return adder_->get_value();
 }
 
@@ -103,7 +103,7 @@ void BvarMetricEntity::deregister_metric(const std::string& name) {
     {
         std::lock_guard<bthread::Mutex> l(mutex_);
         auto it = metrics_.find(name);
-        if (it != metrics_.end()){
+        if (it != metrics_.end()) {
             metrics_.erase(it);
         }
     }
@@ -129,11 +129,12 @@ std::string BvarMetricEntity::to_prometheus(const std::string& registry_name) {
     return ss.str();
 }
 
-
 template class BvarAdderMetric<int64_t>;
 template class BvarAdderMetric<uint64_t>;
 template class BvarAdderMetric<double>;
-template void BvarMetricEntity::register_metric(const std::string& name, BvarAdderMetric<int64_t> metric);
-template void BvarMetricEntity::register_metric(const std::string& name, BvarAdderMetric<uint64_t> metric);
-// template void BvarMetricEntity::register_metric(const std::string& name, T metric) 
+template void BvarMetricEntity::register_metric(const std::string& name,
+                                                BvarAdderMetric<int64_t> metric);
+template void BvarMetricEntity::register_metric(const std::string& name,
+                                                BvarAdderMetric<uint64_t> metric);
+// template void BvarMetricEntity::register_metric(const std::string& name, T metric)
 } // namespace doris

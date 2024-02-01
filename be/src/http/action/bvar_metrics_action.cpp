@@ -22,8 +22,8 @@
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "util/doris_bvar_metrics.h"
 #include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 
 namespace doris {
 

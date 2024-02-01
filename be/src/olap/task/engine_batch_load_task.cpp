@@ -317,11 +317,13 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
         DorisMetrics::instance()->push_request_duration_us->increment(duration_ns / 1000);
         DorisMetrics::instance()->push_request_write_bytes->increment(push_handler.write_bytes());
         DorisMetrics::instance()->push_request_write_rows->increment(push_handler.write_rows());
-        if(config::enable_bvar_metrics) {
+        if (config::enable_bvar_metrics) {
             DorisBvarMetrics::instance()->push_requests_success_total->increment(1);
             DorisBvarMetrics::instance()->push_request_duration_us->increment(duration_ns / 1000);
-            DorisBvarMetrics::instance()->push_request_write_bytes->increment(push_handler.write_bytes());
-            DorisBvarMetrics::instance()->push_request_write_rows->increment(push_handler.write_rows());
+            DorisBvarMetrics::instance()->push_request_write_bytes->increment(
+                    push_handler.write_bytes());
+            DorisBvarMetrics::instance()->push_request_write_rows->increment(
+                    push_handler.write_rows());
         }
     }
     return res;

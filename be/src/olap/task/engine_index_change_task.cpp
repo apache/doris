@@ -18,10 +18,10 @@
 #include "olap/task/engine_index_change_task.h"
 
 #include "olap/storage_engine.h"
-#include "util/doris_bvar_metrics.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 
 namespace doris {
 

@@ -25,11 +25,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <vector>
+
 #include <functional>
 #include <ostream>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "gutil/strings/split.h" // for string split
 #include "gutil/strtoint.h"      //  for atoi64
@@ -39,31 +40,34 @@
 namespace doris {
 
 #define DECLARE_INT64_BVAR_METRIC(name, type, unit, description, group_name, labels, core) \
-    auto name = std::make_shared<BvarAdderMetric<int64_t>>(type, unit, #name, description, group_name, labels, core);
+    auto name = std::make_shared<BvarAdderMetric<int64_t>>(type, unit, #name, description, \
+                                                           group_name, labels, core);
 
 // /proc/stat: http://www.linuxhowtos.org/System/procstat.htm
 struct CpuBvarMetrics {
     CpuBvarMetrics(std::shared_ptr<BvarMetricEntity> entity, std::string cpu_name) {
-        DECLARE_INT64_BVAR_METRIC(cpu_user, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT,
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "user"}}), false)
-        DECLARE_INT64_BVAR_METRIC(cpu_nice, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, 
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "nice"}}), false)
-        DECLARE_INT64_BVAR_METRIC(cpu_system, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, 
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "system"}}), false)
-        DECLARE_INT64_BVAR_METRIC(cpu_idle, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT,  
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "idle"}}), false)
-        DECLARE_INT64_BVAR_METRIC(cpu_iowait, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, 
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "iowait"}}), false)
-        DECLARE_INT64_BVAR_METRIC(cpu_irq, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, 
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "irq"}}), false)
-        DECLARE_INT64_BVAR_METRIC(cpu_soft_irq, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, 
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "soft_irq"}}), false)
-        DECLARE_INT64_BVAR_METRIC(cpu_steal, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT,
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "steal"}}), false)
-        DECLARE_INT64_BVAR_METRIC(cpu_guest, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, 
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "guest"}}), false)
-        DECLARE_INT64_BVAR_METRIC(cpu_guest_nice, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, 
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "guest_nice"}}), false)
+        DECLARE_INT64_BVAR_METRIC(cpu_user, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
+                                  "cpu", Labels({{"device", cpu_name}, {"mode", "user"}}), false)
+        DECLARE_INT64_BVAR_METRIC(cpu_nice, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
+                                  "cpu", Labels({{"device", cpu_name}, {"mode", "nice"}}), false)
+        DECLARE_INT64_BVAR_METRIC(cpu_system, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
+                                  "cpu", Labels({{"device", cpu_name}, {"mode", "system"}}), false)
+        DECLARE_INT64_BVAR_METRIC(cpu_idle, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
+                                  "cpu", Labels({{"device", cpu_name}, {"mode", "idle"}}), false)
+        DECLARE_INT64_BVAR_METRIC(cpu_iowait, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
+                                  "cpu", Labels({{"device", cpu_name}, {"mode", "iowait"}}), false)
+        DECLARE_INT64_BVAR_METRIC(cpu_irq, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
+                                  "cpu", Labels({{"device", cpu_name}, {"mode", "irq"}}), false)
+        DECLARE_INT64_BVAR_METRIC(cpu_soft_irq, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT,
+                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "soft_irq"}}),
+                                  false)
+        DECLARE_INT64_BVAR_METRIC(cpu_steal, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
+                                  "cpu", Labels({{"device", cpu_name}, {"mode", "steal"}}), false)
+        DECLARE_INT64_BVAR_METRIC(cpu_guest, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
+                                  "cpu", Labels({{"device", cpu_name}, {"mode", "guest"}}), false)
+        DECLARE_INT64_BVAR_METRIC(cpu_guest_nice, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT,
+                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "guest_nice"}}),
+                                  false)
         entity->register_metric("cpu_user", *cpu_user);
         entity->register_metric("cpu_nice", *cpu_nice);
         entity->register_metric("cpu_system", *cpu_system);
@@ -100,8 +104,9 @@ std::string SystemBvarMetrics::to_prometheus(const std::string& registry_name) c
         int count = 0;
         for (auto& entity : entities.second) {
             if (!count) {
-                ss << "# TYPE " << registry_name << "_" << entity->get_name() << " " << entity->get_type() << "\n";
-                count ++;
+                ss << "# TYPE " << registry_name << "_" << entity->get_name() << " "
+                   << entity->get_type() << "\n";
+                count++;
             }
             ss << entity->to_prometheus(registry_name);
         }
