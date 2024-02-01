@@ -189,6 +189,8 @@ void offer_failed(T* response, google::protobuf::Closure* done, const FifoThread
     response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
     response->mutable_status()->add_error_msgs("fail to offer request to the work pool, pool=" +
                                                pool.get_info());
+    LOG(WARNING) << "cancelled due to fail to offer request to the work pool, pool="
+                 << pool.get_info();
 }
 
 template <typename T>
