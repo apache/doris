@@ -20,7 +20,6 @@
 #include "orc/Exceptions.hh"
 #include "util/crc32c.h"
 
-
 namespace orc {
 /**
  * Decompress the bytes in to the output buffer.
@@ -173,7 +172,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
             *decompressed_len =
                     orc::lzoDecompress((const char*)ptr, (const char*)(ptr + compressed_size), 
                                        (char*)output, (char*)(output + uncompressed_size));
-        } catch (const orc::ParseError & err) {
+        } catch (const orc::ParseError& err) {
             std::stringstream ss;
             ss << "Lzo decompression failed: " << err.what();
             return Status::InternalError(ss.str());
