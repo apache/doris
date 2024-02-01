@@ -163,7 +163,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 field.setAllowNull(rs.getInt("NULLABLE") != 0);
                 field.setRemarks(rs.getString("REMARKS"));
                 field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
-                field.setAutoIncInitValue(rs.getLong("AUTO_INCREMENT_INIT_VALUE"));
+                String isAutoincrement = rs.getString("IS_AUTOINCREMENT");
+                field.setAutoIncInitValue("YES".equalsIgnoreCase(isAutoincrement) ? 1 : -1);
                 field.setDefaultValue(rs.getString("COLUMN_DEF"));
                 tableSchema.add(field);
             }

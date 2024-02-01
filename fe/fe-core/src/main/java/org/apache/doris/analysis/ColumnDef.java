@@ -209,7 +209,7 @@ public class ColumnDef {
         this.isKey = isKey;
         this.aggregateType = aggregateType;
         this.isAllowNull = isAllowNull;
-        this.isAutoInc = autoIncInitValue != 0;
+        this.isAutoInc = autoIncInitValue != -1;
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
         this.comment = comment;
@@ -562,11 +562,9 @@ public class ColumnDef {
 
         if (isAutoInc) {
             sb.append("AUTO_INCREMENT ");
-            if (autoIncInitValue != 0) {
-                sb.append("(");
-                sb.append(autoIncInitValue);
-                sb.append(")");
-            }
+            sb.append("(");
+            sb.append(autoIncInitValue);
+            sb.append(")");
         }
 
         if (defaultValue.isSet) {
