@@ -74,8 +74,9 @@ suite("show") {
             table "${tableName}"
 
             set 'column_separator', ','
+            set 'compress_type', 'gz'
 
-            file 'all_types.csv'
+            file 'all_types.csv.gz'
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
