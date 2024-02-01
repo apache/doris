@@ -15,17 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/common/ipv6_to_binary.h"
-#include "vec/runtime/ipv4_value.h"
-#include "vec/runtime/ipv6_value.h"
-
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
-#include "gtest/gtest_pred_impl.h"
-
-#include <iostream>
 #include <cstdint>
+#include <iostream>
+
+#include "gtest/gtest_pred_impl.h"
+#include "vec/common/ipv6_to_binary.h"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 
 namespace doris {
 
@@ -35,7 +34,7 @@ class IPv6Value;
 // util function
 template <typename T>
 static void print_bytes(T num) {
-    uint8_t* byte_ptr = reinterpret_cast<uint8_t*>(&num);
+    auto* byte_ptr = reinterpret_cast<uint8_t*>(&num);
 
     std::cout << "low -> ";
 
@@ -98,11 +97,9 @@ TEST(IPValueTest, IPv6CIDRTest) {
     ASSERT_TRUE(IPv6Value::from_string(ipv6_val2, ipv6_str2.c_str(), ipv6_str2.size()));
     vectorized::IPv6 min_range1, max_range1;
     vectorized::IPv6 min_range2, max_range2;
-    apply_cidr_mask(reinterpret_cast<const char*>(&ipv6_val1),
-                    reinterpret_cast<char*>(&min_range1),
+    apply_cidr_mask(reinterpret_cast<const char*>(&ipv6_val1), reinterpret_cast<char*>(&min_range1),
                     reinterpret_cast<char*>(&max_range1), 0);
-    apply_cidr_mask(reinterpret_cast<const char*>(&ipv6_val2),
-                    reinterpret_cast<char*>(&min_range2),
+    apply_cidr_mask(reinterpret_cast<const char*>(&ipv6_val2), reinterpret_cast<char*>(&min_range2),
                     reinterpret_cast<char*>(&max_range2), 32);
     // print_bytes(min_range1);
     // print_bytes(max_range1);
@@ -115,7 +112,7 @@ TEST(IPValueTest, IPv6CIDRTest) {
     ASSERT_EQ(min_range_format1, "::");
     ASSERT_EQ(max_range_format1, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
     ASSERT_EQ(min_range_format2, "2001:db8::");
-    ASSERT_EQ(max_range_format2, "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff");	
+    ASSERT_EQ(max_range_format2, "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff");
 }
 
 } // namespace doris
