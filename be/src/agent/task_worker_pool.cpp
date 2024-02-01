@@ -303,8 +303,8 @@ bool handle_report(const TReportRequest& request, const TMasterInfo& master_info
     return true;
 }
 
-void _submit_task(const TAgentTaskRequest& task,
-                  std::function<Status(const TAgentTaskRequest&)> submit_op) {
+Status _submit_task(const TAgentTaskRequest& task,
+                    std::function<Status(const TAgentTaskRequest&)> submit_op) {
     const TTaskType::type task_type = task.task_type;
     int64_t signature = task.signature;
 
@@ -314,18 +314,22 @@ void _submit_task(const TAgentTaskRequest& task,
 
     if (!register_task_info(task_type, signature)) {
         LOG_WARNING("failed to register task").tag("type", type_str).tag("signature", signature);
-        return;
+        // Duplicated task request, just return OK
+        return Status::OK();
     }
+
+    // TODO(plat1ko): check task request member
 
     // Set the receiving time of task so that we can determine whether it is timed out later
     (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
     auto st = submit_op(task);
     if (!st.ok()) [[unlikely]] {
         LOG_INFO("failed to submit task").tag("type", type_str).tag("signature", signature);
-        return;
+        return st;
     }
 
     LOG_INFO("successfully submit task").tag("type", type_str).tag("signature", signature);
+    return Status::OK();
 }
 
 bvar::LatencyRecorder g_publish_version_latency("doris_pk", "publish_version");
@@ -426,8 +430,8 @@ void TaskWorkerPool::stop() {
     }
 }
 
-void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
-    _submit_task(task, [this](auto&& task) {
+Status TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
+    return _submit_task(task, [this](auto&& task) {
         add_task_count(task, 1);
         return _thread_pool->submit_func([this, task]() {
             _callback(task);
@@ -484,8 +488,8 @@ void PriorTaskWorkerPool::stop() {
     }
 }
 
-void PriorTaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
-    _submit_task(task, [this](auto&& task) {
+Status PriorTaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
+    return _submit_task(task, [this](auto&& task) {
         auto req = std::make_unique<TAgentTaskRequest>(task);
         add_task_count(*req, 1);
         if (req->__isset.priority && req->priority == TPriority::HIGH) {

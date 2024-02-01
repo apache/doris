@@ -17,9 +17,14 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -43,17 +48,23 @@ import java.util.StringJoiner;
  * 13: update_time
  */
 public class ColStatsData {
+    private static final Logger LOG = LogManager.getLogger(ColStatsData.class);
+
+    @SerializedName("statsId")
     public final StatsId statsId;
+    @SerializedName("count")
     public final long count;
+    @SerializedName("ndv")
     public final long ndv;
-
+    @SerializedName("nullCount")
     public final long nullCount;
-
+    @SerializedName("minLit")
     public final String minLit;
+    @SerializedName("maxLit")
     public final String maxLit;
-
+    @SerializedName("dataSizeInBytes")
     public final long dataSizeInBytes;
-
+    @SerializedName("updateTime")
     public final String updateTime;
 
     @VisibleForTesting
@@ -105,5 +116,57 @@ public class ColStatsData {
         sj.add(String.valueOf(dataSizeInBytes));
         sj.add(StatisticsUtil.quote(updateTime));
         return sj.toString();
+    }
+
+    public ColumnStatistic toColumnStatistic() {
+        try {
+            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
+            columnStatisticBuilder.setCount(count);
+            columnStatisticBuilder.setNdv(ndv);
+            columnStatisticBuilder.setNumNulls(nullCount);
+            columnStatisticBuilder.setDataSize(dataSizeInBytes);
+            columnStatisticBuilder.setAvgSizeByte(count == 0 ? 0 : dataSizeInBytes / count);
+            if (statsId == null) {
+                return ColumnStatistic.UNKNOWN;
+            }
+            long catalogId = statsId.catalogId;
+            long idxId = statsId.idxId;
+            long dbID = statsId.dbId;
+            long tblId = statsId.tblId;
+            String colName = statsId.colId;
+            Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
+            if (col == null) {
+                return ColumnStatistic.UNKNOWN;
+            }
+            String min = minLit;
+            String max = maxLit;
+            if (min != null && !min.equalsIgnoreCase("NULL")) {
+                try {
+                    columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
+                    columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to process column {} min value {}.", col, min, e);
+                    columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
+                }
+            } else {
+                columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
+            }
+            if (max != null && !max.equalsIgnoreCase("NULL")) {
+                try {
+                    columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+                    columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to process column {} max value {}.", col, max, e);
+                    columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+                }
+            } else {
+                columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+            }
+            columnStatisticBuilder.setUpdatedTime(updateTime);
+            return columnStatisticBuilder.build();
+        } catch (Exception e) {
+            LOG.warn("Failed to convert column statistics.", e);
+            return ColumnStatistic.UNKNOWN;
+        }
     }
 }
