@@ -369,7 +369,11 @@ public class IcebergUtils {
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
+            if (dateLiteral.isDateType()) {
+                return dateLiteral.getStringValue();
+            } else {
+                return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
+            }
         } else if (expr instanceof DecimalLiteral) {
             DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
             return decimalLiteral.getValue();
