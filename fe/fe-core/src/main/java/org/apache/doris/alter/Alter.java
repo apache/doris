@@ -897,7 +897,7 @@ public class Alter {
                     mtmv.alterMvProperties(alterMTMV.getMvProperties());
                     break;
                 case ADD_TASK:
-                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation());
+                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots());
                     Env.getCurrentEnv().getMtmvService()
                             .refreshComplete(mtmv, alterMTMV.getRelation(), alterMTMV.getTask());
                     break;
