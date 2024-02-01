@@ -277,10 +277,10 @@ BITSHUFFLE_SOURCE=bitshuffle-0.5.1
 BITSHUFFLE_MD5SUM="b3bf6a9838927f7eb62214981c138e2f"
 
 # croaringbitmap
-CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/refs/tags/v0.4.0.tar.gz"
-CROARINGBITMAP_NAME=CRoaring-0.4.0.tar.gz
-CROARINGBITMAP_SOURCE=CRoaring-0.4.0
-CROARINGBITMAP_MD5SUM="7c5cb6f2089cedc5ad9373f538a83334"
+CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/refs/tags/v2.1.2.tar.gz"
+CROARINGBITMAP_NAME=CRoaring-2.1.2.tar.gz
+CROARINGBITMAP_SOURCE=CRoaring-2.1.2
+CROARINGBITMAP_MD5SUM="419bfbafdf93e9a7e6cdc234454908fc"
 
 # fmt
 FMT_DOWNLOAD="https://github.com/fmtlib/fmt/archive/7.1.3.tar.gz"
