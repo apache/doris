@@ -246,16 +246,13 @@ Status PipelineTask::execute(bool* eos) {
                 set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
                 return Status::OK();
             }
-            // here check dependency first.
-            // even if status is not ok, as have dependency to push back to queue again.
-            if (has_dependency()) {
+            //if status is not ok, and have dependency to push back to queue again.
+            if (!_open_status.ok() && has_dependency()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
                 return Status::OK();
-            } else {
-                if (!_open_status.ok()) { // not ok and no dependency, return error to cancel.
-                    return _open_status;
-                }
             }
+            // not ok and no dependency, return error to cancel.
+            RETURN_IF_ERROR(_open_status);
         }
         if (has_dependency()) {
             set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
