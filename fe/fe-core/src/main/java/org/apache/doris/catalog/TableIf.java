@@ -45,9 +45,11 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
@@ -341,8 +343,12 @@ public interface TableIf {
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
-            constraintMap.entrySet().removeIf(e -> e.getValue() instanceof ForeignKeyConstraint
-                    && ((ForeignKeyConstraint) e.getValue()).isReferringPK(table, constraint));
+            Set<String> fkName = constraintMap.entrySet().stream()
+                    .filter(e -> e.getValue() instanceof ForeignKeyConstraint
+                    && ((ForeignKeyConstraint) e.getValue()).isReferringPK(table, constraint))
+                    .map(Entry::getKey)
+                    .collect(Collectors.toSet());
+            fkName.forEach(constraintMap::remove);
         } finally {
             writeUnlock();
         }

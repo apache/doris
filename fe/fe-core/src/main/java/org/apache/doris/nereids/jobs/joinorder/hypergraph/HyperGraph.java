@@ -46,14 +46,17 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * The graph is a join graph, whose node is the leaf plan and edge is a join operator.
@@ -289,6 +292,36 @@ public class HyperGraph {
     }
 
     /**
+     * map output to requires output and construct named expressions
+     */
+    public @Nullable List<NamedExpression> getNamedExpressions(
+            long nodeMap, Set<Slot> outputSet, Set<Slot> requireOutputs) {
+        List<NamedExpression> output = new ArrayList<>();
+        List<NamedExpression> projects = getComplexProject().get(nodeMap);
+        if (projects == null) {
+            return null;
+        }
+        for (Slot slot : requireOutputs) {
+            if (outputSet.contains(slot)) {
+                output.add(slot);
+            } else {
+                Optional<NamedExpression> expr = projects.stream()
+                        .filter(p -> p.toSlot().equals(slot))
+                        .findFirst();
+                if (!expr.isPresent()) {
+                    return null;
+                }
+                // TODO: consider cascades alias
+                if (!outputSet.containsAll(expr.get().getInputSlots())) {
+                    return null;
+                }
+                output.add(expr.get());
+            }
+        }
+        return output;
+    }
+
+    /**
      * Builder of HyperGraph
      */
     public static class Builder {
@@ -509,6 +542,10 @@ public class HyperGraph {
             }
 
             BitSet curJoinEdges = new BitSet();
+            Set<Slot> leftInputSlots = ImmutableSet.copyOf(
+                    Sets.intersection(join.getInputSlots(), join.left().getOutputSet()));
+            Set<Slot> rightInputSlots = ImmutableSet.copyOf(
+                    Sets.intersection(join.getInputSlots(), join.right().getOutputSet()));
             for (Map.Entry<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> entry : conjuncts
                     .entrySet()) {
                 LogicalJoin<?, ?> singleJoin = new LogicalJoin<>(join.getJoinType(), entry.getValue().first,
@@ -518,7 +555,7 @@ public class HyperGraph {
                 Pair<Long, Long> ends = entry.getKey();
                 JoinEdge edge = new JoinEdge(singleJoin, joinEdges.size(), leftEdgeNodes.first, rightEdgeNodes.first,
                         LongBitmap.newBitmapUnion(leftEdgeNodes.second, rightEdgeNodes.second),
-                        ends.first, ends.second);
+                        ends.first, ends.second, leftInputSlots, rightInputSlots);
                 for (int nodeIndex : LongBitmap.getIterator(edge.getReferenceNodes())) {
                     nodes.get(nodeIndex).attachEdge(edge);
                 }
