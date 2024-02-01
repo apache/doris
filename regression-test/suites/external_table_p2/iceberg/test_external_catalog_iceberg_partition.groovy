@@ -55,9 +55,30 @@ suite("test_external_catalog_iceberg_partition", "p2") {
             qt_q08 """ select * from iceberg_catalog.orc_partitioned_truncate_and_fields where t_int is null order by t_float """
             qt_q09 """ select * from iceberg_catalog.orc_partitioned_truncate_and_fields where t_int is not null order by t_float """
         }
+
+        // test date for partition and predict
+        def q01_date = {
+
+            qt_q01 """ select * from user_case_date_without_partition where d = '2020-01-02' """
+            qt_q02 """ select * from user_case_date_without_partition where d > '2020-01-01' """
+            qt_q03 """ select * from user_case_date_without_partition where d < '2020-01-03' """
+            qt_q04 """ select * from user_case_date_without_partition where ts < '2020-01-03' """
+            qt_q05 """ select * from user_case_date_without_partition where ts > '2020-01-01' """
+
+            qt_q06 """ select * from user_case_date_with_date_partition where d = '2020-01-02' """
+            qt_q07 """ select * from user_case_date_with_date_partition where d < '2020-01-03' """
+            qt_q08 """ select * from user_case_date_with_date_partition where d > '2020-01-01' """
+
+            qt_q09 """ select * from user_case_date_with_days_date_partition where d = '2020-01-02' """
+            qt_q10 """ select * from user_case_date_with_days_date_partition where d < '2020-01-03' """
+            qt_q11 """ select * from user_case_date_with_days_date_partition where d > '2020-01-01' """
+
+        }
+
         sql """ use `iceberg_catalog`; """
         q01_parquet()
         q01_orc()
+        q01_date()
     }
 }
 
