@@ -53,7 +53,7 @@ suite("test_workload_group_mtmv") {
     sql """
             refresh MATERIALIZED VIEW ${mvName};
         """
-    def errors = """select ErrorMsg from tasks('type'='mv') where MvName=${mvName};"""
+    def errors = sql """select ErrorMsg from tasks('type'='mv') where MvName='${mvName}';"""
     logger.info("errors: " + errors.toString())
     assertTrue(errors.toString().contains("mv_test_not_exist_group"))
     sql """
