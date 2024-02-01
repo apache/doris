@@ -1968,10 +1968,10 @@ visible_functions = {
 
     #ip functions
     "IP": [
-        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['TINYINT'], 'ALWAYS_NULLABLE'],
-        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['SMALLINT'], 'ALWAYS_NULLABLE'],
-        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['INT'], 'ALWAYS_NULLABLE'],
-        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['BIGINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_num_to_string','inet_ntoa'], 'VARCHAR', ['TINYINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_num_to_string','inet_ntoa'], 'VARCHAR', ['SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_num_to_string','inet_ntoa'], 'VARCHAR', ['INT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_num_to_string','inet_ntoa'], 'VARCHAR', ['BIGINT'], 'ALWAYS_NULLABLE'],
     ],
 
     "NonNullalbe": [

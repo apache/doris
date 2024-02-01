@@ -49,6 +49,13 @@ public class JdbcFunctionPushDownRule {
         CLICKHOUSE_SUPPORTED_FUNCTIONS.add("unix_timestamp");
     }
 
+    private static final TreeSet<String> ORACLE_SUPPORTED_FUNCTIONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+
+    static {
+        ORACLE_SUPPORTED_FUNCTIONS.add("nvl");
+        ORACLE_SUPPORTED_FUNCTIONS.add("ifnull");
+    }
+
     private static boolean isMySQLFunctionUnsupported(String functionName) {
         return MYSQL_UNSUPPORTED_FUNCTIONS.contains(functionName.toLowerCase());
     }
@@ -57,6 +64,9 @@ public class JdbcFunctionPushDownRule {
         return !CLICKHOUSE_SUPPORTED_FUNCTIONS.contains(functionName.toLowerCase());
     }
 
+    private static boolean isOracleFunctionUnsupported(String functionName) {
+        return !ORACLE_SUPPORTED_FUNCTIONS.contains(functionName.toLowerCase());
+    }
 
     private static final Map<String, String> REPLACE_MYSQL_FUNCTIONS = Maps.newHashMap();
 
@@ -79,6 +89,16 @@ public class JdbcFunctionPushDownRule {
         return REPLACE_CLICKHOUSE_FUNCTIONS.containsKey(functionName.toLowerCase());
     }
 
+    private static final Map<String, String> REPLACE_ORACLE_FUNCTIONS = Maps.newHashMap();
+
+    static {
+        REPLACE_ORACLE_FUNCTIONS.put("ifnull", "nvl");
+    }
+
+    private static boolean isReplaceOracleFunctions(String functionName) {
+        return REPLACE_ORACLE_FUNCTIONS.containsKey(functionName.toLowerCase());
+    }
+
     public static Expr processFunctions(TOdbcTableType tableType, Expr expr, List<String> errors) {
         if (tableType == null || expr == null) {
             return expr;
@@ -93,6 +113,9 @@ public class JdbcFunctionPushDownRule {
         } else if (TOdbcTableType.CLICKHOUSE.equals(tableType)) {
             replaceFunction = JdbcFunctionPushDownRule::isReplaceClickHouseFunctions;
             checkFunction = JdbcFunctionPushDownRule::isClickHouseFunctionUnsupported;
+        } else if (TOdbcTableType.ORACLE.equals(tableType)) {
+            replaceFunction = JdbcFunctionPushDownRule::isReplaceOracleFunctions;
+            checkFunction = JdbcFunctionPushDownRule::isOracleFunctionUnsupported;
         } else {
             return expr;
         }
@@ -137,6 +160,8 @@ public class JdbcFunctionPushDownRule {
                 newFunc = REPLACE_MYSQL_FUNCTIONS.get(func.toLowerCase());
             } else if (TOdbcTableType.CLICKHOUSE.equals(tableType)) {
                 newFunc = REPLACE_CLICKHOUSE_FUNCTIONS.get(func);
+            } else if (TOdbcTableType.ORACLE.equals(tableType)) {
+                newFunc = REPLACE_ORACLE_FUNCTIONS.get(func);
             } else {
                 newFunc = null;
             }

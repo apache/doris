@@ -336,6 +336,13 @@ TabletPublishTxnTask::TabletPublishTxnTask(EnginePublishVersionTask* engine_task
 }
 
 void TabletPublishTxnTask::handle() {
+    std::shared_lock migration_rlock(_tablet->get_migration_lock(), std::chrono::seconds(5));
+    if (!migration_rlock.owns_lock()) {
+        _result = Status::Error<TRY_LOCK_FAILED, false>("got migration_rlock failed");
+        LOG(WARNING) << "failed to publish version. tablet_id=" << _tablet_info.tablet_id
+                     << ", txn_id=" << _transaction_id << ", res=" << _result;
+        return;
+    }
     std::unique_lock<std::mutex> rowset_update_lock(_tablet->get_rowset_update_lock(),
                                                     std::defer_lock);
     if (_tablet->enable_unique_key_merge_on_write()) {
@@ -351,6 +358,8 @@ void TabletPublishTxnTask::handle() {
         _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
         return;
     }
+
+    DBUG_EXECUTE_IF("EnginePublishVersionTask.handle.block_add_rowsets", DBUG_BLOCK);
 
     // add visible rowset to tablet
     int64_t t1 = MonotonicMicros();
@@ -377,6 +386,12 @@ void TabletPublishTxnTask::handle() {
 }
 
 void AsyncTabletPublishTask::handle() {
+    std::shared_lock migration_rlock(_tablet->get_migration_lock(), std::chrono::seconds(5));
+    if (!migration_rlock.owns_lock()) {
+        LOG(WARNING) << "failed to publish version. tablet_id=" << _tablet->tablet_id()
+                     << ", txn_id=" << _transaction_id << ", got migration_rlock failed";
+        return;
+    }
     std::lock_guard<std::mutex> wrlock(_tablet->get_rowset_update_lock());
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
@@ -397,6 +412,8 @@ void AsyncTabletPublishTask::handle() {
                      << ", res=" << publish_status;
         return;
     }
+
+    DBUG_EXECUTE_IF("EnginePublishVersionTask.handle.block_add_rowsets", DBUG_BLOCK);
 
     // add visible rowset to tablet
     int64_t t1 = MonotonicMicros();

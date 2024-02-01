@@ -21,11 +21,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Frontend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -39,12 +39,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 public class StatisticsCache {
 
@@ -203,37 +203,34 @@ public class StatisticsCache {
     }
 
     /**
-     * Return false if the log of corresponding stats load is failed.
+     * Refresh stats cache, invalidate cache if the new data is unknown.
      */
-    public boolean syncLoadColStats(long tableId, long idxId, String colName) {
-        List<ResultRow> columnResults = StatisticsRepository.loadColStats(tableId, idxId, colName);
-        final StatisticsCacheKey k =
-                new StatisticsCacheKey(tableId, idxId, colName);
-        final ColumnStatistic c = ColumnStatistic.fromResultRow(columnResults);
-        if (c == ColumnStatistic.UNKNOWN) {
-            return false;
-        }
-        putCache(k, c);
-        if (ColumnStatistic.UNKNOWN == c) {
-            return false;
+    public void syncColStats(ColStatsData data) {
+        StatsId statsId = data.statsId;
+        final StatisticsCacheKey k = new StatisticsCacheKey(statsId.tblId, statsId.idxId, statsId.colId);
+        ColumnStatistic columnStatistic = data.toColumnStatistic();
+        if (columnStatistic == ColumnStatistic.UNKNOWN) {
+            invalidate(k.tableId, k.idxId, k.colName);
+        } else {
+            putCache(k, columnStatistic);
         }
         TUpdateFollowerStatsCacheRequest updateFollowerStatsCacheRequest = new TUpdateFollowerStatsCacheRequest();
         updateFollowerStatsCacheRequest.key = GsonUtils.GSON.toJson(k);
-        updateFollowerStatsCacheRequest.statsRows = columnResults.stream().map(GsonUtils.GSON::toJson).collect(
-                Collectors.toList());
-        for (Frontend frontend : Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER)) {
-            if (StatisticsUtil.isMaster(frontend)) {
+        updateFollowerStatsCacheRequest.colStatsData = GsonUtils.GSON.toJson(data);
+        // For compatible only, to be deprecated.
+        updateFollowerStatsCacheRequest.statsRows = new ArrayList<>();
+        SystemInfoService.HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
+        for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
+            if (selfNode.getHost().equals(frontend.getHost())) {
                 continue;
             }
             sendStats(frontend, updateFollowerStatsCacheRequest);
         }
-        return true;
     }
 
     @VisibleForTesting
     public void sendStats(Frontend frontend, TUpdateFollowerStatsCacheRequest updateFollowerStatsCacheRequest) {
-        TNetworkAddress address = new TNetworkAddress(frontend.getHost(),
-                frontend.getRpcPort());
+        TNetworkAddress address = new TNetworkAddress(frontend.getHost(), frontend.getRpcPort());
         FrontendService.Client client = null;
         try {
             client = ClientPool.frontendPool.borrowObject(address);

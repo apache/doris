@@ -321,7 +321,7 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
                     .error(result.status);
             try_time += 1;
         }
-        sleep(config::sleep_one_second);
+        sleep(1);
     }
 }
 
