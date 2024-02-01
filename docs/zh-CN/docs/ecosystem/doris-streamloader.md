@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Doris-Streamloader",
+    "title": "Doris Streamloader",
     "language": "zh-CN"
 }
 ---
@@ -26,7 +26,7 @@ under the License.
 
 
 ## 概述
-[Doris-Streamloader](https://github.com/apache/doris-streamloader) 是一款用于将数据导入 Doris 数据库的专用客户端工具。相比于直接使用 `curl` 的单并发导入，该工具可以提供多并发导入的功能，降低大数据量导入的耗时。拥有以下功能：
+[Doris Streamloader](https://github.com/apache/doris-streamloader) 是一款用于将数据导入 Doris 数据库的专用客户端工具。相比于直接使用 `curl` 的单并发导入，该工具可以提供多并发导入的功能，降低大数据量导入的耗时。拥有以下功能：
 
 - 并发导入，实现 Stream Load 的多并发导入。可以通过 workers 值设置并发数。
 - 多文件导入，一次导入可以同时导入多个文件及目录，支持设置通配符以及会自动递归获取文件夹下的所有文件。
@@ -102,7 +102,7 @@ doris-streamloader --source_file={FILE_LIST} --url={FE_OR_BE_SERVER_URL}:{PORT} 
    ```
 
 :::tip 
-当需要多个文件导入时，使用 Doris-Streamloader 也只会产生一个版本号 
+当需要多个文件导入时，使用 Doris Streamloader 也只会产生一个版本号 
 :::
 
 

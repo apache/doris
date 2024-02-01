@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Doris-Streamloader",
+    "title": "Doris Streamloader",
     "language": "en"
 }
 ---
@@ -26,7 +26,7 @@ under the License.
 
 
 ## Overview
-Doris-Streamloader is a client tool designed for loading data into Apache Doris. In comparison to single-threaded load using `curl`, it reduces the load latency of large datasets by its concurrent loading capabilities. It comes with the following features:
+Doris Streamloader is a client tool designed for loading data into Apache Doris. In comparison to single-threaded load using `curl`, it reduces the load latency of large datasets by its concurrent loading capabilities. It comes with the following features:
 
 - **Parallel loading**: multi-threaded load for the Stream Load method. You can set the parallelism level using the `workers` parameter.
 - **Multi-file load:** simultaneously load of multiple files and directories with one shot. It supports recursive file fetching and allows you to specify file names with wildcard characters.
@@ -124,7 +124,7 @@ The parameters above are required, and the following parameters are optional:
 |---|---|---|---|
 | --u      | Username of the database |  root    |      |
 | --p      | Password |  empty string  |      |
-| --compress      | Whether to compress data upon HTTP transmission |  false    |   Remain as default. Compression and decompression can increase pressure on Doris-Streamloader side and the CPU resources on Doris BE side, so it is advised to only enable this when network bandwidth is constrained.   |
+| --compress      | Whether to compress data upon HTTP transmission |  false    |   Remain as default. Compression and decompression can increase pressure on Doris Streamloader side and the CPU resources on Doris BE side, so it is advised to only enable this when network bandwidth is constrained.   |
 |--timeout    | Timeout of the HTTP request sent to Doris (seconds) |  60\*60\*10  | Remain as default |
 | --batch      | Granularity of batch reading and sending of files (rows) |  4096    | Remain as default |
 | --batch_byte      | Granularity of batch reading and sending of files (byte) |  943718400 (900MB)    | Remain as default |
@@ -242,8 +242,8 @@ In most cases, you only need to set the required parameters and `workers`.
 
 ### FAQ
 
-- Before resumable loading was available, to fix any partial failures in loading would require deleting the current table and starting over. In this case, Doris-Streamloader would retry automatically. If the retry fails, a retry command will be printed so you can copy and execute it.
-- The default maximum data loading size for Doris-Streamloader is limited by BE config `streaming_load_max_mb` (default: 100GB). If you don't want to restart BE, you can also dial down `max_byte_per_task`.
+- Before resumable loading was available, to fix any partial failures in loading would require deleting the current table and starting over. In this case, Doris Streamloader would retry automatically. If the retry fails, a retry command will be printed so you can copy and execute it.
+- The default maximum data loading size for Doris Streamloader is limited by BE config `streaming_load_max_mb` (default: 100GB). If you don't want to restart BE, you can also dial down `max_byte_per_task`.
 
   To show current `streaming_load_max_mb`: 
 
