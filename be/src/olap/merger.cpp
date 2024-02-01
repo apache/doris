@@ -106,7 +106,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     vectorized::Block block = cur_tablet_schema->create_block(reader_params.return_columns);
     size_t output_rows = 0;
     bool eof = false;
-    while (!eof && !StorageEngine::instance()->stopped()) {
+    while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
         // Read one block from block reader
         RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
                                        "failed to read next block when merging rowsets of tablet " +
@@ -125,7 +125,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         output_rows += block.rows();
         block.clear_column_data();
     }
-    if (StorageEngine::instance()->stopped()) {
+    if (ExecEnv::GetInstance()->storage_engine().stopped()) {
         return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
                                              tablet->tablet_id());
     }
@@ -181,9 +181,11 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
     if (!key_columns.empty()) {
         column_groups->emplace_back(std::move(key_columns));
     }
-    for (auto i = num_key_cols; i < total_cols; ++i) {
+    auto&& cluster_key_idxes = tablet_schema->cluster_key_idxes();
+    for (uint32_t i = num_key_cols; i < total_cols; ++i) {
         if (i == sequence_col_idx || i == delete_sign_idx ||
-            key_columns.end() != std::find(key_columns.begin(), key_columns.end(), i)) {
+            cluster_key_idxes.end() !=
+                    std::find(cluster_key_idxes.begin(), cluster_key_idxes.end(), i)) {
             continue;
         }
         if ((i - num_key_cols) % config::vertical_compaction_num_columns_per_group == 0) {
@@ -252,7 +254,7 @@ Status Merger::vertical_compact_one_group(
     vectorized::Block block = tablet_schema->create_block(reader_params.return_columns);
     size_t output_rows = 0;
     bool eof = false;
-    while (!eof && !StorageEngine::instance()->stopped()) {
+    while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
         // Read one block from block reader
         RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
                                        "failed to read next block when merging rowsets of tablet " +
@@ -271,7 +273,7 @@ Status Merger::vertical_compact_one_group(
         output_rows += block.rows();
         block.clear_column_data();
     }
-    if (StorageEngine::instance()->stopped()) {
+    if (ExecEnv::GetInstance()->storage_engine().stopped()) {
         return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
                                              tablet->tablet_id());
     }
@@ -301,7 +303,7 @@ Status Merger::vertical_compact_one_group(TabletSharedPtr tablet, ReaderType rea
     vectorized::Block block = tablet_schema->create_block(column_group);
     size_t output_rows = 0;
     bool eof = false;
-    while (!eof && !StorageEngine::instance()->stopped()) {
+    while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
         // Read one block from block reader
         RETURN_NOT_OK_STATUS_WITH_WARN(src_block_reader.next_block_with_aggregation(&block, &eof),
                                        "failed to read next block when merging rowsets of tablet " +
@@ -316,7 +318,7 @@ Status Merger::vertical_compact_one_group(TabletSharedPtr tablet, ReaderType rea
         output_rows += block.rows();
         block.clear_column_data();
     }
-    if (StorageEngine::instance()->stopped()) {
+    if (ExecEnv::GetInstance()->storage_engine().stopped()) {
         return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
                                              tablet->tablet_id());
     }

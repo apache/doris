@@ -165,6 +165,10 @@ public abstract class AlterJobV2 implements Writable {
         this.finishedTimeMs = finishedTimeMs;
     }
 
+    public String getRawSql() {
+        return rawSql;
+    }
+
     // /api/debug_point/add/{name}?value=100
     private void stateWait(final String name) {
         long waitTimeMs = DebugPointUtil.getDebugParamOrDefault(name, 0);
@@ -217,7 +221,7 @@ public abstract class AlterJobV2 implements Writable {
                 default:
                     break;
             }
-        } catch (AlterCancelException e) {
+        } catch (Exception e) {
             cancelImpl(e.getMessage());
         }
     }
@@ -260,7 +264,7 @@ public abstract class AlterJobV2 implements Writable {
         }
     }
 
-    protected abstract void runPendingJob() throws AlterCancelException;
+    protected abstract void runPendingJob() throws Exception;
 
     protected abstract void runWaitingTxnJob() throws AlterCancelException;
 

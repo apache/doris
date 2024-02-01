@@ -75,6 +75,7 @@ enum TStatusCode {
     INCOMPLETE          = 44,
     OLAP_ERR_VERSION_ALREADY_MERGED = 45,
     DATA_QUALITY_ERROR  = 46,
+    INVALID_JSON_PATH   = 47,
 
     VEC_EXCEPTION = 50,
     VEC_LOGIC_ERROR = 51,
@@ -101,6 +102,9 @@ enum TStatusCode {
     TABLET_MISSING = 72,
 
     NOT_MASTER = 73,
+
+    // used for cloud
+    DELETE_BITMAP_LOCK_ERROR = 100,
 }
 
 struct TStatus {

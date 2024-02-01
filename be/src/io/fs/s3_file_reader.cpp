@@ -31,6 +31,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "io/fs/err_utils.h"
 #include "io/fs/s3_common.h"
 #include "util/doris_metrics.h"
 #include "util/s3_util.h"
@@ -74,8 +75,9 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                                   const IOContext* /*io_ctx*/) {
     DCHECK(!closed());
     if (offset > _file_size) {
-        return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
-                               offset, _file_size, _path.native());
+        return Status::InternalError(
+                "offset exceeds file size(offset: {}, file size: {}, path: {})", offset, _file_size,
+                _path.native());
     }
     size_t bytes_req = result.size;
     char* to = result.data;
@@ -97,15 +99,13 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     auto outcome = client->GetObject(request);
     s3_bvar::s3_get_total << 1;
     if (!outcome.IsSuccess()) {
-        return Status::IOError("failed to read from {}: {}, exception {}, error code {}",
-                               _path.native(), outcome.GetError().GetMessage(),
-                               outcome.GetError().GetExceptionName(),
-                               outcome.GetError().GetResponseCode());
+        return s3fs_error(outcome.GetError(),
+                          fmt::format("failed to read from {}", _path.native()));
     }
     *bytes_read = outcome.GetResult().GetContentLength();
     if (*bytes_read != bytes_req) {
-        return Status::IOError("failed to read from {}(bytes read: {}, bytes req: {})",
-                               _path.native(), *bytes_read, bytes_req);
+        return Status::InternalError("failed to read from {}(bytes read: {}, bytes req: {})",
+                                     _path.native(), *bytes_read, bytes_req);
     }
     s3_bytes_read_total << *bytes_read;
     s3_file_reader_read_counter << 1;

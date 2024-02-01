@@ -46,6 +46,11 @@ JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink
     jdbc_param.query_string = t_jdbc_sink.insert_sql;
     jdbc_param.table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
     jdbc_param.use_transaction = t_jdbc_sink.use_transaction;
+    jdbc_param.min_pool_size = t_jdbc_sink.jdbc_table.jdbc_min_pool_size;
+    jdbc_param.max_pool_size = t_jdbc_sink.jdbc_table.jdbc_max_pool_size;
+    jdbc_param.max_idle_time = t_jdbc_sink.jdbc_table.jdbc_max_idle_time;
+    jdbc_param.max_wait_time = t_jdbc_sink.jdbc_table.jdbc_max_wait_time;
+    jdbc_param.keep_alive = t_jdbc_sink.jdbc_table.jdbc_keep_alive;
 
     return jdbc_param;
 }
@@ -54,7 +59,7 @@ VJdbcTableWriter::VJdbcTableWriter(const TDataSink& t_sink,
                                    const VExprContextSPtrs& output_expr_ctxs)
         : AsyncResultWriter(output_expr_ctxs), JdbcConnector(create_connect_param(t_sink)) {}
 
-Status VJdbcTableWriter::append_block(vectorized::Block& block) {
+Status VJdbcTableWriter::write(vectorized::Block& block) {
     Block output_block;
     RETURN_IF_ERROR(_projection_block(block, &output_block));
     auto num_rows = output_block.rows();

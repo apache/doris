@@ -36,7 +36,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class RepeatOperator final : public StatefulOperator<RepeatOperatorBuilder> {
+class RepeatOperator final : public StatefulOperator<vectorized::VRepeatNode> {
 public:
     RepeatOperator(OperatorBuilderBase* operator_builder, ExecNode* repeat_node);
 

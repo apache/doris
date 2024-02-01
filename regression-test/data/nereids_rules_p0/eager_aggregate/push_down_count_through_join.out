@@ -73,10 +73,10 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[LOCAL]
+----------PhysicalOlapScan[count_t]
+--------hashAgg[LOCAL]
 ----------filter((count_t.score > 10))
 ------------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
 
 -- !groupby_pushdown_outer_join --
 PhysicalResultSink
@@ -92,10 +92,10 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[LOCAL]
+----------PhysicalOlapScan[count_t]
+--------hashAgg[LOCAL]
 ----------filter((count_t.score > 10))
 ------------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
 
 -- !groupby_pushdown_having --
 PhysicalResultSink
@@ -187,10 +187,10 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[LOCAL]
+----------PhysicalOlapScan[count_t]
+--------hashAgg[LOCAL]
 ----------filter((t1.score > 50))
 ------------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
 
 -- !groupby_pushdown_varied_aggregates --
 PhysicalResultSink
@@ -242,12 +242,12 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------hashAgg[LOCAL]
-----------filter((count_t.score > 20) and (t1.id < 100))
-------------PhysicalOlapScan[count_t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[LOCAL]
 ----------filter((count_t.id < 100))
+------------PhysicalOlapScan[count_t]
+--------hashAgg[LOCAL]
+----------filter((count_t.score > 20) and (t1.id < 100))
 ------------PhysicalOlapScan[count_t]
 
 -- !groupby_pushdown_basic --
@@ -326,10 +326,10 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[LOCAL]
+----------PhysicalOlapScan[count_t]
+--------hashAgg[LOCAL]
 ----------filter((count_t.score > 10))
 ------------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
 
 -- !groupby_pushdown_outer_join --
 PhysicalResultSink
@@ -345,10 +345,10 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[LOCAL]
+----------PhysicalOlapScan[count_t]
+--------hashAgg[LOCAL]
 ----------filter((count_t.score > 10))
 ------------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
 
 -- !groupby_pushdown_having --
 PhysicalResultSink
@@ -414,10 +414,10 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[LOCAL]
+----------PhysicalOlapScan[count_t]
+--------hashAgg[LOCAL]
 ----------filter((t1.score > 50))
 ------------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
 
 -- !groupby_pushdown_varied_aggregates --
 PhysicalResultSink
@@ -451,11 +451,11 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------hashAgg[LOCAL]
-----------filter((count_t.score > 20) and (t1.id < 100))
-------------PhysicalOlapScan[count_t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[LOCAL]
 ----------filter((count_t.id < 100))
+------------PhysicalOlapScan[count_t]
+--------hashAgg[LOCAL]
+----------filter((count_t.score > 20) and (t1.id < 100))
 ------------PhysicalOlapScan[count_t]
 

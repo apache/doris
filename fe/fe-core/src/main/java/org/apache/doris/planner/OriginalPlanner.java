@@ -248,9 +248,8 @@ public class OriginalPlanner extends Planner {
             rootFragment.setSink(insertStmt.getDataSink());
             insertStmt.complete();
             List<Expr> exprs = statement.getResultExprs();
-            List<Expr> resExprs = Expr.substituteList(
-                    exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
-            rootFragment.setOutputExprs(resExprs);
+            rootFragment.setOutputExprs(
+                    Expr.substituteList(exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true));
         } else {
             List<Expr> resExprs = Expr.substituteList(queryStmt.getResultExprs(),
                     rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);

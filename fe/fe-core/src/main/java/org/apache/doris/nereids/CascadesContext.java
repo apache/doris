@@ -64,6 +64,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -619,7 +620,7 @@ public class CascadesContext implements ScheduleContext {
         List<Pair<Map<Slot, Slot>, Group>> consumerGroups = this.statementContext.getCteIdToConsumerGroup().get(cteId);
         for (Pair<Map<Slot, Slot>, Group> p : consumerGroups) {
             Map<Slot, Slot> producerSlotToConsumerSlot = p.first;
-            Statistics updatedConsumerStats = new Statistics(statistics);
+            Statistics updatedConsumerStats = new StatisticsBuilder(statistics).build();
             for (Entry<Expression, ColumnStatistic> entry : statistics.columnStatistics().entrySet()) {
                 updatedConsumerStats.addColumnStats(producerSlotToConsumerSlot.get(entry.getKey()), entry.getValue());
             }

@@ -372,11 +372,15 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
     auto new_size = indices_end - indices_begin;
     data.resize(origin_size + new_size);
 
-    const T* __restrict src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
-
-    for (uint32_t i = 0; i < new_size; ++i) {
-        data[origin_size + i] = src_data[indices_begin[i]];
-    }
+    auto copy = [](const T* __restrict src, T* __restrict dest, const uint32_t* __restrict begin,
+                   const uint32_t* __restrict end) {
+        for (auto it = begin; it != end; ++it) {
+            *dest = src[*it];
+            ++dest;
+        }
+    };
+    copy(reinterpret_cast<const T*>(src.get_raw_data().data), data.data() + origin_size,
+         indices_begin, indices_end);
 }
 
 template <typename T>
@@ -573,7 +577,7 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class ColumnVector<UInt8>;
 template class ColumnVector<UInt16>;
-template class ColumnVector<UInt32>;
+template class ColumnVector<UInt32>; // IPv4
 template class ColumnVector<UInt64>;
 template class ColumnVector<UInt128>;
 template class ColumnVector<Int8>;
@@ -583,4 +587,5 @@ template class ColumnVector<Int64>;
 template class ColumnVector<Int128>;
 template class ColumnVector<Float32>;
 template class ColumnVector<Float64>;
+template class ColumnVector<IPv6>; // IPv6
 } // namespace doris::vectorized

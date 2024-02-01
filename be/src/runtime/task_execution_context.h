@@ -21,11 +21,38 @@
 
 namespace doris {
 
-// This class act as a super class of all context like things
+// This class act as a super class of all context like things such as
+// plan fragment executor or pipelinefragmentcontext or pipelinexfragmentcontext
 class TaskExecutionContext : public std::enable_shared_from_this<TaskExecutionContext> {
 public:
     TaskExecutionContext() = default;
     virtual ~TaskExecutionContext() = default;
+};
+
+using TaskExecutionContextSPtr = std::shared_ptr<TaskExecutionContext>;
+
+// Task Execution Context maybe plan fragment executor or pipelinefragmentcontext or pipelinexfragmentcontext
+// In multi thread scenario, the object is created in main thread (such as FragmentExecThread), but the object
+// maybe used in other thread(such as scanner thread, brpc->sender queue). If the main thread stopped and destroy
+// the object, then the other thread may core. So the other thread must lock the context to ensure the object exists.
+struct HasTaskExecutionCtx {
+    using Weak = typename TaskExecutionContextSPtr::weak_type;
+
+    HasTaskExecutionCtx(TaskExecutionContextSPtr task_exec_ctx) : task_exec_ctx_(task_exec_ctx) {}
+
+    // Init task ctx from state, the state has to own a method named get_task_execution_context()
+    // like runtime state
+    template <typename T>
+    HasTaskExecutionCtx(T* state) : task_exec_ctx_(state->get_task_execution_context()) {}
+
+    virtual ~HasTaskExecutionCtx() = default;
+
+public:
+    inline TaskExecutionContextSPtr task_exec_ctx() const { return task_exec_ctx_.lock(); }
+    inline Weak weak_task_exec_ctx() const { return task_exec_ctx_; }
+
+private:
+    Weak task_exec_ctx_;
 };
 
 } // namespace doris

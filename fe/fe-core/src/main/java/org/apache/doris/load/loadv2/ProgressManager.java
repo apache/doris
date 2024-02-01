@@ -45,6 +45,10 @@ public class ProgressManager {
         registerProgress(id, 0);
     }
 
+    public void removeProgress(String id) {
+        idToProgress.remove(id);
+    }
+
     public void updateProgress(String id, TUniqueId queryId, TUniqueId fragmentId, int finishedScannerNum) {
         Progress progress = idToProgress.get(id);
         if (progress != null) {

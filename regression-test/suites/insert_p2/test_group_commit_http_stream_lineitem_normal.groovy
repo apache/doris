@@ -85,6 +85,7 @@ PROPERTIES (
     def process = {
         int total = 0;
         for (int k = 0; k < 3; k++) {
+            logger.info("round:" + k)
             for (int i = 1; i <= 10; i++) {
                 streamLoad {
                     set 'version', '1'

@@ -1,0 +1,50 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1db128b..1ffad0d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1196,9 +1196,9 @@ endif ()
+ add_subdirectory(util)
+ add_subdirectory(unit)
+ 
+-if (EXISTS ${CMAKE_SOURCE_DIR}/tools/CMakeLists.txt)
+-    add_subdirectory(tools)
+-endif()
++# if (EXISTS ${CMAKE_SOURCE_DIR}/tools/CMakeLists.txt)
++#     add_subdirectory(tools)
++# endif()
+ if (EXISTS ${CMAKE_SOURCE_DIR}/chimera/CMakeLists.txt AND BUILD_CHIMERA)
+     add_subdirectory(chimera)
+ endif()
+diff --git a/cmake/build_wrapper.sh b/cmake/build_wrapper.sh
+index 895610c..becfbf4 100755
+--- a/cmake/build_wrapper.sh
++++ b/cmake/build_wrapper.sh
+@@ -17,11 +17,11 @@ KEEPSYMS=$(mktemp -p /tmp keep.syms.XXXXX)
+ LIBC_SO=$("$@" --print-file-name=libc.so.6)
+ cp ${KEEPSYMS_IN} ${KEEPSYMS}
+ # get all symbols from libc and turn them into patterns
+-nm -f p -g -D ${LIBC_SO} | sed -s 's/\([^ @]*\).*/^\1$/' >> ${KEEPSYMS}
++nm -f posix -g -D ${LIBC_SO} | sed -s 's/\([^ @]*\).*/^\1$/' >> ${KEEPSYMS}
+ # build the object
+ "$@"
+ # rename the symbols in the object
+-nm -f p -g ${OUT} | cut -f1 -d' ' | grep -v -f ${KEEPSYMS} | sed -e "s/\(.*\)/\1\ ${PREFIX}_\1/" >> ${SYMSFILE}
++nm -f posix -g ${OUT} | cut -f1 -d' ' | grep -v -f ${KEEPSYMS} | sed -e "s/\(.*\)/\1\ ${PREFIX}_\1/" >> ${SYMSFILE}
+ if test -s ${SYMSFILE}
+ then
+     objcopy --redefine-syms=${SYMSFILE} ${OUT}
+diff --git a/src/util/arch/arm/cpuid_inline.h b/src/util/arch/arm/cpuid_inline.h
+index f8a59af..3e28d00 100644
+--- a/src/util/arch/arm/cpuid_inline.h
++++ b/src/util/arch/arm/cpuid_inline.h
+@@ -39,6 +39,10 @@
+ #endif
+ #endif
+ 
++#if !defined(HWCAP2_SVE2)
++#define HWCAP2_SVE2 0
++#endif
++
+ #include "ue2common.h"
+ #include "util/arch/common/cpuid_flags.h"
+ 

@@ -56,10 +56,10 @@ public class RefreshMTMVInfo {
      */
     public void analyze(ConnectContext ctx) {
         mvName.analyze(ctx);
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.CREATE)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(),
                     mvName.getDb() + ": " + mvName.getTbl());
             throw new AnalysisException(message);
         }
@@ -99,5 +99,14 @@ public class RefreshMTMVInfo {
      */
     public boolean isComplete() {
         return isComplete;
+    }
+
+    @Override
+    public String toString() {
+        return "RefreshMTMVInfo{"
+                + "mvName=" + mvName
+                + ", partitions=" + partitions
+                + ", isComplete=" + isComplete
+                + '}';
     }
 }

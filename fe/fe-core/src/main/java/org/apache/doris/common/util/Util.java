@@ -20,7 +20,6 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
@@ -511,15 +510,6 @@ public class Util {
         if (!Strings.isNullOrEmpty(catalog) && !catalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             throw new AnalysisException(String.format("External catalog '%s' is not allowed in '%s'", catalog, msg));
         }
-    }
-
-    public static boolean isS3CompatibleStorageSchema(String schema) {
-        for (String objectStorage : Config.s3_compatible_object_storages.split(",")) {
-            if (objectStorage.equalsIgnoreCase(schema)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();

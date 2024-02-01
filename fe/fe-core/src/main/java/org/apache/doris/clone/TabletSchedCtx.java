@@ -690,10 +690,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
 
-            Backend be = infoService.getBackend(replica.getBackendId());
-            if (be == null || !be.isScheduleAvailable()) {
-                LOG.debug("replica's backend {} does not exist or is not scheduler available, skip. tablet: {}",
-                        replica.getBackendId(), tabletId);
+            if (!replica.isScheduleAvailable()) {
+                if (Env.getCurrentSystemInfo().checkBackendScheduleAvailable(replica.getBackendId())) {
+                    LOG.debug("replica's backend {} does not exist or is not scheduler available, skip. tablet: {}",
+                            replica.getBackendId(), tabletId);
+                } else {
+                    LOG.debug("user drop replica {}, skip. tablet: {}",
+                            replica, tabletId);
+                }
                 continue;
             }
 
@@ -1156,7 +1160,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 replica.setNeedFurtherRepair(true);
                 try {
                     long furtherRepairWatermarkTxnTd = Env.getCurrentGlobalTransactionMgr()
-                            .getTransactionIDGenerator().getNextTransactionId();
+                            .getNextTransactionId();
                     replica.setFurtherRepairWatermarkTxnTd(furtherRepairWatermarkTxnTd);
                     LOG.info("new replica {} of tablet {} set further repair watermark id {}",
                             replica, tabletId, furtherRepairWatermarkTxnTd);

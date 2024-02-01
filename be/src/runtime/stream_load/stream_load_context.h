@@ -139,6 +139,7 @@ public:
     int64_t table_id = -1;
     int64_t schema_version = -1;
     std::string label;
+    std::string sql_str;
     // optional
     std::string sub_label;
     double max_filter_ratio = 0.0;
@@ -230,6 +231,8 @@ public:
 
     // for single-stream-multi-table, we have table list
     std::vector<std::string> table_list;
+
+    bool memtable_on_sink_node = false;
 
 public:
     ExecEnv* exec_env() { return _exec_env; }

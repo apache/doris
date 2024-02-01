@@ -40,14 +40,16 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -105,9 +107,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalAggregate(
                     logicalFilter(
                         logicalOlapScan().when(this::isDupOrMowKeyTable).when(this::isInvertedIndexEnabledOnTable)
-                    ).when(filter -> filter.getConjuncts().size() > 0))
+                    ).when(filter -> !filter.getConjuncts().isEmpty()))
                     .when(agg -> enablePushDownCountOnIndex())
-                    .when(agg -> agg.getGroupByExpressions().size() == 0)
+                    .when(agg -> agg.getGroupByExpressions().isEmpty())
                     .when(agg -> {
                         Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                         return !funcs.isEmpty() && funcs.stream()
@@ -125,9 +127,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     logicalProject(
                         logicalFilter(
                             logicalOlapScan().when(this::isDupOrMowKeyTable).when(this::isInvertedIndexEnabledOnTable)
-                        ).when(filter -> filter.getConjuncts().size() > 0)))
+                        ).when(filter -> !filter.getConjuncts().isEmpty())))
                     .when(agg -> enablePushDownCountOnIndex())
-                    .when(agg -> agg.getGroupByExpressions().size() == 0)
+                    .when(agg -> agg.getGroupByExpressions().isEmpty())
                     .when(agg -> {
                         Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                         return !funcs.isEmpty() && funcs.stream().allMatch(f -> f instanceof Count && !f.isDistinct());
@@ -139,6 +141,71 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         LogicalOlapScan olapScan = filter.child();
                         return pushdownCountOnIndex(agg, project, filter, olapScan, ctx.cascadesContext);
                     })
+            ),
+            RuleType.STORAGE_LAYER_AGGREGATE_MINMAX_ON_UNIQUE_WITHOUT_PROJECT.build(
+                logicalAggregate(
+                        logicalFilter(
+                                logicalOlapScan().when(this::isUniqueKeyTable))
+                                .when(filter -> {
+                                    if (filter.getConjuncts().size() != 1) {
+                                        return false;
+                                    }
+                                    Expression childExpr = filter.getConjuncts().iterator().next().children().get(0);
+                                    if (childExpr instanceof SlotReference) {
+                                        Optional<Column> column = ((SlotReference) childExpr).getColumn();
+                                        return column.map(Column::isDeleteSignColumn).orElse(false);
+                                    }
+                                    return false;
+                                })
+                        )
+                        .when(agg -> enablePushDownMinMaxOnUnique())
+                        .when(agg -> agg.getGroupByExpressions().isEmpty())
+                        .when(agg -> {
+                            Set<AggregateFunction> funcs = agg.getAggregateFunctions();
+                            return !funcs.isEmpty() && funcs.stream()
+                                    .allMatch(f -> (f instanceof Min) || (f instanceof Max));
+                        })
+                        .thenApply(ctx -> {
+                            LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg = ctx.root;
+                            LogicalFilter<LogicalOlapScan> filter = agg.child();
+                            LogicalOlapScan olapScan = filter.child();
+                            return pushdownMinMaxOnUniqueTable(agg, null, filter, olapScan,
+                                    ctx.cascadesContext);
+                        })
+            ),
+            RuleType.STORAGE_LAYER_AGGREGATE_MINMAX_ON_UNIQUE.build(
+                    logicalAggregate(
+                            logicalProject(
+                                    logicalFilter(
+                                            logicalOlapScan().when(this::isUniqueKeyTable))
+                                            .when(filter -> {
+                                                if (filter.getConjuncts().size() != 1) {
+                                                    return false;
+                                                }
+                                                Expression childExpr = filter.getConjuncts().iterator().next()
+                                                        .children().get(0);
+                                                if (childExpr instanceof SlotReference) {
+                                                    Optional<Column> column = ((SlotReference) childExpr).getColumn();
+                                                    return column.map(Column::isDeleteSignColumn).orElse(false);
+                                                }
+                                                return false;
+                                            }))
+                        )
+                        .when(agg -> enablePushDownMinMaxOnUnique())
+                        .when(agg -> agg.getGroupByExpressions().isEmpty())
+                        .when(agg -> {
+                            Set<AggregateFunction> funcs = agg.getAggregateFunctions();
+                            return !funcs.isEmpty()
+                                    && funcs.stream().allMatch(f -> (f instanceof Min) || (f instanceof Max));
+                        })
+                        .thenApply(ctx -> {
+                            LogicalAggregate<LogicalProject<LogicalFilter<LogicalOlapScan>>> agg = ctx.root;
+                            LogicalProject<LogicalFilter<LogicalOlapScan>> project = agg.child();
+                            LogicalFilter<LogicalOlapScan> filter = project.child();
+                            LogicalOlapScan olapScan = filter.child();
+                            return pushdownMinMaxOnUniqueTable(agg, project, filter, olapScan,
+                                    ctx.cascadesContext);
+                        })
             ),
             RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT.build(
                 logicalAggregate(
@@ -184,12 +251,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             ),
             RuleType.ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT.build(
                 basePattern
-                    .when(agg -> agg.getDistinctArguments().size() == 0)
+                    .when(agg -> agg.getDistinctArguments().isEmpty())
                     .thenApplyMulti(ctx -> onePhaseAggregateWithoutDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.TWO_PHASE_AGGREGATE_WITHOUT_DISTINCT.build(
                 basePattern
-                    .when(agg -> agg.getDistinctArguments().size() == 0)
+                    .when(agg -> agg.getDistinctArguments().isEmpty())
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithoutDistinct(ctx.root, ctx.connectContext))
             ),
             // RuleType.TWO_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI.build(
@@ -236,6 +303,19 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                             .thenApplyMulti(ctx -> fourPhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             )
         );
+    }
+
+    private boolean enablePushDownMinMaxOnUnique() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext != null && connectContext.getSessionVariable().isEnablePushDownMinMaxOnUnique();
+    }
+
+    private boolean isUniqueKeyTable(LogicalOlapScan logicalScan) {
+        if (logicalScan != null) {
+            KeysType keysType = logicalScan.getTable().getKeysType();
+            return keysType == KeysType.UNIQUE_KEYS;
+        }
+        return false;
     }
 
     private boolean enablePushDownCountOnIndex() {
@@ -314,6 +394,79 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         }
     }
 
+    //select /*+SET_VAR(enable_pushdown_minmax_on_unique=true) */min(user_id) from table_unique;
+    //push pushAggOp=MINMAX to scan node
+    private LogicalAggregate<? extends Plan> pushdownMinMaxOnUniqueTable(
+            LogicalAggregate<? extends Plan> aggregate,
+            @Nullable LogicalProject<? extends Plan> project,
+            LogicalFilter<? extends Plan> filter,
+            LogicalOlapScan olapScan,
+            CascadesContext cascadesContext) {
+        final LogicalAggregate<? extends Plan> canNotPush = aggregate;
+        Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
+        if (checkWhetherPushDownMinMax(aggregateFunctions, project, olapScan.getOutput())) {
+            PhysicalOlapScan physicalOlapScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
+                    .build()
+                    .transform(olapScan, cascadesContext)
+                    .get(0);
+            if (project != null) {
+                return aggregate.withChildren(ImmutableList.of(
+                        project.withChildren(ImmutableList.of(
+                                filter.withChildren(ImmutableList.of(
+                                        new PhysicalStorageLayerAggregate(
+                                                physicalOlapScan,
+                                                PushDownAggOp.MIN_MAX)))))));
+            } else {
+                return aggregate.withChildren(ImmutableList.of(
+                        filter.withChildren(ImmutableList.of(
+                                new PhysicalStorageLayerAggregate(
+                                        physicalOlapScan,
+                                        PushDownAggOp.MIN_MAX)))));
+            }
+        } else {
+            return canNotPush;
+        }
+    }
+
+    private boolean checkWhetherPushDownMinMax(Set<AggregateFunction> aggregateFunctions,
+            @Nullable LogicalProject<? extends Plan> project, List<Slot> outPutSlots) {
+        boolean onlyContainsSlotOrNumericCastSlot = aggregateFunctions.stream()
+                .map(ExpressionTrait::getArguments)
+                .flatMap(List::stream)
+                .allMatch(argument -> argument instanceof SlotReference);
+        if (!onlyContainsSlotOrNumericCastSlot) {
+            return false;
+        }
+        List<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
+                .flatMap(aggregateFunction -> aggregateFunction.getArguments().stream())
+                .collect(ImmutableList.toImmutableList());
+
+        if (project != null) {
+            argumentsOfAggregateFunction = Project.findProject(
+                    argumentsOfAggregateFunction, project.getProjects())
+                    .stream()
+                    .map(p -> p instanceof Alias ? p.child(0) : p)
+                    .collect(ImmutableList.toImmutableList());
+        }
+        onlyContainsSlotOrNumericCastSlot = argumentsOfAggregateFunction
+                .stream()
+                .allMatch(argument -> argument instanceof SlotReference);
+        if (!onlyContainsSlotOrNumericCastSlot) {
+            return false;
+        }
+        Set<SlotReference> aggUsedSlots = ExpressionUtils.collect(argumentsOfAggregateFunction,
+                SlotReference.class::isInstance);
+        List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots, outPutSlots);
+        for (SlotReference slot : usedSlotInTable) {
+            Column column = slot.getColumn().get();
+            PrimitiveType colType = column.getType().getPrimitiveType();
+            if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /**
      * sql: select count(*) from tbl
      * <p>
@@ -362,8 +515,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return canNotPush;
         }
         if (logicalScan instanceof LogicalOlapScan) {
-            KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
+            LogicalOlapScan logicalOlapScan = (LogicalOlapScan) logicalScan;
+            KeysType keysType = logicalOlapScan.getTable().getKeysType();
             if (functionClasses.contains(Count.class) && keysType != KeysType.DUP_KEYS) {
+                return canNotPush;
+            }
+            if (functionClasses.contains(Count.class) && logicalOlapScan.isDirectMvScan()) {
                 return canNotPush;
             }
         }
@@ -444,10 +601,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (mergeOp == PushDownAggOp.MIN_MAX || mergeOp == PushDownAggOp.MIX) {
                 PrimitiveType colType = column.getType().getPrimitiveType();
                 if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
-                         || colType == PrimitiveType.STRING) {
+                         || (colType == PrimitiveType.STRING && !enablePushDownStringMinMax())) {
                     return canNotPush;
                 }
-                if (colType.isCharFamily() && column.getType().getLength() > 512) {
+                if (colType.isCharFamily() && column.getType().getLength() > 512 && !enablePushDownStringMinMax()) {
                     return canNotPush;
                 }
             }
@@ -464,7 +621,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         if (logicalScan instanceof LogicalOlapScan) {
             PhysicalOlapScan physicalScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
                     .build()
-                    .transform((LogicalOlapScan) logicalScan, cascadesContext)
+                    .transform(logicalScan, cascadesContext)
                     .get(0);
 
             if (project != null) {
@@ -481,7 +638,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         } else if (logicalScan instanceof LogicalFileScan) {
             PhysicalFileScan physicalScan = (PhysicalFileScan) new LogicalFileScanToPhysicalFileScan()
                     .build()
-                    .transform((LogicalFileScan) logicalScan, cascadesContext)
+                    .transform(logicalScan, cascadesContext)
                     .get(0);
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
@@ -497,6 +654,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         } else {
             return canNotPush;
         }
+    }
+
+    private boolean enablePushDownStringMinMax() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext != null && connectContext.getSessionVariable().isEnablePushDownStringMinMax();
     }
 
     /**
@@ -1022,8 +1184,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                             return new AggregateExpression(nonDistinct, AggregateParam.LOCAL_RESULT);
                         } else {
                             Alias alias = nonDistinctAggFunctionToAliasPhase1.get(outputChild);
-                            return new AggregateExpression(
-                                    aggregateFunction, bufferToResultParam, alias.toSlot());
+                            return new AggregateExpression(aggregateFunction, bufferToResultParam, alias.toSlot());
                         }
                     } else {
                         return outputChild;
@@ -1411,7 +1572,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return new MultiDistinctCount(function.getArgument(0),
                     function.getArguments().subList(1, function.arity()).toArray(new Expression[0]));
         } else if (function instanceof Sum && function.isDistinct()) {
-            return new MultiDistinctSum(function.getArgument(0));
+            return ((Sum) function).convertToMultiDistinct();
         } else if (function instanceof GroupConcat && function.isDistinct()) {
             return ((GroupConcat) function).convertToMultiDistinct();
         }

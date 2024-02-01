@@ -18,6 +18,7 @@
 #include "parallel_scanner_builder.h"
 
 #include "olap/rowset/beta_rowset.h"
+#include "pipeline/exec/olap_scan_operator.h"
 #include "vec/exec/scan/new_olap_scanner.h"
 
 namespace doris {
@@ -167,7 +168,10 @@ Status ParallelScannerBuilder<ParentType>::_load() {
     for (auto&& [tablet, version] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
         auto& rowsets = _all_rowsets[tablet_id];
-        RETURN_IF_ERROR(tablet->capture_consistent_rowsets({0, version}, &rowsets));
+        {
+            std::shared_lock read_lock(tablet->get_header_lock());
+            RETURN_IF_ERROR(tablet->capture_consistent_rowsets_unlocked({0, version}, &rowsets));
+        }
 
         for (auto& rowset : rowsets) {
             RETURN_IF_ERROR(rowset->load());
@@ -197,5 +201,6 @@ std::shared_ptr<NewOlapScanner> ParallelScannerBuilder<ParentType>::_build_scann
 }
 
 template class ParallelScannerBuilder<NewOlapScanNode>;
+template class ParallelScannerBuilder<pipeline::OlapScanLocalState>;
 
 } // namespace doris

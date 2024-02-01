@@ -190,9 +190,14 @@ public class PartitionDesc {
                         throw new AnalysisException("Complex type column can't be partition column: "
                                 + columnDef.getType().toString());
                     }
+                    // prohibit to create auto partition with null column anyhow
+                    if (this.isAutoCreatePartitions && columnDef.isAllowNull()) {
+                        throw new AnalysisException("The auto partition column must be NOT NULL");
+                    }
                     if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
                             && columnDef.isAllowNull()) {
-                        throw new AnalysisException("The partition column must be NOT NULL");
+                        throw new AnalysisException(
+                                "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
                     }
                     if (this instanceof ListPartitionDesc && columnDef.isAllowNull()) {
                         throw new AnalysisException("The list partition column must be NOT NULL");
@@ -241,6 +246,14 @@ public class PartitionDesc {
 
     public PartitionType getType() {
         return type;
+    }
+
+    public ArrayList<Expr> getPartitionExprs() {
+        return partitionExprs;
+    }
+
+    public boolean isAutoCreatePartitions() {
+        return isAutoCreatePartitions;
     }
 
     public String toSql() {

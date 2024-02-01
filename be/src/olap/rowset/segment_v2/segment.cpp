@@ -51,6 +51,7 @@
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
@@ -69,9 +70,7 @@
 #include "vec/json/path_in_data.h"
 #include "vec/olap/vgeneric_iterators.h"
 
-namespace doris {
-
-namespace segment_v2 {
+namespace doris::segment_v2 {
 class InvertedIndexIterator;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
@@ -80,7 +79,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
                      std::shared_ptr<Segment>* output) {
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
-    std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, tablet_schema));
+    std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, std::move(tablet_schema)));
     segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());
     *output = std::move(segment);
@@ -91,8 +90,9 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
         : _segment_id(segment_id),
           _meta_mem_usage(0),
           _rowset_id(rowset_id),
-          _tablet_schema(tablet_schema),
-          _segment_meta_mem_tracker(StorageEngine::instance()->segment_meta_mem_tracker()) {}
+          _tablet_schema(std::move(tablet_schema)),
+          _segment_meta_mem_tracker(
+                  ExecEnv::GetInstance()->storage_engine().segment_meta_mem_tracker()) {}
 
 Segment::~Segment() {
 #ifndef BE_TEST
@@ -150,7 +150,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             AndBlockColumnPredicate and_predicate;
             auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
             and_predicate.add_column_predicate(single_predicate);
-            if (can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
+            if (_column_readers.count(uid) >= 1 &&
+                can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
                                            *schema, read_options.io_ctx.reader_type) &&
                 !_column_readers.at(uid)->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
@@ -523,6 +524,16 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     ColumnIterator* it;
     RETURN_IF_ERROR(_column_readers.at(tablet_column.unique_id())->new_iterator(&it));
     iter->reset(it);
+
+    if (config::enable_column_type_check &&
+        tablet_column.type() != _column_readers.at(tablet_column.unique_id())->get_meta_type()) {
+        LOG(WARNING) << "different type between schema and column reader,"
+                     << " column schema name: " << tablet_column.name()
+                     << " column schema type: " << int(tablet_column.type())
+                     << " column reader meta type"
+                     << int(_column_readers.at(tablet_column.unique_id())->get_meta_type());
+        return Status::InternalError("different type between schema and column reader");
+    }
     return Status::OK();
 }
 
@@ -757,5 +768,4 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
     return Status::OK();
 }
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

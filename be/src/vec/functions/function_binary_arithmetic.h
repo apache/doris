@@ -83,7 +83,7 @@ struct OperationTraits {
             std::is_same_v<Op, DivideIntegralImpl<T, T>>;
     static constexpr bool can_overflow =
             (is_plus_minus || is_multiply) &&
-            (IsDecimalV2<OpA> || IsDecimalV2<OpB> || IsDecimal128I<OpA> || IsDecimal128I<OpB> ||
+            (IsDecimalV2<OpA> || IsDecimalV2<OpB> || IsDecimal128V3<OpA> || IsDecimal128V3<OpB> ||
              IsDecimal256<OpA> || IsDecimal256<OpB>);
     static constexpr bool has_variadic_argument =
             !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Op>()))>;
@@ -658,13 +658,13 @@ template <>
 inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal256>, DataTypeDecimal<Decimal64>> =
         true;
 template <>
-inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal256>, DataTypeDecimal<Decimal128I>> =
+inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal256>, DataTypeDecimal<Decimal128V3>> =
         true;
 template <>
-inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128I>, DataTypeDecimal<Decimal32>> =
+inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128V3>, DataTypeDecimal<Decimal32>> =
         true;
 template <>
-inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128I>, DataTypeDecimal<Decimal64>> =
+inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128V3>, DataTypeDecimal<Decimal64>> =
         true;
 template <>
 inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal64>, DataTypeDecimal<Decimal32>> = true;
@@ -863,7 +863,7 @@ class FunctionBinaryArithmetic : public IFunction {
         return cast_type_to_either<DataTypeUInt8, DataTypeInt8, DataTypeInt16, DataTypeInt32,
                                    DataTypeInt64, DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
                                    DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal64>,
-                                   DataTypeDecimal<Decimal128>, DataTypeDecimal<Decimal128I>,
+                                   DataTypeDecimal<Decimal128V2>, DataTypeDecimal<Decimal128V3>,
                                    DataTypeDecimal<Decimal256>>(type, std::forward<F>(f));
     }
 

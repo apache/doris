@@ -69,6 +69,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalJdbcScanToPhysicalJd
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
+import org.apache.doris.nereids.rules.implementation.LogicalOdbcScanToPhysicalOdbcScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapTableSinkToPhysicalOlapTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
@@ -165,6 +166,7 @@ public class RuleSet {
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
             .add(new LogicalFileScanToPhysicalFileScan())
             .add(new LogicalJdbcScanToPhysicalJdbcScan())
+            .add(new LogicalOdbcScanToPhysicalOdbcScan())
             .add(new LogicalEsScanToPhysicalEsScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
@@ -224,10 +226,6 @@ public class RuleSet {
             .addAll(OTHER_REORDER_RULES)
             .build();
 
-    public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
-            .add(JoinCommute.BUSHY.build())
-            .build();
-
     public static final List<Rule> MATERIALIZED_VIEW_RULES = planRuleFactories()
             .add(MaterializedViewOnlyJoinRule.INSTANCE)
             .add(MaterializedViewProjectJoinRule.INSTANCE)
@@ -239,6 +237,10 @@ public class RuleSet {
             .add(MaterializedViewFilterAggregateRule.INSTANCE)
             .add(MaterializedViewProjectFilterAggregateRule.INSTANCE)
             .add(MaterializedViewFilterProjectAggregateRule.INSTANCE)
+            .build();
+
+    public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
+            .add(JoinCommute.BUSHY.build())
             .build();
 
     public List<Rule> getDPHypReorderRules() {

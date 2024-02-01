@@ -213,7 +213,14 @@ public class BindSink implements AnalysisRuleFactory {
                                             + " target table " + table.getName());
                                 }
                                 if (columnToOutput.get(seqCol.get().getName()) != null) {
-                                    columnToOutput.put(column.getName(), columnToOutput.get(seqCol.get().getName()));
+                                    // should generate diff exprId for seq column
+                                    NamedExpression seqColumn = columnToOutput.get(seqCol.get().getName());
+                                    if (seqColumn instanceof Alias) {
+                                        seqColumn = new Alias(((Alias) seqColumn).child(), column.getName());
+                                    } else {
+                                        seqColumn = new Alias(seqColumn, column.getName());
+                                    }
+                                    columnToOutput.put(column.getName(), seqColumn);
                                 }
                             } else if (isPartialUpdate) {
                                 // If the current load is a partial update, the values of unmentioned
@@ -297,10 +304,13 @@ public class BindSink implements AnalysisRuleFactory {
                         DataType inputType = expr.getDataType();
                         DataType targetType = DataType.fromCatalogType(table.getFullSchema().get(i).getType());
                         Expression castExpr = expr;
-                        if (isSourceAndTargetStringLikeType(inputType, targetType)) {
+                        // TODO move string like type logic into TypeCoercionUtils#castIfNotSameType
+                        if (isSourceAndTargetStringLikeType(inputType, targetType) && !inputType.equals(targetType)) {
                             int sourceLength = ((CharacterType) inputType).getLen();
                             int targetLength = ((CharacterType) targetType).getLen();
-                            if (sourceLength >= targetLength && targetLength >= 0) {
+                            if (sourceLength == targetLength) {
+                                castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
+                            } else if (sourceLength > targetLength && targetLength >= 0) {
                                 castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                             } else if (targetType.isStringType()) {
                                 castExpr = new Cast(castExpr, StringType.INSTANCE);

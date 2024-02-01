@@ -62,7 +62,7 @@ public class SemiJoinSemiJoinTranspose extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalJoin(logicalJoin(), group())
                 .when(this::typeChecker)
-                .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
+                .whenNot(join -> join.hasDistributeHint() || join.left().hasDistributeHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();

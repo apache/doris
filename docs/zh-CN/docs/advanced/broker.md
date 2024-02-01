@@ -73,9 +73,9 @@ Broker 在 Doris 系统架构中的位置如下：
 2. 对象存储
    - 所有支持S3协议的对象存储
 
-1. [Broker Load](../data-operate/import/import-way/broker-load-manual.md)
-2. [数据导出（Export）](../data-operate/export/export-manual.md)
-3. [数据备份](../admin-manual/data-admin/backup.md)
+1. [Broker Load](../data-operate/import/import-way/broker-load-manual)
+2. [数据导出（Export）](../data-operate/export/export-manual)
+3. [数据备份](../admin-manual/data-admin/backup)
 
 ## Broker 信息
 

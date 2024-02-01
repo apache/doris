@@ -120,10 +120,9 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalOlapScan[" + id.asInt() + "]" + getGroupIdWithPrefix(),
-                "table", table.getName(),
-                "stats", statistics,
-                "fr", getMutableState(AbstractPlan.FRAGMENT_ID)
+        return Utils.toSqlString("PhysicalOlapScan[" + relationId.asInt() + "]" + getGroupIdWithPrefix(),
+                "qualified", Utils.qualifiedName(qualifier, table.getName()),
+                "stats", statistics, "fr", getMutableState(AbstractPlan.FRAGMENT_ID)
         );
     }
 

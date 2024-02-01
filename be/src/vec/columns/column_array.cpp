@@ -95,11 +95,11 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
         LOG(FATAL) << "offsets_column must be a ColumnUInt64";
     }
 
-    if (!offsets_concrete->empty() && nested_column) {
+    if (!offsets_concrete->empty() && data) {
         auto last_offset = offsets_concrete->get_data().back();
 
         /// This will also prevent possible overflow in offset.
-        if (nested_column->size() != last_offset) {
+        if (data->size() != last_offset) {
             LOG(FATAL) << "offsets_column has data inconsistent with nested_column";
         }
     }
@@ -254,6 +254,26 @@ StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
     return res;
 }
 
+int ColumnArray::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
+    // since column type is complex, we can't use this function
+    const auto& rhs = assert_cast<const ColumnArray&>(rhs_);
+
+    size_t lhs_size = size_at(n);
+    size_t rhs_size = rhs.size_at(m);
+    size_t min_size = std::min(lhs_size, rhs_size);
+    for (size_t i = 0; i < min_size; ++i) {
+        if (int res = get_data().compare_at(offset_at(n) + i, rhs.offset_at(m) + i, *rhs.data.get(),
+                                            nan_direction_hint);
+            res) {
+            // if res != 0 , here is something different ,just return
+            return res;
+        }
+    }
+
+    // then we check size of array
+    return lhs_size < rhs_size ? -1 : (lhs_size == rhs_size ? 0 : 1);
+}
+
 const char* ColumnArray::deserialize_and_insert_from_arena(const char* pos) {
     size_t array_size = unaligned_load<size_t>(pos);
     pos += sizeof(array_size);
@@ -375,10 +395,17 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
 }
 
 void ColumnArray::insert(const Field& x) {
-    const Array& array = doris::vectorized::get<const Array&>(x);
-    size_t size = array.size();
-    for (size_t i = 0; i < size; ++i) get_data().insert(array[i]);
-    get_offsets().push_back(get_offsets().back() + size);
+    if (x.is_null()) {
+        get_data().insert(Null());
+        get_offsets().push_back(get_offsets().back() + 1);
+    } else {
+        const auto& array = doris::vectorized::get<const Array&>(x);
+        size_t size = array.size();
+        for (size_t i = 0; i < size; ++i) {
+            get_data().insert(array[i]);
+        }
+        get_offsets().push_back(get_offsets().back() + size);
+    }
 }
 
 void ColumnArray::insert_from(const IColumn& src_, size_t n) {

@@ -94,6 +94,7 @@
 #include "vec/functions/function_helpers.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/utils/util.hpp"
 
 class DateLUTImpl;
 
@@ -322,8 +323,10 @@ struct ConvertImpl {
             vec_to.resize(size);
 
             if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
+                // the result is rounded when doing cast, so it may still overflow after rounding
+                // if destination integer digit count is the same as source integer digit count.
                 bool narrow_integral = context->check_overflow_for_decimal() &&
-                                       (to_precision - to_scale) < (from_precision - from_scale);
+                                       (to_precision - to_scale) <= (from_precision - from_scale);
 
                 bool multiply_may_overflow = context->check_overflow_for_decimal();
                 if (to_scale > from_scale) {
@@ -927,8 +930,8 @@ struct NameToDecimal64 {
 struct NameToDecimal128 {
     static constexpr auto name = "toDecimal128";
 };
-struct NameToDecimal128I {
-    static constexpr auto name = "toDecimal128I";
+struct NameToDecimal128V3 {
+    static constexpr auto name = "toDecimal128V3";
 };
 struct NameToDecimal256 {
     static constexpr auto name = "toDecimal256";
@@ -1055,7 +1058,7 @@ StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x
         return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, precision, scale);
     }
 
-    if constexpr (IsDataTypeDecimal128I<DataType>) {
+    if constexpr (IsDataTypeDecimal128V3<DataType>) {
         UInt32 scale = ((PrecisionScaleArg)additions).scale;
         UInt32 precision = ((PrecisionScaleArg)additions).precision;
         return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, precision, scale);
@@ -1237,7 +1240,6 @@ public:
 
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
-    bool get_is_injective(const Block&) override { return std::is_same_v<Name, NameToString>; }
 
     // This function should not be called for get DateType Ptr
     // using the FunctionCast::get_return_type_impl
@@ -1331,9 +1333,9 @@ using FunctionToDecimal32 =
 using FunctionToDecimal64 =
         FunctionConvert<DataTypeDecimal<Decimal64>, NameToDecimal64, UnknownMonotonicity>;
 using FunctionToDecimal128 =
-        FunctionConvert<DataTypeDecimal<Decimal128>, NameToDecimal128, UnknownMonotonicity>;
-using FunctionToDecimal128I =
-        FunctionConvert<DataTypeDecimal<Decimal128I>, NameToDecimal128I, UnknownMonotonicity>;
+        FunctionConvert<DataTypeDecimal<Decimal128V2>, NameToDecimal128, UnknownMonotonicity>;
+using FunctionToDecimal128V3 =
+        FunctionConvert<DataTypeDecimal<Decimal128V3>, NameToDecimal128V3, UnknownMonotonicity>;
 using FunctionToDecimal256 =
         FunctionConvert<DataTypeDecimal<Decimal256>, NameToDecimal256, UnknownMonotonicity>;
 using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4, UnknownMonotonicity>;
@@ -1400,12 +1402,12 @@ struct FunctionTo<DataTypeDecimal<Decimal64>> {
     using Type = FunctionToDecimal64;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal128>> {
+struct FunctionTo<DataTypeDecimal<Decimal128V2>> {
     using Type = FunctionToDecimal128;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal128I>> {
-    using Type = FunctionToDecimal128I;
+struct FunctionTo<DataTypeDecimal<Decimal128V3>> {
+    using Type = FunctionToDecimal128V3;
 };
 template <>
 struct FunctionTo<DataTypeDecimal<Decimal256>> {
@@ -1452,12 +1454,7 @@ public:
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        /// drop second argument, pass others
-        ColumnNumbers new_arguments {arguments.front()};
-        if (arguments.size() > 2)
-            new_arguments.insert(std::end(new_arguments), std::next(std::begin(arguments), 2),
-                                 std::end(arguments));
-        return wrapper_function(context, block, new_arguments, result, input_rows_count);
+        return wrapper_function(context, block, arguments, result, input_rows_count);
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
@@ -1545,7 +1542,7 @@ struct ConvertThroughParsing {
                           res == StringParser::PARSE_OVERFLOW ||
                           res == StringParser::PARSE_UNDERFLOW);
             } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                auto type = check_and_get_data_type<DataTypeDateTimeV2>(
+                const auto* type = assert_cast<const DataTypeDateTimeV2*>(
                         block.get_by_position(result).type.get());
                 parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
                                                     context->state()->timezone_obj(),
@@ -1571,11 +1568,11 @@ template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal64>, Name>
         : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal64>, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V2>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128V2>, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128I>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128I>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V3>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128V3>, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal256>, Name>
         : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal256>, Name> {};
@@ -1700,9 +1697,6 @@ public:
     }
 
     String get_name() const override { return name; }
-
-    bool is_deterministic() const override { return true; }
-    bool is_deterministic_in_scope_of_query() const override { return true; }
 
     Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
                                             const Field& right) const override {
@@ -2249,7 +2243,7 @@ private:
         const auto& from_nested = from_type;
         const auto& to_nested = to_type;
 
-        if (from_type->only_null() || from_type->is_null_literal()) {
+        if (from_type->is_null_literal()) {
             if (!to_nested->is_nullable()) {
                 return create_unsupport_wrapper("Cannot convert NULL to a non-nullable type");
             }
@@ -2270,86 +2264,130 @@ private:
         return wrapper;
     }
 
+    static bool need_replace_null_data_to_default(FunctionContext* context,
+                                                  const DataTypePtr& from_type,
+                                                  const DataTypePtr& to_type) {
+        if (from_type->equals(*to_type)) {
+            return false;
+        }
+
+        auto make_default_wrapper = [&](const auto& types) -> bool {
+            using Types = std::decay_t<decltype(types)>;
+            using ToDataType = typename Types::LeftType;
+
+            if constexpr (!(IsDataTypeDecimalOrNumber<ToDataType> || IsTimeType<ToDataType> ||
+                            IsTimeV2Type<ToDataType> ||
+                            std::is_same_v<ToDataType, DataTypeTimeV2> ||
+                            std::is_same_v<ToDataType, DataTypeTime>)) {
+                return false;
+            }
+            return call_on_index_and_data_type<
+                    ToDataType>(from_type->get_type_id(), [&](const auto& types2) -> bool {
+                using Types2 = std::decay_t<decltype(types2)>;
+                using FromDataType = typename Types2::LeftType;
+                if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
+                                IsTimeType<FromDataType> || IsTimeV2Type<FromDataType> ||
+                                std::is_same_v<FromDataType, DataTypeTimeV2> ||
+                                std::is_same_v<FromDataType, DataTypeTime>)) {
+                    return false;
+                }
+                if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
+                    using FromFieldType = typename FromDataType::FieldType;
+                    using ToFieldType = typename ToDataType::FieldType;
+                    UInt32 from_precision = NumberTraits::max_ascii_len<FromFieldType>();
+                    UInt32 from_scale = 0;
+
+                    if constexpr (IsDataTypeDecimal<FromDataType>) {
+                        const auto* from_decimal_type =
+                                check_and_get_data_type<FromDataType>(from_type.get());
+                        from_precision =
+                                NumberTraits::max_ascii_len<typename FromFieldType::NativeType>();
+                        from_scale = from_decimal_type->get_scale();
+                    }
+
+                    UInt32 to_max_digits = 0;
+                    UInt32 to_precision = 0;
+                    UInt32 to_scale = 0;
+
+                    ToFieldType max_result {0};
+                    ToFieldType min_result {0};
+                    if constexpr (IsDataTypeDecimal<ToDataType>) {
+                        to_max_digits =
+                                NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
+
+                        const auto* to_decimal_type =
+                                check_and_get_data_type<ToDataType>(to_type.get());
+                        to_precision = to_decimal_type->get_precision();
+                        ToDataType::check_type_precision(to_precision);
+
+                        to_scale = to_decimal_type->get_scale();
+                        ToDataType::check_type_scale(to_scale);
+
+                        max_result = ToDataType::get_max_digits_number(to_precision);
+                        min_result = -max_result;
+                    }
+                    if constexpr (std::is_integral_v<ToFieldType> ||
+                                  std::is_floating_point_v<ToFieldType>) {
+                        max_result = type_limit<ToFieldType>::max();
+                        min_result = type_limit<ToFieldType>::min();
+                        to_max_digits = NumberTraits::max_ascii_len<ToFieldType>();
+                        to_precision = to_max_digits;
+                    }
+
+                    bool narrow_integral =
+                            context->check_overflow_for_decimal() &&
+                            (to_precision - to_scale) <= (from_precision - from_scale);
+
+                    bool multiply_may_overflow = context->check_overflow_for_decimal();
+                    if (to_scale > from_scale) {
+                        multiply_may_overflow &=
+                                (from_precision + to_scale - from_scale) >= to_max_digits;
+                    }
+                    return narrow_integral || multiply_may_overflow;
+                }
+                return false;
+            });
+        };
+
+        return call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper);
+    }
+
     WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr& from_type,
                                         const DataTypePtr& to_type,
                                         bool skip_not_null_check) const {
         /// Determine whether pre-processing and/or post-processing must take place during conversion.
-        bool source_is_nullable = from_type->is_nullable();
         bool result_is_nullable = to_type->is_nullable();
 
-        auto wrapper = prepare_impl(context, remove_nullable(from_type), remove_nullable(to_type),
-                                    result_is_nullable);
-
         if (result_is_nullable) {
-            return [wrapper, source_is_nullable](FunctionContext* context, Block& block,
-                                                 const ColumnNumbers& arguments,
-                                                 const size_t result, size_t input_rows_count) {
-                /// Create a temporary block on which to perform the operation.
-                auto& res = block.get_by_position(result);
-                const auto& ret_type = res.type;
-                const auto& nullable_type = static_cast<const DataTypeNullable&>(*ret_type);
-                const auto& nested_type = nullable_type.get_nested_type();
+            return [this, from_type, to_type](FunctionContext* context, Block& block,
+                                              const ColumnNumbers& arguments, const size_t result,
+                                              size_t input_rows_count) {
+                auto from_type_not_nullable = remove_nullable(from_type);
+                auto to_type_not_nullable = remove_nullable(to_type);
 
-                Block tmp_block;
-                size_t tmp_res_index = 0;
-                if (source_is_nullable) {
-                    auto [t_block, tmp_args] =
-                            create_block_with_nested_columns(block, arguments, true);
-                    tmp_block = std::move(t_block);
-                    tmp_res_index = tmp_block.columns();
-                    tmp_block.insert({nullptr, nested_type, ""});
+                bool replace_null_data_to_default = need_replace_null_data_to_default(
+                        context, from_type_not_nullable, to_type_not_nullable);
 
-                    /// Perform the requested conversion.
-                    RETURN_IF_ERROR(
-                            wrapper(context, tmp_block, {0}, tmp_res_index, input_rows_count));
-                } else {
-                    tmp_block = block;
+                auto nested_result_index = block.columns();
+                block.insert(block.get_by_position(result).get_nested());
+                auto nested_source_index = block.columns();
+                block.insert(block.get_by_position(arguments[0])
+                                     .get_nested(replace_null_data_to_default));
 
-                    tmp_res_index = block.columns();
-                    tmp_block.insert({nullptr, nested_type, ""});
+                RETURN_IF_ERROR(prepare_impl(context, from_type_not_nullable, to_type_not_nullable,
+                                             true)(context, block, {nested_source_index},
+                                                   nested_result_index, input_rows_count));
 
-                    /// Perform the requested conversion.
-                    RETURN_IF_ERROR(wrapper(context, tmp_block, arguments, tmp_res_index,
-                                            input_rows_count));
-                }
+                block.get_by_position(result).column =
+                        wrap_in_nullable(block.get_by_position(nested_result_index).column, block,
+                                         arguments, result, input_rows_count);
 
-                // Note: here we should return the nullable result column
-                const auto& tmp_res = tmp_block.get_by_position(tmp_res_index);
-                res.column = wrap_in_nullable(tmp_res.column,
-                                              Block({block.get_by_position(arguments[0]), tmp_res}),
-                                              {0}, 1, input_rows_count);
-
-                return Status::OK();
-            };
-        } else if (source_is_nullable) {
-            /// Conversion from Nullable to non-Nullable.
-
-            return [wrapper, skip_not_null_check](FunctionContext* context, Block& block,
-                                                  const ColumnNumbers& arguments,
-                                                  const size_t result, size_t input_rows_count) {
-                auto [tmp_block, tmp_args, tmp_res] =
-                        create_block_with_nested_columns(block, arguments, result);
-
-                /// Check that all values are not-NULL.
-                /// Check can be skipped in case if LowCardinality dictionary is transformed.
-                /// In that case, correctness will be checked beforehand.
-                if (!skip_not_null_check) {
-                    const auto& col = block.get_by_position(arguments[0]).column;
-                    const auto& nullable_col = assert_cast<const ColumnNullable&>(*col);
-                    const auto& null_map = nullable_col.get_null_map_data();
-
-                    if (!memory_is_zero(null_map.data(), null_map.size())) {
-                        return Status::RuntimeError(
-                                "Cannot convert NULL value to non-Nullable type");
-                    }
-                }
-
-                RETURN_IF_ERROR(wrapper(context, tmp_block, tmp_args, tmp_res, input_rows_count));
-                block.get_by_position(result).column = tmp_block.get_by_position(tmp_res).column;
+                block.erase(nested_source_index);
+                block.erase(nested_result_index);
                 return Status::OK();
             };
         } else {
-            return wrapper;
+            return prepare_impl(context, from_type, to_type, false);
         }
     }
 
@@ -2357,11 +2395,11 @@ private:
     /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
     WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
                              const DataTypePtr& to_type, bool requested_result_is_nullable) const {
-        if (from_type->equals(*to_type))
+        if (from_type->equals(*to_type)) {
             return create_identity_wrapper(from_type);
-        else if (WhichDataType(from_type).is_nothing())
-            return create_nothing_wrapper(to_type.get());
+        }
 
+        // variant needs to be judged first
         if (to_type->get_type_id() == TypeIndex::VARIANT) {
             return create_variant_wrapper(from_type, static_cast<const DataTypeObject&>(*to_type));
         }
@@ -2369,15 +2407,14 @@ private:
             return create_variant_wrapper(static_cast<const DataTypeObject&>(*from_type), to_type);
         }
 
-        if (from_type->get_type_id() == TypeIndex::JSONB) {
-            bool jsonb_string_as_string = context ? context->jsonb_string_as_string() : false;
+        switch (from_type->get_type_id()) {
+        case TypeIndex::Nothing:
+            return create_nothing_wrapper(to_type.get());
+        case TypeIndex::JSONB:
             return create_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type), to_type,
-                                        jsonb_string_as_string);
-        }
-        if (to_type->get_type_id() == TypeIndex::JSONB) {
-            bool string_as_jsonb_string = context ? context->string_as_jsonb_string() : false;
-            return create_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
-                                        string_as_jsonb_string);
+                                        context ? context->jsonb_string_as_string() : false);
+        default:
+            break;
         }
 
         WrapperType ret;
@@ -2412,8 +2449,8 @@ private:
 
             if constexpr (std::is_same_v<ToDataType, DataTypeDecimal<Decimal32>> ||
                           std::is_same_v<ToDataType, DataTypeDecimal<Decimal64>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128I>> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128V2>> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128V3>> ||
                           std::is_same_v<ToDataType, DataTypeDecimal<Decimal256>>) {
                 ret = create_decimal_wrapper(from_type,
                                              check_and_get_data_type<ToDataType>(to_type.get()));
@@ -2423,8 +2460,9 @@ private:
             return false;
         };
 
-        if (call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper))
+        if (call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper)) {
             return ret;
+        }
 
         switch (to_type->get_type_id()) {
         case TypeIndex::String:
@@ -2444,6 +2482,9 @@ private:
         case TypeIndex::BitMap:
             return create_bitmap_wrapper(context, from_type,
                                          static_cast<const DataTypeBitMap&>(*to_type));
+        case TypeIndex::JSONB:
+            return create_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
+                                        context ? context->string_as_jsonb_string() : false);
         default:
             break;
         }

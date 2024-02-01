@@ -136,7 +136,7 @@ Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
     }
-    RETURN_IF_ERROR(local_state._writer->append_block(*block));
+    RETURN_IF_ERROR(local_state._writer->write(*block));
     if (_fetch_option.use_two_phase_fetch) {
         // Block structure may be changed by calling _second_phase_fetch_data().
         // So we should clear block in case of unmatched columns
@@ -180,9 +180,8 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     // close sender, this is normal path end
     if (_sender) {
         if (_writer) {
-            _sender->update_num_written_rows(_writer->get_written_rows());
+            _sender->update_return_rows(_writer->get_written_rows());
         }
-        _sender->update_max_peak_memory_bytes();
         static_cast<void>(_sender->close(final_status));
     }
     static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(

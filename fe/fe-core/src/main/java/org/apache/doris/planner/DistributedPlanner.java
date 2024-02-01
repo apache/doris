@@ -39,7 +39,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
@@ -931,13 +930,6 @@ public class DistributedPlanner {
             if (canColocateAgg(node.getAggInfo(), childFragment.getDataPartition())) {
                 childFragment.addPlanRoot(node);
                 childFragment.setHasColocatePlanNode(true);
-                return childFragment;
-            } else if (SessionVariable.enablePipelineEngine()
-                    && childFragment.getPlanRoot().shouldColoAgg(node.getAggInfo())
-                    && childFragment.getPlanRoot() instanceof OlapScanNode) {
-                childFragment.getPlanRoot().setShouldColoScan();
-                childFragment.addPlanRoot(node);
-                childFragment.setHasColocatePlanNode(false);
                 return childFragment;
             } else {
                 return createMergeAggregationFragment(node, childFragment);

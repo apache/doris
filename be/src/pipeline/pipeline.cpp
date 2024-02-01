@@ -71,14 +71,14 @@ Status Pipeline::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status Pipeline::set_sink(OperatorBuilderPtr& sink_) {
-    if (_sink) {
+Status Pipeline::set_sink_builder(OperatorBuilderPtr& sink_) {
+    if (_sink_builder) {
         return Status::InternalError("set sink twice");
     }
     if (!sink_->is_sink()) {
         return Status::InternalError("should set a sink operator but {}", typeid(sink_).name());
     }
-    _sink = sink_;
+    _sink_builder = sink_;
     return Status::OK();
 }
 

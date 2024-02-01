@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -55,6 +56,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -151,13 +153,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
-    }
-
-    private void checkWorkloadGroupEnabled() throws DdlException {
-        if (!Config.enable_workload_group) {
-            throw new DdlException(
-                    "WorkloadGroup is disabled, you can set config enable_workload_group = true to enable it");
-        }
     }
 
     public void init() {
@@ -265,8 +260,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void createWorkloadGroup(CreateWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         WorkloadGroup workloadGroup = WorkloadGroup.create(stmt.getWorkloadGroupName(), stmt.getProperties());
         String workloadGroupName = workloadGroup.getName();
         writeLock();
@@ -276,6 +269,10 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                     return;
                 }
                 throw new DdlException("workload group " + workloadGroupName + " already exist");
+            }
+            if (idToWorkloadGroup.size() >= Config.workload_group_max_num) {
+                throw new DdlException(
+                        "workload group number can not be exceed " + Config.workload_group_max_num);
             }
             checkGlobalUnlock(workloadGroup, null);
             nameToWorkloadGroup.put(workloadGroupName, workloadGroup);
@@ -323,8 +320,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void alterWorkloadGroup(AlterWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         String workloadGroupName = stmt.getWorkloadGroupName();
         Map<String, String> properties = stmt.getProperties();
         WorkloadGroup newWorkloadGroup;
@@ -346,8 +341,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         String workloadGroupName = stmt.getWorkloadGroupName();
         if (DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
             throw new DdlException("Dropping default workload group " + workloadGroupName + " is not allowed");
@@ -422,13 +415,20 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public List<List<String>> getResourcesInfo() {
+    public List<List<String>> getResourcesInfo(PatternMatcher matcher) {
         UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
-        return procNode.fetchResult(currentUserIdentity).getRows();
+        List<List<String>> rows = procNode.fetchResult(currentUserIdentity).getRows();
+        for (Iterator<List<String>> it = rows.iterator(); it.hasNext(); ) {
+            List<String> row = it.next();
+            if (matcher != null && !matcher.match(row.get(1))) {
+                it.remove();
+            }
+        }
+        return rows;
     }
 
-    public List<List<String>> getResourcesInfo(TUserIdentity tcurrentUserIdentity) {
-        UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
+    public List<List<String>> getResourcesInfo(TUserIdentity tCurrentUserIdentity) {
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(tCurrentUserIdentity);
         return procNode.fetchResult(currentUserIdentity).getRows();
     }
 

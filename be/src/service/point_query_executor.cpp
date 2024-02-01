@@ -26,6 +26,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
@@ -56,21 +57,22 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     _block_pool.resize(block_size);
-    for (int i = 0; i < _block_pool.size(); ++i) {
-        _block_pool[i] = vectorized::Block::create_unique(tuple_desc()->slots(), 2);
+    for (auto& i : _block_pool) {
+        i = vectorized::Block::create_unique(tuple_desc()->slots(), 2);
         // Name is useless but cost space
-        _block_pool[i]->clear_names();
+        i->clear_names();
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(output_exprs, _output_exprs_ctxs));
     RowDescriptor row_desc(tuple_desc(), false);
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
+    RETURN_IF_ERROR(vectorized::VExpr::open(_output_exprs_ctxs, _runtime_state.get()));
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = vectorized::create_data_type_serdes(tuple_desc()->slots());
     _col_default_values.resize(tuple_desc()->slots().size());
     for (int i = 0; i < tuple_desc()->slots().size(); ++i) {
-        auto slot = tuple_desc()->slots()[i];
+        auto* slot = tuple_desc()->slots()[i];
         _col_uid_to_idx[slot->col_unique_id()] = i;
         _col_default_values[i] = slot->col_default_value();
     }
@@ -111,11 +113,10 @@ LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capa
     return res;
 }
 
-RowCache::RowCache(int64_t capacity, int num_shards) {
-    // Create Row Cache
-    _cache = std::unique_ptr<Cache>(
-            new ShardedLRUCache("RowCache", capacity, LRUCacheType::SIZE, num_shards));
-}
+RowCache::RowCache(int64_t capacity, int num_shards)
+        : LRUCachePolicy(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity,
+                         LRUCacheType::SIZE, config::point_query_row_cache_stale_sweep_time_sec,
+                         num_shards) {}
 
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
@@ -130,12 +131,12 @@ RowCache* RowCache::instance() {
 
 bool RowCache::lookup(const RowCacheKey& key, CacheHandle* handle) {
     const std::string& encoded_key = key.encode();
-    auto lru_handle = _cache->lookup(encoded_key);
+    auto lru_handle = cache()->lookup(encoded_key);
     if (!lru_handle) {
         // cache miss
         return false;
     }
-    *handle = CacheHandle(_cache.get(), lru_handle);
+    *handle = CacheHandle(cache(), lru_handle);
     return true;
 }
 
@@ -145,14 +146,14 @@ void RowCache::insert(const RowCacheKey& key, const Slice& value) {
     memcpy(cache_value, value.data, value.size);
     const std::string& encoded_key = key.encode();
     auto handle =
-            _cache->insert(encoded_key, cache_value, value.size, deleter, CachePriority::NORMAL);
+            cache()->insert(encoded_key, cache_value, value.size, deleter, CachePriority::NORMAL);
     // handle will released
-    auto tmp = CacheHandle {_cache.get(), handle};
+    auto tmp = CacheHandle {cache(), handle};
 }
 
 void RowCache::erase(const RowCacheKey& key) {
     const std::string& encoded_key = key.encode();
-    _cache->erase(encoded_key);
+    cache()->erase(encoded_key);
 }
 
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
@@ -190,7 +191,9 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
         }
     }
-    _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request->tablet_id());
+    // TODO(plat1ko): CloudStorageEngine
+    _tablet = ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager()->get_tablet(
+            request->tablet_id());
     if (_tablet == nullptr) {
         LOG(WARNING) << "failed to do tablet_fetch_data. tablet [" << request->tablet_id()
                      << "] is not exist";
@@ -335,7 +338,7 @@ template <typename MysqlWriter>
 Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& block,
                         PTabletKeyLookupResponse* response) {
     block.clear_names();
-    RETURN_IF_ERROR(mysql_writer.append_block(block));
+    RETURN_IF_ERROR(mysql_writer.write(block));
     assert(mysql_writer.results().size() == 1);
     uint8_t* buf = nullptr;
     uint32_t len = 0;

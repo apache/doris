@@ -80,7 +80,7 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
 }
 
 Status HudiJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_jni_connector->get_nex_block(block, read_rows, eof));
+    RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
     if (*eof) {
         RETURN_IF_ERROR(_jni_connector->close());
     }

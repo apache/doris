@@ -46,6 +46,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -197,7 +198,13 @@ public class CreateTableInfo {
         return tableName;
     }
 
+    /**
+     * full qualifier table name.
+     */
     public List<String> getTableNameParts() {
+        if (ctlName != null && dbName != null) {
+            return ImmutableList.of(ctlName, dbName, tableName);
+        }
         if (dbName != null) {
             return ImmutableList.of(dbName, tableName);
         }
@@ -252,7 +259,11 @@ public class CreateTableInfo {
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = ctx.getDatabase();
         }
-
+        try {
+            InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
                 tableName, PrivPredicate.CREATE)) {
             try {
@@ -279,16 +290,15 @@ public class CreateTableInfo {
         }
 
         if (engineName.equalsIgnoreCase("olap")) {
-            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(ctlName, dbName,
-                    properties);
             boolean enableDuplicateWithoutKeysByDefault = false;
-            if (properties != null) {
-                try {
+            properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(ctlName, dbName, properties);
+            try {
+                if (properties != null) {
                     enableDuplicateWithoutKeysByDefault =
-                            PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
-                } catch (Exception e) {
-                    throw new AnalysisException(e.getMessage(), e.getCause());
+                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
                 }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
             }
             if (keys.isEmpty()) {
                 boolean hasAggColumn = false;
@@ -451,6 +461,12 @@ public class CreateTableInfo {
                     }
                 }
             });
+
+            if (isAutoPartition) {
+                partitionColumns = ExpressionUtils
+                        .collectAll(autoPartitionExprs, UnboundSlot.class::isInstance).stream()
+                        .map(slot -> ((UnboundSlot) slot).getName()).collect(Collectors.toList());
+            }
 
             if (partitionColumns != null) {
                 partitionColumns.forEach(p -> {
@@ -629,7 +645,7 @@ public class CreateTableInfo {
             throw new AnalysisException("odbc, mysql and broker table is no longer supported."
                     + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
                     + " For broker table, use table valued function instead."
-                    + ". Or you can temporarily set 'disable_odbc_mysql_broker_table=false'"
+                    + ". Or you can temporarily set 'enable_odbc_mysql_broker_table=true'"
                     + " in fe.conf to reopen this feature.");
         }
     }
@@ -650,8 +666,13 @@ public class CreateTableInfo {
             throw new AnalysisException("Complex type column can't be partition column: "
                     + column.getType().toString());
         }
+        // prohibit to create auto partition with null column anyhow
+        if (this.isAutoPartition && column.isNullable()) {
+            throw new AnalysisException("The auto partition column must be NOT NULL");
+        }
         if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
-            throw new AnalysisException("The partition column must be NOT NULL");
+            throw new AnalysisException(
+                    "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
         }
         if (partitionType.equalsIgnoreCase(PartitionType.LIST.name()) && column.isNullable()) {
             throw new AnalysisException("The list partition column must be NOT NULL");
@@ -784,11 +805,6 @@ public class CreateTableInfo {
      * translate to catalog create table stmt
      */
     public CreateTableStmt translateToLegacyStmt() {
-        if (isAutoPartition) {
-            partitionColumns = ExpressionUtils
-                    .collectAll(autoPartitionExprs, UnboundSlot.class::isInstance).stream()
-                    .map(slot -> ((UnboundSlot) slot).getName()).collect(Collectors.toList());
-        }
         PartitionDesc partitionDesc = null;
         if (partitionColumns != null || isAutoPartition) {
             List<AllPartitionDesc> partitionDescs =
@@ -849,7 +865,7 @@ public class CreateTableInfo {
         }
 
         return new CreateTableStmt(ifNotExists, isExternal,
-                new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(), dbName, tableName),
+                new TableName(ctlName, dbName, tableName),
                 catalogColumns, catalogIndexes, engineName,
                 new KeysDesc(keysType, keys, clusterKeysColumnNames, clusterKeysColumnIds),
                 partitionDesc, distributionDesc, Maps.newHashMap(properties), extProperties,

@@ -41,4 +41,8 @@ suite("test_array_functions_of_array_difference") {
 
     qt_select "SELECT *, array_difference(k2) FROM ${tableName} order by k1"
 
+    // literal
+    qt_select "SELECT array_difference([1, 2, 3, 4]);"
+    qt_select "SELECT array_difference([1, 7, 100, 5]);"
+
 }

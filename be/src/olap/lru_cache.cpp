@@ -356,8 +356,12 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     e->deleter = deleter;
     e->charge = charge;
     e->key_length = key.size();
-    e->total_size = (_type == LRUCacheType::SIZE ? handle_size + charge : 1);
+    // if LRUCacheType::NUMBER, charge not add handle_size,
+    // because charge at this time is no longer the memory size, but an weight.
+    e->total_size = (_type == LRUCacheType::SIZE ? handle_size + charge : charge);
     DCHECK(_type == LRUCacheType::SIZE || bytes != -1) << " _type " << _type;
+    // if LRUCacheType::NUMBER and bytes equals 0, such as some caches cannot accurately track memory size.
+    // cache mem tracker value divided by handle_size(106) will get the number of cache entries.
     e->bytes = (_type == LRUCacheType::SIZE ? handle_size + charge : handle_size + bytes);
     e->hash = hash;
     e->refs = 2; // one for the returned handle, one for LRUCache.
@@ -665,6 +669,41 @@ void ShardedLRUCache::update_cache_metrics() const {
     cache_usage_ratio->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));
     cache_hit_ratio->set_value(
             total_lookup_count == 0 ? 0 : ((double)total_hit_count / total_lookup_count));
+}
+
+Cache::Handle* DummyLRUCache::insert(const CacheKey& key, void* value, size_t charge,
+                                     void (*deleter)(const CacheKey& key, void* value),
+                                     CachePriority priority, size_t bytes) {
+    size_t handle_size = sizeof(LRUHandle);
+    auto* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
+    e->value = value;
+    e->deleter = deleter;
+    e->charge = charge;
+    e->key_length = 0;
+    e->total_size = 0;
+    e->bytes = 0;
+    e->hash = 0;
+    e->refs = 1; // only one for the returned handle
+    e->next = e->prev = nullptr;
+    e->in_cache = false;
+    return reinterpret_cast<Cache::Handle*>(e);
+}
+
+void DummyLRUCache::release(Cache::Handle* handle) {
+    if (handle == nullptr) {
+        return;
+    }
+    auto* e = reinterpret_cast<LRUHandle*>(handle);
+    e->free();
+}
+
+void* DummyLRUCache::value(Handle* handle) {
+    return reinterpret_cast<LRUHandle*>(handle)->value;
+}
+
+Slice DummyLRUCache::value_slice(Handle* handle) {
+    auto* lru_handle = reinterpret_cast<LRUHandle*>(handle);
+    return Slice((char*)lru_handle->value, lru_handle->charge);
 }
 
 } // namespace doris

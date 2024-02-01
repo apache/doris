@@ -64,6 +64,7 @@ class TPipelineInstanceParams;
 class TScanColumnDesc;
 class TScanOpenParams;
 class Thread;
+class WorkloadQueryInfo;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
@@ -152,6 +153,8 @@ public:
     }
 
     std::string dump_pipeline_tasks();
+
+    void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
 
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,

@@ -27,6 +27,7 @@ import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetLdapPassVar;
 import org.apache.doris.analysis.SetPassVar;
@@ -82,6 +83,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+
 
 public class Auth implements Writable {
     private static final Logger LOG = LogManager.getLogger(Auth.class);
@@ -387,6 +389,12 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
+    }
+
+    // ==== cloud ====
+    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
+                                  PrivPredicate wanted, ResourceTypeEnum type) {
+        throw new RuntimeException("Auth.checkCloudPriv is not implemented");
     }
 
     // ==== Other ====

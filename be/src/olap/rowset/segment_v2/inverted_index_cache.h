@@ -94,7 +94,7 @@ public:
                  OptionalIndexSearcherPtr& output_searcher) override;
 };
 
-class InvertedIndexSearcherCache : public LRUCachePolicy {
+class InvertedIndexSearcherCache {
 public:
     // The cache key of index_searcher lru cache
     struct CacheKey {
@@ -112,12 +112,6 @@ public:
     // "capacity" is the capacity of lru cache.
     static InvertedIndexSearcherCache* create_global_instance(size_t capacity,
                                                               uint32_t num_shards = 16);
-
-    void reset() {
-        _cache.reset();
-        _mem_tracker.reset();
-        // Reset or clear the state of the object.
-    }
 
     // Return global instance.
     // Client should call create_global_cache before.
@@ -139,10 +133,31 @@ public:
     // function `erase` called after compaction remove segment
     Status erase(const std::string& index_file_path);
 
+    void release(Cache::Handle* handle) { _policy->cache()->release(handle); }
+
     int64_t mem_consumption();
 
 private:
     InvertedIndexSearcherCache();
+
+    class InvertedIndexSearcherCachePolicy : public LRUCachePolicy {
+    public:
+        InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
+                                         uint32_t element_count_capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 element_count_capacity, true) {}
+        InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
+                                         uint32_t element_count_capacity,
+                                         CacheValueTimeExtractor cache_value_time_extractor,
+                                         bool cache_value_check_timestamp)
+                : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 element_count_capacity, cache_value_time_extractor,
+                                 cache_value_check_timestamp, true) {}
+    };
 
     // Lookup the given index_searcher in the cache.
     // If the index_searcher is found, the cache entry will be written into handle.
@@ -154,8 +169,7 @@ private:
     // This function is thread-safe.
     Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
 
-private:
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<InvertedIndexSearcherCachePolicy> _policy;
 };
 
 using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValue>;

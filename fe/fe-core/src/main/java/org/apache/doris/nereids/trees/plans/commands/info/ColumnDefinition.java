@@ -24,7 +24,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -182,6 +182,11 @@ public class ColumnDefinition {
      * validate column definition and analyze
      */
     public void validate(boolean isOlap, Set<String> keysSet, boolean isEnableMergeOnWrite, KeysType keysType) {
+        try {
+            FeNameFormat.checkColumnName(name);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
         validateDataType(type.toCatalogDataType());
         type = updateCharacterTypeLength(type);
         if (type.isArrayType()) {
@@ -392,21 +397,11 @@ public class ColumnDefinition {
                 Type itemType = ((org.apache.doris.catalog.ArrayType) catalogType).getItemType();
                 if (itemType instanceof ScalarType) {
                     validateNestedType(catalogType, (ScalarType) itemType);
-                } else if (Config.disable_nested_complex_type
-                        && !(itemType instanceof org.apache.doris.catalog.ArrayType)) {
-                    // now we can array nesting array
-                    throw new AnalysisException(
-                            "Unsupported data type: ARRAY<" + itemType.toSql() + ">");
                 }
             }
             if (catalogType.isMapType()) {
                 org.apache.doris.catalog.MapType mt =
                         (org.apache.doris.catalog.MapType) catalogType;
-                if (Config.disable_nested_complex_type && (!(mt.getKeyType() instanceof ScalarType)
-                        || !(mt.getValueType() instanceof ScalarType))) {
-                    throw new AnalysisException("Unsupported data type: MAP<"
-                            + mt.getKeyType().toSql() + "," + mt.getValueType().toSql() + ">");
-                }
                 if (mt.getKeyType() instanceof ScalarType) {
                     validateNestedType(catalogType, (ScalarType) mt.getKeyType());
                 }
@@ -426,9 +421,6 @@ public class ColumnDefinition {
                             throw new AnalysisException("Duplicate field name " + field.getName()
                                     + " in struct " + catalogType.toSql());
                         }
-                    } else if (Config.disable_nested_complex_type) {
-                        throw new AnalysisException(
-                                "Unsupported field type: " + fieldType.toSql() + " for STRUCT");
                     }
                 }
             }
@@ -460,7 +452,6 @@ public class ColumnDefinition {
                 } else {
                     name = "CHAR";
                     maxLen = ScalarType.MAX_CHAR_LENGTH;
-                    return;
                 }
                 int len = scalarType.getLength();
                 // len is decided by child, when it is -1.

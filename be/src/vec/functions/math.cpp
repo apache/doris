@@ -79,6 +79,11 @@ struct CosName {
 };
 using FunctionCos = FunctionMathUnary<UnaryFunctionPlain<CosName, std::cos>>;
 
+struct CoshName {
+    static constexpr auto name = "cosh";
+};
+using FunctionCosh = FunctionMathUnary<UnaryFunctionPlain<CoshName, std::cosh>>;
+
 struct EImpl {
     static constexpr auto name = "e";
     static constexpr double value = 2.7182818284590452353602874713526624977572470;
@@ -153,7 +158,7 @@ struct SignImpl {
 struct NameSign {
     static constexpr auto name = "sign";
 };
-using FunctionSign = FunctionUnaryArithmetic<SignImpl, NameSign, false>;
+using FunctionSign = FunctionUnaryArithmetic<SignImpl, NameSign>;
 
 template <typename A>
 struct AbsImpl {
@@ -176,7 +181,7 @@ struct NameAbs {
     static constexpr auto name = "abs";
 };
 
-using FunctionAbs = FunctionUnaryArithmetic<AbsImpl, NameAbs, false>;
+using FunctionAbs = FunctionUnaryArithmetic<AbsImpl, NameAbs>;
 
 template <typename A>
 struct NegativeImpl {
@@ -189,7 +194,7 @@ struct NameNegative {
     static constexpr auto name = "negative";
 };
 
-using FunctionNegative = FunctionUnaryArithmetic<NegativeImpl, NameNegative, false>;
+using FunctionNegative = FunctionUnaryArithmetic<NegativeImpl, NameNegative>;
 
 template <typename A>
 struct PositiveImpl {
@@ -202,7 +207,7 @@ struct NamePositive {
     static constexpr auto name = "positive";
 };
 
-using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive, false>;
+using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive>;
 
 struct SinName {
     static constexpr auto name = "sin";
@@ -224,6 +229,11 @@ struct TanName {
 };
 using FunctionTan = FunctionMathUnary<UnaryFunctionPlain<TanName, std::tan>>;
 
+struct TanhName {
+    static constexpr auto name = "tanh";
+};
+using FunctionTanh = FunctionMathUnary<UnaryFunctionPlain<TanhName, std::tanh>>;
+
 template <typename A>
 struct RadiansImpl {
     using ResultType = A;
@@ -237,7 +247,7 @@ struct NameRadians {
     static constexpr auto name = "radians";
 };
 
-using FunctionRadians = FunctionUnaryArithmetic<RadiansImpl, NameRadians, false>;
+using FunctionRadians = FunctionUnaryArithmetic<RadiansImpl, NameRadians>;
 
 template <typename A>
 struct DegreesImpl {
@@ -252,7 +262,7 @@ struct NameDegrees {
     static constexpr auto name = "degrees";
 };
 
-using FunctionDegrees = FunctionUnaryArithmetic<DegreesImpl, NameDegrees, false>;
+using FunctionDegrees = FunctionUnaryArithmetic<DegreesImpl, NameDegrees>;
 
 struct NameBin {
     static constexpr auto name = "bin";
@@ -388,6 +398,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAsin>();
     factory.register_function<FunctionAtan>();
     factory.register_function<FunctionCos>();
+    factory.register_function<FunctionCosh>();
     factory.register_alias("ceil", "dceil");
     factory.register_alias("ceil", "ceiling");
     factory.register_function<FunctionE>();
@@ -407,6 +418,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_alias("sqrt", "dsqrt");
     factory.register_function<FunctionCbrt>();
     factory.register_function<FunctionTan>();
+    factory.register_function<FunctionTanh>();
     factory.register_alias("floor", "dfloor");
     factory.register_function<FunctionPow>();
     factory.register_alias("pow", "power");

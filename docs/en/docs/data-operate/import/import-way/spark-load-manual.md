@@ -281,7 +281,7 @@ PROPERTIES
 
 If Spark load accesses Hadoop cluster resources with Kerberos authentication, we only need to specify the following parameters when creating Spark resources:
 
-- `spark.hadoop.hadoop.security.authentication` Specify the authentication method as Kerberos for Yarn。
+- `spark.hadoop.hadoop.security.authentication` Specify the authentication method as Kerberos for Yarn.
 - `spark.hadoop.yarn.resourcemanager.principal` Specify the principal of kerberos for Yarn.
 - `spark.hadoop.yarn.resourcemanager.keytab` Specify the path to the keytab file of kerberos for Yarn. The file must be an absolute path to a file on the server where the frontend process is located. And can be accessed by the frontend process.
 - `broker.hadoop.security.authentication`: Specify the authentication method as kerberos.

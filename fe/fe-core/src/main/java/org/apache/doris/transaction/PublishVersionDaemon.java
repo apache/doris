@@ -63,7 +63,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         if (DebugPointUtil.isEnable("PublishVersionDaemon.stop_publish")) {
             return;
         }
-        GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgrIface globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
         if (readyTransactionStates.isEmpty()) {
             return;

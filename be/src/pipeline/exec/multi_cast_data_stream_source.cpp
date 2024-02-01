@@ -17,13 +17,11 @@
 
 #include "multi_cast_data_stream_source.h"
 
-#include <functional>
-
 #include "common/status.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/exec/operator.h"
-#include "runtime/query_statistics.h"
 #include "vec/core/block.h"
+#include "vec/core/materialize_block.h"
 
 namespace doris::pipeline {
 
@@ -108,7 +106,7 @@ Status MultiCastDataStreamerSourceOperator::get_block(RuntimeState* state, vecto
     if (!_output_expr_contexts.empty() && output_block->rows() > 0) {
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
                 _output_expr_contexts, *output_block, block, true));
-        materialize_block_inplace(*block);
+        vectorized::materialize_block_inplace(*block);
     }
     if (eos) {
         source_state = SourceState::FINISHED;
@@ -176,7 +174,7 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
     if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
                 local_state._output_expr_contexts, *output_block, block, true));
-        materialize_block_inplace(*block);
+        vectorized::materialize_block_inplace(*block);
     }
     COUNTER_UPDATE(local_state._rows_returned_counter, block->rows());
     if (eos) {

@@ -219,7 +219,7 @@ alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
 +-----------+-------+-------------+------+------+---------+-------+
 ```
 
-因为Schema Chanage 作业是异步操作，同一个表同时只能进行一个Schema chanage 作业，查看作业运行情况，可以通过下面这个命令
+因为Schema Change 作业是异步操作，同一个表同时只能进行一个Schema change 作业，查看作业运行情况，可以通过下面这个命令
 
 ```sql
 SHOW ALTER TABLE COLUMN\G;
@@ -265,7 +265,7 @@ SHOW ALTER TABLE COLUMN\G;
 
   数据分片副本是否完整，可以通过以下命令查看：
 
-  `ADMIN SHOW REPLICA STATUS FROM tbl WHERE STATUS != "OK";`
+  `SHOW REPLICA STATUS FROM tbl WHERE STATUS != "OK";`
 
   如果有返回结果，则说明有副本有问题。通常系统会自动修复这些问题，用户也可以通过以下命令优先修复这个表：
 

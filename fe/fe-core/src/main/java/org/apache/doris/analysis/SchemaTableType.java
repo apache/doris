@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.thrift.TSchemaTableType;
 
 public enum SchemaTableType {
-    // defination
     SCH_AUTHORS("AUTHORS", "AUTHORS", TSchemaTableType.SCH_AUTHORS),
     SCH_CHARSETS("CHARSETS", "CHARACTER_SETS", TSchemaTableType.SCH_CHARSETS),
     SCH_COLLATIONS("COLLATIONS", "COLLATIONS", TSchemaTableType.SCH_COLLATIONS),

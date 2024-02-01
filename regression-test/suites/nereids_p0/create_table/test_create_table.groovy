@@ -42,4 +42,40 @@ suite("nereids_create_table") {
     for (String t in tables) {
         qt_sql "select * from ${t} order by id"
     }
+
+    test {
+        sql """
+            CREATE TABLE region  (
+                r_regionkey      int NOT NULL,
+                r_name       VARCHAR(25) NOT NULL,
+                `CAST(``o_custkey`` AS BIGINT)` VARCHAR(152)
+            )ENGINE=OLAP
+            DUPLICATE KEY(`r_regionkey`)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1" 
+            );
+        """
+
+        exception "Incorrect column name"
+    }
+
+    test {
+        sql """
+            CREATE TABLE region  (
+                r_regionkey      int NOT NULL,
+                r_name       VARCHAR(25) NOT NULL,
+                `mva_invalid` VARCHAR(152)
+            )ENGINE=OLAP
+            DUPLICATE KEY(`r_regionkey`)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1" 
+            );
+        """
+
+        exception "Incorrect column name"
+    }
 }

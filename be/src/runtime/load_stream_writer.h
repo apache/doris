@@ -70,8 +70,6 @@ public:
     // wait for all memtables to be flushed.
     Status close();
 
-    int64_t tablet_id() const { return _req.tablet_id; }
-
 private:
     bool _is_init = false;
     bool _is_canceled = false;

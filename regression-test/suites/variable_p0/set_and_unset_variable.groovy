@@ -16,6 +16,8 @@
 // under the License.
 
 suite("set_and_unset_variable") {
+    qt_cmd """UNSET VARIABLE ALL"""
+    qt_cmd """UNSET global VARIABLE ALL"""
 
     qt_cmd """set wait_timeout = 1000"""
     qt_cmd """show variables like 'wait_timeout'"""

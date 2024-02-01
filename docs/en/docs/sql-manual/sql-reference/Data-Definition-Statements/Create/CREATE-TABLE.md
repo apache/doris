@@ -125,7 +125,7 @@ Column definition list:
 
         Default value of the column. If the load data does not specify a value for this column, the system will assign a default value to this column.
         
-        The syntax is: `default default_value`。
+        The syntax is: `default default_value`.
         
         Currently, the default value supports two forms:
 
@@ -260,7 +260,7 @@ Partition information supports three writing methods:
 </version>
 
 
-4. MULTI RANGE：Multi build integer RANGE partitions,Define the left closed and right open interval of the zone, and step size。
+4. MULTI RANGE：Multi build integer RANGE partitions,Define the left closed and right open interval of the zone, and step size.
 
     ```
     PARTITION BY RANGE(int_col)

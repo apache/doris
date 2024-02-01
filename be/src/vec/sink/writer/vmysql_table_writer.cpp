@@ -109,7 +109,7 @@ Status VMysqlTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     return Status::OK();
 }
 
-Status VMysqlTableWriter::append_block(vectorized::Block& block) {
+Status VMysqlTableWriter::write(vectorized::Block& block) {
     Block output_block;
     RETURN_IF_ERROR(_projection_block(block, &output_block));
     auto num_rows = output_block.rows();
@@ -196,7 +196,7 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         case TYPE_DECIMALV2: {
             DecimalV2Value value =
                     (DecimalV2Value)
-                            assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>&>(
+                            assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>&>(
                                     *column)
                                     .get_data()[row];
             fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());

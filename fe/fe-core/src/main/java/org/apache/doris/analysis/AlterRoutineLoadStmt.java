@@ -181,7 +181,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             long maxBatchIntervalS = Util.getLongPropertyOrDefault(
                     jobProperties.get(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY),
                     -1, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_PRED,
-                    CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 1 and 60");
+                    CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY + " should >= 1");
             analyzedJobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY,
                     String.valueOf(maxBatchIntervalS));
         }

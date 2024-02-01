@@ -65,6 +65,11 @@ public class KafkaProgress extends RoutineLoadProgress {
         this.partitionIdToOffset = tKafkaRLTaskProgress.getPartitionCmtOffset();
     }
 
+    public KafkaProgress(Map<Integer, Long> partitionIdToOffset) {
+        super(LoadDataSourceType.KAFKA);
+        this.partitionIdToOffset = partitionIdToOffset;
+    }
+
     public Map<Integer, Long> getPartitionIdToOffset(List<Integer> partitionIds) {
         Map<Integer, Long> result = Maps.newHashMap();
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
@@ -83,6 +88,10 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     public Long getOffsetByPartition(int kafkaPartition) {
         return partitionIdToOffset.get(kafkaPartition);
+    }
+
+    public Map<Integer, Long> getOffsetByPartition() {
+        return partitionIdToOffset;
     }
 
     public boolean containsPartition(Integer kafkaPartition) {

@@ -33,7 +33,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AssertNumRowsOperator final : public StreamingOperator<AssertNumRowsOperatorBuilder> {
+class AssertNumRowsOperator final : public StreamingOperator<vectorized::VAssertNumRowsNode> {
 public:
     AssertNumRowsOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
             : StreamingOperator(operator_builder, node) {}

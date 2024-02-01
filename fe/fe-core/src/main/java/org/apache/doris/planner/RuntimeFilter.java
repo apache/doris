@@ -112,6 +112,8 @@ public final class RuntimeFilter {
 
     private TMinMaxRuntimeFilterType tMinMaxRuntimeFilterType;
 
+    private boolean bloomFilterSizeCalculatedByNdv = false;
+
     /**
      * Internal representation of a runtime filter target.
      */
@@ -244,6 +246,7 @@ public final class RuntimeFilter {
             tFilter.setMinMaxType(tMinMaxRuntimeFilterType);
         }
         tFilter.setOptRemoteRf(optRemoteRf);
+        tFilter.setBloomFilterSizeCalculatedByNdv(bloomFilterSizeCalculatedByNdv);
         return tFilter;
     }
 
@@ -604,6 +607,10 @@ public final class RuntimeFilter {
         isBroadcastJoin = isBroadcast;
     }
 
+    public boolean isBroadcast() {
+        return isBroadcastJoin;
+    }
+
     public void computeNdvEstimate() {
         if (ndvEstimate < 0) {
             ndvEstimate = builderNode.getChild(1).getCardinalityAfterFilter();
@@ -736,5 +743,14 @@ public final class RuntimeFilter {
             }
         }
         return filterStr.toString();
+    }
+
+
+    public boolean isBloomFilterSizeCalculatedByNdv() {
+        return bloomFilterSizeCalculatedByNdv;
+    }
+
+    public void setBloomFilterSizeCalculatedByNdv(boolean bloomFilterSizeCalculatedByNdv) {
+        this.bloomFilterSizeCalculatedByNdv = bloomFilterSizeCalculatedByNdv;
     }
 }

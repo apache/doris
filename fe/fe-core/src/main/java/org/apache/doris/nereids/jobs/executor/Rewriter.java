@@ -55,7 +55,9 @@ import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
+import org.apache.doris.nereids.rules.rewrite.EliminateGroupBy;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinByFK;
+import org.apache.doris.nereids.rules.rewrite.EliminateJoinByUnique;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
@@ -80,6 +82,8 @@ import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
+import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
+import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
@@ -93,16 +97,16 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
-import org.apache.doris.nereids.rules.rewrite.PushDownCountThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushDownCountThroughJoinOneSide;
+import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
+import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
-import org.apache.doris.nereids.rules.rewrite.PushDownMinMaxThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushDownSumThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushDownSumThroughJoinOneSide;
+import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
@@ -222,7 +226,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // but top-down traverse can not cover this case in one iteration, so bottom-up is more
                     // efficient because it can find the new plans and apply transform wherever it is
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                    //after push down, some new filters are generated, which needs to be optimized. (example: tpch q19)
+                    // after push down, some new filters are generated, which needs to be optimized. (example: tpch q19)
                     topDown(new ExpressionOptimization()),
                     topDown(
                             new MergeFilters(),
@@ -259,6 +263,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
                     // this can help to translate plan to backend
                     topDown(new PushFilterInsideJoin()),
+                    topDown(new FindHashConditionForJoin()),
                     topDown(new ExpressionNormalization())
             ),
 
@@ -268,7 +273,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Set operation optimization",
                     // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
                     topDown(new PushProjectThroughUnion(), new MergeProjects()),
-                    bottomUp(new MergeSetOperations()),
+                    bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
                     bottomUp(new PushProjectIntoOneRowRelation()),
                     topDown(new MergeOneRowRelationIntoUnion()),
                     topDown(new PushProjectIntoUnion()),
@@ -276,21 +281,24 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new BuildAggForUnion())
             ),
 
+            topic("Eliminate GroupBy",
+                    topDown(new EliminateGroupBy())
+            ),
+
             topic("Eager aggregation",
                     topDown(
-                            new PushDownSumThroughJoin(),
-                            new PushDownMinMaxThroughJoin(),
-                            new PushDownCountThroughJoin()
-                    ),
-                    topDown(
-                            new PushDownSumThroughJoinOneSide(),
-                            new PushDownCountThroughJoinOneSide()
+                            new PushDownAggThroughJoinOneSide(),
+                            new PushDownAggThroughJoin()
                     ),
                     custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)
             ),
 
             // this rule should invoke after infer predicate and push down distinct, and before push down limit
-            custom(RuleType.ELIMINATE_JOIN_BY_FOREIGN_KEY, EliminateJoinByFK::new),
+            topic("eliminate join according unique or foreign key",
+                bottomUp(new EliminateJoinByFK()),
+                topDown(new EliminateJoinByUnique())
+            ),
+
             // this rule should be after topic "Column pruning and infer predicate"
             topic("Join pull up",
                     topDown(
@@ -312,12 +320,15 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     //       generate one PhysicalLimit if current distribution is gather or two
                     //       PhysicalLimits with gather exchange
                     topDown(new LimitSortToTopN()),
+                    topDown(new MergeTopNs()),
                     topDown(new SplitLimit()),
                     topDown(
                             new PushDownLimit(),
-                            new PushDownTopNThroughJoin(),
                             new PushDownLimitDistinctThroughJoin(),
                             new PushDownLimitDistinctThroughUnion(),
+                            new PushDownTopNDistinctThroughJoin(),
+                            new PushDownTopNDistinctThroughUnion(),
+                            new PushDownTopNThroughJoin(),
                             new PushDownTopNThroughWindow(),
                             new PushDownTopNThroughUnion()
                     ),
@@ -334,6 +345,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new PruneEmptyPartition(),
                             new PruneFileScanPartition(),
                             new PushConjunctsIntoJdbcScan(),
+                            new PushConjunctsIntoOdbcScan(),
                             new PushConjunctsIntoEsScan()
                     )
             ),

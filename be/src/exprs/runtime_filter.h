@@ -218,8 +218,7 @@ public:
                          bool build_bf_exactly = false, bool is_global = false,
                          int parallel_tasks = 0);
 
-    void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
-    Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
+    vectorized::SharedRuntimeFilterContext& get_shared_context_ref();
 
     void copy_from_other(IRuntimeFilter* other);
 
@@ -228,7 +227,7 @@ public:
 
     // publish filter
     // push filter to remote node or push down it to scan_node
-    Status publish();
+    Status publish(bool publish_local = false);
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
@@ -292,9 +291,7 @@ public:
     Status update_filter(const UpdateRuntimeFilterParams* param);
     Status update_filter(const UpdateRuntimeFilterParamsV2* param, int64_t start_apply);
 
-    void set_ignored() { _is_ignored = true; }
-
-    void set_ignored_msg(std::string& msg) { _ignored_msg = msg; }
+    void set_ignored(const std::string& msg);
 
     // for ut
     bool is_bloomfilter();
@@ -368,6 +365,9 @@ protected:
     // serialize _wrapper to protobuf
     void to_protobuf(PInFilter* filter);
     void to_protobuf(PMinMaxFilter* filter);
+
+    template <class T>
+    Status _update_filter(const T* param);
 
     template <class T>
     Status serialize_impl(T* request, void** data, int* len);

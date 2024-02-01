@@ -93,6 +93,11 @@ Note: This compilation has the following instructions:
 
 If nothing happens, the compilation should be successful, and the final deployment file will be output to the /home/workspace/doris/output/ directory. If you still encounter other problems, you can refer to the doris installation document http://doris.apache.org.
 
+Note: If you want to specify the private maven repository address separately when compiling fe, you can set the environment variable USER_SETTINGS_MVN_REPO to specify the file path to settings.xml.
+Example:
+```
+  export USER_SETTINGS_MVN_REPO="/xxx/xxx/settings.xml"
+```
 ## Deployment and debugging(GDB)
 
 1. Authorize be compilation result files
@@ -304,7 +309,7 @@ lldb's attach mode is faster than gdb，and the usage is similar to gdb. we shou
 }
 ```
 
-It should be noted that this method requires the system `glibc` version to be `2.18+`. you can refer [Get VSCode CodeLLDB plugin work on CentOS 7](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) to make plugin work。
+It should be noted that this method requires the system `glibc` version to be `2.18+`. you can refer [Get VSCode CodeLLDB plugin work on CentOS 7](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) to make plugin work.
 
 ## Debugging core dump files
 

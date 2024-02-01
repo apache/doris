@@ -383,7 +383,7 @@ void test_arrow_to_decimal_column(std::shared_ptr<arrow::Decimal128Type> type,
         data_column = (*std::move(column.column)).mutate();
     }
     auto& decimal_data =
-            static_cast<ColumnDecimal<vectorized::Decimal128>&>(*data_column).get_data();
+            static_cast<ColumnDecimal<vectorized::Decimal128V2>&>(*data_column).get_data();
     for (auto i = 0; i < num_elements; ++i) {
         auto idx = counter - num_elements + i;
         if (is_nullable) {

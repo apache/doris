@@ -41,6 +41,40 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("a + 1 > 1", "a > cast((1 - 1) as INT)", nameToSlot);
         assertRewriteAfterSimplify("a - 1 > 1", "a > cast((1 + 1) as INT)", nameToSlot);
         assertRewriteAfterSimplify("a / -2 > 1", "cast((1 * -2) as INT) > a", nameToSlot);
+
+        // test integer type
+        assertRewriteAfterSimplify("1 + a > 2", "a > cast((2 - 1) as INT)", nameToSlot);
+        assertRewriteAfterSimplify("-1 + a > 2", "a > cast((2 - (-1)) as INT)", nameToSlot);
+        assertRewriteAfterSimplify("1 - a > 2", "a < cast((1 - 2) as INT)", nameToSlot);
+        assertRewriteAfterSimplify("-1 - a > 2", "a < cast(((-1) - 2) as INT)", nameToSlot);
+        assertRewriteAfterSimplify("2 * a > 1", "((2 * a) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("-2 * a > 1", "((-2 * a) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("2 / a > 1", "((2 / a) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("-2 / a > 1", "((-2 / a) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("a * 2 > 1", "((a * 2) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("a * (-2) > 1", "((a * (-2)) > 1)", nameToSlot);
+        assertRewriteAfterSimplify("a / 2 > 1", "(a > cast((1 * 2) as INT))", nameToSlot);
+
+        // test decimal type
+        assertRewriteAfterSimplify("1.1 + a > 2.22", "(cast(a as DECIMALV3(12, 2)) > cast((2.22 - 1.1) as DECIMALV3(12, 2)))", nameToSlot);
+        assertRewriteAfterSimplify("-1.1 + a > 2.22", "(cast(a as DECIMALV3(12, 2)) > cast((2.22 - (-1.1)) as DECIMALV3(12, 2)))", nameToSlot);
+        assertRewriteAfterSimplify("1.1 - a > 2.22", "(cast(a as DECIMALV3(11, 1)) < cast((1.1 - 2.22) as DECIMALV3(11, 1)))", nameToSlot);
+        assertRewriteAfterSimplify("-1.1 - a > 2.22", "(cast(a as DECIMALV3(11, 1)) < cast((-1.1 - 2.22) as DECIMALV3(11, 1)))", nameToSlot);
+        assertRewriteAfterSimplify("2.22 * a > 1.1", "((2.22 * a) > 1.1)", nameToSlot);
+        assertRewriteAfterSimplify("-2.22 * a > 1.1", "-2.22 * a > 1.1", nameToSlot);
+        assertRewriteAfterSimplify("2.22 / a > 1.1", "((2.22 / a) > 1.1)", nameToSlot);
+        assertRewriteAfterSimplify("-2.22 / a > 1.1", "((-2.22 / a) > 1.1)", nameToSlot);
+        assertRewriteAfterSimplify("a * 2.22 > 1.1", "a * 2.22 > 1.1", nameToSlot);
+        assertRewriteAfterSimplify("a * (-2.22) > 1.1", "a * (-2.22) > 1.1", nameToSlot);
+        assertRewriteAfterSimplify("a / 2.22 > 1.1", "(cast(a as DECIMALV3(13, 3)) > cast((1.1 * 2.22) as DECIMALV3(13, 3)))", nameToSlot);
+        assertRewriteAfterSimplify("a / (-2.22) > 1.1", "(cast((1.1 * -2.22) as DECIMALV3(13, 3)) > cast(a as DECIMALV3(13, 3)))", nameToSlot);
+
+        // test (1 + a) can be processed
+        assertRewriteAfterSimplify("2 - (1 + a) > 3", "(a < ((2 - 3) - 1))", nameToSlot);
+        assertRewriteAfterSimplify("(1 - a) / 2 > 3", "(a < (1 - 6))", nameToSlot);
+        assertRewriteAfterSimplify("1 - a / 2 > 3", "(a < ((1 - 3) * 2))", nameToSlot);
+        assertRewriteAfterSimplify("(1 - (a + 4)) / 2 > 3", "(cast(a as BIGINT) < ((1 - 6) - 4))", nameToSlot);
+        assertRewriteAfterSimplify("2 * (1 + a) > 1", "(2 * (1 + a)) > 1", nameToSlot);
     }
 
     private void assertRewriteAfterSimplify(String expr, String expected, Map<String, Slot> slotNameToSlot) {

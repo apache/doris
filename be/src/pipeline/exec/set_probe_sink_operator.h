@@ -54,7 +54,7 @@ private:
 };
 
 template <bool is_intersect>
-class SetProbeSinkOperator : public StreamingOperator<SetProbeSinkOperatorBuilder<is_intersect>> {
+class SetProbeSinkOperator : public StreamingOperator<vectorized::VSetOperationNode<is_intersect>> {
 public:
     SetProbeSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* set_node);
 
@@ -76,7 +76,7 @@ public:
 
     void set_cur_child_id(int id) {
         _child_idx = id;
-        ((SetSharedState*)_shared_state.get())->probe_finished_children_dependency[id] = this;
+        ((SetSharedState*)_shared_state)->probe_finished_children_dependency[id] = this;
         block();
     }
 

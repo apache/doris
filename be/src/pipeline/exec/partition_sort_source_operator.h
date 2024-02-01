@@ -41,8 +41,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class PartitionSortSourceOperator final
-        : public SourceOperator<PartitionSortSourceOperatorBuilder> {
+class PartitionSortSourceOperator final : public SourceOperator<vectorized::VPartitionSortNode> {
 public:
     PartitionSortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
             : SourceOperator(operator_builder, sort_node) {}

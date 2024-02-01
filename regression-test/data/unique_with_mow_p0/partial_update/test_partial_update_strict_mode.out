@@ -27,6 +27,14 @@
 
 -- !sql --
 1	kevin	18	shenzhen	400	2023-07-01T12:00
+3	steve	23	beijing	500	2023-07-03T12:00:02
+
+-- !sql --
+1	kevin	18	shenzhen	400	2023-07-01T12:00
+3	steve	23	beijing	500	2023-07-03T12:00:02
+
+-- !sql --
+1	kevin	18	shenzhen	400	2023-07-01T12:00
 
 -- !sql --
 1	kevin	18	shenzhen	500	2023-07-03T12:00:01
@@ -42,6 +50,14 @@
 
 -- !sql --
 1	kevin	18	shenzhen	400	2023-07-01T12:00
+
+-- !sql --
+1	kevin	18	shenzhen	400	2023-07-01T12:00
+3	steve	23	beijing	500	2023-07-03T12:00:02
+
+-- !sql --
+1	kevin	18	shenzhen	400	2023-07-01T12:00
+3	steve	23	beijing	500	2023-07-03T12:00:02
 
 -- !sql --
 1	kevin	18	shenzhen	400	2023-07-01T12:00
