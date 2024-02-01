@@ -178,6 +178,7 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
@@ -5980,10 +5981,12 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation) {
+    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation,
+            Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots) {
         AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ADD_TASK);
         alter.setTask(task);
         alter.setRelation(relation);
+        alter.setPartitionSnapshots(partitionSnapshots);
         this.alter.processAlterMTMV(alter, false);
     }
 
