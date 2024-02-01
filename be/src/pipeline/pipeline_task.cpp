@@ -230,21 +230,36 @@ Status PipelineTask::execute(bool* eos) {
     // The status must be runnable
     *eos = false;
     if (!_opened) {
-        if (has_dependency()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
-            return Status::OK();
-        }
         {
             SCOPED_RAW_TIMER(&time_spent);
-            auto st = _open();
-            if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
+            if (!_open_status.ok()) {
+                return _open_status;
+            }
+            // here execute open and not check dependency(eg: the second start rpc arrival)
+            // so if open have some error, and return error status directly, the query will be cancel.
+            // and then the rpc arrival will not found the query as have been canceled and remove.
+            _open_status = _open();
+            if (_open_status.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_RF);
                 return Status::OK();
-            } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
+            } else if (_open_status.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
                 return Status::OK();
             }
-            RETURN_IF_ERROR(st);
+            // here check dependency first.
+            // even if status is not ok, as have dependency to push back to queue again.
+            if (has_dependency()) {
+                set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
+                return Status::OK();
+            } else {
+                if (!_open_status.ok()) { // not ok and no dependency, return error to cancel.
+                    return _open_status;
+                }
+            }
+        }
+        if (has_dependency()) {
+            set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
+            return Status::OK();
         }
         if (!source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
