@@ -508,6 +508,18 @@ ALI_SDK_NAME="1.36.1586.tar.gz"
 ALI_SDK_SOURCE="aliyun-openapi-cpp-sdk-1.36.1586"
 ALI_SDK_MD5SUM="14623ee8e87c89615477d9bf8cb30bea"
 
+# wasmtime
+WASMTIME_DOWNLOAD="https://github.com/bytecodealliance/wasmtime/releases/download/v14.0.4/wasmtime-v14.0.4-src.tar.gz"
+WASMTIME_NAME=wasmtime-v14.0.4-src.tar.gz
+WASMTIME_SOURCE=wasmtime-v14.0.4-src
+WASMTIME_MD5SUM="b440d7efd615f1b018cd326876d8ead7"
+
+# wasmtime-cpp
+WASMTIME_CPP_DOWNLOAD="https://github.com/bytecodealliance/wasmtime-cpp/archive/refs/tags/v9.0.0.tar.gz"
+WASMTIME_CPP_NAME=v9.0.0.tar.gz
+WASMTIME_CPP_SOURCE=wasmtime-cpp-9.0.0
+WASMTIME_CPP_MD5SUM="222cda259440a4243104571900fe087a"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -583,6 +595,8 @@ export TP_ARCHIVES=(
     'JSONCPP'
     'LIBUUID'
     'ALI_SDK'
+    'WASMTIME'
+    'WASMTIME_CPP'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

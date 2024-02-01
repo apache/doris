@@ -20,6 +20,7 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
@@ -81,7 +82,7 @@ public class CloudReplica extends Replica {
     }
 
     private long getColocatedBeId(String cluster) {
-        List<Backend> bes = Env.getCurrentSystemInfo().getBackendsByClusterId(cluster);
+        List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterId(cluster);
         List<Backend> availableBes = new ArrayList<>();
         for (Backend be : bes) {
             if (be.isAlive()) {
@@ -110,7 +111,7 @@ public class CloudReplica extends Replica {
             if (!Strings.isNullOrEmpty(context.getSessionVariable().getCloudCluster())) {
                 cluster = context.getSessionVariable().getCloudCluster();
                 try {
-                    Env.getCurrentEnv().checkCloudClusterPriv(cluster);
+                    ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
                 } catch (Exception e) {
                     LOG.warn("get cluster by session context exception");
                     return -1;
@@ -127,7 +128,8 @@ public class CloudReplica extends Replica {
 
         // check default cluster valid.
         if (!Strings.isNullOrEmpty(cluster)) {
-            boolean exist = Env.getCurrentSystemInfo().getCloudClusterNames().contains(cluster);
+            boolean exist = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getCloudClusterNames().contains(cluster);
             if (!exist) {
                 //can't use this default cluster, plz change another
                 LOG.warn("cluster: {} is not existed", cluster);
@@ -140,12 +142,12 @@ public class CloudReplica extends Replica {
 
         // if cluster is SUSPENDED, wait
         try {
-            Env.waitForAutoStart(cluster);
+            CloudSystemInfoService.waitForAutoStart(cluster);
         } catch (DdlException e) {
             // this function cant throw exception. so just log it
             LOG.warn("cant resume cluster {}", cluster);
         }
-        String clusterId = Env.getCurrentSystemInfo().getCloudClusterIdByName(cluster);
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdByName(cluster);
 
         if (isColocated()) {
             return getColocatedBeId(clusterId);
@@ -201,7 +203,8 @@ public class CloudReplica extends Replica {
 
     public long hashReplicaToBe(String clusterId, boolean isBackGround) {
         // TODO(luwei) list should be sorted
-        List<Backend> clusterBes = Env.getCurrentSystemInfo().getBackendsByClusterId(clusterId);
+        List<Backend> clusterBes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getBackendsByClusterId(clusterId);
         // use alive be to exec sql
         List<Backend> availableBes = new ArrayList<>();
         for (Backend be : clusterBes) {
@@ -247,7 +250,8 @@ public class CloudReplica extends Replica {
 
     public List<Long> hashReplicaToBes(String clusterId, boolean isBackGround, int replicaNum) {
         // TODO(luwei) list should be sorted
-        List<Backend> clusterBes = Env.getCurrentSystemInfo().getBackendsByClusterId(clusterId);
+        List<Backend> clusterBes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getBackendsByClusterId(clusterId);
         // use alive be to exec sql
         List<Backend> availableBes = new ArrayList<>();
         for (Backend be : clusterBes) {
@@ -325,7 +329,8 @@ public class CloudReplica extends Replica {
         int count = in.readInt();
         for (int i = 0; i < count; ++i) {
             String clusterId = Text.readString(in);
-            String realClusterId = Env.getCurrentSystemInfo().getCloudClusterIdByName(clusterId);
+            String realClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getCloudClusterIdByName(clusterId);
             LOG.debug("cluster Id {}, real cluster Id {}", clusterId, realClusterId);
 
             if (!Strings.isNullOrEmpty(realClusterId)) {

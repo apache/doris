@@ -67,12 +67,11 @@ struct ProcessHashTableProbe {
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
     // The output result is determined by the other join conjunct result and same_to_prev struct
-    Status do_other_join_conjuncts(Block* output_block, bool is_mark_join,
-                                   std::vector<uint8_t>& visited, bool has_null_in_build_side);
+    Status do_other_join_conjuncts(Block* output_block, std::vector<uint8_t>& visited,
+                                   bool has_null_in_build_side);
 
     template <bool with_other_conjuncts>
-    Status do_mark_join_conjuncts(Block* output_block, size_t hash_table_bucket_size,
-                                  const std::set<uint32_t>& null_result);
+    Status do_mark_join_conjuncts(Block* output_block, size_t hash_table_bucket_size);
 
     template <typename HashTableType>
     typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
@@ -85,6 +84,10 @@ struct ProcessHashTableProbe {
     Status process_data_in_hashtable(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
                                      Block* output_block, bool* eos);
 
+    /// For null aware join with other conjuncts, if the probe key of one row on left side is null,
+    /// we should make this row match with all rows in build side.
+    size_t _process_probe_null_key(uint32_t probe_idx);
+
     Parent* _parent = nullptr;
     const int _batch_size;
     const std::shared_ptr<Block>& _build_block;
@@ -93,7 +96,15 @@ struct ProcessHashTableProbe {
 
     std::vector<uint32_t> _probe_indexs;
     bool _probe_visited = false;
+    bool _picking_null_keys = false;
     std::vector<uint32_t> _build_indexs;
+    std::vector<uint8_t> _null_flags;
+
+    /// If the probe key of one row on left side is null,
+    /// we will make all rows in build side match with this row,
+    /// `_build_index_for_null_probe_key` is used to record the progress if the build block is too big.
+    uint32_t _build_index_for_null_probe_key {0};
+
     std::vector<int> _build_blocks_locs;
     // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
     ColumnUInt8::Container* _tuple_is_null_left_flags = nullptr;

@@ -2022,7 +2022,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throws DdlException {
     }
 
-    protected void checkAvailableCapacity(Database db) throws DdlException {
+    public void checkAvailableCapacity(Database db) throws DdlException {
         // check cluster capacity
         Env.getCurrentSystemInfo().checkAvailableCapacity();
         // check db quota
@@ -2489,7 +2489,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (!col.getType().isFixedPointType() && !col.getType().isDateType()) {
                     throw new DdlException("Sequence type only support integer types and date types");
                 }
-                olapTable.setSequenceMapCol(sequenceMapCol);
+                olapTable.setSequenceMapCol(col.getName());
                 olapTable.setSequenceInfo(col.getType());
             }
         } catch (Exception e) {
