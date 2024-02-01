@@ -34,7 +34,7 @@ suite("test_workload_group_mtmv") {
             "replication_num" = "1"
         );
         """
-
+    sql """ insert into ${tableName} values('2020-10-01',1,"a");"""
     sql """drop materialized view if exists ${mvName};"""
 
     sql """
