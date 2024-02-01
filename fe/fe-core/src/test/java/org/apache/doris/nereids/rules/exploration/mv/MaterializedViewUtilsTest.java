@@ -350,7 +350,6 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                         });
     }
 
-
     @Test
     public void getRelatedTableInfoSelfJoinTest() {
         PlanChecker.from(connectContext)
@@ -366,7 +365,6 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             Assertions.assertFalse(relatedTableInfo.isPresent());
                         });
     }
-
 
     @Test
     public void getRelatedTableInfoUseRightTest() {
