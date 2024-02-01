@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_group_concat") {
+suite("test_group_concat", "query,p0,arrow_flight_sql") {
     qt_select """
                 SELECT group_concat(k6) FROM test_query_db.test where k6='false'
               """
@@ -81,6 +81,15 @@ suite("test_group_concat") {
                 b2;
               """
 
+    qt_select_12 """
+                select
+                group_concat( distinct b1, '?'), group_concat( distinct b3, '?')
+                from
+                table_group_concat
+                group by 
+                b2;
+              """
+
     sql """ drop table table_group_concat """
     sql """create table table_group_concat ( b1 varchar(10) not null, b2 int not null, b3 varchar(10) not null )
             ENGINE=OLAP
@@ -110,4 +119,13 @@ suite("test_group_concat") {
     qt_select_group_concat_order_by_desc3 """
                 SELECT b1, group_concat(cast(abs(b3) as varchar) order by abs(b2) desc, b3 desc) FROM table_group_concat  group by b1 order by b1
               """
+    qt_select_group_concat_order_by1 """
+                select group_concat(b3,',' order by b3 asc),group_concat(b3,',' order by b3 desc) from table_group_concat;
+    """
+
+    sql """create view if not exists test_view as select group_concat(b3,',' order by b3 asc),group_concat(b3,',' order by b3 desc) from table_group_concat;"""
+    qt_select_group_concat_order_by2 """
+                select * from test_view;
+    """
+    sql """drop view if exists test_view"""
 }

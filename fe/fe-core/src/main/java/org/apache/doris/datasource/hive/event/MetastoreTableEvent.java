@@ -23,12 +23,18 @@ import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Base class for all the table events
  */
 public abstract class MetastoreTableEvent extends MetastoreEvent {
 
+    // for test
+    protected MetastoreTableEvent(long eventId, String catalogName, String dbName,
+                                  String tblName, MetastoreEventType eventType) {
+        super(eventId, catalogName, dbName, tblName, eventType);
+    }
 
     protected MetastoreTableEvent(NotificationEvent event, String catalogName) {
         super(event, catalogName);
@@ -47,4 +53,54 @@ public abstract class MetastoreTableEvent extends MetastoreEvent {
                     .add("numFiles")
                     .add("comment")
                     .build();
+
+    protected boolean isSameTable(MetastoreEvent that) {
+        if (!(that instanceof MetastoreTableEvent)) {
+            return false;
+        }
+        TableKey thisKey = getTableKey();
+        TableKey thatKey = ((MetastoreTableEvent) that).getTableKey();
+        return Objects.equals(thisKey, thatKey);
+    }
+
+    /**
+     * Returns if the process of this event will create or drop this table.
+     */
+    protected abstract boolean willCreateOrDropTable();
+
+    /**
+     * Returns if the process of this event will rename this table.
+     */
+    protected abstract boolean willChangeTableName();
+
+    public TableKey getTableKey() {
+        return new TableKey(catalogName, dbName, tblName);
+    }
+
+    static class TableKey {
+        private final String catalogName;
+        private final String dbName;
+        private final String tblName;
+
+        private TableKey(String catalogName, String dbName, String tblName) {
+            this.catalogName = catalogName;
+            this.dbName = dbName;
+            this.tblName = tblName;
+        }
+
+        @Override
+        public boolean equals(Object that) {
+            if (!(that instanceof TableKey)) {
+                return false;
+            }
+            return Objects.equals(catalogName, ((TableKey) that).catalogName)
+                        && Objects.equals(dbName, ((TableKey) that).dbName)
+                        && Objects.equals(tblName, ((TableKey) that).tblName);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(catalogName, dbName, tblName);
+        }
+    }
 }

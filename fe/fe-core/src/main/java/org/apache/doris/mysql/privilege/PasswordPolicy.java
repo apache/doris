@@ -139,6 +139,10 @@ public class PasswordPolicy implements Writable {
         }
     }
 
+    public ExpirePolicy getExpirePolicy() {
+        return expirePolicy;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
@@ -206,6 +210,10 @@ public class PasswordPolicy implements Writable {
                 return;
             }
             this.expirationSecond = expirationSecond;
+            this.passwordCreateTime = System.currentTimeMillis();
+        }
+
+        public void setPasswordCreateTime() {
             this.passwordCreateTime = System.currentTimeMillis();
         }
 
@@ -402,7 +410,8 @@ public class PasswordPolicy implements Writable {
             }
             if (lockTime.get() > 0 && passwordLockSeconds == UNBOUNDED) {
                 // unbounded lock
-                return 0;
+                // Returns 9999 seconds every time instead of 9999 seconds countdown
+                return 9999;
             }
             return Math.max(0, passwordLockSeconds - ((System.currentTimeMillis() - lockTime.get()) / 1000));
         }

@@ -37,24 +37,21 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
-const size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
+static inline constexpr size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
 
 class StreamLoadPipe : public MessageBodySink, public FileReader {
 public:
     StreamLoadPipe(size_t max_buffered_bytes = kMaxPipeBufferedBytes,
                    size_t min_chunk_size = 64 * 1024, int64_t total_length = -1,
                    bool use_proto = false);
-
     ~StreamLoadPipe() override;
 
     Status append_and_flush(const char* data, size_t size, size_t proto_byte_size = 0);
 
     Status append(std::unique_ptr<PDataRow>&& row);
-
     Status append(const char* data, size_t size) override;
-
     Status append(const ByteBufferPtr& buf) override;
 
     const Path& path() const override { return _path; }
@@ -63,21 +60,28 @@ public:
 
     // called when consumer finished
     Status close() override {
-        cancel("closed");
+        if (!(_finished || _cancelled)) {
+            cancel("closed");
+        }
         return Status::OK();
     }
 
     bool closed() const override { return _cancelled; }
 
     // called when producer finished
-    Status finish() override;
+    virtual Status finish() override;
 
     // called when producer/consumer failed
-    void cancel(const std::string& reason) override;
+    virtual void cancel(const std::string& reason) override;
 
     Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length);
 
     FileSystemSPtr fs() const override { return nullptr; }
+
+    size_t get_queue_size() { return _buf_queue.size(); }
+
+    // used for pipeline load, which use TUniqueId(lo: query_id.lo + fragment_id, hi: query_id.hi) as pipe_id
+    static TUniqueId calculate_pipe_id(const UniqueId& query_id, int32_t fragment_id);
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "length",
+    "title": "LENGTH",
     "language": "zh-CN"
 }
 ---

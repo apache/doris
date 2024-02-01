@@ -42,7 +42,7 @@ public class PlanPostProcessors {
      * post process
      *
      * @param physicalPlan input plan
-     * @return physcial plan
+     * @return physical plan
      */
     public PhysicalPlan process(PhysicalPlan physicalPlan) {
         PhysicalPlan resultPlan = physicalPlan;
@@ -58,17 +58,24 @@ public class PlanPostProcessors {
     public List<PlanPostProcessor> getProcessors() {
         // add processor if we need
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
+        builder.add(new PushDownFilterThroughProject());
         builder.add(new MergeProjectPostProcessor());
+        builder.add(new RecomputeLogicalPropertiesProcessor());
+        builder.add(new AddOffsetIntoDistribute());
+        builder.add(new TopNScanOpt());
+        // after generate rf, DO NOT replace PLAN NODE
+        builder.add(new FragmentProcessor());
         if (!cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()
                         .toUpperCase().equals(TRuntimeFilterMode.OFF.name())) {
             builder.add(new RuntimeFilterGenerator());
             if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
                 builder.add(new RuntimeFilterPruner());
+                if (ConnectContext.get().getSessionVariable().runtimeFilterPruneForExternal) {
+                    builder.add(new RuntimeFilterPrunerForExternalTable());
+                }
             }
         }
         builder.add(new Validator());
-        builder.add(new TopNScanOpt());
-        builder.add(new TwoPhaseReadOpt());
         return builder.build();
     }
 }

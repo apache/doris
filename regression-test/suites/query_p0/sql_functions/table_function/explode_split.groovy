@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("explode_split") {
+suite("explode_split", "arrow_flight_sql") {
     def tableName = "test_lv_str"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

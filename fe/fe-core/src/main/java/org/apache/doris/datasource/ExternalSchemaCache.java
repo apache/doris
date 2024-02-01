@@ -37,31 +37,30 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 // The schema cache for external table
 public class ExternalSchemaCache {
     private static final Logger LOG = LogManager.getLogger(ExternalSchemaCache.class);
-    private ExternalCatalog catalog;
+    private final ExternalCatalog catalog;
 
     private LoadingCache<SchemaCacheKey, ImmutableList<Column>> schemaCache;
 
-    public ExternalSchemaCache(ExternalCatalog catalog, Executor executor) {
+    public ExternalSchemaCache(ExternalCatalog catalog) {
         this.catalog = catalog;
-        init(executor);
+        init();
         initMetrics();
     }
 
-    private void init(Executor executor) {
+    private void init() {
         schemaCache = CacheBuilder.newBuilder().maximumSize(Config.max_external_schema_cache_num)
                 .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
-                .build(CacheLoader.asyncReloading(new CacheLoader<SchemaCacheKey, ImmutableList<Column>>() {
+                .build(new CacheLoader<SchemaCacheKey, ImmutableList<Column>>() {
                     @Override
-                    public ImmutableList<Column> load(SchemaCacheKey key) throws Exception {
+                    public ImmutableList<Column> load(SchemaCacheKey key) {
                         return loadSchema(key);
                     }
-                }, executor));
+                });
     }
 
     private void initMetrics() {
@@ -93,6 +92,11 @@ public class ExternalSchemaCache {
             throw new CacheException("failed to get schema for %s in catalog %s. err: %s",
                     e, key, catalog.getName(), Util.getRootCauseMessage(e));
         }
+    }
+
+    public void addSchemaForTest(String dbName, String tblName, ImmutableList<Column> schema) {
+        SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
+        schemaCache.put(key, schema);
     }
 
     public void invalidateTableCache(String dbName, String tblName) {

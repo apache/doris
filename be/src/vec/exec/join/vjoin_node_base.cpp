@@ -20,9 +20,6 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/tracer.h>
 #include <stddef.h>
 
 #include <sstream>
@@ -31,9 +28,10 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "util/telemetry/telemetry.h"
+#include "util/runtime_profile.h"
 #include "util/threadpool.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -55,38 +53,43 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op
                                                            : TJoinOp::CROSS_JOIN)),
-          _have_other_join_conjunct(tnode.__isset.hash_join_node
-                                            ? tnode.hash_join_node.__isset.vother_join_conjunct
-                                            : false),
+          _have_other_join_conjunct(tnode.__isset.hash_join_node &&
+                                    ((tnode.hash_join_node.__isset.other_join_conjuncts &&
+                                      !tnode.hash_join_node.other_join_conjuncts.empty()) ||
+                                     tnode.hash_join_node.__isset.vother_join_conjunct)),
           _match_all_probe(_join_op == TJoinOp::LEFT_OUTER_JOIN ||
                            _join_op == TJoinOp::FULL_OUTER_JOIN),
           _match_all_build(_join_op == TJoinOp::RIGHT_OUTER_JOIN ||
                            _join_op == TJoinOp::FULL_OUTER_JOIN),
           _build_unique(!_have_other_join_conjunct &&
                         (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                         _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
                          _join_op == TJoinOp::LEFT_ANTI_JOIN ||
                          _join_op == TJoinOp::LEFT_SEMI_JOIN)),
           _is_right_semi_anti(_join_op == TJoinOp::RIGHT_ANTI_JOIN ||
                               _join_op == TJoinOp::RIGHT_SEMI_JOIN),
           _is_left_semi_anti(_join_op == TJoinOp::LEFT_ANTI_JOIN ||
                              _join_op == TJoinOp::LEFT_SEMI_JOIN ||
-                             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN),
+                             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                             _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN),
           _is_outer_join(_match_all_build || _match_all_probe),
           _is_mark_join(tnode.__isset.nested_loop_join_node
-                                ? (tnode.nested_loop_join_node.__isset.is_mark
-                                           ? tnode.nested_loop_join_node.is_mark
-                                           : false)
-                        : tnode.hash_join_node.__isset.is_mark ? tnode.hash_join_node.is_mark
-                                                               : false),
-          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+                                ? tnode.nested_loop_join_node.__isset.is_mark &&
+                                          tnode.nested_loop_join_node.is_mark
+                                : tnode.hash_join_node.__isset.is_mark &&
+                                          tnode.hash_join_node.is_mark),
+          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                                                !_is_mark_join) {
     _init_join_op();
     if (_is_mark_join) {
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
-               _join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN)
+               _join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+               _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN)
                 << "Mark join is only supported for null aware left semi/anti join and cross join "
                    "but this is "
                 << _join_op;
     }
+
     if (tnode.__isset.hash_join_node) {
         _output_row_desc.reset(
                 new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
@@ -105,13 +108,33 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
     }
 }
 
+Status VJoinNodeBase::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::prepare(state));
+    runtime_profile()->add_info_string("JoinType", to_string(_join_op));
+    _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
+
+    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
+    _build_timer = ADD_TIMER_WITH_LEVEL(_build_phase_profile, "BuildTime", 1);
+    _build_rows_counter = ADD_COUNTER_WITH_LEVEL(_build_phase_profile, "BuildRows", TUnit::UNIT, 1);
+
+    _probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
+    _probe_timer = ADD_TIMER_WITH_LEVEL(_probe_phase_profile, "ProbeTime", 1);
+    _join_filter_timer = ADD_CHILD_TIMER(_probe_phase_profile, "JoinFilterTimer", "ProbeTime");
+    _build_output_block_timer =
+            ADD_CHILD_TIMER(_probe_phase_profile, "BuildOutputBlock", "ProbeTime");
+    _probe_rows_counter = ADD_COUNTER_WITH_LEVEL(_probe_phase_profile, "ProbeRows", TUnit::UNIT, 1);
+
+    _publish_runtime_filter_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
+    _runtime_filter_compute_timer = ADD_TIMER(runtime_profile(), "RunmtimeFilterComputeTime");
+
+    return Status::OK();
+}
+
 Status VJoinNodeBase::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
 void VJoinNodeBase::release_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::release_resource");
-    VExpr::close(_output_expr_ctxs, state);
     _join_block.clear();
     ExecNode::release_resource(state);
 }
@@ -124,14 +147,21 @@ void VJoinNodeBase::_construct_mutable_join_block() {
             _join_block.insert({type_ptr->create_column(), type_ptr, slot_desc->col_name()});
         }
     }
+
     if (_is_mark_join) {
-        _join_block.replace_by_position(
-                _join_block.columns() - 1,
-                remove_nullable(_join_block.get_by_position(_join_block.columns() - 1).column));
+        _mark_column_id = _join_block.columns() - 1;
+#ifndef NDEBUG
+        const auto& mark_column = assert_cast<const ColumnNullable&>(
+                *_join_block.get_by_position(_mark_column_id).column);
+        auto& nested_column = mark_column.get_nested_column();
+        DCHECK(check_and_get_column<ColumnUInt8>(nested_column) != nullptr);
+#endif
     }
 }
 
-Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block) {
+Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block,
+                                          bool keep_origin) {
+    SCOPED_TIMER(_build_output_block_timer);
     auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
             is_mem_reuse
@@ -141,21 +171,30 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
     // TODO: After FE plan support same nullable of output expr and origin block and mutable column
     // we should replace `insert_column_datas` by `insert_range_from`
 
-    auto insert_column_datas = [](auto& to, const auto& from, size_t rows) {
-        if (to->is_nullable() && !from.is_nullable()) {
-            auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
-            null_column.get_nested_column().insert_range_from(from, 0, rows);
-            null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+    auto insert_column_datas = [keep_origin](auto& to, ColumnPtr& from, size_t rows) {
+        if (to->is_nullable() && !from->is_nullable()) {
+            if (keep_origin || !from->is_exclusive()) {
+                auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
+                null_column.get_nested_column().insert_range_from(*from, 0, rows);
+                null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+            } else {
+                to = make_nullable(from, false)->assume_mutable();
+            }
         } else {
-            to->insert_range_from(from, 0, rows);
+            if (keep_origin || !from->is_exclusive()) {
+                to->insert_range_from(*from, 0, rows);
+            } else {
+                to = from->assume_mutable();
+            }
         }
     };
+
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
             DCHECK(mutable_columns.size() == row_desc().num_materialized_slots());
             for (int i = 0; i < mutable_columns.size(); ++i) {
-                insert_column_datas(mutable_columns[i], *origin_block->get_by_position(i).column,
+                insert_column_datas(mutable_columns[i], origin_block->get_by_position(i).column,
                                     rows);
             }
         } else {
@@ -164,15 +203,23 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 auto result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
-                auto column_ptr = origin_block->get_by_position(result_column_id)
-                                          .column->convert_to_full_column_if_const();
-                insert_column_datas(mutable_columns[i], *column_ptr, rows);
+                auto& origin_column = origin_block->get_by_position(result_column_id).column;
+
+                /// `convert_to_full_column_if_const` will create a pointer to the origin column if
+                /// the origin column is not ColumnConst/ColumnArray, this make the column be not
+                /// exclusive.
+                /// TODO: maybe need a method to check if a column need to be converted to full
+                /// column.
+                if (is_column_const(*origin_column) || check_column<ColumnArray>(origin_column)) {
+                    auto column_ptr = origin_column->convert_to_full_column_if_const();
+                    insert_column_datas(mutable_columns[i], column_ptr, rows);
+                } else {
+                    insert_column_datas(mutable_columns[i], origin_column, rows);
+                }
             }
         }
 
-        if (!is_mem_reuse) {
-            output_block->swap(mutable_block.to_block());
-        }
+        output_block->swap(mutable_block.to_block());
         DCHECK(output_block->rows() == rows);
     }
 
@@ -185,8 +232,8 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
                                            ? tnode.hash_join_node.srcExprList
                                            : tnode.nested_loop_join_node.srcExprList;
         for (const auto& expr : output_exprs) {
-            VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, expr, &ctx));
+            VExprContextSPtr ctx;
+            RETURN_IF_ERROR(VExpr::create_expr_tree(expr, ctx));
             _output_expr_ctxs.push_back(ctx);
         }
     }
@@ -199,21 +246,18 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VJoinNodeBase::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::open");
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
 
     std::promise<Status> thread_status;
     try {
-        state->exec_env()->join_node_thread_pool()->submit_func(
-                [this, state, thread_status_p = &thread_status,
-                 parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
-                    OpentelemetryScope scope {parent_span};
+        static_cast<void>(state->exec_env()->join_node_thread_pool()->submit_func(
+                [this, state, thread_status_p = &thread_status] {
                     this->_probe_side_open_thread(state, thread_status_p);
-                });
+                }));
     } catch (const std::system_error& e) {
-        LOG(WARNING) << "In VJoinNodeBase::open create thread fail, " << e.what();
-        return Status::InternalError(e.what());
+        return Status::InternalError("In VJoinNodeBase::open create thread fail, reason={}",
+                                     e.what());
     }
 
     // Open the probe-side child so that it may perform any initialisation in parallel.
@@ -243,7 +287,6 @@ void VJoinNodeBase::_reset_tuple_is_null_column() {
 }
 
 void VJoinNodeBase::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::_hash_table_build_thread");
     SCOPED_ATTACH_TASK(state);
     status->set_value(child(0)->open(state));
 }
@@ -258,7 +301,8 @@ void VJoinNodeBase::_probe_side_open_thread(RuntimeState* state, std::promise<St
     M(CROSS_JOIN)                    \
     M(RIGHT_SEMI_JOIN)               \
     M(RIGHT_ANTI_JOIN)               \
-    M(NULL_AWARE_LEFT_ANTI_JOIN)
+    M(NULL_AWARE_LEFT_ANTI_JOIN)     \
+    M(NULL_AWARE_LEFT_SEMI_JOIN)
 
 void VJoinNodeBase::_init_join_op() {
     switch (_join_op) {

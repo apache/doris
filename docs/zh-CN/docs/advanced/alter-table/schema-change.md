@@ -219,7 +219,7 @@ alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
 +-----------+-------+-------------+------+------+---------+-------+
 ```
 
-因为Schema Chanage 作业是异步操作，同一个表同时只能进行一个Schema chanage 作业，查看作业运行情况，可以通过下面这个命令
+因为Schema Change 作业是异步操作，同一个表同时只能进行一个Schema change 作业，查看作业运行情况，可以通过下面这个命令
 
 ```sql
 SHOW ALTER TABLE COLUMN\G;
@@ -265,7 +265,7 @@ SHOW ALTER TABLE COLUMN\G;
 
   数据分片副本是否完整，可以通过以下命令查看：
 
-  `ADMIN SHOW REPLICA STATUS FROM tbl WHERE STATUS != "OK";`
+  `SHOW REPLICA STATUS FROM tbl WHERE STATUS != "OK";`
 
   如果有返回结果，则说明有副本有问题。通常系统会自动修复这些问题，用户也可以通过以下命令优先修复这个表：
 
@@ -288,6 +288,8 @@ SHOW ALTER TABLE COLUMN\G;
 ### BE 配置
 
 - `alter_tablet_worker_count`：在 BE 端用于执行历史数据转换的线程数。默认为 3。如果希望加快 Schema Change 作业的速度，可以适当调大这个参数后重启 BE。但过多的转换线程可能会导致 IO 压力增加，影响其他操作。该线程和 Rollup 作业共用。
+
+- `alter_index_worker_count`：在 BE 端用于执行历史数据构建索引的线程数（注：当前只支持倒排索引）。默认为 3。如果希望加快 Index Change 作业的速度，可以适当调大这个参数后重启 BE。但过多的线程可能会导致 IO 压力增加，影响其他操作。
 
 ## 更多帮助
 

@@ -23,25 +23,30 @@
 
 #include <atomic>
 #include <cstddef>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <ostream>
 #include <roaring/roaring.hh>
 #include <shared_mutex>
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/stringprintf.h"
 #include "io/fs/file_system.h"
+#include "olap/binlog_config.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "util/uid_util.h"
 
 namespace json2pb {
@@ -81,18 +86,16 @@ enum TabletState {
 class DataDir;
 class TabletMeta;
 class DeleteBitmap;
-
-using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
-using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
+class TBinlogConfig;
 
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta {
 public:
-    static Status create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
-                         uint64_t shard_id, uint32_t next_unique_id,
-                         const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                         TabletMetaSharedPtr* tablet_meta);
+    static TabletMetaSharedPtr create(
+            const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
+            uint32_t next_unique_id,
+            const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id);
 
     TabletMeta();
     TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id, int64_t replica_id,
@@ -101,7 +104,13 @@ public:
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                TabletUid tablet_uid, TTabletType::type tabletType,
                TCompressionType::type compression_type, int64_t storage_policy_id = 0,
-               bool enable_unique_key_merge_on_write = false);
+               bool enable_unique_key_merge_on_write = false,
+               std::optional<TBinlogConfig> binlog_config = {},
+               std::string compaction_policy = "size_based",
+               int64_t time_series_compaction_goal_size_mbytes = 1024,
+               int64_t time_series_compaction_file_count_threshold = 2000,
+               int64_t time_series_compaction_time_threshold_seconds = 3600,
+               int64_t time_series_compaction_empty_rowsets_threshold = 5);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -110,9 +119,8 @@ public:
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     Status create_from_file(const std::string& file_path);
     Status save(const std::string& file_path);
-    Status save_as_json(const string& file_path, DataDir* dir);
+    Status save_as_json(const string& file_path);
     static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
-    static Status reset_tablet_uid(const std::string& file_path);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
                                                   int64_t tablet_id);
     Status save_meta(DataDir* data_dir);
@@ -120,20 +128,24 @@ public:
     Status serialize(std::string* meta_binary);
     Status deserialize(const std::string& meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
-    // Init `RowsetMeta._fs` if rowset is local.
-    void init_rs_metas_fs(const io::FileSystemSPtr& fs);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
-    uint32_t mem_size() const;
+    // Don't use.
+    // TODO: memory size of TabletSchema cannot be accurately tracked.
+    // In some places, temporarily use num_columns() as TabletSchema size.
+    int64_t mem_size() const;
+    size_t tablet_columns_num() const { return _schema->num_columns(); }
 
     TabletTypePB tablet_type() const { return _tablet_type; }
     TabletUid tablet_uid() const;
     void set_tablet_uid(TabletUid uid) { _tablet_uid = uid; }
     int64_t table_id() const;
+    int64_t index_id() const;
     int64_t partition_id() const;
     int64_t tablet_id() const;
     int64_t replica_id() const;
+    void set_replica_id(int64_t replica_id) { _replica_id = replica_id; }
     int32_t schema_hash() const;
     int16_t shard_id() const;
     void set_shard_id(int32_t shard_id);
@@ -160,8 +172,6 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() const;
 
-    const TabletSchemaSPtr tablet_schema(Version version) const;
-
     TabletSchema* mutable_tablet_schema();
 
     const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
@@ -181,10 +191,6 @@ public:
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
-    const std::vector<RowsetMetaSharedPtr> delete_predicates() const;
-    bool version_for_delete_predicate(const Version& version);
-
-    std::string full_name() const;
 
     Status set_partition_id(int64_t partition_id);
 
@@ -196,6 +202,12 @@ public:
 
     // used for after tablet cloned to clear stale rowset
     void clear_stale_rowset() { _stale_rs_metas.clear(); }
+
+    void clear_rowsets() { _rs_metas.clear(); }
+
+    // MUST hold EXCLUSIVE `_meta_lock` in belonged Tablet
+    // `to_add` MUST NOT have overlapped version with `_rs_metas` in tablet meta.
+    void add_rowsets_unchecked(const std::vector<RowsetSharedPtr>& to_add);
 
     bool all_beta() const;
 
@@ -217,6 +229,41 @@ public:
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
 
+    // TODO(Drogon): thread safety
+    const BinlogConfig& binlog_config() const { return _binlog_config; }
+    void set_binlog_config(BinlogConfig binlog_config) {
+        _binlog_config = std::move(binlog_config);
+    }
+
+    void set_compaction_policy(std::string compaction_policy) {
+        _compaction_policy = compaction_policy;
+    }
+    std::string compaction_policy() const { return _compaction_policy; }
+    void set_time_series_compaction_goal_size_mbytes(int64_t goal_size_mbytes) {
+        _time_series_compaction_goal_size_mbytes = goal_size_mbytes;
+    }
+    int64_t time_series_compaction_goal_size_mbytes() const {
+        return _time_series_compaction_goal_size_mbytes;
+    }
+    void set_time_series_compaction_file_count_threshold(int64_t file_count_threshold) {
+        _time_series_compaction_file_count_threshold = file_count_threshold;
+    }
+    int64_t time_series_compaction_file_count_threshold() const {
+        return _time_series_compaction_file_count_threshold;
+    }
+    void set_time_series_compaction_time_threshold_seconds(int64_t time_threshold) {
+        _time_series_compaction_time_threshold_seconds = time_threshold;
+    }
+    int64_t time_series_compaction_time_threshold_seconds() const {
+        return _time_series_compaction_time_threshold_seconds;
+    }
+    void set_time_series_compaction_empty_rowsets_threshold(int64_t empty_rowsets_threshold) {
+        _time_series_compaction_empty_rowsets_threshold = empty_rowsets_threshold;
+    }
+    int64_t time_series_compaction_empty_rowsets_threshold() const {
+        return _time_series_compaction_empty_rowsets_threshold;
+    }
+
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -226,6 +273,7 @@ private:
 
 private:
     int64_t _table_id = 0;
+    int64_t _index_id = 0;
     int64_t _partition_id = 0;
     int64_t _tablet_id = 0;
     int64_t _replica_id = 0;
@@ -260,6 +308,16 @@ private:
     bool _enable_unique_key_merge_on_write = false;
     std::shared_ptr<DeleteBitmap> _delete_bitmap;
 
+    // binlog config
+    BinlogConfig _binlog_config {};
+
+    // meta for compaction
+    std::string _compaction_policy;
+    int64_t _time_series_compaction_goal_size_mbytes = 0;
+    int64_t _time_series_compaction_file_count_threshold = 0;
+    int64_t _time_series_compaction_time_threshold_seconds = 0;
+    int64_t _time_series_compaction_empty_rowsets_threshold = 0;
+
     mutable std::shared_mutex _meta_lock;
 };
 
@@ -288,6 +346,15 @@ public:
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
+    constexpr static inline uint32_t INVALID_SEGMENT_ID = std::numeric_limits<uint32_t>::max() - 1;
+    constexpr static inline uint32_t ROWSET_SENTINEL_MARK =
+            std::numeric_limits<uint32_t>::max() - 1;
+
+    // When a delete bitmap is merged into tablet's delete bitmap, the version of entries in the delete bitmap
+    // will be replaced to the correspoding correct version. So before we finally merge a delete bitmap into
+    // tablet's delete bitmap we can use arbitary version number in BitmapKey. Here we define some version numbers
+    // for specific usage during this periods to avoid conflicts
+    constexpr static inline uint64_t TEMP_VERSION_COMMON = 0;
 
     /**
      * 
@@ -343,6 +410,13 @@ public:
     bool contains(const BitmapKey& bmk, uint32_t row_id) const;
 
     /**
+     * Checks if this delete bitmap is empty
+     *
+     * @return true if empty
+     */
+    bool empty() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
@@ -389,8 +463,6 @@ public:
      */
     void merge(const DeleteBitmap& other);
 
-    uint64_t cardinality();
-
     /**
      * Checks if the given row is marked deleted in bitmap with the condition:
      * all the bitmaps that
@@ -403,6 +475,7 @@ public:
      */
     bool contains_agg(const BitmapKey& bitmap, uint32_t row_id) const;
 
+    bool contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const;
     /**
      * Gets aggregated delete_bitmap on rowset_id and version, the same effect:
      * `select sum(roaring::Roaring) where RowsetId=rowset_id and SegmentId=seg_id and Version <= version`
@@ -410,6 +483,14 @@ public:
      * @return shared_ptr to a bitmap, which may be empty
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
+
+    class AggCachePolicy : public LRUCachePolicy {
+    public:
+        AggCachePolicy(size_t capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
+    };
 
     class AggCache {
     public:
@@ -420,8 +501,7 @@ public:
         AggCache(size_t size_in_bytes) {
             static std::once_flag once;
             std::call_once(once, [size_in_bytes] {
-                auto tmp = new ShardedLRUCache("DeleteBitmap AggCache", size_in_bytes,
-                                               LRUCacheType::SIZE, 256);
+                auto* tmp = new AggCachePolicy(size_in_bytes);
                 AggCache::s_repr.store(tmp, std::memory_order_release);
             });
 
@@ -429,8 +509,8 @@ public:
             }
         }
 
-        static ShardedLRUCache* repr() { return s_repr.load(std::memory_order_acquire); }
-        static std::atomic<ShardedLRUCache*> s_repr;
+        static Cache* repr() { return s_repr.load(std::memory_order_acquire)->cache(); }
+        static std::atomic<AggCachePolicy*> s_repr;
     };
 
 private:
@@ -446,6 +526,10 @@ inline TabletUid TabletMeta::tablet_uid() const {
 
 inline int64_t TabletMeta::table_id() const {
     return _table_id;
+}
+
+inline int64_t TabletMeta::index_id() const {
+    return _index_id;
 }
 
 inline int64_t TabletMeta::partition_id() const {
@@ -577,6 +661,8 @@ inline bool TabletMeta::all_beta() const {
     }
     return true;
 }
+
+std::string tablet_state_name(TabletState state);
 
 // Only for unit test now.
 bool operator==(const TabletMeta& a, const TabletMeta& b);

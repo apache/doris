@@ -28,7 +28,7 @@
 
 namespace doris::vectorized {
 
-enum class SetOperation { UNION, EXCEPT, INTERSECT };
+enum class SetOperation { UNION, EXCEPT };
 
 template <typename Set, typename Element>
 struct UnionAction;
@@ -36,25 +36,12 @@ struct UnionAction;
 template <typename Set, typename Element>
 struct ExceptAction;
 
-template <typename Set, typename Element>
-struct IntersectAction;
-
 template <typename Set, typename Element, SetOperation operation>
 struct ActionImpl;
 
 template <typename Set, typename Element>
-struct ActionImpl<Set, Element, SetOperation::UNION> {
-    using Action = UnionAction<Set, Element>;
-};
-
-template <typename Set, typename Element>
 struct ActionImpl<Set, Element, SetOperation::EXCEPT> {
     using Action = ExceptAction<Set, Element>;
-};
-
-template <typename Set, typename Element>
-struct ActionImpl<Set, Element, SetOperation::INTERSECT> {
-    using Action = IntersectAction<Set, Element>;
 };
 
 template <SetOperation operation, typename ColumnType>
@@ -214,8 +201,8 @@ private:
         }
         return true;
     }
-    template <bool LCONST, bool RCONST, typename T, typename... Ts,
-              std::enable_if_t<(sizeof...(Ts) > 0), int> = 0>
+    template <bool LCONST, bool RCONST, typename T, typename... Ts>
+        requires(sizeof...(Ts) > 0)
     static bool _execute_internal(ColumnArrayMutableData& dst,
                                   const ColumnArrayExecutionData& left_data,
                                   const ColumnArrayExecutionData& right_data) {

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Map;
 
@@ -51,6 +52,37 @@ public enum JoinType {
             .put(RIGHT_OUTER_JOIN, LEFT_OUTER_JOIN)
             .put(LEFT_ANTI_JOIN, RIGHT_ANTI_JOIN)
             .put(RIGHT_ANTI_JOIN, LEFT_ANTI_JOIN)
+            .build();
+
+    // TODO: the right-semi/right-anti/right-outer join is not derived in paper. We need to derive them
+
+    /*ASSOC:
+     *        topJoin       bottomJoin
+     *        /     \         /     \
+     *   bottomJoin  C  ->   A     topJoin
+     *    /    \                   /    \
+     *   A      B                 B      C
+     * ====================================
+     *             topJoin  bottomJoin
+     * topJoin        -          -
+     * bottomJoin     +          -
+     */
+    private static final Map<JoinType, ImmutableSet<JoinType>> assocJoinMatrix
+            = ImmutableMap.<JoinType, ImmutableSet<JoinType>>builder()
+            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
+            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
+            .build();
+
+    private static final Map<JoinType, ImmutableSet<JoinType>> lAssocJoinMatrix
+            = ImmutableMap.<JoinType, ImmutableSet<JoinType>>builder()
+            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
+            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
+            .build();
+
+    private static final Map<JoinType, ImmutableSet<JoinType>> rAssocJoinMatrix
+            = ImmutableMap.<JoinType, ImmutableSet<JoinType>>builder()
+            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
+            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
             .build();
 
     /**
@@ -124,8 +156,24 @@ public enum JoinType {
         return this == LEFT_SEMI_JOIN || this == LEFT_ANTI_JOIN || this == NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
+    public final boolean isLeftAntiJoin() {
+        return this == LEFT_ANTI_JOIN;
+    }
+
+    public final boolean isLefSemiJoin() {
+        return this == LEFT_SEMI_JOIN;
+    }
+
     public final boolean isRightSemiOrAntiJoin() {
         return this == RIGHT_SEMI_JOIN || this == RIGHT_ANTI_JOIN;
+    }
+
+    public final boolean isRightAntiJoin() {
+        return this == RIGHT_ANTI_JOIN;
+    }
+
+    public final boolean isRightSemiJoin() {
+        return this == RIGHT_SEMI_JOIN;
     }
 
     public final boolean isSemiOrAntiJoin() {
@@ -137,8 +185,16 @@ public enum JoinType {
         return this == LEFT_SEMI_JOIN || this == RIGHT_SEMI_JOIN;
     }
 
+    public final boolean isAntiJoin() {
+        return this == LEFT_ANTI_JOIN || this == RIGHT_ANTI_JOIN;
+    }
+
     public final boolean isOuterJoin() {
         return this == LEFT_OUTER_JOIN || this == RIGHT_OUTER_JOIN || this == FULL_OUTER_JOIN;
+    }
+
+    public final boolean isOneSideOuterJoin() {
+        return this == LEFT_OUTER_JOIN || this == RIGHT_OUTER_JOIN;
     }
 
     public final boolean isRemainLeftJoin() {
@@ -155,6 +211,18 @@ public enum JoinType {
 
     public final boolean isSwapJoinType() {
         return joinSwapMap.containsKey(this);
+    }
+
+    public static boolean isAssoc(JoinType join1, JoinType join2) {
+        return assocJoinMatrix.containsKey(join1) && assocJoinMatrix.get(join1).contains(join2);
+    }
+
+    public static boolean isLAssoc(JoinType join1, JoinType join2) {
+        return lAssocJoinMatrix.containsKey(join1) && lAssocJoinMatrix.get(join1).contains(join2);
+    }
+
+    public static boolean isRAssoc(JoinType join1, JoinType join2) {
+        return rAssocJoinMatrix.containsKey(join1) && rAssocJoinMatrix.get(join1).contains(join2);
     }
 
     public JoinType swap() {

@@ -63,6 +63,8 @@ public class CastExpr extends Expr {
     // True if this cast does not change the type.
     private boolean noOp = false;
 
+    private boolean notFold = false;
+
     private static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
 
     static {
@@ -181,51 +183,16 @@ public class CastExpr extends Expr {
         return targetTypeDef;
     }
 
-    private static boolean disableRegisterCastingFunction(Type fromType, Type toType) {
-        // Disable casting from boolean to decimal or datetime or date
-        if (fromType.isBoolean() && toType.isDateType()) {
-            return true;
-        }
-
-        // Disable casting operation of hll/bitmap/quantile_state
-        if (fromType.isObjectStored() || toType.isObjectStored()) {
-            return true;
-        }
-        // Disable no-op casting
-        return fromType.equals(toType) && !fromType.isDecimalV3() && !fromType.isDatetimeV2();
-    }
-
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type fromType : Type.getSupportedTypes()) {
+        for (Type fromType : Type.getTrivialTypes()) {
             if (fromType.isNull()) {
                 continue;
             }
-            for (Type toType : Type.getSupportedTypes()) {
-                if (toType.isNull() || disableRegisterCastingFunction(fromType, toType)) {
-                    continue;
-                }
-                String beClass = toType.isDecimalV2() || fromType.isDecimalV2()
-                        ? "DecimalV2Operators" : "CastFunctions";
-                if (fromType.isTime()) {
-                    beClass = "TimeOperators";
-                }
-                String typeName = Function.getUdfTypeName(toType.getPrimitiveType());
-                // only refactor date/datetime for vectorized engine.
-                if (toType.getPrimitiveType() == PrimitiveType.DATE) {
-                    typeName = "date_val";
-                }
-                if (toType.getPrimitiveType() == PrimitiveType.DATEV2) {
-                    typeName = "datev2_val";
-                }
-                if (toType.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
-                    typeName = "datetimev2_val";
-                }
-                String beSymbol = "doris::" + beClass + "::cast_to_"
-                        + typeName;
+            for (Type toType : Type.getTrivialTypes()) {
                 functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(getFnName(toType),
                         toType, TYPE_NULLABLE_MODE.get(Pair.of(fromType, toType)),
                         Lists.newArrayList(fromType), false,
-                        beSymbol, null, null, true));
+                        null, null, null, true));
             }
         }
     }
@@ -237,22 +204,14 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        boolean isVerbose = ConnectContext.get() != null
-                && ConnectContext.get().getExecutor() != null
-                && ConnectContext.get().getExecutor().getParsedStmt() != null
-                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null
-                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
-        if (isImplicit && !isVerbose) {
+        if (needExternalSql) {
             return getChild(0).toSql();
         }
         if (isAnalyzed) {
-            if (type.isStringType()) {
-                return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
-            } else {
-                return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
-            }
+            return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
         } else {
-            return "CAST(" + getChild(0).toSql() + " AS " + targetTypeDef.toSql() + ")";
+            return "CAST(" + getChild(0).toSql() + " AS "
+                    + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
         }
     }
 
@@ -267,11 +226,7 @@ public class CastExpr extends Expr {
             return getChild(0).toDigest();
         }
         if (isAnalyzed) {
-            if (type.isStringType()) {
-                return "CAST(" + getChild(0).toDigest() + " AS " + "CHARACTER" + ")";
-            } else {
-                return "CAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
-            }
+            return "CAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
         } else {
             return "CAST(" + getChild(0).toDigest() + " AS " + targetTypeDef.toString() + ")";
         }
@@ -308,12 +263,12 @@ public class CastExpr extends Expr {
         if (type.isArrayType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
                     type, Function.NullableMode.ALWAYS_NULLABLE,
-                    Lists.newArrayList(Type.VARCHAR), false,
+                    Lists.newArrayList(getActualArgTypes(collectChildReturnTypes())[0]), false,
                     "doris::CastFunctions::cast_to_array_val", null, null, true);
         } else if (type.isMapType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.MAP),
                     type, Function.NullableMode.ALWAYS_NULLABLE,
-                    Lists.newArrayList(Type.VARCHAR), false,
+                    Lists.newArrayList(getActualArgTypes(collectChildReturnTypes())[0]), false,
                     "doris::CastFunctions::cast_to_map_val", null, null, true);
         } else if (type.isStructType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.STRUCT),
@@ -347,7 +302,7 @@ public class CastExpr extends Expr {
         // it is necessary to check if it is castable before creating fn.
         // char type will fail in canCastTo, so for compatibility, only the cast of array type is checked here.
         if (type.isArrayType() || childType.isArrayType()) {
-            if (childType.isNull() || !Type.canCastTo(childType, type)) {
+            if (!Type.canCastTo(childType, type)) {
                 throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
                         + " from " + childType + " to " + type);
             }
@@ -444,8 +399,8 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public Expr getResultValue(boolean inView) throws AnalysisException {
-        recursiveResetChildrenResult(inView);
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        recursiveResetChildrenResult(forPushDownPredicatesToView);
         final Expr value = children.get(0);
         if (!(value instanceof LiteralExpr)) {
             return this;
@@ -453,7 +408,15 @@ public class CastExpr extends Expr {
         Expr targetExpr;
         try {
             targetExpr = castTo((LiteralExpr) value);
+            if (targetTypeDef != null) {
+                targetExpr.setType(targetTypeDef.getType());
+            } else {
+                targetExpr.setType(type);
+            }
         } catch (AnalysisException ae) {
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().getState().reset();
+            }
             targetExpr = this;
         } catch (NumberFormatException nfe) {
             targetExpr = new NullLiteral();
@@ -474,8 +437,11 @@ public class CastExpr extends Expr {
             return new LargeIntLiteral(value.getStringValue());
         } else if (type.isDecimalV2() || type.isDecimalV3()) {
             if (targetTypeDef != null) {
-                return new DecimalLiteral(value.getStringValue(),
+                DecimalLiteral literal = new DecimalLiteral(value.getStringValue(),
                         ((ScalarType) targetTypeDef.getType()).getScalarScale());
+                literal.checkPrecisionAndScale(targetTypeDef.getType().getPrecision(),
+                        ((ScalarType) targetTypeDef.getType()).getScalarScale());
+                return literal;
             } else {
                 return new DecimalLiteral(value.getStringValue());
             }
@@ -548,6 +514,7 @@ public class CastExpr extends Expr {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case DECIMAL256:
                 // normal decimal
                 if (targetType.getPrecision() != 0) {
                     newTargetType = targetType;
@@ -611,6 +578,14 @@ public class CastExpr extends Expr {
     @Override
     public String getStringValueForArray() {
         return children.get(0).getStringValueForArray();
+    }
+
+    public void setNotFold(boolean notFold) {
+        this.notFold = notFold;
+    }
+
+    public boolean isNotFold() {
+        return this.notFold;
     }
 }
 

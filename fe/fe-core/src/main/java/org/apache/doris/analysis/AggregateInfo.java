@@ -23,7 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
@@ -257,7 +256,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         // for vectorized execution, we force it to using hash set to execution
         if (distinctAggExprs.size() == 1
                 && distinctAggExprs.get(0).getFnParams().isDistinct()
-                && VectorizedUtil.isVectorized()
                 && ConnectContext.get().getSessionVariable().enableSingleDistinctColumnOpt()) {
             isSetUsingSetForDistinct = true;
         }
@@ -283,7 +281,9 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
 
         ArrayList<Expr> expr0Children = Lists.newArrayList();
-        if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
+        if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")
+                || distinctAggExprs.get(0).getFnName().getFunction()
+                        .equalsIgnoreCase("multi_distinct_group_concat")) {
             // Ignore separator parameter, otherwise the same would have to be present for all
             // other distinct aggregates as well.
             // TODO: Deal with constant exprs more generally, instead of special-casing
@@ -297,7 +297,9 @@ public final class AggregateInfo extends AggregateInfoBase {
         boolean hasMultiDistinct = false;
         for (int i = 1; i < distinctAggExprs.size(); ++i) {
             ArrayList<Expr> exprIChildren = Lists.newArrayList();
-            if (distinctAggExprs.get(i).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
+            if (distinctAggExprs.get(i).getFnName().getFunction().equalsIgnoreCase("group_concat")
+                    || distinctAggExprs.get(i).getFnName().getFunction()
+                            .equalsIgnoreCase("multi_distinct_group_concat")) {
                 exprIChildren.add(distinctAggExprs.get(i).getChild(0).ignoreImplicitCast());
             } else {
                 for (Expr expr : distinctAggExprs.get(i).getChildren()) {
@@ -903,10 +905,13 @@ public final class AggregateInfo extends AggregateInfoBase {
                 intermediateSlotDesc.setIsMaterialized(true);
             }
 
-            if (!slotDesc.isMaterialized()) {
+            if (!slotDesc.isMaterialized()
+                    && !(i == aggregateExprsSize - 1 && materializedSlots.isEmpty() && groupingExprs.isEmpty())) {
+                // we need keep at least one materialized slot in agg node
                 continue;
             }
 
+            slotDesc.setIsMaterialized(true);
             intermediateSlotDesc.setIsMaterialized(true);
             exprs.add(functionCallExpr);
             materializedSlots.add(i);

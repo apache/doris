@@ -27,6 +27,7 @@
 #include "common/global_types.h"
 #include "exec/exec_node.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
@@ -39,7 +40,6 @@ class SlotDescriptor;
 class TupleDescriptor;
 
 namespace vectorized {
-class VExprContext;
 
 class VRepeatNode : public ExecNode {
 public:
@@ -57,7 +57,7 @@ public:
     Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
     bool need_more_input_data() const;
-    Block* get_child_block() { return &_child_block; }
+    std::shared_ptr<Block> get_child_block() { return _child_block; }
 
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
@@ -74,12 +74,12 @@ private:
     TupleId _output_tuple_id;
     const TupleDescriptor* _output_tuple_desc;
 
-    Block _child_block;
+    std::shared_ptr<Block> _child_block;
     std::unique_ptr<Block> _intermediate_block {};
 
     std::vector<SlotDescriptor*> _output_slots;
 
-    std::vector<VExprContext*> _expr_ctxs;
+    VExprContextSPtrs _expr_ctxs;
     bool _child_eos;
     int _repeat_id_idx;
 };

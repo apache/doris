@@ -33,10 +33,8 @@
 #include <initializer_list>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "vec/common/allocator.h" // IWYU pragma: keep
-#include "vec/common/bit_helpers.h"
 #include "vec/common/memcpy_small.h"
 
 #ifndef NDEBUG
@@ -46,6 +44,23 @@
 #include "vec/common/pod_array_fwd.h"
 
 namespace doris::vectorized {
+
+/** For zero argument, result is zero.
+  * For arguments with most significand bit set, result is zero.
+  * For other arguments, returns value, rounded up to power of two.
+  */
+inline size_t round_up_to_power_of_two_or_zero(size_t n) {
+    --n;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n |= n >> 32;
+    ++n;
+
+    return n;
+}
 
 /** A dynamic array for POD types.
   * Designed for a small number of large arrays (rather than a lot of small ones).
@@ -425,20 +440,8 @@ public:
     /// Do not insert into the array a piece of itself. Because with the resize, the iterators on themselves can be invalidated.
     template <typename It1, typename It2, typename... TAllocatorParams>
     void insert(It1 from_begin, It2 from_end, TAllocatorParams&&... allocator_params) {
-// `place` in IAggregateFunctionHelper::streaming_agg_serialize is initialized by placement new, in IAggregateFunctionHelper::create.
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wuninitialized"
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
         insert_prepare(from_begin, from_end, std::forward<TAllocatorParams>(allocator_params)...);
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic pop
-#endif
+
         insert_assume_reserved(from_begin, from_end);
     }
 
@@ -474,6 +477,14 @@ public:
     void insert_assume_reserved(It1 from_begin, It2 from_end) {
         size_t bytes_to_copy = this->byte_size(from_end - from_begin);
         memcpy(this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
+        this->c_end += bytes_to_copy;
+    }
+
+    template <typename It1, typename It2>
+    void insert_assume_reserved_and_allow_overflow(It1 from_begin, It2 from_end) {
+        size_t bytes_to_copy = this->byte_size(from_end - from_begin);
+        memcpy_small_allow_read_write_overflow15(
+                this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end += bytes_to_copy;
     }
 

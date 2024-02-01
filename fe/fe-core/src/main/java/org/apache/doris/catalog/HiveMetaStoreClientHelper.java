@@ -29,25 +29,20 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.fs.obj.BlobStorage;
-import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Queues;
-import org.apache.commons.lang3.StringUtils;
+import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.LocatedFileStatus;
-import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
@@ -55,11 +50,9 @@ import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
-import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
-import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeConstantDesc;
@@ -68,23 +61,27 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
-import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hudi.avro.HoodieAvroUtils;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TException;
 
 import java.io.IOException;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.security.PrivilegedExceptionAction;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -153,6 +150,7 @@ public class HiveMetaStoreClientHelper {
         try {
             if ("dlf".equalsIgnoreCase(type)) {
                 // For aliyun DLF
+                hiveConf.set(DataLakeConfig.CATALOG_CREATE_DEFAULT_DB, "false");
                 metaStoreClient = new ProxyMetaStoreClient(hiveConf);
             } else {
                 metaStoreClient = new HiveMetaStoreClient(hiveConf);
@@ -162,127 +160,6 @@ public class HiveMetaStoreClientHelper {
             throw new DdlException("Create HiveMetaStoreClient failed: " + e.getMessage());
         }
         return metaStoreClient;
-    }
-
-    /**
-     * Get data files of partitions in hive table, filter by partition predicate.
-     *
-     * @param hiveTable
-     * @param hivePartitionPredicate
-     * @param fileStatuses
-     * @param remoteHiveTbl
-     * @return
-     * @throws DdlException
-     */
-    public static String getHiveDataFiles(HiveTable hiveTable, ExprNodeGenericFuncDesc hivePartitionPredicate,
-            List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl, StorageBackend.StorageType type)
-            throws DdlException {
-        BlobStorage storage = BlobStorage.create("HiveMetaStore", type, hiveTable.getHiveProperties());
-        List<RemoteIterator<LocatedFileStatus>> remoteIterators = new ArrayList<>();
-        try {
-            if (remoteHiveTbl.getPartitionKeys().size() > 0) {
-                String metaStoreUris = hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS);
-                // hive partitioned table, get file iterator from table partition sd info
-                List<Partition> hivePartitions = getHivePartitions(metaStoreUris, remoteHiveTbl,
-                        hivePartitionPredicate);
-                for (Partition p : hivePartitions) {
-                    String location = normalizeS3LikeSchema(p.getSd().getLocation());
-                    remoteIterators.add(storage.listLocatedStatus(location));
-                }
-            } else {
-                // hive non-partitioned table, get file iterator from table sd info
-                String location = normalizeS3LikeSchema(remoteHiveTbl.getSd().getLocation());
-                remoteIterators.add(storage.listLocatedStatus(location));
-            }
-            return getAllFileStatus(fileStatuses, remoteIterators, storage);
-        } catch (UserException e) {
-            throw new DdlException(e.getMessage(), e);
-        }
-    }
-
-    public static String normalizeS3LikeSchema(String location) {
-        String[] objectStorages = Config.s3_compatible_object_storages.split(",");
-        for (String objectStorage : objectStorages) {
-            if (location.startsWith(objectStorage + "://")) {
-                location = location.replaceFirst(objectStorage, "s3");
-                break;
-            }
-        }
-        return location;
-    }
-
-    private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
-            List<RemoteIterator<LocatedFileStatus>> remoteIterators, BlobStorage storage) throws UserException {
-        boolean needFullPath = storage.getStorageType() == StorageBackend.StorageType.S3
-                || storage.getStorageType() == StorageBackend.StorageType.OFS
-                || storage.getStorageType() == StorageBackend.StorageType.JFS;
-        String hdfsUrl = "";
-        Queue<RemoteIterator<LocatedFileStatus>> queue = Queues.newArrayDeque(remoteIterators);
-        while (queue.peek() != null) {
-            RemoteIterator<LocatedFileStatus> iterator = queue.poll();
-            try {
-                while (iterator.hasNext()) {
-                    LocatedFileStatus fileStatus = iterator.next();
-                    if (fileStatus.isDirectory()) {
-                        // recursive visit the directory to get the file path.
-                        queue.add(storage.listLocatedStatus(fileStatus.getPath().toString()));
-                        continue;
-                    }
-                    TBrokerFileStatus brokerFileStatus = new TBrokerFileStatus();
-                    brokerFileStatus.setIsDir(fileStatus.isDirectory());
-                    brokerFileStatus.setIsSplitable(true);
-                    brokerFileStatus.setSize(fileStatus.getLen());
-                    // path = "/path/to/partition/file_name"
-                    // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse
-                    //     + /dae.db/customer/state=CA/city=SanJose/000000_0
-                    String path = fileStatus.getPath().toUri().getPath();
-                    if (needFullPath) {
-                        // Backend need full s3 path (with s3://bucket at the beginning) to read the data on s3.
-                        // path = "s3://bucket/path/to/partition/file_name"
-                        // eg: s3://hive-s3-test/region/region.tbl
-                        path = fileStatus.getPath().toString();
-                    }
-                    brokerFileStatus.setPath(path);
-                    fileStatuses.add(brokerFileStatus);
-                    if (StringUtils.isEmpty(hdfsUrl)) {
-                        // hdfs://host:port/path/to/partition/file_name
-                        String fullUri = fileStatus.getPath().toString();
-                        // hdfs://host:port
-                        hdfsUrl = fullUri.replace(path, "");
-                    }
-                }
-            } catch (IOException e) {
-                LOG.warn("List HDFS file IOException: {}", e.getMessage());
-                throw new DdlException("List HDFS file failed. Error: " + e.getMessage());
-            }
-        }
-        return hdfsUrl;
-    }
-
-    /**
-     * list partitions from hiveMetaStore.
-     *
-     * @param metaStoreUris hiveMetaStore uris
-     * @param remoteHiveTbl Hive table
-     * @param hivePartitionPredicate filter when list partitions
-     * @return a list of hive partitions
-     * @throws DdlException when connect hiveMetaStore failed.
-     */
-    public static List<Partition> getHivePartitions(String metaStoreUris, Table remoteHiveTbl,
-                       ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
-        List<Partition> hivePartitions = new ArrayList<>();
-        IMetaStoreClient client = getClient(metaStoreUris);
-        try {
-            client.listPartitionsByExpr(remoteHiveTbl.getDbName(), remoteHiveTbl.getTableName(),
-                    SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate),
-                    null, (short) -1, hivePartitions);
-        } catch (TException e) {
-            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed: " + e.getMessage());
-        } finally {
-            client.close();
-        }
-        return hivePartitions;
     }
 
     public static Table getTable(HiveTable hiveTable) throws DdlException {
@@ -464,7 +341,7 @@ public class HiveMetaStoreClientHelper {
                 Object value = extractDorisLiteral(literalExpr);
                 if (value == null) {
                     if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  "NULL", "=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, "NULL", "=");
                     } else {
                         return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
@@ -472,17 +349,17 @@ public class HiveMetaStoreClientHelper {
                 switch (opcode) {
                     case EQ:
                     case EQ_FOR_NULL:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "=");
                     case NE:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "!=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "!=");
                     case GE:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, ">=");
                     case GT:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, ">");
                     case LE:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "<=");
                     case LT:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "<");
                     default:
                         return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
@@ -548,7 +425,8 @@ public class HiveMetaStoreClientHelper {
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+                    .withZone(ZoneId.systemDefault());
             StringBuilder sb = new StringBuilder();
             sb.append(dateLiteral.getYear())
                     .append(dateLiteral.getMonth())
@@ -558,8 +436,9 @@ public class HiveMetaStoreClientHelper {
                     .append(dateLiteral.getSecond());
             Date date;
             try {
-                date = formatter.parse(sb.toString());
-            } catch (ParseException e) {
+                date = Date.from(
+                        LocalDateTime.parse(sb.toString(), formatter).atZone(ZoneId.systemDefault()).toInstant());
+            } catch (DateTimeParseException e) {
                 return null;
             }
             return date.getTime();
@@ -699,7 +578,8 @@ public class HiveMetaStoreClientHelper {
      * Convert hive type to doris type.
      */
     public static Type hiveTypeToDorisType(String hiveType) {
-        return hiveTypeToDorisType(hiveType, 0);
+        // use the largest scale as default time scale.
+        return hiveTypeToDorisType(hiveType, 6);
     }
 
     /**
@@ -772,20 +652,18 @@ public class HiveMetaStoreClientHelper {
             }
         }
         if (lowerCaseType.startsWith("char")) {
-            ScalarType type = ScalarType.createType(PrimitiveType.CHAR);
             Matcher match = digitPattern.matcher(lowerCaseType);
             if (match.find()) {
-                type.setLength(Integer.parseInt(match.group(1)));
+                return ScalarType.createType(PrimitiveType.CHAR, Integer.parseInt(match.group(1)), 0, 0);
             }
-            return type;
+            return ScalarType.createType(PrimitiveType.CHAR);
         }
         if (lowerCaseType.startsWith("varchar")) {
-            ScalarType type = ScalarType.createType(PrimitiveType.VARCHAR);
             Matcher match = digitPattern.matcher(lowerCaseType);
             if (match.find()) {
-                type.setLength(Integer.parseInt(match.group(1)));
+                return ScalarType.createType(PrimitiveType.VARCHAR, Integer.parseInt(match.group(1)), 0, 0);
             }
-            return type;
+            return ScalarType.createType(PrimitiveType.VARCHAR);
         }
         if (lowerCaseType.startsWith("decimal")) {
             Matcher match = digitPattern.matcher(lowerCaseType);
@@ -885,18 +763,79 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 
-    public static org.apache.iceberg.Table getIcebergTable(HMSExternalTable table) {
-        String metastoreUri = table.getMetastoreUri();
-        org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        Configuration conf = getConfiguration(table);
-        hiveCatalog.setConf(conf);
-        // initialize hive catalog
-        Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSProperties.HIVE_METASTORE_URIS, metastoreUri);
-        catalogProperties.put("uri", metastoreUri);
-        hiveCatalog.initialize("hive", catalogProperties);
+    public static Schema getHudiTableSchema(HMSExternalTable table) {
+        HoodieTableMetaClient metaClient = getHudiClient(table);
+        TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
+        Schema hudiSchema;
+        try {
+            hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema());
+        } catch (Exception e) {
+            throw new RuntimeException("Cannot get hudi table schema.", e);
+        }
+        return hudiSchema;
+    }
 
-        return hiveCatalog.loadTable(TableIdentifier.of(table.getDbName(), table.getName()));
+    public static UserGroupInformation getUserGroupInformation(Configuration conf) {
+        UserGroupInformation ugi = null;
+        String authentication = conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null);
+        if (AuthType.KERBEROS.getDesc().equals(authentication)) {
+            conf.set("hadoop.security.authorization", "true");
+            UserGroupInformation.setConfiguration(conf);
+            String principal = conf.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
+            String keytab = conf.get(HdfsResource.HADOOP_KERBEROS_KEYTAB);
+            try {
+                ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
+                UserGroupInformation.setLoginUser(ugi);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            String hadoopUserName = conf.get(HdfsResource.HADOOP_USER_NAME);
+            if (hadoopUserName != null) {
+                ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
+            }
+        }
+        return ugi;
+    }
+
+    public static <T> T ugiDoAs(long catalogId, PrivilegedExceptionAction<T> action) {
+        return ugiDoAs(((ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId)).getConfiguration(),
+                action);
+    }
+
+    public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
+        UserGroupInformation ugi = getUserGroupInformation(conf);
+        try {
+            if (ugi != null) {
+                return ugi.doAs(action);
+            } else {
+                return action.run();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e.getCause());
+        }
+    }
+
+    public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
+        String hudiBasePath = table.getRemoteTable().getSd().getLocation();
+
+        Configuration conf = getConfiguration(table);
+        UserGroupInformation ugi = getUserGroupInformation(conf);
+        HoodieTableMetaClient metaClient;
+        if (ugi != null) {
+            try {
+                metaClient = ugi.doAs(
+                        (PrivilegedExceptionAction<HoodieTableMetaClient>) () -> HoodieTableMetaClient.builder()
+                                .setConf(conf).setBasePath(hudiBasePath).build());
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            } catch (InterruptedException e) {
+                throw new RuntimeException("Cannot get hudi client.", e);
+            }
+        } else {
+            metaClient = HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build();
+        }
+        return metaClient;
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {

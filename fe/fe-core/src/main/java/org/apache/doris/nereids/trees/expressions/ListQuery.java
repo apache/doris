@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
@@ -32,7 +31,8 @@ import java.util.Optional;
  * Encapsulate LogicalPlan as Expression.
  * just for subquery.
  */
-public class ListQuery extends SubqueryExpr implements LeafExpression {
+public class ListQuery extends SubqueryExpr {
+
     public ListQuery(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
     }
@@ -44,7 +44,7 @@ public class ListQuery extends SubqueryExpr implements LeafExpression {
     @Override
     public DataType getDataType() {
         Preconditions.checkArgument(queryPlan.getOutput().size() == 1);
-        return queryPlan.getOutput().get(0).getDataType();
+        return typeCoercionExpr.orElse(queryPlan.getOutput().get(0)).getDataType();
     }
 
     @Override
@@ -67,5 +67,10 @@ public class ListQuery extends SubqueryExpr implements LeafExpression {
                 dataType == queryPlan.getOutput().get(0).getDataType()
                     ? Optional.of(queryPlan.getOutput().get(0))
                     : Optional.of(new Cast(queryPlan.getOutput().get(0), dataType)));
+    }
+
+    @Override
+    public ListQuery withSubquery(LogicalPlan subquery) {
+        return new ListQuery(subquery, correlateSlots, typeCoercionExpr);
     }
 }

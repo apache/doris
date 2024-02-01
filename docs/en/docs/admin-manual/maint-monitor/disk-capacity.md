@@ -77,8 +77,8 @@ When disk capacity **more than** `storage_flood_stage_usage_percent`, **or** dis
 **Flood Stage:**
 
 ```
-capacity_used_percent_flood_stage: default value is 95 (95%).
-capacity_min_left_bytes_flood_stage: default value is 1GB.
+storage_flood_stage_usage_percent: default value is 90 (90%).
+storage_flood_stage_left_capacity_bytes: default value is 1GB.
 ```
 
 When disk capacity **more than** `storage_flood_stage_usage_percent`, **and** disk free capacity **less than** `storage_flood_stage_left_capacity_bytes`, the following operations on this disk will be prohibited:
@@ -127,7 +127,7 @@ When the disk capacity is higher than High Watermark or even Flood Stage, many o
     * snapshot/: Snapshot files in the snapshot directory. 
     * trash/ Trash files in the trash directory. 
 
-    **This operation will affect [Restore data from BE Recycle Bin](./tablet-restore-tool.md).**
+    **This operation will affect [Restore data from BE Recycle Bin](../data-admin/delete-recover.md).**
 
     If the BE can still be started, you can use `ADMIN CLEAN TRASH ON(BackendHost:BackendHeartBeatPort);` to actively clean up temporary files. **all trash files** and expired snapshot files will be cleaned up, **This will affect the operation of restoring data from the trash bin**.
 

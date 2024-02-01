@@ -70,7 +70,7 @@ private:
 template <typename T>
 Status split_string(const std::string& base, const T separator, std::vector<std::string>* result) {
     if (!result) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>("split_string meet nullptr result input");
     }
 
     // 处理base为空的情况
@@ -232,6 +232,10 @@ bool valid_datetime(const std::string& value_str, const uint32_t scale);
 
 bool valid_bool(const std::string& value_str);
 
+bool valid_ipv4(const std::string& value_str);
+
+bool valid_ipv6(const std::string& value_str);
+
 constexpr bool is_string_type(const FieldType& field_type) {
     return field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
            field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
@@ -257,6 +261,7 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
            field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
 }
 
@@ -301,6 +306,18 @@ struct GlobalRowLoacation {
             : tablet_id(tid), row_location(rsid, sid, rid) {}
     uint32_t tablet_id;
     RowLocation row_location;
+
+    bool operator==(const GlobalRowLoacation& rhs) const {
+        return tablet_id == rhs.tablet_id && row_location == rhs.row_location;
+    }
+
+    bool operator<(const GlobalRowLoacation& rhs) const {
+        if (tablet_id != rhs.tablet_id) {
+            return tablet_id < rhs.tablet_id;
+        } else {
+            return row_location < rhs.row_location;
+        }
+    }
 };
 
 } // namespace doris

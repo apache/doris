@@ -22,11 +22,13 @@
 #include <string>
 
 #include "common/status.h"
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 #include "olap/tablet.h"
 
 namespace doris {
 class HttpRequest;
+
+class ExecEnv;
 
 enum class CompactionActionType {
     SHOW_INFO = 1,
@@ -37,12 +39,14 @@ enum class CompactionActionType {
 const std::string PARAM_COMPACTION_TYPE = "compact_type";
 const std::string PARAM_COMPACTION_BASE = "base";
 const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
+const std::string PARAM_COMPACTION_FULL = "full";
 
 /// This action is used for viewing the compaction status.
 /// See compaction-action.md for details.
-class CompactionAction : public HttpHandler {
+class CompactionAction : public HttpHandlerWithAuth {
 public:
-    CompactionAction(CompactionActionType type) : _type(type) {}
+    CompactionAction(CompactionActionType ctype, ExecEnv* exec_env, StorageEngine& engine,
+                     TPrivilegeHier::type hier, TPrivilegeType::type ptype);
 
     ~CompactionAction() override = default;
 
@@ -61,10 +65,8 @@ private:
     /// fetch compaction running status
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
 
-    /// check param and fetch tablet_id from req
-    Status _check_param(HttpRequest* req, uint64_t* tablet_id);
-
 private:
+    StorageEngine& _engine;
     CompactionActionType _type;
 };
 

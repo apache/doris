@@ -72,7 +72,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     public RoutineLoadTaskScheduler(RoutineLoadManager routineLoadManager) {
-        super("Routine load task scheduler", 0);
+        //Set the polling interval to 1ms to avoid meaningless idling when there is no data, resulting in increased CPU.
+        // The wait/notify mechanism should be used later
+        super("Routine load task scheduler", 1);
         this.routineLoadManager = routineLoadManager;
     }
 
@@ -109,7 +111,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             scheduleOneTask(routineLoadTaskInfo);
         } catch (Exception e) {
             LOG.warn("Taking routine load task from queue has been interrupted", e);
-            return;
         }
     }
 
@@ -127,15 +128,15 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             return;
         }
 
-        // check if topic has more data to consume
-        if (!routineLoadTaskInfo.hasMoreDataToConsume()) {
-            needScheduleTasksQueue.put(routineLoadTaskInfo);
-            return;
-        }
-
-        // allocate BE slot for this task.
-        // this should be done before txn begin, or the txn may be begun successfully but failed to be allocated.
         try {
+            // check if topic has more data to consume
+            if (!routineLoadTaskInfo.hasMoreDataToConsume()) {
+                needScheduleTasksQueue.put(routineLoadTaskInfo);
+                return;
+            }
+
+            // allocate BE slot for this task.
+            // this should be done before txn begin, or the txn may be begun successfully but failed to be allocated.
             if (!allocateTaskToBe(routineLoadTaskInfo)) {
                 // allocate failed, push it back to the queue to wait next scheduling
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
@@ -257,7 +258,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             throw new LoadException("failed to send tasks to backend " + beId + " because not exist");
         }
 
-        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBePort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
 
         boolean ok = false;
         BackendService.Client client = null;
@@ -289,7 +290,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     // throw exception if unrecoverable errors happen.
     private boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
         long beId = routineLoadManager.getAvailableBeForTask(routineLoadTaskInfo.getJobId(),
-                routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName());
+                routineLoadTaskInfo.getPreviousBeId());
         if (beId == -1L) {
             return false;
         }

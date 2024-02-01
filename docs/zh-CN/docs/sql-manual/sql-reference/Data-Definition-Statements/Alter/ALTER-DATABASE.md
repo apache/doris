@@ -56,6 +56,12 @@ ALTER DATABASE db_name SET REPLICA QUOTA quota;
     重命名数据库后，如需要，请使用 REVOKE 和 GRANT 命令修改相应的用户权限。
     数据库的默认数据量配额为1024GB，默认副本数量配额为1073741824。
 
+4) 对已有 database 的 property 进行修改操作
+
+```sql
+ALTER DATABASE db_name SET PROPERTIES ("key"="value", ...); 
+```
+
 ### Example
 
 1. 设置指定数据库数据量配额
@@ -80,6 +86,18 @@ ALTER DATABASE example_db RENAME example_db2;
 
 ```sql
 ALTER DATABASE example_db SET REPLICA QUOTA 102400;
+```
+
+4. 修改db下table的默认副本分布策略（该操作仅对新建的table生效，不会修改db下已存在的table）
+
+```sql
+ALTER DATABASE example_db SET PROPERTIES("replication_allocation" = "tag.location.default:2");
+```
+
+5. 取消db下table的默认副本分布策略（该操作仅对新建的table生效，不会修改db下已存在的table）
+
+```sql
+ALTER DATABASE example_db SET PROPERTIES("replication_allocation" = "");
 ```
 
 ### Keywords

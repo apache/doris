@@ -25,12 +25,14 @@ import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TTxnCommitAttachment;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public abstract class TxnCommitAttachment implements Writable {
-
+    @SerializedName(value = "sourceType")
     protected TransactionState.LoadJobSourceType sourceType;
     protected boolean isTypeRead = false;
 

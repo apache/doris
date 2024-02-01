@@ -19,6 +19,7 @@
 
 #include <glog/logging.h>
 
+#include <memory>
 #include <ostream>
 #include <vector>
 
@@ -40,35 +41,34 @@ VExplodeBitmapTableFunction::VExplodeBitmapTableFunction() {
     _fn_name = "vexplode_bitmap";
 }
 
-Status VExplodeBitmapTableFunction::process_init(Block* block) {
-    CHECK(_vexpr_context->root()->children().size() == 1)
+Status VExplodeBitmapTableFunction::process_init(Block* block, RuntimeState* state) {
+    CHECK(_expr_context->root()->children().size() == 1)
             << "VExplodeNumbersTableFunction must be have 1 children but have "
-            << _vexpr_context->root()->children().size();
+            << _expr_context->root()->children().size();
 
     int value_column_idx = -1;
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
-                                                                   &value_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
+                                                                  &value_column_idx));
     _value_column = block->get_by_position(value_column_idx).column;
 
     return Status::OK();
 }
 
-Status VExplodeBitmapTableFunction::reset() {
+void VExplodeBitmapTableFunction::reset() {
     _eos = false;
     _cur_offset = 0;
     if (!current_empty()) {
-        _cur_iter.reset(new BitmapValueIterator(*_cur_bitmap));
+        _cur_iter = std::make_unique<BitmapValueIterator>(*_cur_bitmap);
     }
-    return Status::OK();
 }
 
-Status VExplodeBitmapTableFunction::forward(int step) {
+void VExplodeBitmapTableFunction::forward(int step) {
     if (!current_empty()) {
         for (int i = 0; i < step; i++) {
             ++(*_cur_iter);
         }
     }
-    return TableFunction::forward(step);
+    TableFunction::forward(step);
 }
 
 void VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column) {
@@ -76,20 +76,20 @@ void VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column) {
         column->insert_default();
     } else {
         if (_is_nullable) {
-            static_cast<ColumnInt64*>(
-                    static_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
+            assert_cast<ColumnInt64*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
                     ->insert_value(**_cur_iter);
-            static_cast<ColumnUInt8*>(
-                    static_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+            assert_cast<ColumnUInt8*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                     ->insert_default();
         } else {
-            static_cast<ColumnInt64*>(column.get())->insert_value(**_cur_iter);
+            assert_cast<ColumnInt64*>(column.get())->insert_value(**_cur_iter);
         }
     }
 }
 
-Status VExplodeBitmapTableFunction::process_row(size_t row_idx) {
-    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
+void VExplodeBitmapTableFunction::process_row(size_t row_idx) {
+    TableFunction::process_row(row_idx);
 
     StringRef value = _value_column->get_data_at(row_idx);
 
@@ -98,16 +98,13 @@ Status VExplodeBitmapTableFunction::process_row(size_t row_idx) {
 
         _cur_size = _cur_bitmap->cardinality();
         if (!current_empty()) {
-            _cur_iter.reset(new BitmapValueIterator(*_cur_bitmap));
+            _cur_iter = std::make_unique<BitmapValueIterator>(*_cur_bitmap);
         }
     }
-
-    return Status::OK();
 }
 
-Status VExplodeBitmapTableFunction::process_close() {
+void VExplodeBitmapTableFunction::process_close() {
     _value_column = nullptr;
-    return Status::OK();
 }
 
 } // namespace doris::vectorized

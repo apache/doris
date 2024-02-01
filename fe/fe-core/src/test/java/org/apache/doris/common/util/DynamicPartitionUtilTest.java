@@ -41,7 +41,7 @@ public class DynamicPartitionUtilTest {
     private static final String FORMAT = "yyyy-MM-dd";
 
     private static Map<String, String> getDynamProp(String timeUnit, int start, int end, int startOfWeek,
-            int startOfMonth) {
+                                                    int startOfMonth) {
         Map<String, String> prop = Maps.newHashMap();
         prop.put(DynamicPartitionProperty.ENABLE, "true");
         prop.put(DynamicPartitionProperty.TIME_UNIT, timeUnit);
@@ -222,7 +222,7 @@ public class DynamicPartitionUtilTest {
         List<Column> partitionColumnList = Lists.newArrayList();
         Column partitionColumn = new Column();
         partitionColumn.setType(Type.DATE);
-        Deencapsulation.setField(rangePartitionInfo, partitionColumnList);
+        Deencapsulation.setField(rangePartitionInfo, "partitionColumns", partitionColumnList);
         try {
             Deencapsulation.invoke(dynamicPartitionUtil, "checkTimeUnit", "HOUR", rangePartitionInfo);
             Assert.fail();

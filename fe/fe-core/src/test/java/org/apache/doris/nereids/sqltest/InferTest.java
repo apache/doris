@@ -29,11 +29,13 @@ public class InferTest extends SqlTestBase {
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
+                    logicalProject(
                         innerLogicalJoin(
-                                logicalFilter().when(f -> f.getPredicate().toString().equals("(id#0 = 4)")),
-                                logicalFilter().when(f -> f.getPredicate().toString().equals("(id#2 = 4)"))
+                            logicalFilter().when(f -> f.getPredicate().toString().equals("(id#0 = 4)")),
+                            logicalFilter().when(f -> f.getPredicate().toString().equals("(id#2 = 4)"))
                         )
+                    )
                 );
     }
 
@@ -45,12 +47,14 @@ public class InferTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .printlnTree()
-                .matchesFromRoot(
+                .matches(
+                    logicalProject(
                         innerLogicalJoin(
-                                logicalFilter().when(
-                                        f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))")),
-                                logicalOlapScan()
+                            logicalOlapScan(),
+                            logicalFilter().when(
+                                    f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))"))
                         )
+                    )
                 );
     }
 
@@ -61,15 +65,17 @@ public class InferTest extends SqlTestBase {
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
+                    logicalProject(
                         logicalFilter(
-                                leftOuterLogicalJoin(
-                                        logicalFilter().when(
-                                                f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))")),
-                                        logicalOlapScan()
-                                )
+                            leftOuterLogicalJoin(
+                                logicalFilter().when(
+                                        f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))")),
+                                logicalOlapScan()
+                            )
                         ).when(f -> f.getPredicate().toString()
                                 .equals("((id#0 = 4) OR ((id#0 > 4) AND score#3 IS NULL))"))
+                    )
                 );
     }
 
@@ -83,8 +89,8 @@ public class InferTest extends SqlTestBase {
                 .rewrite()
                 .matches(
                         innerLogicalJoin(
-                                leftSemiLogicalJoin(),
-                                logicalProject()
+                                logicalProject(),
+                                leftSemiLogicalJoin()
                         )
                 );
     }

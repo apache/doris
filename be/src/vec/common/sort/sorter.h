@@ -60,13 +60,12 @@ public:
               limit_(limit),
               profile_(profile) {
         external_sort_bytes_threshold_ = state->external_sort_bytes_threshold();
-
-        block_spill_profile_ = profile->create_child("BlockSpill", true, true);
-        profile->add_child(block_spill_profile_, false, nullptr);
-
-        spilled_block_count_ = ADD_COUNTER(block_spill_profile_, "BlockCount", TUnit::UNIT);
-        spilled_original_block_size_ =
-                ADD_COUNTER(block_spill_profile_, "BlockBytes", TUnit::BYTES);
+        if (profile != nullptr) {
+            block_spill_profile_ = profile->create_child("BlockSpill", true, true);
+            spilled_block_count_ = ADD_COUNTER(block_spill_profile_, "BlockCount", TUnit::UNIT);
+            spilled_original_block_size_ =
+                    ADD_COUNTER(block_spill_profile_, "BlockBytes", TUnit::BYTES);
+        }
     }
 
     ~MergeSorterState() = default;
@@ -89,7 +88,11 @@ public:
 
     bool is_spilled() const { return is_spilled_; }
 
-    const Block& last_sorted_block() const { return sorted_blocks_.back(); }
+    Block& last_sorted_block() { return sorted_blocks_.back(); }
+
+    std::vector<Block>& get_sorted_block() { return sorted_blocks_; }
+    std::priority_queue<MergeSortCursor>& get_priority_queue() { return priority_queue_; }
+    std::vector<MergeSortCursorImpl>& get_cursors() { return cursors_; }
 
     std::unique_ptr<Block> unsorted_block_;
 
@@ -123,10 +126,10 @@ private:
     Block merge_sorted_block_;
     std::unique_ptr<VSortedRunMerger> merger_;
 
-    RuntimeProfile* profile_;
-    RuntimeProfile* block_spill_profile_;
-    RuntimeProfile::Counter* spilled_block_count_;
-    RuntimeProfile::Counter* spilled_original_block_size_;
+    RuntimeProfile* profile_ = nullptr;
+    RuntimeProfile* block_spill_profile_ = nullptr;
+    RuntimeProfile::Counter* spilled_block_count_ = nullptr;
+    RuntimeProfile::Counter* spilled_original_block_size_ = nullptr;
 };
 
 class Sorter {
@@ -169,7 +172,7 @@ protected:
     VSortExecExprs& _vsort_exec_exprs;
     int _limit;
     int64_t _offset;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     std::vector<bool>& _is_asc_order;
     std::vector<bool>& _nulls_first;
 

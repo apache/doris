@@ -41,6 +41,7 @@
 #include "gutil/stringprintf.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/delete_handler.h"
 #include "olap/field.h"
 #include "olap/merger.h"
@@ -61,6 +62,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
@@ -73,38 +75,43 @@ using namespace ErrorCode;
 namespace vectorized {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static StorageEngine* k_engine = nullptr;
+static StorageEngine* engine_ref = nullptr;
 
 class VerticalCompactionTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        config::vertical_compaction_max_row_source_memory_mb = 1;
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
-
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
 
         doris::EngineOptions options;
-        k_engine = new StorageEngine(options);
-        StorageEngine::_s_instance = k_engine;
+        auto engine = std::make_unique<StorageEngine>(options);
+        engine_ref = engine.get();
+        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+
+        _data_dir = new DataDir(*engine_ref, absolute_dir, 100000000);
+        static_cast<void>(_data_dir->init());
     }
     void TearDown() override {
+        SAFE_DELETE(_data_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
+        engine_ref = nullptr;
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
-    TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
+    TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS, bool without_key = false) {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(keys_type);
-        tablet_schema_pb.set_num_short_key_columns(1);
+        tablet_schema_pb.set_num_short_key_columns(without_key ? 0 : 1);
         tablet_schema_pb.set_num_rows_per_row_block(1024);
         tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
         tablet_schema_pb.set_next_column_unique_id(4);
@@ -113,7 +120,7 @@ protected:
         column_1->set_unique_id(1);
         column_1->set_name("c1");
         column_1->set_type("INT");
-        column_1->set_is_key(true);
+        column_1->set_is_key(!without_key);
         column_1->set_length(4);
         column_1->set_index_length(4);
         column_1->set_is_nullable(false);
@@ -183,22 +190,24 @@ protected:
         return tablet_schema;
     }
 
-    void create_rowset_writer_context(TabletSchemaSPtr tablet_schema,
-                                      const SegmentsOverlapPB& overlap,
-                                      uint32_t max_rows_per_segment,
-                                      RowsetWriterContext* rowset_writer_context) {
+    RowsetWriterContext create_rowset_writer_context(TabletSchemaSPtr tablet_schema,
+                                                     const SegmentsOverlapPB& overlap,
+                                                     uint32_t max_rows_per_segment,
+                                                     Version version) {
         static int64_t inc_id = 1000;
+        RowsetWriterContext rowset_writer_context;
         RowsetId rowset_id;
         rowset_id.init(inc_id);
-        rowset_writer_context->rowset_id = rowset_id;
-        rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->rowset_state = VISIBLE;
-        rowset_writer_context->tablet_schema = tablet_schema;
-        rowset_writer_context->rowset_dir = absolute_dir + "/tablet_path";
-        rowset_writer_context->version = Version(inc_id, inc_id);
-        rowset_writer_context->segments_overlap = overlap;
-        rowset_writer_context->max_rows_per_segment = max_rows_per_segment;
+        rowset_writer_context.rowset_id = rowset_id;
+        rowset_writer_context.rowset_type = BETA_ROWSET;
+        rowset_writer_context.rowset_state = VISIBLE;
+        rowset_writer_context.tablet_schema = tablet_schema;
+        rowset_writer_context.rowset_dir = absolute_dir + "/tablet_path";
+        rowset_writer_context.version = version;
+        rowset_writer_context.segments_overlap = overlap;
+        rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
         inc_id++;
+        return rowset_writer_context;
     }
 
     void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context,
@@ -213,8 +222,7 @@ protected:
 
     RowsetSharedPtr create_rowset(
             TabletSchemaSPtr tablet_schema, const SegmentsOverlapPB& overlap,
-            std::vector<std::vector<std::tuple<int64_t, int64_t>>> rowset_data) {
-        RowsetWriterContext writer_context;
+            std::vector<std::vector<std::tuple<int64_t, int64_t>>> rowset_data, int64_t version) {
         if (overlap == NONOVERLAPPING) {
             for (auto i = 1; i < rowset_data.size(); i++) {
                 auto& last_seg_data = rowset_data[i - 1];
@@ -224,11 +232,12 @@ protected:
                 EXPECT_LT(last_seg_max, cur_seg_min);
             }
         }
-        create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX, &writer_context);
+        auto writer_context = create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX,
+                                                           {version, version});
 
-        std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
-        EXPECT_TRUE(s.ok());
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
 
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
@@ -246,63 +255,51 @@ protected:
                 }
                 num_rows++;
             }
-            s = rowset_writer->add_block(&block);
+            auto s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_TRUE(s.ok());
         }
 
         RowsetSharedPtr rowset;
-        rowset = rowset_writer->build();
-        EXPECT_TRUE(rowset != nullptr);
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         EXPECT_EQ(rowset_data.size(), rowset->rowset_meta()->num_segments());
         EXPECT_EQ(num_rows, rowset->rowset_meta()->num_rows());
         return rowset;
     }
 
-    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
+    void init_rs_meta(RowsetMetaSharedPtr& rs_meta, int64_t start, int64_t end) {
         std::string json_rowset_meta = R"({
-            "rowset_id": 540085,
-            "tablet_id": 15674,
-            "txn_id": 4045,
-            "tablet_schema_hash": 567997588,
+            "rowset_id": 540081,
+            "tablet_id": 15673,
+            "partition_id": 10000,
+            "tablet_schema_hash": 567997577,
             "rowset_type": "BETA_ROWSET",
             "rowset_state": "VISIBLE",
-            "start_version": 2,
-            "end_version": 2,
-            "num_rows": 3929,
-            "total_disk_size": 84699,
-            "data_disk_size": 84464,
-            "index_disk_size": 235,
-            "empty": false,
-            "load_id": {
-                "hi": -5350970832824939812,
-                "lo": -6717994719194512122
-            },
-            "creation_time": 1553765670
+            "empty": false
         })";
-        pb1->init_from_json(json_rowset_meta);
-        pb1->set_start_version(start);
-        pb1->set_end_version(end);
-        pb1->set_creation_time(10000);
+        RowsetMetaPB rowset_meta_pb;
+        json2pb::JsonToProtoMessage(json_rowset_meta, &rowset_meta_pb);
+        rowset_meta_pb.set_start_version(start);
+        rowset_meta_pb.set_end_version(end);
+        rowset_meta_pb.set_creation_time(10000);
+        rs_meta->init_from_pb(rowset_meta_pb);
     }
 
-    void add_delete_predicate(TabletSharedPtr tablet, DeletePredicatePB& del_pred,
-                              int64_t version) {
+    RowsetSharedPtr create_delete_predicate(const TabletSchemaSPtr& schema,
+                                            DeletePredicatePB del_pred, int64_t version) {
         RowsetMetaSharedPtr rsm(new RowsetMeta());
         init_rs_meta(rsm, version, version);
         RowsetId id;
         id.init(version * 1000);
         rsm->set_rowset_id(id);
-        rsm->set_delete_predicate(del_pred);
-        rsm->set_tablet_schema(tablet->tablet_schema());
-        RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), "", rsm);
-        tablet->add_rowset(rowset);
+        rsm->set_delete_predicate(std::move(del_pred));
+        rsm->set_tablet_schema(schema);
+        return std::make_shared<BetaRowset>(schema, "", rsm);
     }
 
     TabletSharedPtr create_tablet(const TabletSchema& tablet_schema,
-                                  bool enable_unique_key_merge_on_write, int64_t version,
-                                  bool has_delete_handler) {
+                                  bool enable_unique_key_merge_on_write) {
         std::vector<TColumn> cols;
         std::unordered_map<uint32_t, uint32_t> col_ordinal_to_unique_id;
         for (auto i = 0; i < tablet_schema.num_columns(); i++) {
@@ -332,24 +329,13 @@ protected:
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
-        TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
-        tablet->init();
-        if (has_delete_handler) {
-            // delete data with key < 1000
-            std::vector<TCondition> conditions;
-            TCondition condition;
-            condition.column_name = tablet_schema.column(0).name();
-            condition.condition_op = "<";
-            condition.condition_values.clear();
-            condition.condition_values.push_back("100");
-            conditions.push_back(condition);
-
-            DeletePredicatePB del_pred;
-            Status st =
-                    DeleteHandler::generate_delete_predicate(tablet_schema, conditions, &del_pred);
-            EXPECT_EQ(Status::OK(), st);
-            add_delete_predicate(tablet, del_pred, version);
-        }
+        TabletSharedPtr tablet(new Tablet(*engine_ref, tablet_meta, _data_dir));
+        static_cast<void>(tablet->init());
+        bool exists = false;
+        auto res = io::global_local_filesystem()->exists(tablet->tablet_path(), &exists);
+        EXPECT_TRUE(res.ok() && !exists);
+        res = io::global_local_filesystem()->create_directory(tablet->tablet_path());
+        EXPECT_TRUE(res.ok());
         return tablet;
     }
 
@@ -390,10 +376,11 @@ protected:
 private:
     const std::string kTestDir = "/ut_dir/vertical_compaction_test";
     string absolute_dir;
+    DataDir* _data_dir = nullptr;
 };
 
 TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
-    RowSourcesBuffer buffer(100, absolute_dir, READER_CUMULATIVE_COMPACTION);
+    RowSourcesBuffer buffer(100, absolute_dir, ReaderType::READER_CUMULATIVE_COMPACTION);
     RowSource s1(0, 0);
     RowSource s2(0, 0);
     RowSource s3(1, 1);
@@ -411,8 +398,8 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
     EXPECT_TRUE(buffer.append(tmp_row_source).ok());
     EXPECT_EQ(buffer.total_size(), 6);
     size_t limit = 10;
-    buffer.flush();
-    buffer.seek_to_begin();
+    static_cast<void>(buffer.flush());
+    static_cast<void>(buffer.seek_to_begin());
 
     int idx = -1;
     while (buffer.has_remaining().ok()) {
@@ -425,13 +412,13 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
         buffer.advance(same);
     }
 
-    RowSourcesBuffer buffer1(101, absolute_dir, READER_CUMULATIVE_COMPACTION);
+    RowSourcesBuffer buffer1(101, absolute_dir, ReaderType::READER_CUMULATIVE_COMPACTION);
     EXPECT_TRUE(buffer1.append(tmp_row_source).ok());
     EXPECT_TRUE(buffer1.append(tmp_row_source).ok());
     buffer1.set_agg_flag(2, false);
     buffer1.set_agg_flag(4, true);
-    buffer1.flush();
-    buffer1.seek_to_begin();
+    static_cast<void>(buffer1.flush());
+    static_cast<void>(buffer1.seek_to_begin());
     EXPECT_EQ(buffer1.total_size(), 12);
     idx = -1;
     while (buffer1.has_remaining().ok()) {
@@ -452,7 +439,7 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
 TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     auto num_input_rowset = 2;
     auto num_segments = 2;
-    auto rows_per_segment = 100;
+    auto rows_per_segment = 2 * 100 * 1024;
     SegmentsOverlapPB overlap = NONOVERLAPPING;
     std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
     generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -477,35 +464,36 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
                 new_overlap = OVERLAPPING;
             }
         }
-        RowsetSharedPtr rowset = create_rowset(tablet_schema, new_overlap, input_data[i]);
+        RowsetSharedPtr rowset = create_rowset(tablet_schema, new_overlap, input_data[i], i);
         input_rowsets.push_back(rowset);
     }
     // create input rowset reader
     vector<RowsetReaderSharedPtr> input_rs_readers;
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
+        ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
         input_rs_readers.push_back(std::move(rs_reader));
     }
 
     // create output rowset writer
-    RowsetWriterContext writer_context;
-    create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
-    std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
-    EXPECT_TRUE(s.ok());
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
+                                                       {0, input_rowsets.back()->end_version()});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
 
     // merge input rowset
-    bool has_delete_handler = false;
-    TabletSharedPtr tablet = create_tablet(
-            *tablet_schema, false, output_rs_writer->version().first - 1, has_delete_handler);
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-    s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
-                                       input_rs_readers, output_rs_writer.get(), 100, &stats);
-    EXPECT_TRUE(s.ok());
-    RowsetSharedPtr out_rowset = output_rs_writer->build();
+    auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                            tablet_schema, input_rs_readers, output_rs_writer.get(),
+                                            100, &stats);
+    ASSERT_TRUE(s.ok()) << s;
+    RowsetSharedPtr out_rowset;
+    EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
+    ASSERT_TRUE(out_rowset);
 
     // create output rowset reader
     RowsetReaderContext reader_context;
@@ -529,7 +517,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+    EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_input_rowset * num_segments * rows_per_segment);
     std::vector<uint32_t> segment_num_rows;
@@ -556,10 +544,118 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     }
 }
 
+TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
+    auto num_input_rowset = 2;
+    auto num_segments = 2;
+    auto rows_per_segment = 2 * 100 * 1024;
+    SegmentsOverlapPB overlap = NONOVERLAPPING;
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
+    for (auto rs_id = 0; rs_id < input_data.size(); rs_id++) {
+        for (auto s_id = 0; s_id < input_data[rs_id].size(); s_id++) {
+            for (auto row_id = 0; row_id < input_data[rs_id][s_id].size(); row_id++) {
+                LOG(INFO) << "input data: " << std::get<0>(input_data[rs_id][s_id][row_id]) << " "
+                          << std::get<1>(input_data[rs_id][s_id][row_id]);
+            }
+        }
+    }
+
+    TabletSchemaSPtr tablet_schema = create_schema(DUP_KEYS, true);
+    // create input rowset
+    vector<RowsetSharedPtr> input_rowsets;
+    SegmentsOverlapPB new_overlap = overlap;
+    for (auto i = 0; i < num_input_rowset; i++) {
+        if (overlap == OVERLAP_UNKNOWN) {
+            if (i == 0) {
+                new_overlap = NONOVERLAPPING;
+            } else {
+                new_overlap = OVERLAPPING;
+            }
+        }
+        RowsetSharedPtr rowset = create_rowset(tablet_schema, new_overlap, input_data[i], i);
+        input_rowsets.push_back(rowset);
+    }
+    // create input rowset reader
+    vector<RowsetReaderSharedPtr> input_rs_readers;
+    for (auto& rowset : input_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
+        input_rs_readers.push_back(std::move(rs_reader));
+    }
+
+    // create output rowset writer
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
+                                                       {0, input_rowsets.back()->end_version()});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
+
+    // merge input rowset
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
+    Merger::Statistics stats;
+    RowIdConversion rowid_conversion;
+    stats.rowid_conversion = &rowid_conversion;
+    auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                            tablet_schema, input_rs_readers, output_rs_writer.get(),
+                                            100, &stats);
+    ASSERT_TRUE(s.ok()) << s;
+    RowsetSharedPtr out_rowset;
+    EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
+
+    // create output rowset reader
+    RowsetReaderContext reader_context;
+    reader_context.tablet_schema = tablet_schema;
+    reader_context.need_ordered_result = false;
+    std::vector<uint32_t> return_columns = {0, 1};
+    reader_context.return_columns = &return_columns;
+    RowsetReaderSharedPtr output_rs_reader;
+    LOG(INFO) << "create rowset reader in test";
+    create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
+
+    // read output rowset data
+    vectorized::Block output_block;
+    std::vector<std::tuple<int64_t, int64_t>> output_data;
+    do {
+        block_create(tablet_schema, &output_block);
+        s = output_rs_reader->next_block(&output_block);
+        auto columns = output_block.get_columns_with_type_and_name();
+        EXPECT_EQ(columns.size(), 2);
+        for (auto i = 0; i < output_block.rows(); i++) {
+            output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
+        }
+    } while (s == Status::OK());
+    EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
+    EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
+    EXPECT_EQ(output_data.size(), num_input_rowset * num_segments * rows_per_segment);
+    std::vector<uint32_t> segment_num_rows;
+    EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());
+    // check vertical compaction result
+    for (auto id = 0; id < output_data.size(); id++) {
+        LOG(INFO) << "output data: " << std::get<0>(output_data[id]) << " "
+                  << std::get<1>(output_data[id]);
+    }
+    int dst_id = 0;
+
+    for (auto rs_id = 0; rs_id < input_data.size(); rs_id++) {
+        dst_id = 0;
+        for (auto s_id = 0; s_id < input_data[rs_id].size(); s_id++) {
+            for (auto row_id = 0; row_id < input_data[rs_id][s_id].size(); row_id++) {
+                LOG(INFO) << "input data: " << std::get<0>(input_data[rs_id][s_id][row_id]) << " "
+                          << std::get<1>(input_data[rs_id][s_id][row_id]);
+                EXPECT_EQ(std::get<0>(input_data[rs_id][s_id][row_id]),
+                          std::get<0>(output_data[dst_id]));
+                EXPECT_EQ(std::get<1>(input_data[rs_id][s_id][row_id]),
+                          std::get<1>(output_data[dst_id]));
+                dst_id += 1;
+            }
+        }
+    }
+}
+
 TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     auto num_input_rowset = 2;
     auto num_segments = 2;
-    auto rows_per_segment = 100;
+    auto rows_per_segment = 2 * 100 * 1024;
     SegmentsOverlapPB overlap = NONOVERLAPPING;
     std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
     generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -584,7 +680,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
                 new_overlap = OVERLAPPING;
             }
         }
-        RowsetSharedPtr rowset = create_rowset(tablet_schema, new_overlap, input_data[i]);
+        RowsetSharedPtr rowset = create_rowset(tablet_schema, new_overlap, input_data[i], i);
         input_rowsets.push_back(rowset);
     }
     // create input rowset reader
@@ -596,23 +692,23 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     }
 
     // create output rowset writer
-    RowsetWriterContext writer_context;
-    create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
-    std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
-    EXPECT_TRUE(s.ok());
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
+                                                       {0, input_rowsets.back()->end_version()});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
 
     // merge input rowset
-    bool has_delete_handler = false;
-    TabletSharedPtr tablet = create_tablet(
-            *tablet_schema, false, output_rs_writer->version().first - 1, has_delete_handler);
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-    s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
-                                       input_rs_readers, output_rs_writer.get(), 100, &stats);
+    auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                            tablet_schema, input_rs_readers, output_rs_writer.get(),
+                                            10000, &stats);
     EXPECT_TRUE(s.ok());
-    RowsetSharedPtr out_rowset = output_rs_writer->build();
+    RowsetSharedPtr out_rowset;
+    EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
 
     // create output rowset reader
     RowsetReaderContext reader_context;
@@ -636,7 +732,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+    EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_segments * rows_per_segment);
     std::vector<uint32_t> segment_num_rows;
@@ -659,7 +755,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
 TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     auto num_input_rowset = 2;
     auto num_segments = 2;
-    auto rows_per_segment = 100;
+    auto rows_per_segment = 2 * 100 * 1024;
     SegmentsOverlapPB overlap = NONOVERLAPPING;
     std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
     generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -673,46 +769,56 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     }
 
     TabletSchemaSPtr tablet_schema = create_schema(DUP_KEYS);
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
     // create input rowset
-    vector<RowsetSharedPtr> input_rowsets;
     SegmentsOverlapPB new_overlap = overlap;
+    std::vector<RowsetSharedPtr> input_rowsets;
     for (auto i = 0; i < num_input_rowset; i++) {
         if (overlap == OVERLAP_UNKNOWN) {
-            if (i == 0) {
-                new_overlap = NONOVERLAPPING;
-            } else {
-                new_overlap = OVERLAPPING;
-            }
+            new_overlap = (i == 0) ? NONOVERLAPPING : OVERLAPPING;
         }
-        RowsetSharedPtr rowset = create_rowset(tablet_schema, new_overlap, input_data[i]);
-        input_rowsets.push_back(rowset);
+        input_rowsets.push_back(create_rowset(tablet_schema, new_overlap, input_data[i], i));
     }
+
+    // delete data with key < 100
+    std::vector<TCondition> conditions;
+    TCondition condition;
+    condition.column_name = tablet->tablet_schema()->column(0).name();
+    condition.condition_op = "<";
+    condition.condition_values.clear();
+    condition.condition_values.push_back("100");
+    conditions.push_back(condition);
+    DeletePredicatePB del_pred;
+    auto st = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                       &del_pred);
+    ASSERT_TRUE(st.ok()) << st;
+    input_rowsets.push_back(create_delete_predicate(tablet->tablet_schema(), std::move(del_pred),
+                                                    num_input_rowset));
+
     // create input rowset reader
     vector<RowsetReaderSharedPtr> input_rs_readers;
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
+        ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
         input_rs_readers.push_back(std::move(rs_reader));
     }
 
     // create output rowset writer
-    RowsetWriterContext writer_context;
-    create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
-    std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
-    EXPECT_TRUE(s.ok());
-
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
+                                                       {0, input_rowsets.back()->end_version()});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
     // merge input rowset
-    bool has_delete_handler = true;
-    TabletSharedPtr tablet = create_tablet(*tablet_schema, false, output_rs_writer->version().first,
-                                           has_delete_handler);
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-    s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
-                                       input_rs_readers, output_rs_writer.get(), 100, &stats);
-    EXPECT_TRUE(s.ok());
-    RowsetSharedPtr out_rowset = output_rs_writer->build();
+    st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
+                                        input_rs_readers, output_rs_writer.get(), 100, &stats);
+    ASSERT_TRUE(st.ok()) << st;
+    RowsetSharedPtr out_rowset;
+    EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
+    ASSERT_TRUE(out_rowset);
 
     // create output rowset reader
     RowsetReaderContext reader_context;
@@ -729,31 +835,131 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
-        s = output_rs_reader->next_block(&output_block);
+        st = output_rs_reader->next_block(&output_block);
         auto columns = output_block.get_columns_with_type_and_name();
         EXPECT_EQ(columns.size(), 2);
         for (auto i = 0; i < output_block.rows(); i++) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
-    } while (s == Status::OK());
-    EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+    } while (st.ok());
+    EXPECT_TRUE(st.is<END_OF_FILE>()) << st;
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(),
               num_input_rowset * num_segments * rows_per_segment - num_input_rowset * 100);
     std::vector<uint32_t> segment_num_rows;
     EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());
-    if (has_delete_handler) {
-        // All keys less than 1000 are deleted by delete handler
-        for (auto& item : output_data) {
-            EXPECT_GE(std::get<0>(item), 100);
+    // All keys less than 1000 are deleted by delete handler
+    for (auto& item : output_data) {
+        ASSERT_GE(std::get<0>(item), 100);
+    }
+}
+
+TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
+    auto num_input_rowset = 2;
+    auto num_segments = 2;
+    auto rows_per_segment = 2 * 100 * 1024;
+    SegmentsOverlapPB overlap = NONOVERLAPPING;
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
+    for (auto rs_id = 0; rs_id < input_data.size(); rs_id++) {
+        for (auto s_id = 0; s_id < input_data[rs_id].size(); s_id++) {
+            for (auto row_id = 0; row_id < input_data[rs_id][s_id].size(); row_id++) {
+                LOG(INFO) << "input data: " << std::get<0>(input_data[rs_id][s_id][row_id]) << " "
+                          << std::get<1>(input_data[rs_id][s_id][row_id]);
+            }
         }
+    }
+
+    TabletSchemaSPtr tablet_schema = create_schema(DUP_KEYS, true);
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
+    // create input rowset
+    SegmentsOverlapPB new_overlap = overlap;
+    std::vector<RowsetSharedPtr> input_rowsets;
+    for (auto i = 0; i < num_input_rowset; i++) {
+        if (overlap == OVERLAP_UNKNOWN) {
+            new_overlap = (i == 0) ? NONOVERLAPPING : OVERLAPPING;
+        }
+        input_rowsets.push_back(create_rowset(tablet_schema, new_overlap, input_data[i], i));
+    }
+
+    // delete data with key < 100
+    std::vector<TCondition> conditions;
+    TCondition condition;
+    condition.column_name = tablet->tablet_schema()->column(0).name();
+    condition.condition_op = "<";
+    condition.condition_values.clear();
+    condition.condition_values.push_back("100");
+    conditions.push_back(condition);
+    DeletePredicatePB del_pred;
+    auto st = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                       &del_pred);
+    ASSERT_TRUE(st.ok()) << st;
+    input_rowsets.push_back(create_delete_predicate(tablet->tablet_schema(), std::move(del_pred),
+                                                    num_input_rowset));
+
+    // create input rowset reader
+    vector<RowsetReaderSharedPtr> input_rs_readers;
+    for (auto& rowset : input_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
+        input_rs_readers.push_back(std::move(rs_reader));
+    }
+
+    // create output rowset writer
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
+                                                       {0, input_rowsets.back()->end_version()});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
+    // merge input rowset
+    Merger::Statistics stats;
+    RowIdConversion rowid_conversion;
+    stats.rowid_conversion = &rowid_conversion;
+    st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
+                                        input_rs_readers, output_rs_writer.get(), 100, &stats);
+    ASSERT_TRUE(st.ok()) << st;
+    RowsetSharedPtr out_rowset;
+    EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
+    ASSERT_TRUE(out_rowset);
+
+    // create output rowset reader
+    RowsetReaderContext reader_context;
+    reader_context.tablet_schema = tablet_schema;
+    reader_context.need_ordered_result = false;
+    std::vector<uint32_t> return_columns = {0, 1};
+    reader_context.return_columns = &return_columns;
+    RowsetReaderSharedPtr output_rs_reader;
+    LOG(INFO) << "create rowset reader in test";
+    create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
+
+    // read output rowset data
+    vectorized::Block output_block;
+    std::vector<std::tuple<int64_t, int64_t>> output_data;
+    do {
+        block_create(tablet_schema, &output_block);
+        st = output_rs_reader->next_block(&output_block);
+        auto columns = output_block.get_columns_with_type_and_name();
+        EXPECT_EQ(columns.size(), 2);
+        for (auto i = 0; i < output_block.rows(); i++) {
+            output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
+        }
+    } while (st.ok());
+    EXPECT_TRUE(st.is<END_OF_FILE>()) << st;
+    EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
+    EXPECT_EQ(output_data.size(),
+              num_input_rowset * num_segments * rows_per_segment - num_input_rowset * 100);
+    std::vector<uint32_t> segment_num_rows;
+    EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());
+    // All keys less than 1000 are deleted by delete handler
+    for (auto& item : output_data) {
+        ASSERT_GE(std::get<0>(item), 100);
     }
 }
 
 TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     auto num_input_rowset = 2;
     auto num_segments = 2;
-    auto rows_per_segment = 100;
+    auto rows_per_segment = 2 * 100 * 1024;
     SegmentsOverlapPB overlap = NONOVERLAPPING;
     std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
     generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -778,7 +984,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
                 new_overlap = OVERLAPPING;
             }
         }
-        RowsetSharedPtr rowset = create_rowset(tablet_schema, new_overlap, input_data[i]);
+        RowsetSharedPtr rowset = create_rowset(tablet_schema, new_overlap, input_data[i], i);
         input_rowsets.push_back(rowset);
     }
     // create input rowset reader
@@ -790,23 +996,23 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     }
 
     // create output rowset writer
-    RowsetWriterContext writer_context;
-    create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
-    std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
-    EXPECT_TRUE(s.ok());
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
+                                                       {0, input_rowsets.back()->end_version()});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
 
     // merge input rowset
-    bool has_delete_handler = false;
-    TabletSharedPtr tablet = create_tablet(
-            *tablet_schema, false, output_rs_writer->version().first - 1, has_delete_handler);
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-    s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
-                                       input_rs_readers, output_rs_writer.get(), 100, &stats);
+    auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                            tablet_schema, input_rs_readers, output_rs_writer.get(),
+                                            100, &stats);
     EXPECT_TRUE(s.ok());
-    RowsetSharedPtr out_rowset = output_rs_writer->build();
+    RowsetSharedPtr out_rowset;
+    EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
 
     // create output rowset reader
     RowsetReaderContext reader_context;
@@ -830,7 +1036,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+    EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_segments * rows_per_segment);
     std::vector<uint32_t> segment_num_rows;

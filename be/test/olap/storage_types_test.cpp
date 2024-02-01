@@ -150,13 +150,15 @@ TEST(TypesTest, copy_and_equal) {
 
 template <FieldType item_type>
 void common_test_array(CollectionValue src_val) {
-    TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn list_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_ARRAY);
     int32 item_length = 0;
     if (item_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
         item_type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
         item_length = 10;
     }
-    TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
+    TabletColumn item_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, item_type, true,
+                             0, item_length);
     list_column.add_sub_column(item_column);
 
     auto array_type = get_type_info(&list_column);

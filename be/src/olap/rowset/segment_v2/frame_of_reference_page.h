@@ -70,7 +70,7 @@ public:
 
     Status get_first_value(void* value) const override {
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_first_val, sizeof(CppType));
         return Status::OK();
@@ -78,7 +78,7 @@ public:
 
     Status get_last_value(void* value) const override {
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_last_val, sizeof(CppType));
         return Status::OK();
@@ -135,7 +135,7 @@ public:
         DCHECK(_parsed) << "Must call init() firstly";
         bool found = _decoder->seek_at_or_after_value(value, exact_match);
         if (!found) {
-            return Status::NotFound("not found");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("not found");
         }
         _cur_index = _decoder->current_index();
         return Status::OK();

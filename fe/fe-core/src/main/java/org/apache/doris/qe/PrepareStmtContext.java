@@ -31,14 +31,27 @@ public class PrepareStmtContext {
     public Analyzer analyzer;
     public String stmtString;
 
+    // Timestamp in millisecond last command starts at
+    protected volatile long startTime;
+
     public PrepareStmtContext(PrepareStmt stmt, ConnectContext ctx, Planner planner,
                                     Analyzer analyzer, String stmtString) {
         this.stmt = stmt;
         this.ctx = ctx;
         this.planner = planner;
         // Only support OriginalPlanner for now
-        Preconditions.checkState(planner instanceof OriginalPlanner);
+        if (planner != null) {
+            Preconditions.checkState(planner instanceof OriginalPlanner);
+        }
         this.analyzer = analyzer;
         this.stmtString = stmtString;
+    }
+
+    public long getStartTime() {
+        return startTime;
+    }
+
+    public void setStartTime() {
+        startTime = System.currentTimeMillis();
     }
 }

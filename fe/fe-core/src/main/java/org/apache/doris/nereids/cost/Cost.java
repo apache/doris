@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.cost;
 
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 /**
  * Cost encapsulate the real cost with double type.
@@ -27,31 +27,22 @@ import org.apache.doris.qe.ConnectContext;
 public interface Cost {
     double getValue();
 
-    /**
-     * This is for calculating the cost in simplifier
-     */
-    static Cost withRowCount(double rowCount) {
-        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
-            return new CostV2(0, rowCount, 0);
-        }
-        return new CostV1(rowCount);
-    }
-
-    /**
-     * return zero cost
-     */
-    static Cost zero() {
-        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
+    static Cost zero(SessionVariable sessionVariable) {
+        if (sessionVariable.getEnableNewCostModel()) {
             return CostV2.zero();
         }
         return CostV1.zero();
     }
 
-    static Cost infinite() {
-        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
+    static Cost infinite(SessionVariable sessionVariable) {
+        if (sessionVariable.getEnableNewCostModel()) {
             return CostV2.infinite();
         }
         return CostV1.infinite();
+    }
+
+    static Cost zeroV1() {
+        return CostV1.zero();
     }
 }
 

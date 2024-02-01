@@ -71,6 +71,8 @@
 
 namespace doris {
 
+using int128_t = __int128;
+
 /*
  * Template JsonbParserTSIMD
  */
@@ -98,7 +100,7 @@ public:
 
         if (!pch || len == 0) {
             err_ = JsonbErrType::E_EMPTY_DOCUMENT;
-            LOG(WARNING) << "empty json string";
+            VLOG_DEBUG << "empty json string";
             return false;
         }
 
@@ -142,7 +144,7 @@ public:
             return err_ == JsonbErrType::E_NONE;
         } catch (simdjson::simdjson_error& e) {
             err_ = JsonbErrType::E_EXCEPTION;
-            LOG(WARNING) << "simdjson parse exception: " << e.what();
+            VLOG_DEBUG << "simdjson parse exception: " << e.what();
             return false;
         }
     }
@@ -296,21 +298,22 @@ public:
                 return;
             }
         } else if (num.is_int64() || num.is_uint64()) {
-            if (num.is_uint64() && num.get_uint64() > std::numeric_limits<int64_t>::max()) {
-                err_ = JsonbErrType::E_OCTAL_OVERFLOW;
-                LOG(WARNING) << "overflow number: " << num.get_uint64();
-                return;
-            }
-            int64_t val = num.is_int64() ? num.get_int64() : num.get_uint64();
+            int128_t val = num.is_int64() ? (int128_t)num.get_int64() : (int128_t)num.get_uint64();
             int size = 0;
-            if (val <= std::numeric_limits<int8_t>::max()) {
+            if (val >= std::numeric_limits<int8_t>::min() &&
+                val <= std::numeric_limits<int8_t>::max()) {
                 size = writer_.writeInt8((int8_t)val);
-            } else if (val <= std::numeric_limits<int16_t>::max()) {
+            } else if (val >= std::numeric_limits<int16_t>::min() &&
+                       val <= std::numeric_limits<int16_t>::max()) {
                 size = writer_.writeInt16((int16_t)val);
-            } else if (val <= std::numeric_limits<int32_t>::max()) {
+            } else if (val >= std::numeric_limits<int32_t>::min() &&
+                       val <= std::numeric_limits<int32_t>::max()) {
                 size = writer_.writeInt32((int32_t)val);
-            } else { // val <= INT64_MAX
-                size = writer_.writeInt64(val);
+            } else if (val >= std::numeric_limits<int64_t>::min() &&
+                       val <= std::numeric_limits<int64_t>::max()) {
+                size = writer_.writeInt64((int64_t)val);
+            } else { // INT128
+                size = writer_.writeInt128(val);
             }
 
             if (size == 0) {

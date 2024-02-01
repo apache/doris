@@ -24,7 +24,6 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
@@ -33,6 +32,7 @@ import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExternalScanRange;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
@@ -85,6 +85,7 @@ public class FileGroupInfo {
     // used for stream load, FILE_LOCAL or FILE_STREAM
     private TFileType fileType;
     private List<String> hiddenColumns = null;
+    private boolean isPartialUpdate = false;
 
     // for broker load
     public FileGroupInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
@@ -106,7 +107,7 @@ public class FileGroupInfo {
     // for stream load
     public FileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
             BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
-            TFileType fileType, List<String> hiddenColumns) {
+            TFileType fileType, List<String> hiddenColumns, boolean isPartialUpdate) {
         this.jobType = JobType.STREAM_LOAD;
         this.loadId = loadId;
         this.txnId = txnId;
@@ -119,6 +120,7 @@ public class FileGroupInfo {
         this.strictMode = strictMode;
         this.fileType = fileType;
         this.hiddenColumns = hiddenColumns;
+        this.isPartialUpdate = isPartialUpdate;
     }
 
     public Table getTargetTable() {
@@ -157,6 +159,10 @@ public class FileGroupInfo {
 
     public List<String> getHiddenColumns() {
         return hiddenColumns;
+    }
+
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
     }
 
     public void getFileStatusAndCalcInstance(FederationBackendPolicy backendPolicy) throws UserException {
@@ -201,13 +207,17 @@ public class FileGroupInfo {
             // header_type
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
             context.params.setFormatType(formatType);
+            TFileCompressType compressType =
+                    Util.getOrInferCompressType(context.fileGroup.getCompressType(), fileStatus.path);
+            context.params.setCompressType(compressType);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                     context.fileGroup.getColumnNamesFromPath());
             // Assign scan range locations only for broker load.
             // stream load has only one file, and no need to set multi scan ranges.
             if (tmpBytes > bytesPerInstance && jobType != JobType.STREAM_LOAD) {
                 // Now only support split plain text
-                if ((formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable)
+                if (compressType == TFileCompressType.PLAIN
+                        && (formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable)
                         || formatType == TFileFormatType.FORMAT_JSON) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
                     TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, rangeBytes,
@@ -215,10 +225,9 @@ public class FileGroupInfo {
                     curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                     curFileOffset += rangeBytes;
                 } else {
-                    TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes,
+                    TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, leftBytes,
                             columnsFromPath);
                     curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-                    curFileOffset = 0;
                     i++;
                 }
 
@@ -253,11 +262,11 @@ public class FileGroupInfo {
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             FsBroker broker = null;
             try {
-                broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getIp());
+                broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getHost());
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
-            params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+            params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
         } else {
             params.setBrokerAddresses(new ArrayList<>());
         }
@@ -276,7 +285,7 @@ public class FileGroupInfo {
         if (jobType == JobType.BULK_LOAD) {
             TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(selectedBackend.getId());
-            location.setServer(new TNetworkAddress(selectedBackend.getIp(), selectedBackend.getBePort()));
+            location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
             locations.addToLocations(location);
         } else {
             // stream load do not need locations
@@ -287,26 +296,15 @@ public class FileGroupInfo {
     }
 
     private TFileFormatType formatType(String fileFormat, String path) throws UserException {
-        if (fileFormat != null) {
-            if (fileFormat.equalsIgnoreCase("parquet")) {
-                return TFileFormatType.FORMAT_PARQUET;
-            } else if (fileFormat.equalsIgnoreCase("orc")) {
-                return TFileFormatType.FORMAT_ORC;
-            } else if (fileFormat.equalsIgnoreCase("json")) {
-                return TFileFormatType.FORMAT_JSON;
-                // csv/csv_with_name/csv_with_names_and_types treat as csv format
-            } else if (fileFormat.equalsIgnoreCase(FeConstants.csv) || fileFormat.toLowerCase()
-                    .equals(FeConstants.csv_with_names) || fileFormat.toLowerCase()
-                    .equals(FeConstants.csv_with_names_and_types)
-                    // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
-                    || fileFormat.equalsIgnoreCase(FeConstants.text)) {
-                return TFileFormatType.FORMAT_CSV_PLAIN;
-            } else {
-                throw new UserException("Not supported file format: " + fileFormat);
-            }
+        if (fileFormat == null) {
+            // get file format by the file path
+            return Util.getFileFormatTypeFromPath(path);
         }
-
-        return Util.getFileFormatType(path);
+        TFileFormatType formatType = Util.getFileFormatTypeFromName(fileFormat);
+        if (formatType == TFileFormatType.FORMAT_UNKNOWN) {
+            throw new UserException("Not supported file format: " + fileFormat);
+        }
+        return formatType;
     }
 
     private TFileRangeDesc createFileRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus, long rangeBytes,
@@ -331,6 +329,7 @@ public class FileGroupInfo {
             rangeDesc.setSize(fileStatus.size);
             rangeDesc.setFileSize(fileStatus.size);
         }
+        rangeDesc.setModificationTime(fileStatus.getModificationTime());
         return rangeDesc;
     }
 }

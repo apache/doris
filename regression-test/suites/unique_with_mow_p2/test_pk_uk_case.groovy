@@ -26,7 +26,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.time.format.DateTimeFormatter;
 
-suite("test_pk_uk_case") {
+suite("test_pk_uk_case_unique_with_mow_p2") {
     def tableNamePk = "primary_key_pk_uk"
     def tableNameUk = "unique_key_pk_uk"
 
@@ -86,7 +86,8 @@ suite("test_pk_uk_case") {
         UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
         DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
         PROPERTIES (
-        "replication_num" = "1"
+        "replication_num" = "1",
+        "enable_unique_key_merge_on_write" = "false"
         )       
     """
 
@@ -183,14 +184,13 @@ suite("test_pk_uk_case") {
             ($order_key, $part_key, $sub_key, $line_num, $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
         """
 
+        sql "sync"
+
         // count(*)
-        result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
-        result1 = sql """ SELECT count(*) FROM ${tableNameUk}; """
+        def result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
+        def result1 = sql """ SELECT count(*) FROM ${tableNameUk}; """
         logger.info("result:" + result0[0][0] + "|" + result1[0][0])
-        assertTrue(result0[0]==result1[0])
-        if (result0[0][0]!=result1[0][0]) {
-            logger.info("result:" + result0[0][0] + "|" + result1[0][0])
-        }
+        assertEquals(result0[0], result1[0])
 
         result0 = sql """ SELECT
                             l_returnflag,
@@ -205,8 +205,6 @@ suite("test_pk_uk_case") {
                             count(*)                                              AS count_order
                             FROM
                             ${tableNamePk}
-                            WHERE
-                            l_shipdate <= DATE '2023-01-01' - INTERVAL '90' DAY
                             GROUP BY
                             l_returnflag,
                             l_linestatus
@@ -227,20 +225,18 @@ suite("test_pk_uk_case") {
                             count(*)                                              AS count_order
                             FROM
                             ${tableNameUk}
-                            WHERE
-                            l_shipdate <= DATE '2023-01-01' - INTERVAL '90' DAY
                             GROUP BY
                             l_returnflag,
                             l_linestatus
                             ORDER BY
                             l_returnflag,
                             l_linestatus
-                        """  
-        assertTrue(result0.size()==result1.size())
+                        """
+        assertEquals(result0.size(), result1.size())
         for (int i = 0; i < result0.size(); ++i) {
-            for (j = 0; j < result0[0].size(); j++) {
+            for (int j = 0; j < result0[0].size(); j++) {
                 logger.info("result: " + result0[i][j] + "|" + result1[i][j])
-                assertTrue(result0[i][j]==result1[i][j])
+                assertEquals(result0[i][j], result1[i][j])
             }
         }       
 

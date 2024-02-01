@@ -34,6 +34,10 @@ public class PartitionValue {
         this.value = value;
     }
 
+    public PartitionValue(Long value) {
+        this.value = value.toString();
+    }
+
     public PartitionValue(String value, boolean isHiveDefaultPartition) {
         this.value = value;
         this.isHiveDefaultPartition = isHiveDefaultPartition;

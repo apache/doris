@@ -123,23 +123,17 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：BE 上的 brpc 的端口，用于 BE 之间通讯
 * 默认值：8060
 
+#### `arrow_flight_sql_port`
+
+* 类型：int32
+* 描述：FE 上的 Arrow Flight SQL server 的端口，用于从 Arrow Flight Client 和 BE 之间通讯
+* 默认值：-1
+
 #### `enable_https`
 
 * 类型：bool
 * 描述：是否支持https. 如果是，需要在be.conf中配置`ssl_certificate_path`和`ssl_private_key_path`
 * 默认值：false
-
-#### `single_replica_load_brpc_port`
-
-* 类型: int32
-* 描述: 单副本数据导入功能中，Master副本和Slave副本之间通信的RPC端口。Master副本flush完成之后通过RPC通知Slave副本同步数据，以及Slave副本同步数据完成后通过RPC通知Master副本。系统为单副本数据导入过程中Master副本和Slave副本之间通信开辟了独立的BRPC线程池，以避免导入并发较大时副本之间的数据同步抢占导入数据分发和查询任务的线程资源。
-* 默认值: 9070
-
-#### `single_replica_load_download_port`
-
-* 类型: int32
-* 描述: 单副本数据导入功能中，Slave副本通过HTTP从Master副本下载数据文件的端口。系统为单副本数据导入过程中Slave副本从Master副本下载数据文件开辟了独立的HTTP线程池，以避免导入并发较大时Slave副本下载数据文件抢占其他http任务的线程资源。
-* 默认值: 8050
 
 #### `priority_networks`
 
@@ -203,14 +197,13 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 * 类型：string
 * 描述：限制BE进程使用服务器最大内存百分比。用于防止BE内存挤占太多的机器内存，该参数必须大于0，当百分大于100%之后，该值会默认为100%。
-  - `auto` 等于 max(physical_mem * 0.9, physical_mem - 6.4G)，6.4G是默认为系统预留的最大内存。
-* 默认值：auto
+* 默认值：90%
 
 #### `cluster_id`
 
 * 类型：int32
 * 描述：配置BE的所属于的集群id。
-  - 该值通常由FE通过心跳向BE下发，不需要额外进行配置。当确认某BE属于某一个确定的Drois集群时，可以进行配置，同时需要修改数据目录下的cluster_id文件，使二者相同。
+  - 该值通常由FE通过心跳向BE下发，不需要额外进行配置。当确认某BE属于某一个确定的 Doris 集群时，可以进行配置，同时需要修改数据目录下的cluster_id文件，使二者相同。
 * 默认值：-1
 
 #### `custom_config_dir`
@@ -231,7 +224,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 #### `es_scroll_keepalive`
 
-* 描述：es scroll Keeplive保持时间，默认5分钟
+* 描述：es scroll keep-alive 保持时间，默认5分钟
 * 默认值: 5 (m)
 
 #### `external_table_connect_timeout_sec`
@@ -273,7 +266,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `thrift_rpc_timeout_ms`
 
 * 描述：thrift默认超时时间
-* 默认值：10000
+* 默认值：60000
 
 #### `thrift_client_retry_interval_ms`
 
@@ -284,7 +277,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `thrift_connect_timeout_seconds`
 
 * 描述：默认thrift客户端连接超时时间
-* 默认值：3 (m)
+* 默认值：3 (s)
 
 #### `thrift_server_type_of_fe`
 
@@ -298,7 +291,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `txn_commit_rpc_timeout_ms`
 
 * 描述：txn 提交 rpc 超时
-* 默认值：10000 (ms)
+* 默认值：60000 (ms)
 
 #### `txn_map_shard_size`
 
@@ -338,12 +331,18 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：当使用odbc外表时，如果odbc源表的某一列类型不是HLL, CHAR或者VARCHAR，并且列值长度超过该值，则查询报错'column value length longer than buffer length'. 可增大该值
 * 默认值：100
 
+#### `jsonb_type_length_soft_limit_bytes`
+
+* 类型: int32
+* 描述: JSONB 类型最大长度的软限，单位是字节
+* 默认值: 1048576
+
 ### 查询
 
 #### `fragment_pool_queue_size`
 
 * 描述：单节点上能够处理的查询请求上限
-* 默认值：2048
+* 默认值：4096
 
 #### `fragment_pool_thread_num_min`
 
@@ -353,13 +352,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `fragment_pool_thread_num_max`
 
 * 描述：后续查询请求动态创建线程，最大创建512个线程。
-* 默认值：512
-
-#### `doris_max_pushdown_conjuncts_return_rate`
-
-* 类型：int32
-* 描述：BE在进行HashJoin时，会采取动态分区裁剪的方式将join条件下推到OlapScanner上。当OlapScanner扫描的数据大于32768行时，BE会进行过滤条件检查，如果该过滤条件的过滤率低于该配置，则Doris会停止使用动态分区裁剪的条件进行数据过滤。
-* 默认值：90
+* 默认值：2048
 
 #### `doris_max_scan_key_num`
 
@@ -409,18 +402,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：Remote scanner thread pool 的最大线程数。Remote scanner thread pool 用于除内表外的所有 scan 任务的执行。
 * 默认值：512
 
-#### `enable_prefetch`
-
-* 类型：bool
-* 描述：当使用PartitionedHashTable进行聚合和join计算时，是否进行HashBuket的预取，推荐设置为true。
-* 默认值：true
-
-#### `enable_quadratic_probing`
-
-* 类型：bool
-* 描述：当使用PartitionedHashTable时发生Hash冲突时，是否采用平方探测法来解决Hash冲突。该值为false的话，则选用线性探测发来解决Hash冲突。关于平方探测法可参考：[quadratic_probing](https://en.wikipedia.org/wiki/Quadratic_probing)
-* 默认值：true
-
 #### `exchg_node_buffer_size_bytes`
 
 * 类型：int32
@@ -445,12 +426,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism_per_job` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism_per_job` 的值。
 * 默认值：5
 
-#### `serialize_batch`
-
-* 类型：bool
-* 描述：BE之间rpc通信是否序列化RowBatch，用于查询层之间的数据传输
-* 默认值: false
-
 #### `doris_scan_range_max_mb`
 
 * 类型: int32
@@ -474,21 +449,21 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 #### `vertical_compaction_num_columns_per_group`
 
-* 类型: bool
+* 类型: int32
 * 描述: 在列式compaction中, 组成一个合并组的列个数
-* 默认值: true
+* 默认值: 5
 
 #### `vertical_compaction_max_row_source_memory_mb`
 
-* 类型: bool
-* 描述: 在列式compaction中, row_source_buffer能使用的最大内存
-* 默认值: true
+* 类型: int32
+* 描述: 在列式compaction中, row_source_buffer能使用的最大内存，单位是MB。
+* 默认值: 200
 
 #### `vertical_compaction_max_segment_size`
 
-* 类型: bool
-* 描述: 在列式compaction中, 输出的segment文件最大值
-* 默认值: true
+* 类型: int32
+* 描述: 在列式compaction中, 输出的segment文件最大值，单位是m字节。
+* 默认值: 268435456
 
 #### `enable_ordered_data_compaction`
 
@@ -498,14 +473,14 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 #### `ordered_data_compaction_min_segment_size`
 
-* 类型: bool
-* 描述: 在有序数据compaction中, 满足要求的最小segment大小
-* 默认值: true
+* 类型: int32
+* 描述: 在有序数据compaction中, 满足要求的最小segment大小，单位是m字节。
+* 默认值: 10485760
 
 #### `max_base_compaction_threads`
 
 * 类型：int32
-* 描述：Base Compaction线程池中线程数量的最大值。
+* 描述：Base Compaction线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
 * 默认值：4
 
 #### `generate_compaction_tasks_interval_ms`
@@ -549,7 +524,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 类型：int64
 * 描述：Cumulative compaction的输出rowset总磁盘大小低于此配置大小，该rowset将不进行base compaction，仍然处于cumulative compaction流程中。单位是m字节。
   - 一般情况下，配置在512m以内，配置过大会导致base版本早期的大小过小，一直不进行base compaction。
-* 默认值：64
+* 默认值：128
 
 #### `compaction_min_size_mbytes`
 
@@ -585,7 +560,18 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 base compaction是一个耗时较长的后台操作，为了跟踪其运行信息，可以调整这个阈值参数来控制trace日志的打印。打印信息如下：
 
 ```
-W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
+W0610 11:26:33.804431 56452 storage_engine.cpp:552] execute base compaction cost 0.00319222
+BaseCompaction:546859:
+  - filtered_rows: 0
+   - input_row_num: 10
+   - input_rowsets_count: 10
+   - input_rowsets_data_size: 2.17 KB
+   - input_segments_num: 10
+   - merge_rowsets_latency: 100000.510ms
+   - merged_rows: 0
+   - output_row_num: 10
+   - output_rowset_data_size: 224.00 B
+   - output_segments_num: 1
 0610 11:23:03.727535 (+     0us) storage_engine.cpp:554] start to perform base compaction
 0610 11:23:03.728961 (+  1426us) storage_engine.cpp:560] found best tablet 546859
 0610 11:23:03.728963 (+     2us) base_compaction.cpp:40] got base compaction lock
@@ -598,7 +584,6 @@ W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
 0610 11:26:33.513197 (+ 28715us) compaction.cpp:110] modify rowsets finished
 0610 11:26:33.513300 (+   103us) base_compaction.cpp:49] compaction finished
 0610 11:26:33.513441 (+   141us) base_compaction.cpp:56] unused rowsets have been moved to GC queue
-Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"input_rowsets_data_size":1256413170,"input_segments_num":44,"merge_rowsets_latency_us":101574444,"merged_rows":0,"output_row_num":3346807,"output_rowset_data_size":1228439659,"output_segments_num":6}
 ```
 
 #### `cumulative_compaction_trace_threshold`
@@ -612,13 +597,13 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * 类型：int32
 * 描述：每个磁盘（HDD）可以并发执行的compaction任务数量。
-* 默认值：2
+* 默认值：4
 
 #### `compaction_task_num_per_fast_disk`
 
 * 类型：int32
 * 描述：每个高速磁盘（SSD）可以并发执行的compaction任务数量。
-* 默认值：4
+* 默认值：8
 
 #### `cumulative_compaction_rounds_for_each_base_compaction_round`
 
@@ -636,26 +621,62 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `max_cumu_compaction_threads`
 
 * 类型：int32
-* 描述：Cumulative Compaction线程池中线程数量的最大值。
-* 默认值：10
+* 描述：Cumulative Compaction线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
+* 默认值：-1
 
 #### `enable_segcompaction`
 
 * 类型：bool
 * 描述：在导入时进行 segment compaction 来减少 segment 数量, 以避免出现写入时的 -238 错误
-* 默认值：true
+* 默认值：false
 
-#### `segcompaction_threshold_segment_num`
+#### `segcompaction_batch_size`
 
 * 类型：int32
 * 描述：当 segment 数量超过此阈值时触发 segment compaction
 * 默认值：10
 
-#### `segcompaction_small_threshold`
+#### `segcompaction_candidate_max_rows`
 
 * 类型：int32
-* 描述：当 segment 文件超过此大小时则会在 segment compaction 时被 compact，否则跳过
+* 描述：当 segment 的行数超过此大小时则会在 segment compaction 时被 compact，否则跳过
 * 默认值：1048576
+
+#### `segcompaction_batch_size`
+
+* 类型: int32
+* 描述: 单个 segment compaction 任务中的最大原始 segment 数量。
+* 默认值: 10
+
+#### `segcompaction_candidate_max_rows`
+
+* 类型: int32
+* 描述: segment compaction 任务中允许的单个原始 segment 行数，过大的 segment 将被跳过。
+* 默认值: 1048576
+
+#### `segcompaction_candidate_max_bytes`
+
+* 类型: int64
+* 描述: segment compaction 任务中允许的单个原始 segment 大小（字节），过大的 segment 将被跳过。
+* 默认值: 104857600
+
+#### `segcompaction_task_max_rows`
+
+* 类型: int32
+* 描述: 单个 segment compaction 任务中允许的原始 segment 总行数。
+* 默认值: 1572864
+
+#### `segcompaction_task_max_bytes`
+
+* 类型: int64
+* 描述: 单个 segment compaction 任务中允许的原始 segment 总大小（字节）。
+* 默认值: 157286400
+
+#### `segcompaction_num_threads`
+
+* 类型: int32
+* 描述: segment compaction 线程池大小。
+* 默认值: 5
 
 #### `disable_compaction_trace_log`
 
@@ -663,6 +684,23 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述: 关闭compaction的trace日志
   - 如果设置为true，`cumulative_compaction_trace_threshold` 和 `base_compaction_trace_threshold` 将不起作用。并且trace日志将关闭。
 * 默认值: true
+
+#### `pick_rowset_to_compact_interval_sec`
+
+* 类型: int64
+* 描述: 选取 rowset 去合并的时间间隔，单位为秒
+* 默认值: 86400
+
+#### `max_single_replica_compaction_threads`
+
+* 类型：int32
+* 描述：Single Replica Compaction 线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
+* 默认值：-1
+
+#### `update_replica_infos_interval_seconds`
+
+* 描述：更新 peer replica infos 的最小间隔时间
+* 默认值：60（s）
 
 
 ### 导入
@@ -688,10 +726,20 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述: 导入线程数，用于处理NORMAL优先级任务
 * 默认值: 3
 
+#### `enable_single_replica_load`
+
+* 描述: 是否启动单副本数据导入功能
+* 默认值: true
+
 #### `load_error_log_reserve_hours`
 
 * 描述: load错误日志将在此时间后删除
 * 默认值: 48（h）
+
+#### `load_error_log_limit_bytes`
+
+* Description: load错误日志大小超过此值将被截断
+* 默认值: 209715200 (byte)
 
 #### `load_process_max_memory_limit_percent`
 
@@ -708,18 +756,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * 描述: routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurrent_task_num_per_be'
 * 默认值: 10
-
-#### `single_replica_load_brpc_num_threads`
-
-* 类型: int32
-* 描述: 单副本数据导入功能中，Master副本和Slave副本之间通信的线程数量。导入并发增大时，可以适当调大该参数来保证Slave副本及时同步Master副本数据。
-* 默认值: 64
-
-#### `single_replica_load_download_num_workers`
-
-* 类型: int32
-* 描述: 单副本数据导入功能中，Slave副本通过HTTP从Master副本下载数据文件的线程数。导入并发增大时，可以适当调大该参数来保证Slave副本及时同步Master副本数据。
-* 默认值: 64
 
 #### `slave_replica_writer_rpc_timeout_sec`
 
@@ -744,6 +780,24 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 类型：int32
 * 描述：routine load 所使用的 data consumer 的缓存数量。
 * 默认值：10
+
+#### `multi_table_batch_plan_threshold`
+
+* 类型：int32
+* 描述：一流多表使用该配置，表示攒多少条数据再进行规划。过小的值会导致规划频繁，多大的值会增加内存压力和导入延迟。
+* 默认值：200
+
+#### `multi_table_max_wait_tables`
+
+* 类型：int32
+* 描述：一流多表使用该配置，如果等待执行的表的数量大于此阈值，将请求并执行所有相关表的计划。该参数旨在避免一次同时请求和执行过多的计划。
+将导入过程的多表进行小批处理，可以减少单次rpc的压力，同时可以提高导入数据处理的实时性。
+* 默认值：5
+
+#### `single_replica_load_download_num_workers`
+* 类型: int32
+* 描述: 单副本数据导入功能中，Slave副本通过HTTP从Master副本下载数据文件的工作线程数。导入并发增大时，可以适当调大该参数来保证Slave副本及时同步Master副本数据。必要时也应相应地调大`webserver_num_workers`来提高IO效率。
+* 默认值: 64
 
 #### `load_task_high_priority_threshold_second`
 
@@ -788,6 +842,16 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
   - 一些数据格式，如 JSON，无法进行拆分处理，必须读取全部数据到内存后才能开始解析，因此，这个值用于限制此类格式数据单次导入最大数据量。
 * 默认值： 100
 * 可动态修改：是
+
+#### `olap_table_sink_send_interval_microseconds`.
+
+* 描述： 数据导入时，Coordinator 的 sink 节点有一个轮询线程持续向对应BE发送数据。该线程将每隔 `olap_table_sink_send_interval_microseconds` 微秒检查是否有数据要发送。
+* 默认值：1000
+
+#### `olap_table_sink_send_interval_auto_partition_factor`.
+
+* 描述： 如果我们向一个启用了自动分区的表导入数据，那么 `olap_table_sink_send_interval_microseconds` 的时间间隔就会太慢。在这种情况下，实际间隔将乘以该系数。
+* 默认值：0.001
 
 ### 线程
 
@@ -915,11 +979,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述：最大外部扫描缓存批次计数，表示缓存max_memory_cache_batch_count * batch_size row，默认为20，batch_size的默认值为1024，表示将缓存20 * 1024行
 * 默认值：20
 
-#### `memory_limitation_per_thread_for_schema_change`
-
-* 描述：单个schema change任务允许占用的最大内存
-* 默认值：2 （GB）
-
 #### `memory_max_alignment`
 
 * 描述：最大校对内存
@@ -930,11 +989,10 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述：是否使用mmap分配内存
 * 默认值：false
 
-#### `download_cache_buffer_size`
+#### `memtable_mem_tracker_refresh_interval_ms`
 
-* 类型: int64
-* 描述: 下载缓存时用于接收数据的buffer的大小。
-* 默认值: 10485760
+* 描述：memtable主动下刷时刷新内存统计的周期（毫秒）
+* 默认值：100
 
 #### `zone_map_row_num_threshold`
 
@@ -963,7 +1021,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `memory_limitation_per_thread_for_schema_change_bytes`
 
 * 描述：单个schema change任务允许占用的最大内存
-* 默认值：2147483648
+* 默认值：2147483648 (2GB)
 
 #### `mem_tracker_consume_min_size_bytes`
 
@@ -993,13 +1051,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述: 读取hdfs或者对象存储上的文件时，使用的缓存大小。
   - 增大这个值，可以减少远端数据读取的调用次数，但会增加内存开销。
 * 默认值: 16MB
-
-#### `segment_cache_capacity`
-
-* 类型: int32
-* 描述: Segment Cache 缓存的 Segment 最大数量
-  - 默认值目前只是一个经验值，可能需要根据实际场景修改。增大该值可以缓存更多的segment从而避免一些IO。减少该值则会降低内存使用。
-* 默认值: 1000000
 
 #### `file_cache_type`
 
@@ -1163,6 +1214,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述：索引页缓存占总页面缓存的百分比，取值为[0, 100]。
 * 默认值：10
 
+#### `segment_cache_capacity`
+* Type: int32
+* Description: segment元数据缓存（以rowset id为key）的最大rowset个数. -1代表向后兼容取值为fd_number * 2/5
+* Default value: -1
+
 #### `storage_strict_check_incompatible_old_format`
 
 * 类型：bool
@@ -1174,14 +1230,14 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `sync_tablet_meta`
 
 * 描述：存储引擎是否开sync保留到磁盘上
-* 默认值：false
+* 默认值：true
 
 #### `pending_data_expire_time_sec`
 
 * 描述：存储引擎保留的未生效数据的最大时长
 * 默认值：1800 (s)
 
-#### `ignore_rowset_stale_unconsistent_delete`
+#### `ignore_rowset_stale_inconsistent_delete`
 
 * 类型：bool
 * 描述：用来决定当删除过期的合并过的rowset后无法构成一致的版本路径时，是否仍要删除。
@@ -1234,8 +1290,8 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * 类型：int64
 * 描述：用来表示清理合并版本的过期时间，当当前时间 now() 减去一个合并的版本路径中rowset最近创建创建时间大于tablet_rowset_stale_sweep_time_sec时，对当前路径进行清理，删除这些合并过的rowset, 单位为s。
-  - 当写入过于频繁，磁盘空间不足时，可以配置较少这个时间。不过这个时间过短小于5分钟时，可能会引发fe查询不到已经合并过的版本，引发查询-230错误。
-* 默认值：1800
+  - 当写入过于频繁，可能会引发fe查询不到已经合并过的版本，引发查询-230错误。可以通过调大该参数避免该问题。
+* 默认值：300
 
 #### `tablet_writer_open_rpc_timeout_sec`
 
@@ -1258,6 +1314,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `alter_tablet_worker_count`
 
 * 描述：进行schema change的线程数
+* 默认值：3
+
+### `alter_index_worker_count`
+
+* 描述：进行index change的线程数
 * 默认值：3
 
 #### `ignore_load_tablet_failure`
@@ -1297,16 +1358,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 类型：bool
 * 描述：序列化RowBatch时是否使用Snappy压缩算法进行数据压缩
 * 默认值：true
-
-<version since="1.2">
-
-#### `jvm_max_heap_size`
-
-* 类型：string
-* 描述：BE 使用 JVM 堆内存的最大值，即 JVM 的 -Xmx 参数
-* 默认值：1024M
-
-</version>
 
 ### 日志
 
@@ -1396,7 +1447,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 #### `max_runnings_transactions_per_txn_map`
 
 * 描述: txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我保护，以避免在管理器中保存过多的 txns
-* 默认值: 100
+* 默认值: 2000
 
 #### `max_download_speed_kbps`
 
@@ -1430,14 +1481,47 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述: 存放 jdbc driver 的默认目录。
 * 默认值: `${DORIS_HOME}/jdbc_drivers`
 
-#### `enable_parse_multi_dimession_array`
-
-* 描述: 在动态表中是否解析多维数组，如果是false遇到多维数组则会报错。
-* 默认值: true
-
 #### `enable_simdjson_reader`
 
 * 描述: 是否在导入json数据时用simdjson来解析。
-* 默认值: false
+* 默认值: true
 
 </version>
+
+#### `enable_query_memory_overcommit`
+
+* 描述: 如果为true，则当内存未超过 exec_mem_limit 时，查询内存将不受限制；当进程内存超过 exec_mem_limit 且大于 2GB 时，查询会被取消。如果为false，则在使用的内存超过 exec_mem_limit 时取消查询。
+* 默认值: true
+
+#### `user_files_secure_path`
+
+* 描述: `local` 表函数查询的文件的存储目录。
+* 默认值: `${DORIS_HOME}`
+
+#### `brpc_streaming_client_batch_bytes`
+
+* 描述: brpc streaming 客户端发送数据时的攒批大小（字节）
+* 默认值: 262144
+
+#### `grace_shutdown_wait_seconds`
+
+* 描述:  在云原生的部署模式下，为了节省资源一个BE 可能会被频繁的加入集群或者从集群中移除。 如果在这个BE 上有正在运行的Query，那么这个Query 会失败。 用户可以使用 stop_be.sh --grace 的方式来关闭一个BE 节点，此时BE 会等待当前正在这个BE 上运行的所有查询都结束才会退出。 同时，在这个时间范围内FE 也不会分发新的query 到这个机器上。 如果超过grace_shutdown_wait_seconds这个阈值，那么BE 也会直接退出，防止一些查询长期不退出导致节点没法快速下掉的情况。
+* 默认值: 120
+
+#### `enable_java_support`
+
+* 描述: BE 是否开启使用java-jni，开启后允许 c++ 与 java 之间的相互调用。目前已经支持hudi、java-udf、jdbc、max-compute、paimon、preload、avro
+* 默认值: true
+
+#### `group_commit_wal_path`
+
+* 描述:  group commit 存放 WAL 文件的目录，请参考 [Group Commit](../../data-operate/import/import-way/group-commit-manual.md)
+* 默认值: 默认在用户配置的`storage_root_path`的各个目录下创建一个名为`wal`的目录。配置示例：
+  ```
+  group_commit_wal_path=/data1/storage/wal;/data2/storage/wal;/data3/storage/wal
+  ```
+
+#### `group_commit_memory_rows_for_max_filter_ratio`
+
+* 描述:  当 group commit 导入的总行数不高于该值，`max_filter_ratio` 正常工作，否则不工作，请参考 [Group Commit](../../data-operate/import/import-way/group-commit-manual.md)
+* 默认值: 10000

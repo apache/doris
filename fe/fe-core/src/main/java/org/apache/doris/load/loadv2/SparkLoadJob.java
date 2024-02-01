@@ -44,7 +44,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -104,6 +103,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -213,7 +213,7 @@ public class SparkLoadJob extends BulkLoadJob {
 
         // create pending task
         LoadTask task = new SparkLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), sparkResource,
-                brokerDesc);
+                brokerDesc, getPriority());
         task.init();
         idToTasks.put(task.getSignature(), task);
         Env.getCurrentEnv().getPendingLoadTaskScheduler().submit(task);
@@ -407,7 +407,13 @@ public class SparkLoadJob extends BulkLoadJob {
     private PushBrokerReaderParams getPushBrokerReaderParams(OlapTable table, long indexId) throws UserException {
         if (!indexToPushBrokerReaderParams.containsKey(indexId)) {
             PushBrokerReaderParams pushBrokerReaderParams = new PushBrokerReaderParams();
-            pushBrokerReaderParams.init(table.getSchemaByIndexId(indexId), brokerDesc);
+            List<Column> columns = new ArrayList<>();
+            table.getSchemaByIndexId(indexId).forEach(col -> {
+                Column column = new Column(col);
+                column.setName(col.getName().toLowerCase(Locale.ROOT));
+                columns.add(column);
+            });
+            pushBrokerReaderParams.init(columns, brokerDesc);
             indexToPushBrokerReaderParams.put(indexId, pushBrokerReaderParams);
         }
         return indexToPushBrokerReaderParams.get(indexId);
@@ -464,7 +470,9 @@ public class SparkLoadJob extends BulkLoadJob {
 
                             List<TColumn> columnsDesc = new ArrayList<TColumn>();
                             for (Column column : olapTable.getSchemaByIndexId(indexId)) {
-                                columnsDesc.add(column.toThrift());
+                                TColumn tColumn = column.toThrift();
+                                tColumn.setColumnName(tColumn.getColumnName().toLowerCase(Locale.ROOT));
+                                columnsDesc.add(tColumn);
                             }
 
                             int bucket = 0;
@@ -482,7 +490,7 @@ public class SparkLoadJob extends BulkLoadJob {
                                             || !tabletToSentReplicaPushTask.get(tabletId).containsKey(replicaId)) {
                                         long backendId = replica.getBackendId();
                                         long taskSignature = Env.getCurrentGlobalTransactionMgr()
-                                                .getTransactionIDGenerator().getNextTransactionId();
+                                                .getNextTransactionId();
 
                                         PushBrokerReaderParams params = getPushBrokerReaderParams(olapTable, indexId);
                                         // deep copy TBrokerScanRange because filePath and fileSize will be updated
@@ -503,13 +511,13 @@ public class SparkLoadJob extends BulkLoadJob {
                                         Backend backend = Env.getCurrentEnv().getCurrentSystemInfo()
                                                 .getBackend(backendId);
                                         FsBroker fsBroker = Env.getCurrentEnv().getBrokerMgr().getBroker(
-                                                brokerDesc.getName(), backend.getIp());
+                                                brokerDesc.getName(), backend.getHost());
                                         tBrokerScanRange.getBrokerAddresses().add(
-                                                new TNetworkAddress(fsBroker.ip, fsBroker.port));
+                                                new TNetworkAddress(fsBroker.host, fsBroker.port));
 
                                         LOG.debug("push task for replica {}, broker {}:{},"
                                                         + " backendId {}, filePath {}, fileSize {}",
-                                                replicaId, fsBroker.ip,
+                                                replicaId, fsBroker.host,
                                                 fsBroker.port, backendId, tBrokerRangeDesc.path,
                                                 tBrokerRangeDesc.file_size);
 
@@ -617,7 +625,7 @@ public class SparkLoadJob extends BulkLoadJob {
             }
 
             // if all replicas are finished or stay in quorum finished for long time, try to commit it.
-            long stragglerTimeout = Config.load_straggler_wait_second * 1000;
+            long stragglerTimeout = 300 * 1000;
             if ((quorumFinishTimestamp > 0 && System.currentTimeMillis() - quorumFinishTimestamp > stragglerTimeout)
                     || fullTablets.containsAll(totalTablets)) {
                 canCommitJob = true;
@@ -735,7 +743,7 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     @Override
-    protected String getResourceName() {
+    public String getResourceName() {
         return sparkResource.getName();
     }
 

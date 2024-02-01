@@ -19,6 +19,7 @@ package org.apache.doris.policy;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.catalog.ScalarType;
@@ -37,8 +38,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -161,12 +162,12 @@ public class StoragePolicy extends Policy {
             throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
         }
         if (hasCooldownDatetime) {
-            SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
             try {
-                this.cooldownTimestampMs = df.parse(props.get(COOLDOWN_DATETIME)).getTime();
-            } catch (ParseException e) {
+                this.cooldownTimestampMs = LocalDateTime.parse(props.get(COOLDOWN_DATETIME), TimeUtils.DATETIME_FORMAT)
+                        .atZone(TimeUtils.TIME_ZONE).toInstant().toEpochMilli();
+            } catch (DateTimeParseException e) {
                 throw new AnalysisException(String.format("cooldown_datetime format error: %s",
-                                            props.get(COOLDOWN_DATETIME)), e);
+                        props.get(COOLDOWN_DATETIME)), e);
             }
             // ttl would be set as -1 when using datetime
             this.cooldownTtl = -1;
@@ -177,29 +178,38 @@ public class StoragePolicy extends Policy {
             this.cooldownTtl = getSecondsByCooldownTtl(props.get(COOLDOWN_TTL));
         }
 
-        checkIsS3ResourceAndExist(this.storageResource);
+        checkResourceIsExist(this.storageResource);
         if (!addResourceReference() && !ifNotExists) {
-            throw new AnalysisException("this policy has been added to s3 resource once, policy has been created.");
+            throw new AnalysisException("this policy has been added to s3 or hdfs resource, policy has been created.");
         }
     }
 
-    private static Resource checkIsS3ResourceAndExist(final String storageResource) throws AnalysisException {
-        // check storage_resource type is S3, current just support S3
+    private static Resource checkResourceIsExist(final String storageResource) throws AnalysisException {
         Resource resource =
                 Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(storageResource))
                     .orElseThrow(() -> new AnalysisException("storage resource doesn't exist: " + storageResource));
 
-        if (resource.getType() != Resource.ResourceType.S3) {
-            throw new AnalysisException("current storage policy just support resource type S3_COOLDOWN");
-        }
         Map<String, String> properties = resource.getCopiedProperties();
-        if (!properties.containsKey(S3Properties.ROOT_PATH)) {
-            throw new AnalysisException(String.format(
-                    "Missing [%s] in '%s' resource", S3Properties.ROOT_PATH, storageResource));
-        }
-        if (!properties.containsKey(S3Properties.BUCKET)) {
-            throw new AnalysisException(String.format(
-                    "Missing [%s] in '%s' resource", S3Properties.BUCKET, storageResource));
+        switch (resource.getType()) {
+            case S3:
+                if (!properties.containsKey(S3Properties.ROOT_PATH)) {
+                    throw new AnalysisException(String.format(
+                        "Missing [%s] in '%s' resource", S3Properties.ROOT_PATH, storageResource));
+                }
+                if (!properties.containsKey(S3Properties.BUCKET)) {
+                    throw new AnalysisException(String.format(
+                        "Missing [%s] in '%s' resource", S3Properties.BUCKET, storageResource));
+                }
+                break;
+            case HDFS:
+                if (!properties.containsKey(HdfsResource.HADOOP_FS_NAME)) {
+                    throw new AnalysisException(String.format(
+                        "Missing [%s] in '%s' resource", HdfsResource.HADOOP_FS_NAME, storageResource));
+                }
+                break;
+            default:
+                throw new AnalysisException(
+                    "current storage policy just support resource type S3_COOLDOWN or HDFS_COOLDOWN");
         }
         return resource;
     }
@@ -325,10 +335,10 @@ public class StoragePolicy extends Policy {
             if (properties.get(COOLDOWN_DATETIME).isEmpty()) {
                 cooldownTimestampMs = -1;
             } else {
-                SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
                 try {
-                    cooldownTimestampMs = df.parse(properties.get(COOLDOWN_DATETIME)).getTime();
-                } catch (ParseException e) {
+                    cooldownTimestampMs = LocalDateTime.parse(properties.get(COOLDOWN_DATETIME),
+                            TimeUtils.DATETIME_FORMAT).atZone(TimeUtils.TIME_ZONE).toInstant().toEpochMilli();
+                } catch (DateTimeParseException e) {
                     throw new RuntimeException(e);
                 }
             }
@@ -343,7 +353,7 @@ public class StoragePolicy extends Policy {
 
         String storageResource = properties.get(STORAGE_RESOURCE);
         if (storageResource != null) {
-            checkIsS3ResourceAndExist(storageResource);
+            checkResourceIsExist(storageResource);
         }
         if (this.policyName.equalsIgnoreCase(DEFAULT_STORAGE_POLICY_NAME) && this.storageResource == null
                 && storageResource == null) {

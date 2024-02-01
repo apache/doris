@@ -19,9 +19,14 @@ package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
+import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
+import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFoldConstantParams;
@@ -37,6 +42,7 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TCompactProtocol;
 
+import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
@@ -52,14 +58,14 @@ public class BackendServiceProxy {
 
     private Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(Config.grpc_threadmgr_threads_nums,
             "grpc_thread_pool", true);
-    private final Map<TNetworkAddress, BackendServiceClient> serviceMap;
+    private final Map<TNetworkAddress, BackendServiceClientExtIp> serviceMap;
 
     public BackendServiceProxy() {
         serviceMap = Maps.newConcurrentMap();
     }
 
     private static class Holder {
-        private static final int PROXY_NUM = 20;
+        private static final int PROXY_NUM = Config.backend_proxy_num;
         private static BackendServiceProxy[] proxies = new BackendServiceProxy[PROXY_NUM];
         private static AtomicInteger count = new AtomicInteger();
 
@@ -78,38 +84,69 @@ public class BackendServiceProxy {
         return Holder.get();
     }
 
+    private class BackendServiceClientExtIp {
+        private String realIp;
+        private BackendServiceClient client;
+
+        public BackendServiceClientExtIp(String realIp, BackendServiceClient client) {
+            this.realIp = realIp;
+            this.client = client;
+        }
+
+    }
+
     public void removeProxy(TNetworkAddress address) {
         LOG.warn("begin to remove proxy: {}", address);
-        BackendServiceClient service;
+        BackendServiceClientExtIp serviceClientExtIp;
         lock.lock();
         try {
-            service = serviceMap.remove(address);
+            serviceClientExtIp = serviceMap.remove(address);
         } finally {
             lock.unlock();
         }
 
-        if (service != null) {
-            service.shutdown();
+        if (serviceClientExtIp != null) {
+            serviceClientExtIp.client.shutdown();
         }
     }
 
-    private BackendServiceClient getProxy(TNetworkAddress address) {
-        BackendServiceClient service = serviceMap.get(address);
-        if (service != null) {
-            return service;
+    private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
+        String realIp = NetUtils.getIpByHost(address.getHostname());
+        BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
+        if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
+                && serviceClientExtIp.client.isNormalState()) {
+            return serviceClientExtIp.client;
         }
 
         // not exist, create one and return.
+        BackendServiceClient removedClient = null;
         lock.lock();
         try {
-            service = serviceMap.get(address);
-            if (service == null) {
-                service = new BackendServiceClient(address, grpcThreadPool);
-                serviceMap.put(address, service);
+            serviceClientExtIp = serviceMap.get(address);
+            if (serviceClientExtIp != null && !serviceClientExtIp.realIp.equals(realIp)) {
+                LOG.warn("Cached ip changed ,before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
+                serviceMap.remove(address);
+                removedClient = serviceClientExtIp.client;
+                serviceClientExtIp = null;
             }
-            return service;
+            if (serviceClientExtIp != null && !serviceClientExtIp.client.isNormalState()) {
+                // At this point we cannot judge the progress of reconnecting the underlying channel.
+                // In the worst case, it may take two minutes. But we can't stand the connection refused
+                // for two minutes, so rebuild the channel directly.
+                serviceMap.remove(address);
+                removedClient = serviceClientExtIp.client;
+                serviceClientExtIp = null;
+            }
+            if (serviceClientExtIp == null) {
+                BackendServiceClient client = new BackendServiceClient(address, grpcThreadPool);
+                serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
+            }
+            return serviceMap.get(address).client;
         } finally {
             lock.unlock();
+            if (removedClient != null) {
+                removedClient.shutdown();
+            }
         }
     }
 
@@ -203,6 +240,24 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PCancelPlanFragmentResult> cancelPipelineXPlanFragmentAsync(TNetworkAddress address,
+            int fragmentId, TUniqueId queryId, Types.PPlanFragmentCancelReason cancelReason) throws RpcException {
+        final InternalService.PCancelPlanFragmentRequest pRequest = InternalService.PCancelPlanFragmentRequest
+                .newBuilder()
+                .setFinstId(Types.PUniqueId.newBuilder().setHi(0).setLo(0).build())
+                .setCancelReason(cancelReason)
+                .setFragmentId(fragmentId)
+                .setQueryId(Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build()).build();
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.cancelPlanFragmentAsync(pRequest);
+        } catch (Throwable e) {
+            LOG.warn("Cancel plan fragment catch a exception, address={}:{}", address.getHostname(), address.getPort(),
+                    e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PFetchDataResult> fetchDataAsync(
             TNetworkAddress address, InternalService.PFetchDataRequest request) throws RpcException {
         try {
@@ -239,6 +294,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PFetchArrowFlightSchemaResult> fetchArrowFlightSchema(
+            TNetworkAddress address, InternalService.PFetchArrowFlightSchemaRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchArrowFlightSchema(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch arrow flight schema catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             TNetworkAddress address, InternalService.PFetchTableSchemaRequest request) throws RpcException {
         try {
@@ -246,6 +313,18 @@ public class BackendServiceProxy {
             return client.fetchTableStructureAsync(request);
         } catch (Throwable e) {
             LOG.warn("fetch table structure catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PReportStreamLoadStatusResponse> reportStreamLoadStatus(
+            TNetworkAddress address, InternalService.PReportStreamLoadStatusRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.reportStreamLoadStatus(request);
+        } catch (Throwable e) {
+            LOG.warn("report stream load status catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
@@ -368,5 +447,54 @@ public class BackendServiceProxy {
             throw new RpcException(address.hostname, e.getMessage());
         }
     }
+
+    public Future<InternalService.PGlobResponse> glob(TNetworkAddress address,
+            InternalService.PGlobRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.glob(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to glob dir from BE {}:{}, path: {}, error: ",
+                    address.getHostname(), address.getPort(), request.getPattern());
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<PGroupCommitInsertResponse> groupCommitInsert(TNetworkAddress address,
+            PGroupCommitInsertRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.groupCommitInsert(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to group commit insert from address={}:{}", address.getHostname(),
+                    address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<PGetWalQueueSizeResponse> getWalQueueSize(TNetworkAddress address,
+            PGetWalQueueSizeRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.getWalQueueSize(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to get wal queue size from address={}:{}", address.getHostname(),
+                    address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PFetchRemoteSchemaResponse> fetchRemoteTabletSchemaAsync(
+            TNetworkAddress address, InternalService.PFetchRemoteSchemaRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchRemoteTabletSchemaAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch remote tablet schema catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
 
 }

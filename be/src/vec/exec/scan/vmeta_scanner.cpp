@@ -23,8 +23,8 @@
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Types_types.h>
 
+#include <algorithm>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -58,10 +58,20 @@ namespace doris::vectorized {
 
 VMetaScanner::VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
                            const TScanRangeParams& scan_range, int64_t limit,
-                           RuntimeProfile* profile)
+                           RuntimeProfile* profile, TUserIdentity user_identity)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _meta_eos(false),
           _tuple_id(tuple_id),
+          _user_identity(user_identity),
+          _scan_range(scan_range.scan_range) {}
+
+VMetaScanner::VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
+                           int64_t tuple_id, const TScanRangeParams& scan_range, int64_t limit,
+                           RuntimeProfile* profile, TUserIdentity user_identity)
+        : VScanner(state, local_state, limit, profile),
+          _meta_eos(false),
+          _tuple_id(tuple_id),
+          _user_identity(user_identity),
           _scan_range(scan_range.scan_range) {}
 
 Status VMetaScanner::open(RuntimeState* state) {
@@ -70,10 +80,21 @@ Status VMetaScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VMetaScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
+Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     VLOG_CRITICAL << "VMetaScanner::prepare";
-    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
+    RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
+    bool has_col_nullable =
+            std::any_of(std::begin(_tuple_desc->slots()), std::end(_tuple_desc->slots()),
+                        [](SlotDescriptor* slot_desc) { return slot_desc->is_nullable(); });
+
+    if (has_col_nullable) {
+        // We do not allow any columns to be Nullable here, since FE can not
+        // transmit a NULL value to BE, so we can not distinguish a empty string
+        // from a NULL value.
+        return Status::InternalError("Logical error, VMetaScanner do not allow ColumnNullable");
+    }
+
     RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
 }
@@ -103,7 +124,7 @@ Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             }
         }
         // fill block
-        _fill_block_with_remote_data(columns);
+        RETURN_IF_ERROR(_fill_block_with_remote_data(columns));
         if (_meta_eos == true) {
             if (block->rows() == 0) {
                 *eof = true;
@@ -137,12 +158,16 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
         }
 
         for (int _row_idx = 0; _row_idx < _batch_data.size(); _row_idx++) {
+            // No need to check nullable column since no nullable column is
+            // guaranteed in VMetaScanner::prepare
             vectorized::IColumn* col_ptr = columns[col_idx].get();
-            if (slot_desc->is_nullable() == true) {
-                auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
-                col_ptr = &nullable_column->get_nested_column();
-            }
             switch (slot_desc->type().type) {
+            case TYPE_BOOLEAN: {
+                bool data = _batch_data[_row_idx].column_value[col_idx].boolVal;
+                reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)
+                        ->insert_value((uint8_t)data);
+                break;
+            }
             case TYPE_INT: {
                 int64_t data = _batch_data[_row_idx].column_value[col_idx].intVal;
                 reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)
@@ -204,13 +229,44 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::BACKENDS:
         RETURN_IF_ERROR(_build_backends_metadata_request(meta_scan_range, &request));
         break;
-    case TMetadataType::RESOURCE_GROUPS:
-        RETURN_IF_ERROR(_build_resource_groups_metadata_request(meta_scan_range, &request));
+    case TMetadataType::FRONTENDS:
+        RETURN_IF_ERROR(_build_frontends_metadata_request(meta_scan_range, &request));
+        break;
+    case TMetadataType::FRONTENDS_DISKS:
+        RETURN_IF_ERROR(_build_frontends_disks_metadata_request(meta_scan_range, &request));
+        break;
+    case TMetadataType::WORKLOAD_GROUPS:
+        RETURN_IF_ERROR(_build_workload_groups_metadata_request(meta_scan_range, &request));
+        break;
+    case TMetadataType::WORKLOAD_SCHED_POLICY:
+        RETURN_IF_ERROR(_build_workload_sched_policy_metadata_request(meta_scan_range, &request));
+        break;
+    case TMetadataType::CATALOGS:
+        RETURN_IF_ERROR(_build_catalogs_metadata_request(meta_scan_range, &request));
+        break;
+    case TMetadataType::MATERIALIZED_VIEWS:
+        RETURN_IF_ERROR(_build_materialized_views_metadata_request(meta_scan_range, &request));
+        break;
+    case TMetadataType::JOBS:
+        RETURN_IF_ERROR(_build_jobs_metadata_request(meta_scan_range, &request));
+        break;
+    case TMetadataType::TASKS:
+        RETURN_IF_ERROR(_build_tasks_metadata_request(meta_scan_range, &request));
+        break;
+    case TMetadataType::QUERIES:
+        RETURN_IF_ERROR(_build_queries_metadata_request(meta_scan_range, &request));
         break;
     default:
         _meta_eos = true;
         return Status::OK();
     }
+
+    // set filter columns
+    std::vector<std::string> filter_columns;
+    for (const auto& slot : _tuple_desc->slots()) {
+        filter_columns.emplace_back(slot->col_name_lower_case());
+    }
+    request.metada_table_params.__set_columns_name(filter_columns);
 
     // _state->execution_timeout() is seconds, change to milliseconds
     int time_out = _state->execution_timeout() * 1000;
@@ -223,7 +279,7 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
             },
             time_out));
 
-    Status status(result.status);
+    Status status(Status::create(result.status));
     if (!status.ok()) {
         LOG(WARNING) << "fetch schema table data from master failed, errmsg=" << status;
         return status;
@@ -271,9 +327,47 @@ Status VMetaScanner::_build_backends_metadata_request(const TMetaScanRange& meta
     return Status::OK();
 }
 
-Status VMetaScanner::_build_resource_groups_metadata_request(
+Status VMetaScanner::_build_frontends_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                       TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_frontends_metadata_request";
+    if (!meta_scan_range.__isset.frontends_params) {
+        return Status::InternalError("Can not find TFrontendsMetadataParams from meta_scan_range.");
+    }
+    // create request
+    request->__set_cluster_name("");
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::FRONTENDS);
+    metadata_table_params.__set_frontends_metadata_params(meta_scan_range.frontends_params);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_frontends_disks_metadata_request(
         const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_resource_groups_metadata_request";
+    VLOG_CRITICAL << "VMetaScanner::_build_frontends_metadata_request";
+    if (!meta_scan_range.__isset.frontends_params) {
+        return Status::InternalError("Can not find TFrontendsMetadataParams from meta_scan_range.");
+    }
+    // create request
+    request->__set_cluster_name("");
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::FRONTENDS_DISKS);
+    metadata_table_params.__set_frontends_metadata_params(meta_scan_range.frontends_params);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_workload_groups_metadata_request(
+        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_workload_groups_metadata_request";
 
     // create request
     request->__set_cluster_name("");
@@ -281,7 +375,118 @@ Status VMetaScanner::_build_resource_groups_metadata_request(
 
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::RESOURCE_GROUPS);
+    metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_GROUPS);
+    metadata_table_params.__set_current_user_ident(_user_identity);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_workload_sched_policy_metadata_request(
+        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_workload_sched_policy_metadata_request";
+
+    // create request
+    request->__set_cluster_name("");
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_SCHED_POLICY);
+    metadata_table_params.__set_current_user_ident(_user_identity);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                      TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_catalogs_metadata_request";
+
+    // create request
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::CATALOGS);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_materialized_views_metadata_request(
+        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_materialized_views_metadata_request";
+    if (!meta_scan_range.__isset.materialized_views_params) {
+        return Status::InternalError(
+                "Can not find TMaterializedViewsMetadataParams from meta_scan_range.");
+    }
+
+    // create request
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::MATERIALIZED_VIEWS);
+    metadata_table_params.__set_materialized_views_metadata_params(
+            meta_scan_range.materialized_views_params);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_jobs_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                  TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_jobs_metadata_request";
+    if (!meta_scan_range.__isset.jobs_params) {
+        return Status::InternalError("Can not find TJobsMetadataParams from meta_scan_range.");
+    }
+
+    // create request
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::JOBS);
+    metadata_table_params.__set_jobs_metadata_params(meta_scan_range.jobs_params);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_tasks_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                   TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_tasks_metadata_request";
+    if (!meta_scan_range.__isset.tasks_params) {
+        return Status::InternalError("Can not find TTasksMetadataParams from meta_scan_range.");
+    }
+
+    // create request
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::TASKS);
+    metadata_table_params.__set_tasks_metadata_params(meta_scan_range.tasks_params);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_queries_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                     TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_queries_metadata_request";
+    if (!meta_scan_range.__isset.queries_params) {
+        return Status::InternalError("Can not find TQueriesMetadataParams from meta_scan_range.");
+    }
+    // create request
+    request->__set_cluster_name("");
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::QUERIES);
+    metadata_table_params.__set_queries_metadata_params(meta_scan_range.queries_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

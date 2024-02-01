@@ -31,10 +31,12 @@ class ExplainAction implements SuiteAction {
     private SuiteContext context
     private Set<String> containsStrings = new LinkedHashSet<>()
     private Set<String> notContainsStrings = new LinkedHashSet<>()
+    private String coonType
     private Closure checkFunction
 
-    ExplainAction(SuiteContext context) {
+    ExplainAction(SuiteContext context, String coonType = "JDBC") {
         this.context = context
+        this.coonType = coonType
     }
 
     void sql(String sql) {
@@ -115,7 +117,11 @@ class ExplainAction implements SuiteAction {
         ResultSetMetaData meta = null
         try {
             def temp = null
-            (temp, meta) = JdbcUtils.executeToList(context.getConnection(), explainSql)
+            if (coonType == "JDBC") {
+                (temp, meta) = JdbcUtils.executeToList(context.getConnection(), explainSql)
+            } else if (coonType == "ARROW_FLIGHT_SQL") {
+                (temp, meta) = JdbcUtils.executeToList(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + explainSql))
+            }
             explainString = temp.stream().map({row -> row.get(0).toString()}).collect(Collectors.joining("\n"))
             return new ActionResult(explainString, null, startTime, System.currentTimeMillis(), meta)
         } catch (Throwable t) {

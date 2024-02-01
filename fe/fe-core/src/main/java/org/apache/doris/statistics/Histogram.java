@@ -20,9 +20,9 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -31,7 +31,6 @@ import com.google.gson.JsonParser;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 
 import java.util.Collections;
 import java.util.List;
@@ -62,13 +61,12 @@ public class Histogram {
     public static Histogram fromResultRow(ResultRow resultRow) {
         try {
             HistogramBuilder histogramBuilder = new HistogramBuilder();
-
-            long catalogId = Long.parseLong(resultRow.getColumnValue("catalog_id"));
-            long idxId = Long.parseLong(resultRow.getColumnValue("idx_id"));
-            long dbId = Long.parseLong(resultRow.getColumnValue("db_id"));
-            long tblId = Long.parseLong(resultRow.getColumnValue("tbl_id"));
-
-            String colName = resultRow.getColumnValue("col_id");
+            HistData histData = new HistData(resultRow);
+            long catalogId = histData.statsId.catalogId;
+            long idxId = histData.statsId.idxId;
+            long dbId = histData.statsId.dbId;
+            long tblId = histData.statsId.tblId;
+            String colName = histData.statsId.colId;
             Column col = StatisticsUtil.findColumn(catalogId, dbId, tblId, idxId, colName);
             if (col == null) {
                 LOG.warn("Failed to deserialize histogram statistics, ctlId: {} dbId: {}"
@@ -79,10 +77,10 @@ public class Histogram {
             Type dataType = col.getType();
             histogramBuilder.setDataType(dataType);
 
-            double sampleRate = Double.parseDouble(resultRow.getColumnValue("sample_rate"));
+            double sampleRate = histData.sampleRate;
             histogramBuilder.setSampleRate(sampleRate);
 
-            String json = resultRow.getColumnValue("buckets");
+            String json = histData.buckets;
             JsonObject jsonObj = JsonParser.parseString(json).getAsJsonObject();
 
             int bucketNum = jsonObj.get("num_buckets").getAsInt();
@@ -178,5 +176,10 @@ public class Histogram {
         }
         Bucket lastBucket = buckets.get(buckets.size() - 1);
         return lastBucket.preSum + lastBucket.count;
+    }
+
+    @Override
+    public String toString() {
+        return serializeToJson(this);
     }
 }

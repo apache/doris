@@ -21,13 +21,16 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureHelper.ComputeSignatureChain;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
+import java.util.function.BiFunction;
 
 /**
  * this class is usage to compute function's return type by the argument's type.
@@ -67,13 +70,13 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
      * @return expectedInputTypes
      */
     @Override
-    default List<AbstractDataType> expectedInputTypes() {
+    default List<DataType> expectedInputTypes() {
         FunctionSignature signature = getSignature();
         int arity = arity();
         if (signature.hasVarArgs && arity > signature.arity) {
-            Builder<AbstractDataType> varTypes = ImmutableList.<AbstractDataType>builder()
+            Builder<DataType> varTypes = ImmutableList.<DataType>builder()
                     .addAll(signature.argumentsTypes);
-            AbstractDataType varType = signature.getVarArgType().get();
+            DataType varType = signature.getVarArgType().get();
             for (int i = signature.arity; i < arity; ++i) {
                 varTypes.add(varType);
             }
@@ -88,7 +91,7 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
      */
     @Override
     default DataType getDataType() {
-        return (DataType) getSignature().returnType;
+        return getSignature().returnType;
     }
 
     @Override
@@ -105,10 +108,32 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
         // If you want to add some special cases, please override this method in the special
         // function class, like 'If' function and 'Substring' function.
         return ComputeSignatureChain.from(this, signature, getArguments())
-                .then(ComputeSignatureHelper::implementAbstractReturnType)
-                .then(ComputeSignatureHelper::normalizeDecimalV2)
+                .then(ComputeSignatureHelper::implementAnyDataTypeWithOutIndex)
+                .then(ComputeSignatureHelper::implementAnyDataTypeWithIndex)
                 .then(ComputeSignatureHelper::computePrecision)
+                .then(ComputeSignatureHelper::implementFollowToArgumentReturnType)
+                .then(ComputeSignatureHelper::normalizeDecimalV2)
                 .then(ComputeSignatureHelper::dynamicComputePropertiesOfArray)
                 .get();
+    }
+
+    /** use processor to process computeSignature */
+    static boolean processComplexType(DataType signatureType, DataType realType,
+            BiFunction<DataType, DataType, Boolean> processor) {
+        if (signatureType instanceof ArrayType && realType instanceof ArrayType) {
+            return processComplexType(((ArrayType) signatureType).getItemType(),
+                    ((ArrayType) realType).getItemType(), processor);
+        } else if (signatureType instanceof MapType && realType instanceof MapType) {
+            return processComplexType(((MapType) signatureType).getKeyType(),
+                    ((MapType) realType).getKeyType(), processor)
+                    && processComplexType(((MapType) signatureType).getValueType(),
+                    ((MapType) realType).getValueType(), processor);
+        } else if (signatureType instanceof StructType && realType instanceof StructType) {
+            // TODO: do not support struct type now
+            // throw new AnalysisException("do not support struct type now");
+            return true;
+        } else {
+            return processor.apply(signatureType, realType);
+        }
     }
 }

@@ -24,25 +24,19 @@
 #if __cplusplus <= 202002L
 #include "util/expected.hpp"
 namespace doris {
-template <typename T, typename E>
-using expected = tl::expected<T, E>;
-template <typename E>
-using unexpected = tl::unexpected<E>;
-template <class E>
-using bad_expected_access = tl::bad_expected_access<E>;
-using unexpect_t = tl::unexpect_t;
-using tl::unexpect; // NOLINT
+using tl::expected;            // NOLINT
+using tl::unexpected;          // NOLINT
+using tl::bad_expected_access; // NOLINT
+using tl::unexpect_t;          // NOLINT
+using tl::unexpect;            // NOLINT
 } // namespace doris
 #else
 #include <expected>
 namespace doris {
-template <typename T, typename E>
-using expected = std::expected<T, E>;
-template <typename E>
-using unexpected = std::unexpected<E>;
-template <class E>
-using bad_expected_access = std::bad_expected_access<E>;
-using unexpect_t = std::unexpect_t;
-using std::unexpect; // NOLINT
+using std::expected;            // NOLINT
+using std::unexpected;          // NOLINT
+using std::bad_expected_access; // NOLINT
+using std::unexpect_t;          // NOLINT
+using std::unexpect;            // NOLINT
 } // namespace doris
 #endif

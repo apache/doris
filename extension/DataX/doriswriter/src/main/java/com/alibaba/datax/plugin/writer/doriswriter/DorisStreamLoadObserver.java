@@ -64,6 +64,18 @@ public class DorisStreamLoadObserver {
         this.options = options;
     }
 
+    public String urlDecode(String outBuffer) {
+        String data = outBuffer;
+        try {
+            data = data.replaceAll("%(?![0-9a-fA-F]{2})", "%25");
+            data = data.replaceAll("\\+", "%2B");
+            data = URLDecoder.decode(data, "utf-8");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return data;
+    }
+
     public void streamLoad(WriterTuple data) throws Exception {
         String host = getLoadHost();
         if(host == null){
@@ -77,6 +89,7 @@ public class DorisStreamLoadObserver {
                 .append("/_stream_load")
                 .toString();
         LOG.info("Start to join batch data: rows[{}] bytes[{}] label[{}].", data.getRows().size(), data.getBytes(), data.getLabel());
+        loadUrl = urlDecode(loadUrl);
         Map<String, Object> loadResult = put(loadUrl, data.getLabel(), addRows(data.getRows(), data.getBytes().intValue()));
         LOG.info("StreamLoad response :{}",JSON.toJSONString(loadResult));
         final String keyStatus = "Status";
@@ -114,7 +127,7 @@ public class DorisStreamLoadObserver {
                                 "could not get the final state of label[%s].\n", label), null);
                     }
                     Map<String, Object> result = (Map<String, Object>)JSON.parse(EntityUtils.toString(respEntity));
-                    String labelState = (String)result.get("state");
+                    String labelState = (String)result.get("data");
                     if (null == labelState) {
                         throw new IOException(String.format("Failed to flush data to Doris, Error " +
                                 "could not get the final state of label[%s]. response[%s]\n", label, EntityUtils.toString(respEntity)), null);
@@ -227,12 +240,10 @@ public class DorisStreamLoadObserver {
 
     private String getLoadHost() {
         List<String> hostList = options.getLoadUrlList();
-        long tmp = pos + hostList.size();
-        for (; pos < tmp; pos++) {
-            String host = new StringBuilder("http://").append(hostList.get((int) (pos % hostList.size()))).toString();
-            if (checkConnection(host)) {
-                return host;
-            }
+        Collections.shuffle(hostList);
+        String host = new StringBuilder("http://").append(hostList.get((0))).toString();
+        if (checkConnection(host)){
+            return host;
         }
         return null;
     }

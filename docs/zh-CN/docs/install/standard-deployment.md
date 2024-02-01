@@ -46,7 +46,7 @@ Doris 作为一款开源的 MPP 架构 OLAP 数据库，能够运行在绝大多
 
 | 软件 | 版本 |
 |---|---|
-| Java | 1.8 及以上 |
+| Java | 1.8  |
 | GCC  | 4.8.2 及以上 |
 
 #### 操作系统安装要求
@@ -88,7 +88,7 @@ ext4和xfs文件系统均支持。
 > 注1：
 > 1. FE 的磁盘空间主要用于存储元数据，包括日志和 image。通常从几百 MB 到几个 GB 不等。
 > 2. BE 的磁盘空间主要用于存放用户数据，总磁盘空间按用户总数据量 * 3（3副本）计算，然后再预留额外 40% 的空间用作后台 compaction 以及一些中间数据的存放。
-> 3. 一台机器上可以部署多个 BE 实例，但是**只能部署一个 FE**。如果需要 3 副本数据，那么至少需要 3 台机器各部署一个 BE 实例（而不是1台机器部署3个BE实例）。**多个FE所在服务器的时钟必须保持一致（允许最多5秒的时钟偏差）**
+> 3. 一台机器上虽然可以部署多个 BE，**但只建议部署一个实例**，同时**只能部署一个 FE**。如果需要 3 副本数据，那么至少需要 3 台机器各部署一个 BE 实例（而不是1台机器部署3个BE实例）。**多个FE所在服务器的时钟必须保持一致（允许最多5秒的时钟偏差）**
 > 4. 测试环境也可以仅适用一个 BE 进行测试。实际生产环境，BE 实例数量直接决定了整体查询延迟。
 > 5. 所有部署节点关闭 Swap。
 
@@ -119,6 +119,7 @@ Doris 各个实例直接通过网络进行通讯。以下表格展示了所有�
 | FE | http_port  | 8030 | FE <--> FE，用户 <--> FE |FE 上的 http server 端口 |
 | FE | rpc_port | 9020 | BE --> FE, FE <--> FE | FE 上的 thrift server 端口，每个fe的配置需要保持一致|
 | FE | query_port | 9030 | 用户 <--> FE | FE 上的 mysql server 端口 |
+| FE | arrow_flight_sql_port | 9040 | 用户 <--> FE | FE 上的 Arrow Flight SQL server 端口 |
 | FE | edit\_log_port | 9010 | FE <--> FE | FE 上的 bdbje 之间通信用的端口 |
 | Broker | broker\_ipc_port | 8000 | FE --> Broker, BE --> Broker | Broker 上的 thrift server，用于接收请求 |
 
@@ -172,7 +173,7 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
        **注意：生产环境强烈建议单独指定目录不要放在Doris安装目录下，最好是单独的磁盘（如果有SSD最好），测试开发环境可以使用默认配置**
 
-    2. fe.conf 中 JAVA_OPTS 默认 java 最大堆内存为 4GB，**建议生产环境调整至 8G 以上**。
+    2. fe.conf 中 JAVA_OPTS 默认 java 最大堆内存为 8GB。
 
 * 启动FE
 
@@ -192,31 +193,27 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
 * 修改所有 BE 的配置
 
-  修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，需要**手动创建**该目录。多个路径之间使用英文状态的分号 `;` 分隔（**最后一个目录后不要加 `;`**）。  
-  可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过英文状态逗号`,`隔开。如果用户不是SSD和HDD磁盘混合使用的情况，不需要按照如下示例一和示例二的配置方法配置，只需指定存储目录即可；也不需要修改FE的默认存储介质配置  
+  修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，若需要指定目录的话，需要**预创建目录**。多个路径之间使用英文状态的分号 `;` 分隔。  
+  可以通过路径区别节点内的冷热数据存储目录，HDD（冷数据目录）或 SSD（热数据目录）。如果不需要 BE 节点内的冷热机制，那么只需要配置路径即可，无需指定 medium 类型；也不需要修改FE的默认存储介质配置  
+
+  **注意：**
+  1. 如果未指定存储路径的存储类型，则默认全部为 HDD（冷数据目录）。
+  2. 这里的 HDD 和 SSD 与物理存储介质无关，只为了区分存储路径的存储类型，即可以在 HDD 介质的盘上标记某个目录为 SSD（热数据目录）。
 
   示例1如下：
 
-  **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
-
-  `storage_root_path=/home/disk1/doris.HDD;/home/disk2/doris.SSD;/home/disk2/doris`
-
-  **说明**
-
-    - /home/disk1/doris.HDD ： 表示存储介质是HDD;
-    - /home/disk2/doris.SSD： 表示存储介质是SSD；
-    - /home/disk2/doris： 表示存储介质是HDD（默认）
+  `storage_root_path=/home/disk1/doris;/home/disk2/doris;/home/disk2/doris`
 
   示例2如下：
 
-  **注意：不论HDD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
+  **使用 storage_root_path 参数里指定 medium**
 
   `storage_root_path=/home/disk1/doris,medium:HDD;/home/disk2/doris,medium:SSD`
 
   **说明**
 
-    - /home/disk1/doris,medium:HDD： 表示存储介质是HDD;
-    - /home/disk2/doris,medium:SSD： 表示存储介质是SSD;
+    - /home/disk1/doris,medium:HDD： 表示该目录存储冷数据;
+    - /home/disk2/doris,medium:SSD： 表示该目录存储热数据;
 
 * BE webserver_port端口配置
 
@@ -284,6 +281,20 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
 
   使用 mysql-client 连接任一已启动的 FE，执行以下命令查看 Broker 状态：`SHOW PROC "/brokers";`
 
+#### FE 和 BE 的启动方式
+
+##### 版本 >=2.0.2
+
+1. 使用 start_xx.sh 启动，该方式会将日志输出至文件，同时不会退出启动脚本进程，通常使用 supervisor 等工具自动拉起时建议采用这种方式。
+2. 使用 start_xx.sh --daemon 启动，FE/BE 将作为一个后台进程在后台运行，并且日志输出将默认写入到指定的日志文件中。 这种启动方式适用于生产环境。
+3. 使用 start_xx.sh --console 启动，该参数用于以控制台模式启动 FE/BE 。当使用 --console 参数启动时，服务器将在当前终端会话中启动，并将日志输出和控制台交互打印到该终端。
+   这种启动方式适用于开发和测试场景.
+##### 版本 < 2.0.2
+
+1. 使用 start_xx.sh --daemon 启动，FE/BE 将作为一个后台进程在后台运行，并且日志输出将默认写入到指定的日志文件中。 这种启动方式适用于生产环境。
+2. 使用 start_xx.sh 启动，该参数用于以控制台模式启动 FE/BE 。当使用 --console 参数启动时，服务器将在当前终端会话中启动，并将日志输出和控制台交互打印到该终端。
+   这种启动方式适用于开发和测试场景.
+
 **注：在生产环境中，所有实例都应使用守护进程启动，以保证进程退出后，会被自动拉起，如 [Supervisor](http://supervisord.org/)。如需使用守护进程启动，在 0.9.0 及之前版本中，需要修改各个 start_xx.sh 脚本，去掉最后的 & 符号**。从 0.10.0 版本开始，直接调用 `sh start_xx.sh` 启动即可。也可参考 [这里](https://www.cnblogs.com/lenmom/p/9973401.html)
 
 
@@ -318,7 +329,7 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
    同时，如果有数据查询，应该能看到不停滚动的日志，并且有 ```execute time is xxx``` 日志，表示 BE 启动成功，并且查询正常。
 
    也可以通过如下连接查看是否启动成功：  
-   `http://be_host:be_http_port/api/health`
+   `http://be_host:webserver_port/api/health`
 
    如果返回：  
    `{"status": "OK","msg": "To Be Added"}`

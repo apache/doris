@@ -43,7 +43,8 @@ public class LogicalJoinSemiJoinTranspose implements ExplorationRuleFactory {
                         .when(topJoin -> (topJoin.left().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isLeftOuterJoin())))
-                        .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.left().hasJoinHint())
+                        .whenNot(topJoin -> topJoin.hasDistributeHint() || topJoin.left().hasDistributeHint()
+                                || topJoin.left().isMarkJoin())
                         .whenNot(LogicalJoin::isMarkJoin)
                         .then(topJoin -> {
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
@@ -53,13 +54,14 @@ public class LogicalJoinSemiJoinTranspose implements ExplorationRuleFactory {
 
                             Plan newBottomJoin = topJoin.withChildrenNoContext(a, c);
                             return bottomJoin.withChildrenNoContext(newBottomJoin, b);
-                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE),
+                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_LEFT),
 
                 logicalJoin(group(), logicalJoin())
                         .when(topJoin -> (topJoin.right().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isRightOuterJoin())))
-                        .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.right().hasJoinHint())
+                        .whenNot(topJoin -> topJoin.hasDistributeHint() || topJoin.right().hasDistributeHint()
+                                || topJoin.right().isMarkJoin())
                         .whenNot(LogicalJoin::isMarkJoin)
                         .then(topJoin -> {
                             LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right();
@@ -69,7 +71,7 @@ public class LogicalJoinSemiJoinTranspose implements ExplorationRuleFactory {
 
                             Plan newBottomJoin = topJoin.withChildrenNoContext(a, b);
                             return bottomJoin.withChildrenNoContext(newBottomJoin, c);
-                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE)
+                        }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_RIGHT)
         );
     }
 }

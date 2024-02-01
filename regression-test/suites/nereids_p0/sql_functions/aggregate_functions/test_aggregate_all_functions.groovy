@@ -104,11 +104,15 @@ suite("test_aggregate_all_functions") {
     sql "insert into ${tableName_03} select dt,page,to_bitmap(user_id_int) user_id from ${tableName_04}"
     sql "insert into ${tableName_03} select dt,page,bitmap_hash(user_id_str) user_id from ${tableName_04}"
 
+    qt_select_all1 "select *, bitmap_to_string(user_id) from pv_bitmap order by 1,2;"
+    qt_select_all2 "select *, bitmap_to_string(user_id) from pv_bitmap where dt = 20220202 order by 1,2;"
+
     qt_bitmap_intersect "select dt, bitmap_to_string(bitmap_intersect(user_id_bitmap)) from ${tableName_04} group by dt order by dt"
 
     qt_select4 "select bitmap_union_count(user_id) from  ${tableName_03}"
     qt_select5 "select bitmap_count(bitmap_union(user_id)) FROM ${tableName_03}"
-
+    qt_select6 "select bitmap_union_count(user_id) from  ${tableName_03} group by page order by 1;"
+    qt_select7 "select bitmap_to_string(bitmap_union(user_id)) FROM ${tableName_03} group by page order by 1;"
     qt_group_bitmap_xor "select dt, bitmap_to_string(group_bitmap_xor(user_id_bitmap)) from ${tableName_04} group by dt order by dt"
 
     sql "DROP TABLE IF EXISTS ${tableName_03}"
@@ -490,7 +494,7 @@ suite("test_aggregate_all_functions") {
        
     sql "DROP TABLE IF EXISTS ${tableName_10}"
 
-    qt_select44 """select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from test_query_db.test  """
+    qt_select44 """select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from nereids_test_query_db.test  """
 
     qt_select45 """select * from ${tableName_12} order by id,level"""
 
@@ -532,6 +536,7 @@ suite("test_aggregate_all_functions") {
         inputIterator rows.iterator()
     }
 
+    sql """sync"""
     qt_select48 """select dt, id, quantile_percent(quantile_union(price), 0) from ${tableName_21} group by dt, id order by dt, id"""
 
     qt_select49 """select dt, id, quantile_percent(quantile_union(price), 0.5) from ${tableName_21} group by dt, id order by dt, id"""

@@ -48,6 +48,14 @@ public class AlterOperations {
         }
     }
 
+    public void checkMTMVAllow(List<AlterClause> alterClauses) throws DdlException {
+        for (AlterClause alterClause : alterClauses) {
+            if (!alterClause.getOpType().mtmvAllowOp()) {
+                throw new DdlException("Alter operation " + alterClause.getOpType() + " Not allowed to MTMV");
+            }
+        }
+    }
+
     // some operations take up disk space. so we need to check the disk capacity before processing.
     // return true if we see these kind of operations.
     public boolean needCheckCapacity() {
@@ -76,6 +84,33 @@ public class AlterOperations {
         return alterClauses.stream().filter(clause ->
             clause instanceof ModifyTablePropertiesClause
         ).map(c -> ((ModifyTablePropertiesClause) c).getStoragePolicy()).findFirst().orElse("");
+    }
+
+    public boolean checkIsBeingSynced(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED));
+    }
+
+    public boolean checkMinLoadReplicaNum(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM));
+    }
+
+    public boolean checkBinlogConfigChange(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
+    }
+
+    public boolean isBeingSynced(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).map(c -> ((ModifyTablePropertiesClause) c).isBeingSynced()).findFirst().orElse(false);
     }
 
     // MODIFY_TABLE_PROPERTY is also processed by SchemaChangeHandler

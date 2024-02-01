@@ -103,9 +103,15 @@ FE 是 Java 进程。这里只列举一下简单常用的 java 调试命令。
 
 对于内存的调试一般分为两个方面。一个是内存使用的总量是否合理，内存使用量过大一方面可能是由于系统存在内存泄露，另一方面可能是因为程序内存使用不当。其次就是是否存在内存越界、非法访问的问题，比如程序访问一个非法地址的内存，使用了未初始化内存等。对于内存方面的调试我们一般使用如下几种方式来进行问题追踪。
 
+Doris 1.2.1 及之前版本使用 TCMalloc，Doris 1.2.2 版本开始默认使用 Jemalloc，根据使用的 Doris 版本选择内存调试方法，如需切换 TCMalloc 可以这样编译 `USE_JEMALLOC=OFF sh build.sh --be`。
+
 #### 查看日志
 
-当发现内存使用量过大的时候，我们可以先查看be.out日志，看看是否有大内存申请。由于Doris当前使用的TCMalloc管理内存，那么遇到大内存申请时，都会将申请的堆栈打印到be.out文件中，一般的表现形式如下：
+当发现内存使用量过大的时候，我们可以先查看 BE 日志，看看是否有大内存申请。
+
+###### TCMalloc
+
+当使用 TCMalloc 时，遇到大内存申请会将申请的堆栈打印到be.out文件中，一般的表现形式如下：
 
 ```
 tcmalloc: large alloc 1396277248 bytes == 0x3f3488000 @  0x2af6f63 0x2c4095b 0x134d278 0x134bdcb 0x133d105 0x133d1d0 0x19930ed
@@ -125,7 +131,23 @@ $ addr2line -e lib/doris_be  0x2af6f63 0x2c4095b 0x134d278 0x134bdcb 0x133d105 0
 thread.cpp:?
 ```
 
+##### JEMALLOC
+
+Doris绝大多数的大内存申请都使用 Allocator，比如 HashTable、数据序列化，这部分内存申请是预期中的，会被有效管理起来，除此之外的大内存申请不被预期，会将申请的堆栈打印到 be.INFO 文件中，这通常用于调试，一般的表现形式如下：
+```
+MemHook alloc large memory: 8.2GB, stacktrace:
+Alloc Stacktrace:
+    @     0x55a6a5cf6b4d  doris::ThreadMemTrackerMgr::consume()
+    @     0x55a6a5cf99bf  malloc
+    @     0x55a6ae0caf98  operator new()
+    @     0x55a6a57cb013  doris::segment_v2::PageIO::read_and_decompress_page()
+    @     0x55a6a57719c0  doris::segment_v2::ColumnReader::read_page()
+    ……
+```
+
 #### HEAP PROFILE
+
+##### TCMalloc
 
 有时内存的申请并不是大内存的申请导致，而是通过小内存不断的堆积导致的。那么就没有办法通过查看日志定位到具体的申请信息，那么就需要通过其他方式来获得信息。
 
@@ -172,7 +194,7 @@ pprof --svg lib/doris_be /tmp/doris_be.hprof.0012.heap > heap.svg
 
 **注意：开启这个选项是要影响程序的执行性能的，请慎重对线上的实例开启**
 
-#### pprof remote server
+###### pprof remote server
 
 HEAP PROFILE虽然能够获得全部的内存使用信息，但是也有比较受限的地方。1. 需要重启BE进行。2. 需要一直开启这个命令，导致对整个进程的性能造成影响。
 
@@ -199,23 +221,45 @@ Total: 1296.4 MB
 
 这个命令的输出与HEAP PROFILE的输出及查看方式一样，这里就不再详细说明。这个命令只有在执行的过程中才会开启统计，相比HEAP PROFILE对于进程性能的影响有限。
 
-#### JEMALLOC HEAP PROFILE
+##### JEMALLOC
 
-##### 1. runtime heap dump by http 
-在`start_be.sh` 中`JEMALLOC_CONF` 增加 `,prof:true,lg_prof_sample:10` 并重启BE，然后使用jemalloc heap dump http接口，在对应的BE机器上生成heap dump文件。
-
-heap dump文件所在目录可以在 ``be.conf`` 中通过``jeprofile_dir``变量进行配置，默认为``${DORIS_HOME}/log``
+###### 1. realtime heap dump
+将 `be.conf` 中 `JEMALLOC_CONF` 的 `prof:false` 修改为 `prof:true` 并重启BE，然后使用jemalloc heap dump http接口，在对应的BE机器上生成heap dump文件。
 
 ```shell
 curl http://be_host:be_webport/jeheap/dump
 ```
 
-`prof`: 打开后jemalloc将根据当前内存使用情况生成heap dump文件，heap profile采样存在少量性能损耗，性能测试时可关闭。
-`lg_prof_sample`: heap profile采样间隔，默认值19，即默认采样间隔为512K(2^19 B)，这会导致heap profile记录的内存通常只有10%，`lg_prof_sample:10`可以减少采样间隔到1K (2^10 B), 更频繁的采样会使heap profile接近真实内存，但这会带来更大的性能损耗。
+heap dump文件所在目录可以在 ``be.conf`` 中通过``jeprofile_dir``变量进行配置，默认为``${DORIS_HOME}/log``
 
-详细参数说明参考 https://linux.die.net/man/3/jemalloc。
+默认采样间隔为 512K，这通常只会有 10% 的内存被heap dump记录，对性能的影响通常小于 10%，可以修改 `be.conf` 中 `JEMALLOC_CONF` 的 `lg_prof_sample`，默认为 `19` (2^19 B = 512K)，减小 `lg_prof_sample` 可以更频繁的采样使 heap profile 接近真实内存，但这会带来更大的性能损耗。
 
-#### 2. jemalloc heap dump profiling
+如果你在做性能测试，保持 `prof:false` 来避免 heap dump 的性能损耗。
+
+###### 2. regular heap dump
+同样要将 `be.conf` 中 `JEMALLOC_CONF` 的 `prof:false` 修改为 `prof:true`，同时将 `be.conf` 中 `JEMALLOC_PROF_PRFIX` 修改为任意值并重启BE。
+
+heap dump文件所在目录默认为 `${DORIS_HOME}/log`, 文件名前缀是 `JEMALLOC_PROF_PRFIX`。
+
+1. 内存累计申请一定值时dump:
+
+   默认内存累计申请 4GB 生成一次dump，可以修改 `be.conf` 中 `JEMALLOC_CONF` 的 `lg_prof_interval` 调整dump间隔，默认值 `32` (2^32 B = 4GB)。
+2. 内存每次达到新高时dump:
+
+   将 `be.conf` 中 `JEMALLOC_CONF` 的 `prof_gdump` 修改为 `true` 并重启BE。
+3. 程序退出时dump, 并检测内存泄漏:
+
+   将 `be.conf` 中 `JEMALLOC_CONF` 的 `prof_leak` 和 `prof_final` 修改为 `true` 并重启BE。
+4. dump内存累计值(growth)，而不是实时值:
+
+   将 `be.conf` 中 `JEMALLOC_CONF` 的 `prof_accum` 修改为 `true` 并重启BE。
+   使用 `jeprof --alloc_space` 展示 heap dump 累计值。
+
+##### 3. heap dump profiling
+
+```
+需要 addr2line 版本为 2.35.2, 见下面的 QA 1.
+```
 
 1.  单个heap dump文件生成纯文本分析结果
 ```shell
@@ -245,18 +289,39 @@ curl http://be_host:be_webport/jeheap/dump
    jeprof --pdf lib/doris_be --base=heap_dump_file_1 heap_dump_file_2 > result.pdf
    ```
 
-##### 3. heap dump by JEMALLOC_CONF
-通过更改`start_be.sh` 中`JEMALLOC_CONF` 变量后重新启动BE 来进行heap dump
+##### 4. QA
 
-1. 每1MB dump一次:
+1. 运行 jeprof 后出现很多错误: `addr2line: Dwarf Error: found dwarf version xxx, this reader only handles version xxx`.
 
-   `JEMALLOC_CONF`变量中新增两个变量设置`prof:true,lg_prof_interval:20`  其中`prof:true`是打开profiling，`lg_prof_interval:20`中表示每1MB(2^20)生成一次dump 
-2. 每次达到新高时dump:
-   
-   `JEMALLOC_CONF`变量中新增两个变量设置`prof:true,prof_gdump:true` 其中`prof:true`是打开profiling，`prof_gdump:true` 代表内存使用达到新高时生成dump
-3. 程序退出时内存泄漏dump:
-   
-   `JEMALLOC_CONF`变量中新增三个变量设置`prof_leak:true,lg_prof_sample:0,prof_final:true`
+GCC 11 之后默认使用 DWARF-v5 ，这要求Binutils 2.35.2 及以上，Doris Ldb_toolchain 用了 GCC 11。see: https://gcc.gnu.org/gcc-11/changes.html。
+
+替换 addr2line 到 2.35.2，参考：
+```
+// 下载 addr2line 源码
+wget https://ftp.gnu.org/gnu/binutils/binutils-2.35.tar.bz2
+
+// 安装依赖项，如果需要
+yum install make gcc gcc-c++ binutils
+
+// 编译&安装 addr2line
+tar -xvf binutils-2.35.tar.bz2
+cd binutils-2.35
+./configure --prefix=/usr/local
+make
+make install
+
+// 验证
+addr2line -h
+
+// 替换 addr2line
+chmod +x addr2line
+mv /usr/bin/addr2line /usr/bin/addr2line.bak
+mv /bin/addr2line /bin/addr2line.bak
+cp addr2line /bin/addr2line
+cp addr2line /usr/bin/addr2line
+hash -r
+```
+注意，不能使用 addr2line 2.3.9, 这可能不兼容，导致内存一直增长。
 
 #### LSAN
 

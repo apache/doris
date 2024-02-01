@@ -36,7 +36,9 @@
 #include "util/md5.h"
 
 namespace doris {
-CheckRPCChannelAction::CheckRPCChannelAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+CheckRPCChannelAction::CheckRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                             TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 void CheckRPCChannelAction::handle(HttpRequest* req) {
     std::string req_ip = req->param("ip");
     std::string req_port = req->param("port");
@@ -62,8 +64,8 @@ void CheckRPCChannelAction::handle(HttpRequest* req) {
             return;
         }
     } catch (const std::exception& e) {
-        std::string err = fmt::format("invalid argument. port:{0}, payload_size: {1}", req_port,
-                                      req_payload_size);
+        std::string err = fmt::format("invalid argument. port: {0}, payload_size: {1}, reason: {}",
+                                      req_port, req_payload_size, e.what());
         LOG(WARNING) << err;
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, err);
         return;
@@ -95,8 +97,7 @@ void CheckRPCChannelAction::handle(HttpRequest* req) {
         return;
     }
     if (response.status().status_code() == 0) {
-        std::string err =
-                fmt::format("open brpc connection to {0}:{1} succcess.", req_ip, req_port);
+        std::string err = fmt::format("open brpc connection to {0}:{1} success.", req_ip, req_port);
         LOG(WARNING) << err;
         HttpChannel::send_reply(req, HttpStatus::OK, err);
     } else {

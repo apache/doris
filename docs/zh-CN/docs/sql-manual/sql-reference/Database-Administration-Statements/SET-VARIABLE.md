@@ -49,25 +49,7 @@ SET variable_assignment [, variable_assignment] ...
 > 注意：
 >
 > 1. 只有 ADMIN 用户可以设置变量的全局生效
-> 2. 全局生效的变量不影响当前会话的变量值，仅影响新的会话中的变量。
-
-既支持当前会话生效又支持全局生效的变量包括：
-
-- `time_zone`
-- `wait_timeout`
-- `sql_mode`
-- `enable_profile`
-- `query_timeout`
-- <version since="dev" type="inline">`insert_timeout`</version>
-- `exec_mem_limit`
-- `batch_size`
-- `allow_partition_column_nullable`
-- `insert_visible_timeout_ms`
-- `enable_fold_constant_by_be`
-
-只支持全局生效的变量包括：
-
-- `default_rowset_type`
+> 2. 全局生效的变量影响当前会话和此后的新会话，不影响当前已经存在的其他会话。
 
 ### Example
 
@@ -86,6 +68,4 @@ SET variable_assignment [, variable_assignment] ...
 ### Keywords
 
     SET, VARIABLE
-
-### Best Practice
 

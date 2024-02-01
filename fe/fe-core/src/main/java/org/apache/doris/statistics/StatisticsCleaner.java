@@ -17,26 +17,24 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -56,15 +54,9 @@ public class StatisticsCleaner extends MasterDaemon {
     private OlapTable colStatsTbl;
     private OlapTable histStatsTbl;
 
-    private OlapTable jobTbl;
-
-    private Map<Long, CatalogIf> idToCatalog;
-
-    /* Internal DB only */
-    private Map<Long, Database> idToDb;
-
-    /* Internal tbl only */
-    private Map<Long, Table> idToTbl;
+    private Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog;
+    private Map<Long, DatabaseIf> idToDb;
+    private Map<Long, TableIf> idToTbl;
 
     private Map<Long, MaterializedIndexMeta> idToMVIdx;
 
@@ -82,12 +74,20 @@ public class StatisticsCleaner extends MasterDaemon {
     }
 
     public synchronized void clear() {
-        if (!init()) {
-            return;
+        try {
+            if (!init()) {
+                return;
+            }
+            clearStats(colStatsTbl);
+            clearStats(histStatsTbl);
+        } finally {
+            colStatsTbl = null;
+            histStatsTbl = null;
+            idToCatalog = null;
+            idToDb = null;
+            idToTbl = null;
+            idToMVIdx = null;
         }
-        clearStats(colStatsTbl);
-        clearStats(histStatsTbl);
-        clearJobTbl();
     }
 
     private void clearStats(OlapTable statsTbl) {
@@ -100,20 +100,9 @@ public class StatisticsCleaner extends MasterDaemon {
         } while (!expiredStats.isEmpty());
     }
 
-    private void clearJobTbl() {
-        List<String> jobIds = null;
-        long offset = 0;
-        do {
-            jobIds = new ArrayList<>();
-            offset = findExpiredJobs(jobIds, offset);
-            doDelete("job_id", jobIds, FeConstants.INTERNAL_DB_NAME + "."
-                    + StatisticConstants.ANALYSIS_JOB_TABLE);
-        } while (!jobIds.isEmpty());
-    }
-
     private boolean init() {
         try {
-            String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
+            String dbName = FeConstants.INTERNAL_DB_NAME;
             colStatsTbl =
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
@@ -124,24 +113,29 @@ public class StatisticsCleaner extends MasterDaemon {
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
                                     StatisticConstants.HISTOGRAM_TBL_NAME);
-            jobTbl = (OlapTable) StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                    dbName,
-                    StatisticConstants.ANALYSIS_JOB_TABLE);
         } catch (Throwable t) {
             LOG.warn("Failed to init stats cleaner", t);
             return false;
         }
 
         idToCatalog = Env.getCurrentEnv().getCatalogMgr().getIdToCatalog();
-        idToDb = Env.getCurrentEnv().getInternalCatalog().getIdToDb();
+        idToDb = constructDbMap();
         idToTbl = constructTblMap();
         idToMVIdx = constructIdxMap();
         return true;
     }
 
-    private Map<Long, Table> constructTblMap() {
-        Map<Long, Table> idToTbl = new HashMap<>();
-        for (Database db : idToDb.values()) {
+    private Map<Long, DatabaseIf> constructDbMap() {
+        Map<Long, DatabaseIf> idToDb = Maps.newHashMap();
+        for (CatalogIf ctl : idToCatalog.values()) {
+            idToDb.putAll(ctl.getIdToDb());
+        }
+        return idToDb;
+    }
+
+    private Map<Long, TableIf> constructTblMap() {
+        Map<Long, TableIf> idToTbl = new HashMap<>();
+        for (DatabaseIf db : idToDb.values()) {
             idToTbl.putAll(db.getIdToTable());
         }
         return idToTbl;
@@ -149,7 +143,7 @@ public class StatisticsCleaner extends MasterDaemon {
 
     private Map<Long, MaterializedIndexMeta> constructIdxMap() {
         Map<Long, MaterializedIndexMeta> idToMVIdx = new HashMap<>();
-        for (Table t : idToTbl.values()) {
+        for (TableIf t : idToTbl.values()) {
             if (t instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) t;
                 olapTable.getCopyOfIndexIdToMeta()
@@ -165,22 +159,25 @@ public class StatisticsCleaner extends MasterDaemon {
     private void deleteExpiredStats(ExpiredStats expiredStats, String tblName) {
         doDelete("catalog_id", expiredStats.expiredCatalog.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
-                FeConstants.INTERNAL_DB_NAME + "." + tblName);
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
         doDelete("db_id", expiredStats.expiredDatabase.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
-                FeConstants.INTERNAL_DB_NAME + "." + tblName);
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
         doDelete("tbl_id", expiredStats.expiredTable.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
-                FeConstants.INTERNAL_DB_NAME + "." + tblName);
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
         doDelete("idx_id", expiredStats.expiredIdxId.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
-                FeConstants.INTERNAL_DB_NAME + "." + tblName);
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
+        doDelete("part_id", expiredStats.expiredPartitionId.stream()
+                        .map(String::valueOf).collect(Collectors.toList()),
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
         doDelete("id", expiredStats.ids.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
-                FeConstants.INTERNAL_DB_NAME + "." + tblName);
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
     }
 
-    private void doDelete(String/*col name*/ colName, List<String> pred, String tblName) {
+    private void doDelete(String colName, List<String> pred, String tblName, boolean taskOnly) {
         String deleteTemplate = "DELETE FROM " + tblName + " WHERE ${left} IN (${right})";
         if (CollectionUtils.isEmpty(pred)) {
             return;
@@ -190,6 +187,9 @@ public class StatisticsCleaner extends MasterDaemon {
         params.put("left", colName);
         params.put("right", right);
         String sql = new StringSubstitutor(params).replace(deleteTemplate);
+        if (taskOnly) {
+            sql += " AND task_id != -1";
+        }
         try {
             StatisticsUtil.execUpdate(sql);
         } catch (Exception e) {
@@ -205,31 +205,32 @@ public class StatisticsCleaner extends MasterDaemon {
             pos += StatisticConstants.FETCH_LIMIT;
             for (ResultRow r : rows) {
                 try {
-                    String id = r.getColumnValue("id");
-                    long catalogId = Long.parseLong(r.getColumnValue("catalog_id"));
+                    StatsId statsId = new StatsId(r);
+                    String id = statsId.id;
+                    long catalogId = statsId.catalogId;
                     if (!idToCatalog.containsKey(catalogId)) {
                         expiredStats.expiredCatalog.add(catalogId);
                         continue;
                     }
-                    long dbId = Long.parseLong(r.getColumnValue("db_id"));
+                    long dbId = statsId.dbId;
                     if (!idToDb.containsKey(dbId)) {
                         expiredStats.expiredDatabase.add(dbId);
                         continue;
                     }
-                    long tblId = Long.parseLong(r.getColumnValue("tbl_id"));
+                    long tblId = statsId.tblId;
                     if (!idToTbl.containsKey(tblId)) {
                         expiredStats.expiredTable.add(tblId);
                         continue;
                     }
 
-                    long idxId = Long.parseLong(r.getColumnValue("idx_id"));
+                    long idxId = statsId.idxId;
                     if (idxId != -1 && !idToMVIdx.containsKey(idxId)) {
                         expiredStats.expiredIdxId.add(idxId);
                         continue;
                     }
 
-                    Table t = idToTbl.get(tblId);
-                    String colId = r.getColumnValue("col_id");
+                    TableIf t = idToTbl.get(tblId);
+                    String colId = statsId.colId;
                     if (t.getColumn(colId) == null) {
                         expiredStats.ids.add(id);
                         continue;
@@ -238,13 +239,12 @@ public class StatisticsCleaner extends MasterDaemon {
                         continue;
                     }
                     OlapTable olapTable = (OlapTable) t;
-                    String partIdStr = r.getColumnValue("part_id");
-                    if (partIdStr == null) {
+                    String partId = statsId.partId;
+                    if (partId == null) {
                         continue;
                     }
-                    long partId = Long.parseLong(partIdStr);
-                    if (!olapTable.getPartitionIds().contains(partId)) {
-                        expiredStats.ids.add(id);
+                    if (!olapTable.getPartitionIds().contains(Long.parseLong(partId))) {
+                        expiredStats.expiredPartitionId.add(Long.parseLong(partId));
                     }
                 } catch (Exception e) {
                     LOG.warn("Error occurred when retrieving expired stats", e);
@@ -255,30 +255,12 @@ public class StatisticsCleaner extends MasterDaemon {
         return pos;
     }
 
-    private long findExpiredJobs(List<String> jobIds, long offset) {
-        long pos = offset;
-        while (pos < jobTbl.getRowCount() && jobIds.size() < Config.max_allowed_in_element_num_of_delete) {
-            List<ResultRow> rows = StatisticsRepository.fetchExpiredJobs(StatisticConstants.FETCH_LIMIT, pos);
-            for (ResultRow r : rows) {
-                try {
-                    jobIds.add(r.getColumnValue("job_id"));
-                } catch (Exception e) {
-                    LOG.warn("Error when get job_id from ResultRow", e);
-                }
-            }
-            pos += StatisticConstants.FETCH_LIMIT;
-            this.yieldForOtherTask();
-        }
-        return pos;
-    }
-
     private static class ExpiredStats {
         Set<Long> expiredCatalog = new HashSet<>();
         Set<Long> expiredDatabase = new HashSet<>();
         Set<Long> expiredTable = new HashSet<>();
-
         Set<Long> expiredIdxId = new HashSet<>();
-
+        Set<Long> expiredPartitionId = new HashSet<>();
         Set<String> ids = new HashSet<>();
 
         public boolean isFull() {
@@ -286,6 +268,7 @@ public class StatisticsCleaner extends MasterDaemon {
                     || expiredDatabase.size() >= Config.max_allowed_in_element_num_of_delete
                     || expiredTable.size() >= Config.max_allowed_in_element_num_of_delete
                     || expiredIdxId.size() >= Config.max_allowed_in_element_num_of_delete
+                    || expiredPartitionId.size() >= Config.max_allowed_in_element_num_of_delete
                     || ids.size() >= Config.max_allowed_in_element_num_of_delete;
         }
 
@@ -294,6 +277,7 @@ public class StatisticsCleaner extends MasterDaemon {
                     && expiredDatabase.isEmpty()
                     && expiredTable.isEmpty()
                     && expiredIdxId.isEmpty()
+                    && expiredPartitionId.isEmpty()
                     && ids.size() < Config.max_allowed_in_element_num_of_delete / 10;
         }
     }

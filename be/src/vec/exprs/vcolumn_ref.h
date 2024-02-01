@@ -30,13 +30,12 @@ public:
     //this is different of slotref is using slot_id find a column_id
     //slotref: need to find the equal id in tuple, then return column_id, the plan of FE is very important
     //columnref: is columnid = slotid, not used to find, so you should know this column placed in block
-    VColumnRef(const doris::TExprNode& node)
+    VColumnRef(const TExprNode& node)
             : VExpr(node),
               _column_id(node.column_ref.column_id),
               _column_name(node.column_ref.column_name) {}
 
-    doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                          VExprContext* context) override {
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
         DCHECK_EQ(_children.size(), 0);
         if (_column_id < 0) {
@@ -44,17 +43,22 @@ public:
                     "VColumnRef have invalid slot id: {}, _column_name: {}, desc: {}", _column_id,
                     _column_name, desc.debug_string());
         }
+        _prepare_finished = true;
         return Status::OK();
     }
 
-    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id) override {
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override {
+        DCHECK(_prepare_finished);
+        RETURN_IF_ERROR(VExpr::open(state, context, scope));
+        _open_finished = true;
+        return Status::OK();
+    }
+
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+        DCHECK(_open_finished || _getting_const_col);
         *result_column_id = _column_id;
         return Status::OK();
-    }
-
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(VColumnRef::create_unique(*this).release());
     }
 
     bool is_constant() const override { return false; }

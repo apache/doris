@@ -78,7 +78,7 @@ public class TableProcDir implements ProcDirInterface {
         }
 
         if (entryName.equals(PARTITIONS)) {
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 return new PartitionsProcDir((Database) db, (OlapTable) table, false);
             } else if (table.getType() == TableType.ELASTICSEARCH) {
                 return new EsPartitionsProcDir((Database) db, (EsTable) table);
@@ -86,7 +86,7 @@ public class TableProcDir implements ProcDirInterface {
                 throw new AnalysisException("Table[" + table.getName() + "] is not a OLAP or ELASTICSEARCH table");
             }
         } else if (entryName.equals(TEMP_PARTITIONS)) {
-            if (table.getType() == TableType.OLAP) {
+            if (table instanceof OlapTable) {
                 return new PartitionsProcDir((Database) db, (OlapTable) table, true);
             } else {
                 throw new AnalysisException("Table[" + table.getName() + "] does not have temp partitions");

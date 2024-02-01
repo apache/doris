@@ -46,19 +46,15 @@ public:
     virtual ~BrokerFileWriter();
 
     Status close() override;
-    Status abort() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
     Status finalize() override;
-    Status write_at(size_t offset, const Slice& data) override {
-        return Status::NotSupported("not support");
-    }
 
 private:
     Status _open();
     Status _write(const uint8_t* buf, size_t buf_len, size_t* written_bytes);
 
 private:
-    ExecEnv* _env;
+    ExecEnv* _env = nullptr;
     const TNetworkAddress _address;
     const std::map<std::string, std::string>& _properties;
     int64_t _cur_offset;

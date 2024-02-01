@@ -18,16 +18,21 @@
 #pragma once
 
 #include "common/status.h"
-#include "http/http_handler.h"
-#include "olap/tablet.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 class HttpRequest;
 struct Version;
 
-class PadRowsetAction : public HttpHandler {
+class ExecEnv;
+class Tablet;
+class StorageEngine;
+
+class PadRowsetAction : public HttpHandlerWithAuth {
 public:
-    PadRowsetAction() = default;
+    PadRowsetAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
+                    TPrivilegeType::type type)
+            : HttpHandlerWithAuth(exec_env, hier, type), _engine(engine) {}
 
     ~PadRowsetAction() override = default;
 
@@ -35,11 +40,9 @@ public:
 
 private:
     Status _handle(HttpRequest* req);
-    Status check_param(HttpRequest* req);
 
-#ifdef BE_TEST
-public:
-#endif
-    Status _pad_rowset(TabletSharedPtr tablet, const Version& version);
+    static Status _pad_rowset(Tablet* tablet, const Version& version);
+
+    StorageEngine& _engine;
 };
 } // end namespace doris

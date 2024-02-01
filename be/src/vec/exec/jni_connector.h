@@ -33,12 +33,13 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
+#include "util/runtime_profile.h"
+#include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
-class RuntimeProfile;
 class RuntimeState;
 
 namespace vectorized {
@@ -47,21 +48,45 @@ template <typename T>
 class ColumnDecimal;
 template <typename T>
 class ColumnVector;
-template <typename T>
-struct Decimal;
 } // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
 
 /**
- * Connector to java jni scanner, which should extend org.apache.doris.jni.JniScanner
+ * Connector to java jni scanner, which should extend org.apache.doris.common.jni.JniScanner
  */
 class JniConnector {
 public:
+    class TableMetaAddress {
+    private:
+        long* _meta_ptr;
+        int _meta_index;
+
+    public:
+        TableMetaAddress() {
+            _meta_ptr = nullptr;
+            _meta_index = 0;
+        }
+
+        TableMetaAddress(long meta_addr) {
+            _meta_ptr = static_cast<long*>(reinterpret_cast<void*>(meta_addr));
+            _meta_index = 0;
+        }
+
+        void set_meta(long meta_addr) {
+            _meta_ptr = static_cast<long*>(reinterpret_cast<void*>(meta_addr));
+            _meta_index = 0;
+        }
+
+        long next_meta_as_long() { return _meta_ptr[_meta_index++]; }
+
+        void* next_meta_as_ptr() { return reinterpret_cast<void*>(_meta_ptr[_meta_index++]); }
+    };
+
     /**
      * The predicates that can be pushed down to java side.
-     * Reference to java class org.apache.doris.jni.vec.ScanPredicate
+     * Reference to java class org.apache.doris.common.jni.vec.ScanPredicate
      */
     template <typename CppType>
     struct ScanPredicate {
@@ -102,7 +127,7 @@ public:
         /**
          * The value ranges can be stored as byte array as following format:
          * number_filters(4) | length(4) | column_name | op(4) | scale(4) | num_values(4) | value_length(4) | value | ...
-         * The read method is implemented in org.apache.doris.jni.vec.ScanPredicate#parseScanPredicates
+         * The read method is implemented in org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates
          */
         int write(std::unique_ptr<char[]>& predicates, int origin_length) {
             int num_filters = 0;
@@ -163,7 +188,21 @@ public:
                  std::vector<std::string> column_names)
             : _connector_class(std::move(connector_class)),
               _scanner_params(std::move(scanner_params)),
-              _column_names(std::move(column_names)) {}
+              _column_names(std::move(column_names)) {
+        // Use java class name as connector name
+        _connector_name = split(_connector_class, "/").back();
+    }
+
+    /**
+     * Just use to get the table schema.
+     * @param connector_class Java scanner class
+     * @param scanner_params Provided configuration map
+     */
+    JniConnector(std::string connector_class, std::map<std::string, std::string> scanner_params)
+            : _connector_class(std::move(connector_class)),
+              _scanner_params(std::move(scanner_params)) {
+        _is_table_schema = true;
+    }
 
     /// Should release jni resources if other functions are failed.
     ~JniConnector();
@@ -195,115 +234,119 @@ public:
      *                            | data column start address of the variable length column-B |
      *                            | ... |
      */
-    Status get_nex_block(Block* block, size_t* read_rows, bool* eof);
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof);
+
+    /**
+     * Get performance metrics from java scanner
+     */
+    std::map<std::string, std::string> get_statistics(JNIEnv* env);
+
+    /**
+     * Call java side function JniScanner.getTableSchema.
+     *
+     * The schema information are stored as json format
+     */
+    Status get_table_schema(std::string& table_schema_str);
 
     /**
      * Close scanner and release jni resources.
      */
     Status close();
 
+    static std::string get_jni_type(const DataTypePtr& data_type);
+
     /**
      * Map PrimitiveType to hive type.
      */
-    static std::string get_hive_type(const TypeDescriptor& desc);
+    static std::string get_jni_type(const TypeDescriptor& desc);
 
-    static Status generate_meta_info(Block* block, std::unique_ptr<long[]>& meta);
+    static Status to_java_table(Block* block, size_t num_rows, const ColumnNumbers& arguments,
+                                std::unique_ptr<long[]>& meta);
+
+    static Status to_java_table(Block* block, std::unique_ptr<long[]>& meta);
+
+    static std::pair<std::string, std::string> parse_table_schema(Block* block,
+                                                                  const ColumnNumbers& arguments,
+                                                                  bool ignore_column_name = true);
+
+    static std::pair<std::string, std::string> parse_table_schema(Block* block);
+
+    static Status fill_block(Block* block, const ColumnNumbers& arguments, long table_address);
 
 private:
+    std::string _connector_name;
     std::string _connector_class;
     std::map<std::string, std::string> _scanner_params;
     std::vector<std::string> _column_names;
+    bool _is_table_schema = false;
+
+    RuntimeState* _state = nullptr;
+    RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* _open_scanner_time = nullptr;
+    RuntimeProfile::Counter* _java_scan_time = nullptr;
+    RuntimeProfile::Counter* _fill_block_time = nullptr;
+    std::map<std::string, RuntimeProfile::Counter*> _scanner_profile;
 
     size_t _has_read = 0;
 
     bool _closed = false;
+    bool _scanner_opened = false;
     jclass _jni_scanner_cls;
     jobject _jni_scanner_obj;
     jmethodID _jni_scanner_open;
     jmethodID _jni_scanner_get_next_batch;
+    jmethodID _jni_scanner_get_table_schema;
     jmethodID _jni_scanner_close;
     jmethodID _jni_scanner_release_column;
     jmethodID _jni_scanner_release_table;
+    jmethodID _jni_scanner_get_statistics;
 
-    long* _meta_ptr;
-    int _meta_index;
-    JNIEnv* _env = nullptr;
+    TableMetaAddress _table_meta;
 
     int _predicates_length = 0;
-    std::unique_ptr<char[]> _predicates = nullptr;
+    std::unique_ptr<char[]> _predicates;
 
     /**
-     * Set the address of meta information, which is returned by org.apache.doris.jni.JniScanner#getNextBatchMeta
+     * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta
      */
-    void _set_meta(long meta_addr) {
-        _meta_ptr = static_cast<long*>(reinterpret_cast<void*>(meta_addr));
-        _meta_index = 0;
-    }
-
-    /**
-     * Get the number of rows in next batch.
-     */
-    long _next_meta_as_long() { return _meta_ptr[_meta_index++]; }
-
-    /**
-     * Get the next column address
-     */
-    void* _next_meta_as_ptr() { return reinterpret_cast<void*>(_meta_ptr[_meta_index++]); }
+    void _set_meta(long meta_addr) { _table_meta.set_meta(meta_addr); }
 
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
 
     Status _fill_block(Block* block, size_t num_rows);
 
-    Status _fill_column(ColumnPtr& doris_column, DataTypePtr& data_type, size_t num_rows);
+    static Status _fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
+                               DataTypePtr& data_type, size_t num_rows);
 
-    template <typename CppType>
-    Status _fill_numeric_column(MutableColumnPtr& doris_column, CppType* ptr, size_t num_rows) {
-        auto& column_data = static_cast<ColumnVector<CppType>&>(*doris_column).get_data();
+    static Status _fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                      size_t num_rows);
+
+    static Status _fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                   DataTypePtr& data_type, size_t num_rows);
+
+    static Status _fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                     DataTypePtr& data_type, size_t num_rows);
+
+    static Status _fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                      DataTypePtr& data_type, size_t num_rows);
+
+    static Status _fill_column_meta(ColumnPtr& doris_column, DataTypePtr& data_type,
+                                    std::vector<long>& meta_data);
+
+    template <typename COLUMN_TYPE, typename CPP_TYPE>
+    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
+                                            size_t num_rows) {
+        auto& column_data = static_cast<COLUMN_TYPE&>(*doris_column).get_data();
         size_t origin_size = column_data.size();
         column_data.resize(origin_size + num_rows);
-        memcpy(column_data.data() + origin_size, ptr, sizeof(CppType) * num_rows);
+        memcpy(column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
         return Status::OK();
     }
 
-    template <typename CppType>
-    static long _get_numeric_data_address(MutableColumnPtr& doris_column) {
-        return (long)static_cast<ColumnVector<CppType>&>(*doris_column).get_data().data();
+    template <typename COLUMN_TYPE>
+    static long _get_fixed_length_column_address(MutableColumnPtr& doris_column) {
+        return (long)static_cast<COLUMN_TYPE&>(*doris_column).get_data().data();
     }
-
-    template <typename DecimalPrimitiveType>
-    Status _fill_decimal_column(MutableColumnPtr& doris_column, DecimalPrimitiveType* ptr,
-                                size_t num_rows) {
-        auto& column_data =
-                static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column)
-                        .get_data();
-        size_t origin_size = column_data.size();
-        column_data.resize(origin_size + num_rows);
-        memcpy(column_data.data() + origin_size, ptr, sizeof(DecimalPrimitiveType) * num_rows);
-        return Status::OK();
-    }
-
-    template <typename DecimalPrimitiveType>
-    static long _get_decimal_data_address(MutableColumnPtr& doris_column) {
-        return (long)static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column)
-                .get_data()
-                .data();
-    }
-
-    template <typename CppType>
-    Status _decode_time_column(MutableColumnPtr& doris_column, CppType* ptr, size_t num_rows) {
-        auto& column_data = static_cast<ColumnVector<CppType>&>(*doris_column).get_data();
-        size_t origin_size = column_data.size();
-        column_data.resize(origin_size + num_rows);
-        memcpy(column_data.data() + origin_size, ptr, sizeof(CppType) * num_rows);
-        return Status::OK();
-    }
-
-    template <typename CppType>
-    static long _get_time_data_address(MutableColumnPtr& doris_column) {
-        return (long)static_cast<ColumnVector<CppType>&>(*doris_column).get_data().data();
-    }
-
-    Status _fill_string_column(MutableColumnPtr& doris_column, size_t num_rows);
 
     void _generate_predicates(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);

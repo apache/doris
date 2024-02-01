@@ -38,7 +38,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "util/network_util.h"
@@ -77,7 +76,16 @@ public:
 #endif
 
     std::shared_ptr<T> get_client(const std::string& host, int port) {
-        std::string host_port = get_host_port(host, port);
+        std::string realhost;
+        realhost = host;
+        if (!is_valid_ip(host)) {
+            Status status = hostname_to_ip(host, realhost);
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to get ip from host:" << status.to_string();
+                return nullptr;
+            }
+        }
+        std::string host_port = get_host_port(realhost, port);
         return get_client(host_port);
     }
 

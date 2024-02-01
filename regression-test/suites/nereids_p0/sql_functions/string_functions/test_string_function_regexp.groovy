@@ -63,7 +63,7 @@ suite("test_string_function_regexp") {
     sql "DROP TABLE ${tbName};"
 
     def tableName= "test"
-    sql "use test_query_db"
+    sql "use nereids_test_query_db"
     //regexp
     qt_sql "select * from ${tableName} where lower(k7) regexp'.*o4\$' order by k1, k2, k3, k4"
     // Nereids does't support array function

@@ -31,28 +31,19 @@ suite ("test_uniq_mv_useless") {
             )
             unique key (k1,k2)
             distributed BY hash(k1) buckets 3
-            properties("replication_num" = "1");
+            properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
         """
+        // only mor table can have mv
 
     sql "insert into ${testTable} select 1,1,1;"
     sql "insert into ${testTable} select 2,2,2;"
     sql "insert into ${testTable} select 3,3,3;"
 
     test {
-        sql "create materialized view k1 as select k1 from ${testTable};"
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "create materialized view k1_k2 as select k1,k2 from ${testTable};"
-        exception "errCode = 2,"
-    }
-
-    test {
         sql "create materialized view k1_k2_u12 as select k1,k2 from ${testTable} group by k1,k2;"
         exception "errCode = 2,"
     }
 
-    createMV ("create materialized view k1_k2_u21 as select k2,k1 from ${testTable} group by k2,k1 order by k2,k1;")
+    createMV ("create materialized view k1_k2_u21 as select k2,k1 from ${testTable};")
     sql "insert into ${testTable} select 4,4,4;"
 }

@@ -15,6 +15,12 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
+insert into show_test_do_not_modify.ex_tb0 values (111, 'abc'), (112, 'abd'), (113, 'abe'),(114, 'abf'),(115, 'abg');
+
+insert into show_test_do_not_modify.ex_tb1 values ('{"k1":"v1", "k2":"v2"}');
+
+insert into show_test_do_not_modify.ex_tb2 values (123, '10'), (123, '15'), (123, '20');
+
 insert into doris_test.test1 values
 (true, 'abc', 'efg', '2022-10-01', 3.4, 1, 2, 0, 100000, 1.2, '2022-10-02 12:59:01', 24.000),
 (true, 'abc', 'efg', '2022-10-01', 3.4, 1, 2, 1, 100000, 1.2, '2022-10-02 12:59:01', 24.000),
@@ -1124,3 +1130,33 @@ INSERT INTO doris_test.ex_tb20 VALUES
 (1.12345, 1.12345, 1.12345, 1.12345, 1.12345, 1.12345),
 (123456789012345678901234567890123.12345, 12345678901234567890123456789012.12345, 1234567890123456789012345678901234.12345, 123456789012345678901234567890123.12345,
 123456789012345678901234567890123456789012345678901234567890.12345, 123456789012345678901234567890123456789012345678901234567890.12345);
+
+INSERT INTO doris_test.all_types VALUES
+(201, 301, 401, 501, 601, 3.14159, 4.1415926, 5.141592, true, -123, -301, 2012, -401, -501, -601, '2012-10-30', '2012-10-25 12:05:36.3456712', '2012-10-25 08:08:08.3456712',
+ -4.14145001, -5.1400000001, -6.140000001, 'row1', 'line1', '09:09:09.56782346', 'text1', X'48656C6C6F20576F726C64', '{"name": "Alice", "age": 30, "city": "London"}',
+ 'Option1,Option3', b'101010', X'48656C6C6F', X'48656C6C6F', 'Value2'),
+(202, 302, 402, 502, 602, 4.14159, 5.1415926, 6.141592, false, -124, -302, 2013, -402, -502, -602, '2012-11-01', '2012-10-26 02:08:39.3456712', '2013-10-26 08:09:18.3456712',
+ -5.14145001, -6.1400000001, -7.140000001, 'row2', 'line2', '09:11:09.56782346', 'text2', X'E86F6C6C6F20576F726C67', '{"name": "Gaoxin", "age": 18, "city": "ChongQing"}',
+ 'Option1,Option2', b'101111', X'58676C6C6F', X'88656C6C9F', 'Value3'),
+(null, 302, null, 502, 602, 4.14159, null, 6.141592, null, -124, -302, 2013, -402, -502, -602, null, '2012-10-26 02:08:39.3456712', '2013-10-26 08:09:18.3456712',
+ -5.14145001, null, -7.140000001, 'row2', null, '09:11:09.56782346', 'text2', X'E86F6C6C6F20576F726C67', null,
+ null, b'101111', null, X'88656C6C9F', 'Value3'),
+(203, 303, 403, 503, 603, 7.14159, 8.1415926, 9.141592, false, null, -402, 2017, -602, -902, -1102, '2012-11-02', null, '2013-10-27 08:11:18.3456712',
+ -5.14145000001, -6.1400000000001, -7.140000000001, 'row3', 'line3', '09:11:09.56782346', 'text3', X'E86F6C6C6F20576F726C67', '{"name": "ChenQi", "age": 24, "city": "ChongQing"}',
+ 'Option2', b'101111', X'58676C6C6F', null, 'Value1');
+
+INSERT INTO doris_test.dt (`timestamp0`, `timestamp1`, `timestamp2`, `timestamp3`, `timestamp4`, `timestamp5`, `timestamp6`)
+VALUES ('2023-06-17 10:00:00', '2023-06-17 10:00:01.1', '2023-06-17 10:00:02.22', '2023-06-17 10:00:03.333', 
+        '2023-06-17 10:00:04.4444', '2023-06-17 10:00:05.55555', '2023-06-17 10:00:06.666666');
+
+SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES',''));
+INSERT INTO doris_test.dt_null
+VALUES ('2023-06-17 10:00:00'),('0000-00-00 00:00:00');
+
+
+insert into doris_test.test_key_word values (1, 1), (2, 2);
+
+SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE',''));
+SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE',''));
+
+insert into doris_test.test_zd (id,d_z) VALUES (1,'0000-00-00'),(2,'2022-01-01');

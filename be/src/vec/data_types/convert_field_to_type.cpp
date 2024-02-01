@@ -30,6 +30,10 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/exception.h"
+#include "common/status.h"
+#include "util/bitmap_value.h"
+#include "util/jsonb_writer.h"
 #include "vec/common/field_visitors.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/accurate_comparison.h"
@@ -65,25 +69,111 @@ public:
     String operator()(const Int64& x) const { return std::to_string(x); }
     String operator()(const Float64& x) const { return std::to_string(x); }
     String operator()(const String& x) const { return x; }
-    [[noreturn]] String operator()(const UInt128& x) const { LOG(FATAL) << "not implemeted"; }
-    [[noreturn]] String operator()(const Array& x) const { LOG(FATAL) << "not implemeted"; }
-    [[noreturn]] String operator()(const Tuple& x) const { LOG(FATAL) << "not implemeted"; }
+    [[noreturn]] String operator()(const UInt128& x) const {
+        LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
+    }
+    [[noreturn]] String operator()(const Array& x) const {
+        LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
+    }
+    [[noreturn]] String operator()(const Tuple& x) const {
+        LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
+    }
     [[noreturn]] String operator()(const DecimalField<Decimal32>& x) const {
         LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
     }
     [[noreturn]] String operator()(const DecimalField<Decimal64>& x) const {
         LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
     }
-    [[noreturn]] String operator()(const DecimalField<Decimal128>& x) const {
+    [[noreturn]] String operator()(const DecimalField<Decimal128V2>& x) const {
         LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
     }
-    [[noreturn]] String operator()(const DecimalField<Decimal128I>& x) const {
+    [[noreturn]] String operator()(const DecimalField<Decimal128V3>& x) const {
         LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
     }
-    [[noreturn]] String operator()(const AggregateFunctionStateData& x) const {
+    [[noreturn]] String operator()(const DecimalField<Decimal256>& x) const {
         LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
+    }
+    [[noreturn]] String operator()(const JsonbField& x) const {
+        LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
     }
 };
+
+class FieldVisitorToJsonb : public StaticVisitor<void> {
+public:
+    void operator()(const Null& x, JsonbWriter* writer) const { writer->writeNull(); }
+    void operator()(const UInt64& x, JsonbWriter* writer) const { writer->writeInt64(x); }
+    void operator()(const UInt128& x, JsonbWriter* writer) const {
+        writer->writeInt128(int128_t(x));
+    }
+    void operator()(const Int128& x, JsonbWriter* writer) const {
+        writer->writeInt128(int128_t(x));
+    }
+    void operator()(const IPv6& x, JsonbWriter* writer) const { writer->writeInt128(int128_t(x)); }
+    void operator()(const Int64& x, JsonbWriter* writer) const { writer->writeInt64(x); }
+    void operator()(const Float64& x, JsonbWriter* writer) const { writer->writeDouble(x); }
+    void operator()(const String& x, JsonbWriter* writer) const {
+        writer->writeStartString();
+        writer->writeString(x);
+        writer->writeEndString();
+    }
+    void operator()(const Array& x, JsonbWriter* writer) const;
+
+    void operator()(const Tuple& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const DecimalField<Decimal32>& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const DecimalField<Decimal64>& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const DecimalField<Decimal128V2>& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const DecimalField<Decimal128V3>& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const DecimalField<Decimal256>& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const doris::QuantileState& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const HyperLogLog& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const BitmapValue& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const VariantMap& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const Map& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const JsonbField& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+};
+
+void FieldVisitorToJsonb::operator()(const Array& x, JsonbWriter* writer) const {
+    const size_t size = x.size();
+    writer->writeStartArray();
+    for (size_t i = 0; i < size; ++i) {
+        Field::dispatch([writer](const auto& value) { FieldVisitorToJsonb()(value, writer); },
+                        x[i]);
+    }
+    writer->writeEndArray();
+}
 
 namespace {
 template <typename From, typename To>
@@ -94,8 +184,9 @@ Field convert_numeric_type_impl(const Field& from) {
     }
     return result;
 }
+
 template <typename To>
-Status convert_numric_type(const Field& from, const IDataType& type, Field* to) {
+void convert_numric_type(const Field& from, const IDataType& type, Field* to) {
     if (from.get_type() == Field::Types::UInt64) {
         *to = convert_numeric_type_impl<UInt64, To>(from);
     } else if (from.get_type() == Field::Types::Int64) {
@@ -107,18 +198,17 @@ Status convert_numric_type(const Field& from, const IDataType& type, Field* to) 
     } else if (from.get_type() == Field::Types::Int128) {
         *to = convert_numeric_type_impl<Int128, To>(from);
     } else {
-        return Status::InvalidArgument(
-                fmt::format("Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
-                            type.get_name(), from.get_type()));
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
+                               type.get_name(), from.get_type());
     }
-    return Status::OK();
 }
 
-Status convert_field_to_typeImpl(const Field& src, const IDataType& type,
-                                 const IDataType* from_type_hint, Field* to) {
+void convert_field_to_typeImpl(const Field& src, const IDataType& type,
+                               const IDataType* from_type_hint, Field* to) {
     if (from_type_hint && from_type_hint->equals(type)) {
         *to = src;
-        return Status::OK();
+        return;
     }
     WhichDataType which_type(type);
     // TODO add more types
@@ -163,16 +253,26 @@ Status convert_field_to_typeImpl(const Field& src, const IDataType& type,
             src.get_type() == Field::Types::UInt64) {
             /// We don't need any conversion UInt64 is under type of Date and DateTime
             *to = src;
-            return Status::OK();
+            return;
         }
     } else if (which_type.is_string_or_fixed_string()) {
         if (src.get_type() == Field::Types::String) {
             *to = src;
-            return Status::OK();
+            return;
         }
         // TODO this is a very simple translator, support more complex types
         *to = apply_visitor(FieldVisitorToStringSimple(), src);
-        return Status::OK();
+        return;
+    } else if (which_type.is_json()) {
+        if (src.get_type() == Field::Types::JSONB) {
+            *to = src;
+            return;
+        }
+        JsonbWriter writer;
+        Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
+                        src);
+        *to = JsonbField(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        return;
     } else if (const DataTypeArray* type_array = typeid_cast<const DataTypeArray*>(&type)) {
         if (src.get_type() == Field::Types::Array) {
             const Array& src_arr = src.get<Array>();
@@ -180,80 +280,41 @@ Status convert_field_to_typeImpl(const Field& src, const IDataType& type,
             const auto& element_type = *(type_array->get_nested_type());
             Array res(src_arr_size);
             for (size_t i = 0; i < src_arr_size; ++i) {
-                RETURN_IF_ERROR(convert_field_to_type(src_arr[i], element_type, &res[i]));
+                convert_field_to_type(src_arr[i], element_type, &res[i]);
                 if (res[i].is_null() && !element_type.is_nullable()) {
-                    return Status::InvalidArgument(
-                            fmt::format("Cannot convert NULL to {}", element_type.get_name()));
+                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Cannot convert NULL to {}",
+                                           element_type.get_name());
                 }
             }
             *to = Field(res);
-            return Status::OK();
+            return;
         }
     }
-    // else if (const DataTypeTuple* type_tuple = typeid_cast<const DataTypeTuple*>(&type)) {
-    //     if (src.get_type() == Field::Types::Tuple) {
-    //         const auto& src_tuple = src.get<Tuple>();
-    //         size_t src_tuple_size = src_tuple.size();
-    //         size_t dst_tuple_size = type_tuple->get_elements().size();
-    //         if (dst_tuple_size != src_tuple_size) {
-    //             return Status::InvalidArgument("Bad size of tuple in IN or VALUES section");
-    //         }
-    //         Tuple res(dst_tuple_size);
-    //         bool have_unconvertible_element = false;
-    //         for (size_t i = 0; i < dst_tuple_size; ++i) {
-    //             const auto& element_type = *(type_tuple->get_elements()[i]);
-    //             RETURN_IF_ERROR(convert_field_to_type(src_tuple[i], element_type, &res[i]));
-    //             if (!res[i].is_null() || element_type.is_nullable()) continue;
-    //             /*
-    //              * Either the source element was Null, or the conversion did not
-    //              * succeed, because the source and the requested types of the
-    //              * element are compatible, but the value is not convertible
-    //              * (e.g. trying to convert -1 from Int8 to UInt8). In these
-    //              * cases, consider the whole tuple also compatible but not
-    //              * convertible. According to the specification of this function,
-    //              * we must return Null in this case.
-    //              *
-    //              * The following elements might be not even compatible, so it
-    //              * makes sense to check them to detect user errors. Remember
-    //              * that there is an unconvertible element, and try to process
-    //              * the remaining ones. The convert_field_to_type for each element
-    //              * will throw if it detects incompatibility.
-    //              */
-    //             have_unconvertible_element = true;
-    //         }
-    //         if (have_unconvertible_element) {
-    //             return Status::InvalidArgument(fmt::format("Cannot convert {} to {}",
-    //                                                        src.get_type_name(), type.get_name()));
-    //         }
-    //         *to = Field(res);
-    //         return Status::OK();
-    //     }
-    // }
-    return Status::InvalidArgument(
-            fmt::format("Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
-                        type.get_name(), src.get_type()));
+    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                           "Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
+                           type.get_name(), src.get_type());
 }
 } // namespace
-Status convert_field_to_type(const Field& from_value, const IDataType& to_type, Field* to,
-                             const IDataType* from_type_hint) {
+void convert_field_to_type(const Field& from_value, const IDataType& to_type, Field* to,
+                           const IDataType* from_type_hint) {
     if (from_value.is_null()) {
         *to = from_value;
-        return Status::OK();
+        return;
     }
     if (from_type_hint && from_type_hint->equals(to_type)) {
         *to = from_value;
-        return Status::OK();
+        return;
     }
     if (const auto* nullable_type = typeid_cast<const DataTypeNullable*>(&to_type)) {
         const IDataType& nested_type = *nullable_type->get_nested_type();
         /// NULL remains NULL after any conversion.
         if (WhichDataType(nested_type).is_nothing()) {
             *to = {};
-            return Status::OK();
+            return;
         }
         if (from_type_hint && from_type_hint->equals(nested_type)) {
             *to = from_value;
-            return Status::OK();
+            return;
         }
         return convert_field_to_typeImpl(from_value, nested_type, from_type_hint, to);
     } else {

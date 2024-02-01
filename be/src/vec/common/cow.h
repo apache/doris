@@ -139,19 +139,9 @@ protected:
             intrusive_ptr(rhs).swap(*this);
             return *this;
         }
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wuninitialized"
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
+
         intrusive_ptr(intrusive_ptr&& rhs) : t(rhs.t) { rhs.t = nullptr; }
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic pop
-#endif
+
         intrusive_ptr& operator=(intrusive_ptr&& rhs) {
             intrusive_ptr(static_cast<intrusive_ptr&&>(rhs)).swap(*this);
             return *this;
@@ -212,7 +202,7 @@ protected:
         operator T*() const { return t; }
 
     private:
-        T* t;
+        T* t = nullptr;
     };
 
 protected:

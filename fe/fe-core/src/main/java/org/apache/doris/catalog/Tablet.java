@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -31,6 +32,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -45,6 +47,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -69,7 +72,6 @@ public class Tablet extends MetaObject implements Writable {
         VERSION_INCOMPLETE, // alive replica num is enough, but version is missing.
         REPLICA_RELOCATING, // replica is healthy, but is under relocating (eg. BE is decommission).
         REDUNDANT, // too much replicas.
-        REPLICA_MISSING_IN_CLUSTER, // not enough healthy replicas in correct cluster.
         REPLICA_MISSING_FOR_TAG, // not enough healthy replicas in backend with specified tag.
         FORCE_REDUNDANT, // some replica is missing or bad, but there is no other backends for repair,
         // at least one replica has to be deleted first to make room for new replica.
@@ -83,7 +85,7 @@ public class Tablet extends MetaObject implements Writable {
     @SerializedName(value = "id")
     private long id;
     @SerializedName(value = "replicas")
-    private List<Replica> replicas;
+    protected List<Replica> replicas;
     @SerializedName(value = "checkedVersion")
     private long checkedVersion;
     @Deprecated
@@ -111,7 +113,7 @@ public class Tablet extends MetaObject implements Writable {
         this(tabletId, new ArrayList<>());
     }
 
-    public Tablet(long tabletId, List<Replica> replicas) {
+    private Tablet(long tabletId, List<Replica> replicas) {
         this.id = tabletId;
         this.replicas = replicas;
         if (this.replicas == null) {
@@ -154,6 +156,10 @@ public class Tablet extends MetaObject implements Writable {
         cooldownConfLock.writeLock().unlock();
     }
 
+    public long getCooldownReplicaId() {
+        return cooldownReplicaId;
+    }
+
     public Pair<Long, Long> getCooldownConf() {
         cooldownConfLock.readLock().lock();
         try {
@@ -163,13 +169,14 @@ public class Tablet extends MetaObject implements Writable {
         }
     }
 
-    private boolean deleteRedundantReplica(long backendId, long version) {
+    protected boolean isLatestReplicaAndDeleteOld(Replica newReplica) {
         boolean delete = false;
         boolean hasBackend = false;
+        long version = newReplica.getVersion();
         Iterator<Replica> iterator = replicas.iterator();
         while (iterator.hasNext()) {
             Replica replica = iterator.next();
-            if (replica.getBackendId() == backendId) {
+            if (replica.getBackendId() == newReplica.getBackendId()) {
                 hasBackend = true;
                 if (replica.getVersion() <= version) {
                     iterator.remove();
@@ -182,7 +189,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public void addReplica(Replica replica, boolean isRestore) {
-        if (deleteRedundantReplica(replica.getBackendId(), replica.getVersion())) {
+        if (isLatestReplicaAndDeleteOld(replica)) {
             replicas.add(replica);
             if (!isRestore) {
                 Env.getCurrentInvertedIndex().addReplica(id, replica);
@@ -207,49 +214,49 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public List<Long> getNormalReplicaBackendIds() {
-        List<Long> beIds = Lists.newArrayList();
-        SystemInfoService infoService = Env.getCurrentSystemInfo();
-        for (Replica replica : replicas) {
-            if (replica.isBad()) {
-                continue;
-            }
-
-            ReplicaState state = replica.getState();
-            if (infoService.checkBackendAlive(replica.getBackendId()) && state.canLoad()) {
-                beIds.add(replica.getBackendId());
-            }
+        try {
+            return Lists.newArrayList(getNormalReplicaBackendPathMap().keySet());
+        } catch (Exception e) {
+            LOG.warn("failed to getNormalReplicaBackendIds", e);
+            return Lists.newArrayList();
         }
-        return beIds;
     }
 
     // return map of (BE id -> path hash) of normal replicas
     // for load plan.
-    public Multimap<Long, Long> getNormalReplicaBackendPathMap() {
+    public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
         Multimap<Long, Long> map = HashMultimap.create();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         for (Replica replica : replicas) {
+            long backendId = replica.getBackendId();
+            if (!infoService.checkBackendAlive(backendId)) {
+                continue;
+            }
+
             if (replica.isBad()) {
                 continue;
             }
 
             ReplicaState state = replica.getState();
-            if (infoService.checkBackendLoadAvailable(replica.getBackendId()) && state.canLoad()) {
-                map.put(replica.getBackendId(), replica.getPathHash());
+            if (state.canLoad()
+                    || (state == ReplicaState.DECOMMISSION && replica.getPostWatermarkTxnId() < 0)) {
+                map.put(backendId, replica.getPathHash());
             }
         }
         return map;
     }
 
     // for query
-    public List<Replica> getQueryableReplicas(long visibleVersion) {
+    public List<Replica> getQueryableReplicas(long visibleVersion, boolean allowFailedVersion) {
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
+        List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
             }
 
             // Skip the missing version replica
-            if (replica.getLastFailedVersion() > 0) {
+            if (replica.getLastFailedVersion() > 0 && !allowFailedVersion) {
                 continue;
             }
 
@@ -258,7 +265,15 @@ public class Tablet extends MetaObject implements Writable {
                 if (replica.checkVersionCatchUp(visibleVersion, false)) {
                     allQueryableReplica.add(replica);
                 }
+            } else if (state == ReplicaState.DECOMMISSION) {
+                if (replica.checkVersionCatchUp(visibleVersion, false)) {
+                    auxiliaryReplica.add(replica);
+                }
             }
+        }
+
+        if (allQueryableReplica.isEmpty()) {
+            allQueryableReplica = auxiliaryReplica;
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
@@ -275,6 +290,17 @@ public class Tablet extends MetaObject implements Writable {
                     .collect(Collectors.toList());
         }
         return allQueryableReplica;
+    }
+
+    public String getDetailsStatusForQuery(long visibleVersion) {
+        StringBuilder sb = new StringBuilder("Visible Replicas:");
+        sb.append("Visible version: ").append(visibleVersion);
+        sb.append(", Replicas: ");
+        sb.append(Joiner.on(", ").join(replicas.stream().map(replica -> replica.toStringSimple(true))
+                .collect(Collectors.toList())));
+        sb.append(".");
+
+        return sb.toString();
     }
 
     public Replica getReplicaById(long replicaId) {
@@ -365,7 +391,7 @@ public class Tablet extends MetaObject implements Writable {
         int replicaCount = in.readInt();
         for (int i = 0; i < replicaCount; ++i) {
             Replica replica = Replica.read(in);
-            if (deleteRedundantReplica(replica.getBackendId(), replica.getVersion())) {
+            if (isLatestReplicaAndDeleteOld(replica)) {
                 replicas.add(replica);
             }
         }
@@ -378,10 +404,10 @@ public class Tablet extends MetaObject implements Writable {
     public static Tablet read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
             String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, Tablet.class);
+            return GsonUtils.GSON.fromJson(json, EnvFactory.getInstance().getTabletClass());
         }
 
-        Tablet tablet = new Tablet();
+        Tablet tablet = EnvFactory.getInstance().createTablet();
         tablet.readFields(in);
         return tablet;
     }
@@ -417,6 +443,20 @@ public class Tablet extends MetaObject implements Writable {
         return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
     }
 
+    public long getRemoteDataSize() {
+        // if CooldownReplicaId is not init
+        if (cooldownReplicaId <= 0) {
+            return 0;
+        }
+        for (Replica r : replicas) {
+            if (r.getId() == cooldownReplicaId) {
+                return r.getRemoteDataSize();
+            }
+        }
+        // return replica with max remoteDataSize
+        return replicas.stream().max(Comparator.comparing(Replica::getRemoteDataSize)).get().getRemoteDataSize();
+    }
+
     public long getRowCount(boolean singleReplica) {
         LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
                 .mapToLong(Replica::getRowCount);
@@ -430,22 +470,20 @@ public class Tablet extends MetaObject implements Writable {
      * <p>
      * A tablet is healthy only if
      * 1. healthy replica num is equal to replicationNum
-     * 2. all healthy replicas are in right cluster and tag
+     * 2. all healthy replicas are in right tag
      */
-    public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(
-            SystemInfoService systemInfoService, String clusterName,
-            long visibleVersion, ReplicaAllocation replicaAlloc,
-            List<Long> aliveBeIdsInCluster) {
+    public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(SystemInfoService systemInfoService,
+            long visibleVersion, ReplicaAllocation replicaAlloc, List<Long> aliveBeIds) {
 
 
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
-        Map<Tag, Short> currentAllocMap = Maps.newHashMap();
+        Map<Tag, Short> stableAllocMap = Maps.newHashMap();
+        Map<Tag, Short> stableVersionCompleteAllocMap = Maps.newHashMap();
 
         short replicationNum = replicaAlloc.getTotalReplicaNum();
         int alive = 0;
         int aliveAndVersionComplete = 0;
         int stable = 0;
-        int availableInCluster = 0;
 
         Replica needFurtherRepairReplica = null;
         Set<String> hosts = Sets.newHashSet();
@@ -460,34 +498,30 @@ public class Tablet extends MetaObject implements Writable {
                 // ATTN: Replicas on same host is a bug of previous Doris version, so we fix it by this way.
                 continue;
             }
+
             alive++;
 
-            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
-                // this replica is alive but version incomplete
-                continue;
-            }
-            aliveAndVersionComplete++;
-
-            if (!backend.isScheduleAvailable()) {
-                // this replica is alive, version complete, but backend is not available
-                continue;
-            }
-            stable++;
-
-            if (!backend.getOwnerClusterName().equals(clusterName)) {
-                // this replica is available, version complete, but not in right cluster
-                continue;
-            }
-            availableInCluster++;
-
-            if (replica.needFurtherRepair() && needFurtherRepairReplica == null) {
-                needFurtherRepairReplica = replica;
+            boolean versionCompleted = replica.getLastFailedVersion() < 0 && replica.getVersion() >= visibleVersion;
+            if (versionCompleted) {
+                aliveAndVersionComplete++;
             }
 
-            versions.add(replica.getVersionCount());
+            if (replica.isScheduleAvailable()) {
+                if (replica.needFurtherRepair() && (needFurtherRepairReplica == null || !versionCompleted)) {
+                    needFurtherRepairReplica = replica;
+                }
 
-            short curNum = currentAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
-            currentAllocMap.put(backend.getLocationTag(), (short) (curNum + 1));
+                short allocNum = stableAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
+                stableAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
+
+                if (versionCompleted) {
+                    stable++;
+                    versions.add(replica.getVersionCount());
+
+                    allocNum = stableVersionCompleteAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
+                    stableVersionCompleteAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
+                }
+            }
         }
 
         // 0. We can not choose a good replica as src to repair this tablet.
@@ -496,7 +530,7 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         // 1. alive replicas are not enough
-        int aliveBackendsNum = aliveBeIdsInCluster.size();
+        int aliveBackendsNum = aliveBeIds.size();
         if (alive < replicationNum && replicas.size() >= aliveBackendsNum
                 && aliveBackendsNum >= replicationNum && replicationNum > 1) {
             // there is no enough backend for us to create a new replica, so we have to delete an existing replica,
@@ -530,10 +564,8 @@ public class Tablet extends MetaObject implements Writable {
 
         // 3. replica is under relocating
         if (stable < replicationNum) {
-            List<Long> replicaBeIds = replicas.stream()
-                    .map(Replica::getBackendId).collect(Collectors.toList());
-            List<Long> availableBeIds = aliveBeIdsInCluster.stream()
-                    .filter(systemInfoService::checkBackendScheduleAvailable)
+            Set<Long> replicaBeIds = replicas.stream().map(Replica::getBackendId).collect(Collectors.toSet());
+            List<Long> availableBeIds = aliveBeIds.stream().filter(systemInfoService::checkBackendScheduleAvailable)
                     .collect(Collectors.toList());
             if (replicaBeIds.containsAll(availableBeIds)
                     && availableBeIds.size() >= replicationNum
@@ -549,16 +581,14 @@ public class Tablet extends MetaObject implements Writable {
             }
         }
 
-        // 4. healthy replicas in cluster are not enough
-        if (availableInCluster < replicationNum) {
-            return Pair.of(TabletStatus.REPLICA_MISSING_IN_CLUSTER, TabletSchedCtx.Priority.LOW);
-        }
-
-        // 5. got enough healthy replicas, check tag
+        // 4. got enough healthy replicas, check tag
         for (Map.Entry<Tag, Short> alloc : allocMap.entrySet()) {
-            if (!currentAllocMap.containsKey(alloc.getKey())
-                    || currentAllocMap.get(alloc.getKey()) < alloc.getValue()) {
-                return Pair.of(TabletStatus.REPLICA_MISSING_FOR_TAG, TabletSchedCtx.Priority.NORMAL);
+            if (stableVersionCompleteAllocMap.getOrDefault(alloc.getKey(), (short) 0) < alloc.getValue()) {
+                if (stableAllocMap.getOrDefault(alloc.getKey(), (short) 0) >= alloc.getValue()) {
+                    return Pair.of(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.NORMAL);
+                } else {
+                    return Pair.of(TabletStatus.REPLICA_MISSING_FOR_TAG, TabletSchedCtx.Priority.NORMAL);
+                }
             }
         }
 
@@ -570,7 +600,7 @@ public class Tablet extends MetaObject implements Writable {
             return Pair.of(TabletStatus.REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         }
 
-        // 6. find a replica's version count is much more than others, and drop it
+        // 5. find a replica's version count is much more than others, and drop it
         if (Config.repair_slow_replica && versions.size() == replicas.size() && versions.size() > 1) {
             // sort version
             Collections.sort(versions);
@@ -583,12 +613,12 @@ public class Tablet extends MetaObject implements Writable {
             }
         }
 
-        // 7. healthy
+        // 6. healthy
         return Pair.of(TabletStatus.HEALTHY, TabletSchedCtx.Priority.NORMAL);
     }
 
     private boolean checkHost(Set<String> hosts, Backend backend) {
-        return !Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getIp());
+        return !Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getHost());
     }
 
     /**
@@ -669,8 +699,25 @@ public class Tablet extends MetaObject implements Writable {
      * NORMAL:  delay Config.tablet_repair_delay_factor_second * 2;
      * LOW:     delay Config.tablet_repair_delay_factor_second * 3;
      */
-    public boolean readyToBeRepaired(TabletSchedCtx.Priority priority) {
+    public boolean readyToBeRepaired(SystemInfoService infoService, TabletSchedCtx.Priority priority) {
+        if (FeConstants.runningUnitTest) {
+            return true;
+        }
+
         if (priority == Priority.VERY_HIGH) {
+            return true;
+        }
+
+        boolean allBeAliveOrDecommissioned = true;
+        for (Replica replica : replicas) {
+            Backend backend = infoService.getBackend(replica.getBackendId());
+            if (backend == null || (!backend.isAlive() && !backend.isDecommissioned())) {
+                allBeAliveOrDecommissioned = false;
+                break;
+            }
+        }
+
+        if (allBeAliveOrDecommissioned) {
             return true;
         }
 

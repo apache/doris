@@ -20,9 +20,6 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/span_metadata.h>
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <ostream>
@@ -36,7 +33,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -66,42 +62,47 @@ VSchemaScanNode::~VSchemaScanNode() {}
 Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     if (tnode.schema_scan_node.__isset.db) {
-        _scanner_param.db = _pool->add(new std::string(tnode.schema_scan_node.db));
+        _scanner_param.common_param->db = _pool->add(new std::string(tnode.schema_scan_node.db));
     }
 
     if (tnode.schema_scan_node.__isset.table) {
-        _scanner_param.table = _pool->add(new std::string(tnode.schema_scan_node.table));
+        _scanner_param.common_param->table =
+                _pool->add(new std::string(tnode.schema_scan_node.table));
     }
 
     if (tnode.schema_scan_node.__isset.wild) {
-        _scanner_param.wild = _pool->add(new std::string(tnode.schema_scan_node.wild));
+        _scanner_param.common_param->wild =
+                _pool->add(new std::string(tnode.schema_scan_node.wild));
     }
 
     if (tnode.schema_scan_node.__isset.current_user_ident) {
-        _scanner_param.current_user_ident =
+        _scanner_param.common_param->current_user_ident =
                 _pool->add(new TUserIdentity(tnode.schema_scan_node.current_user_ident));
     } else {
         if (tnode.schema_scan_node.__isset.user) {
-            _scanner_param.user = _pool->add(new std::string(tnode.schema_scan_node.user));
+            _scanner_param.common_param->user =
+                    _pool->add(new std::string(tnode.schema_scan_node.user));
         }
         if (tnode.schema_scan_node.__isset.user_ip) {
-            _scanner_param.user_ip = _pool->add(new std::string(tnode.schema_scan_node.user_ip));
+            _scanner_param.common_param->user_ip =
+                    _pool->add(new std::string(tnode.schema_scan_node.user_ip));
         }
     }
 
     if (tnode.schema_scan_node.__isset.ip) {
-        _scanner_param.ip = _pool->add(new std::string(tnode.schema_scan_node.ip));
+        _scanner_param.common_param->ip = _pool->add(new std::string(tnode.schema_scan_node.ip));
     }
     if (tnode.schema_scan_node.__isset.port) {
-        _scanner_param.port = tnode.schema_scan_node.port;
+        _scanner_param.common_param->port = tnode.schema_scan_node.port;
     }
 
     if (tnode.schema_scan_node.__isset.thread_id) {
-        _scanner_param.thread_id = tnode.schema_scan_node.thread_id;
+        _scanner_param.common_param->thread_id = tnode.schema_scan_node.thread_id;
     }
 
     if (tnode.schema_scan_node.__isset.catalog) {
-        _scanner_param.catalog = _pool->add(new std::string(tnode.schema_scan_node.catalog));
+        _scanner_param.common_param->catalog =
+                _pool->add(new std::string(tnode.schema_scan_node.catalog));
     }
     return Status::OK();
 }
@@ -111,14 +112,11 @@ Status VSchemaScanNode::open(RuntimeState* state) {
         return Status::InternalError("input pointer is nullptr.");
     }
 
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::open");
     if (!_is_init) {
-        span->SetStatus(opentelemetry::trace::StatusCode::kError, "Open before Init.");
         return Status::InternalError("Open before Init.");
     }
 
     if (nullptr == state) {
-        span->SetStatus(opentelemetry::trace::StatusCode::kError, "input pointer is nullptr.");
         return Status::InternalError("input pointer is nullptr.");
     }
 
@@ -126,9 +124,9 @@ Status VSchemaScanNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
 
-    if (_scanner_param.user) {
+    if (_scanner_param.common_param->user) {
         TSetSessionParams param;
-        param.__set_user(*_scanner_param.user);
+        param.__set_user(*_scanner_param.common_param->user);
         //TStatus t_status;
         //RETURN_IF_ERROR(SchemaJniHelper::set_session(param, &t_status));
         //RETURN_IF_ERROR(Status(t_status));
@@ -145,7 +143,6 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     if (nullptr == state) {
         return Status::InternalError("state pointer is nullptr.");
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::prepare");
     RETURN_IF_ERROR(ScanNode::prepare(state));
 
     // get dest tuple desc
@@ -219,7 +216,6 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is NULL pointer");
     }
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSchemaScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     VLOG_CRITICAL << "VSchemaScanNode::GetNext";
@@ -275,7 +271,7 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
                         *src_block.get_by_name(dest_slot_desc->col_name()).column, 0,
                         src_block.rows());
             }
-            RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block,
+            RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block,
                                                        _dest_tuple_desc->slots().size()));
             VLOG_ROW << "VSchemaScanNode output rows: " << src_block.rows();
             src_block.clear();
@@ -290,7 +286,6 @@ Status VSchemaScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     return ExecNode::close(state);
 }
@@ -305,7 +300,8 @@ void VSchemaScanNode::debug_string(int indentation_level, std::stringstream* out
     }
 }
 
-Status VSchemaScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+Status VSchemaScanNode::set_scan_ranges(RuntimeState* state,
+                                        const std::vector<TScanRangeParams>& scan_ranges) {
     return Status::OK();
 }
 

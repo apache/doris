@@ -149,7 +149,7 @@ Doris 目前支持以下几种权限
 
 8. Usage_priv
 
-   资源的使用权限。
+   资源的使用权限<version since="dev" type="inline" >和workload group权限</version>。
 
 ## 权限层级
 
@@ -163,7 +163,12 @@ Doris 目前支持以下几种权限
 将资源的权限分为以下两个层级：
 
 1. GLOBAL LEVEL：全局权限。即通过 GRANT 语句授予的 `*` 上的权限。被授予的权限适用于资源。
-2. RESOURCE LEVEL: 资源级权限。即通过 GRANT 语句授予的 `resource_name` 上的权限。被授予的权限适用于指定资源。
+2. RESOURCE LEVEL： 资源级权限。即通过 GRANT 语句授予的 `resource_name` 上的权限。被授予的权限适用于指定资源。
+
+<version since="dev">
+workload group 只有一个层级：
+1. WORKLOAD GROUP LEVEL：可以通过 GRANT 语句授予 `workload_group_name` 上的权限。被授予的权限适用于指定workload group。workload_group_name 支持 `%`和`_`匹配符，`%`可匹配任意字符串，`_`匹配任意单个字符。
+</version>
 
 ## ADMIN/GRANT 权限说明
 

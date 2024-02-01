@@ -39,7 +39,6 @@ const std::string SOURCE_SCROLL_SEARCH_FILTER_PATH =
 const std::string DOCVALUE_SCROLL_SEARCH_FILTER_PATH =
         "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields";
 
-const std::string REQUEST_SCROLL_PATH = "_scroll";
 const std::string REQUEST_PREFERENCE_PREFIX = "&preference=_shards:";
 const std::string REQUEST_SEARCH_SCROLL_PATH = "/_search/scroll";
 const std::string REQUEST_SEPARATOR = "/";
@@ -125,6 +124,7 @@ Status ESScanReader::open() {
     }
     _network_client.set_basic_auth(_user_name, _passwd);
     _network_client.set_content_type("application/json");
+    _network_client.set_timeout_ms(_http_timeout_ms);
     if (_use_ssl_client) {
         _network_client.use_untrusted_ssl();
     }
@@ -215,7 +215,7 @@ Status ESScanReader::close() {
     _network_client.set_basic_auth(_user_name, _passwd);
     _network_client.set_method(DELETE);
     _network_client.set_content_type("application/json");
-    _network_client.set_timeout_ms(5 * 1000);
+    _network_client.set_timeout_ms(_http_timeout_ms);
     if (_use_ssl_client) {
         _network_client.use_untrusted_ssl();
     }

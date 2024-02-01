@@ -25,7 +25,7 @@ under the License.
 
 ## Downloading and Compiling Code on Remote Server
 
-1. Download Doris source code on the remote server, such as in the directory `/mnt/datadisk0/chenqi/doris`。
+1. Download Doris source code on the remote server, such as in the directory `/mnt/datadisk0/chenqi/doris`.
 
 ```
 git clone https://github.com/apache/doris.git
@@ -34,7 +34,7 @@ git clone https://github.com/apache/doris.git
 2. Modify the `env.sh` file located in the root directory of the Doris code on the remote server.
 Add the configuration for `DORIS_HOME` at the beginning, for example, `DORIS_HOME=/mnt/datadisk0/chenqi/doris.`
 
-3. Execute commands to compile the code. The detailed compilation process [compilation-with-ldb-toolchain](https://doris.apache.org/zh-CN/docs/dev/install/source-install/compilation-with-ldb-toolchain)。
+3. Execute commands to compile the code. The detailed compilation process [compilation-with-ldb-toolchain](https://doris.apache.org/zh-CN/docs/dev/install/source-install/compilation-with-ldb-toolchain).
 
 ```
 cd /mnt/datadisk0/chenqi/doris
@@ -65,7 +65,7 @@ cp -R /mnt/datadisk0/chenqi/doris/gensrc /mnt/datadisk0/chenqi/clion/doris/gensr
 
 ![Toolchains](/images/clion-toolchains.png)
 
-5. In Clion, modify `be/CmakeLists.txt` and change `$ENV{JAVA_HOME}` to the path of `JAVA_HOME` on the remote server. (Otherwise, jni.h will not be found)
+5. In Clion, navigate to **Preferences -> Build, Execution, Deployment -> CMake** and add the compilation option -DDORIS_JAVA_HOME=/path/to/remote/JAVA_HOME in CMake options, set DORIS_JAVA_HOME to the JAVA_HOME path of the remote server, otherwise jni.h will not be found.
 
 6. Right-click on **Load Cmake Project** in Clion. This will synchronize the code to the remote server and generate the Cmake build files.
 

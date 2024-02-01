@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -78,7 +79,7 @@ public class TrashProcDir implements ProcDirInterface {
             Long trashUsedCapacityB = null;
             boolean ok = false;
             try {
-                address = new TNetworkAddress(backend.getIp(), backend.getBePort());
+                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 trashUsedCapacityB = client.getTrashUsedCapacity();
                 ok = true;
@@ -94,7 +95,7 @@ public class TrashProcDir implements ProcDirInterface {
 
             List<String> backendInfo = new ArrayList<>();
             backendInfo.add(String.valueOf(backend.getId()));
-            backendInfo.add(backend.getIp() + ":" + backend.getHeartbeatPort());
+            backendInfo.add(NetUtils.getHostPortInAccessibleFormat(backend.getHost(), backend.getHeartbeatPort()));
             if (trashUsedCapacityB != null) {
                 Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
                 backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " "

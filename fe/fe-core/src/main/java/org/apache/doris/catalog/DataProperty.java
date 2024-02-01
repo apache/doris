@@ -35,9 +35,11 @@ import java.io.IOException;
 import java.util.Objects;
 
 public class DataProperty implements Writable, GsonPostProcessable {
-    public static final TStorageMedium DEFAULT_STORAGE_MEDIUM =
-            "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD;
+    public static final TStorageMedium DEFAULT_STORAGE_MEDIUM = "SSD".equalsIgnoreCase(Config.default_storage_medium)
+            ? TStorageMedium.SSD : TStorageMedium.HDD;
     public static final long MAX_COOLDOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
+
+    public static final DataProperty DEFAULT_HDD_DATA_PROPERTY = new DataProperty(TStorageMedium.HDD);
 
     @SerializedName(value = "storageMedium")
     private TStorageMedium storageMedium;
@@ -47,6 +49,7 @@ public class DataProperty implements Writable, GsonPostProcessable {
     private String storagePolicy;
     @SerializedName(value = "isMutable")
     private boolean isMutable = true;
+    private boolean storageMediumSpecified;
 
     private DataProperty() {
         // for persist
@@ -56,6 +59,13 @@ public class DataProperty implements Writable, GsonPostProcessable {
         this.storageMedium = medium;
         this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         this.storagePolicy = "";
+    }
+
+    public DataProperty(DataProperty other) {
+        this.storageMedium = other.storageMedium;
+        this.cooldownTimeMs = other.cooldownTimeMs;
+        this.storagePolicy = other.storagePolicy;
+        this.isMutable = other.isMutable;
     }
 
     /**
@@ -88,12 +98,24 @@ public class DataProperty implements Writable, GsonPostProcessable {
         return storagePolicy;
     }
 
+    public void setStoragePolicy(String storagePolicy) {
+        this.storagePolicy = storagePolicy;
+    }
+
+    public boolean isStorageMediumSpecified() {
+        return storageMediumSpecified;
+    }
+
     public boolean isMutable() {
         return isMutable;
     }
 
     public void setMutable(boolean mutable) {
         isMutable = mutable;
+    }
+
+    public void setStorageMediumSpecified(boolean isSpecified) {
+        storageMediumSpecified = isSpecified;
     }
 
     public static DataProperty read(DataInput in) throws IOException {
@@ -155,4 +177,5 @@ public class DataProperty implements Writable, GsonPostProcessable {
         // storagePolicy is a newly added field, it may be null when replaying from old version.
         this.storagePolicy = Strings.nullToEmpty(this.storagePolicy);
     }
+
 }

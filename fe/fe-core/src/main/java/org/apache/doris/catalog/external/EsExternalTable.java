@@ -26,9 +26,6 @@ import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.List;
 
 /**
@@ -36,7 +33,6 @@ import java.util.List;
  */
 public class EsExternalTable extends ExternalTable {
 
-    private static final Logger LOG = LogManager.getLogger(EsExternalTable.class);
     private EsTable esTable;
 
     /**
@@ -62,11 +58,6 @@ public class EsExternalTable extends ExternalTable {
     public EsTable getEsTable() {
         makeSureInitialized();
         return esTable;
-    }
-
-    @Override
-    public String getMysqlType() {
-        return type.name();
     }
 
     @Override
@@ -101,6 +92,7 @@ public class EsExternalTable extends ExternalTable {
         esTable.setSeeds(esCatalog.getNodes());
         esTable.setHosts(String.join(",", esCatalog.getNodes()));
         esTable.syncTableMetaData();
+        esTable.setIncludeHiddenIndex(esCatalog.enableIncludeHiddenIndex());
         return esTable;
     }
 }

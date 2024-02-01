@@ -19,7 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -46,19 +46,19 @@ public class HistogramTask extends BaseAnalysisTask {
             + "    HISTOGRAM(`${colName}`, ${maxBucketNum}) AS buckets, "
             + "    NOW() AS create_time "
             + "FROM "
-            + "    `${dbName}`.`${tblName}` ${sampleExpr}";
+            + "    `${dbName}`.`${tblName}`";
 
     @VisibleForTesting
     public HistogramTask() {
         super();
     }
 
-    public HistogramTask(AnalysisTaskInfo info) {
+    public HistogramTask(AnalysisInfo info) {
         super(info);
     }
 
     @Override
-    public void execute() throws Exception {
+    public void doExecute() throws Exception {
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("histogramStatTbl", StatisticConstants.HISTOGRAM_TBL_NAME);
@@ -67,16 +67,20 @@ public class HistogramTask extends BaseAnalysisTask {
         params.put("tblId", String.valueOf(tbl.getId()));
         params.put("idxId", String.valueOf(info.indexId));
         params.put("colId", String.valueOf(info.colName));
-        params.put("dbName", info.dbName);
-        params.put("tblName", String.valueOf(info.tblName));
+        params.put("dbName", db.getFullName());
+        params.put("tblName", tbl.getName());
         params.put("colName", String.valueOf(info.colName));
         params.put("sampleRate", getSampleRateFunction());
-        params.put("sampleExpr", getSampleExpression());
         params.put("maxBucketNum", String.valueOf(info.maxBucketNum));
 
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         StatisticsUtil.execUpdate(stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE));
         Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(tbl.getId(), -1, col.getName());
+    }
+
+    @Override
+    protected void afterExecution() {
+        // DO NOTHING
     }
 
     private String getSampleRateFunction() {
@@ -86,7 +90,8 @@ public class HistogramTask extends BaseAnalysisTask {
         if (info.samplePercent > 0) {
             return String.valueOf(info.samplePercent / 100.0);
         } else {
-            double sampRate = (double) info.sampleRows / tbl.getRowCount();
+            long rowCount = tbl.getRowCount() > 0 ? tbl.getRowCount() : 1;
+            double sampRate = (double) info.sampleRows / rowCount;
             return sampRate >= 1 ? "1.0" : String.format("%.4f", sampRate);
         }
     }

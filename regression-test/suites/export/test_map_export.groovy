@@ -54,7 +54,7 @@ suite("test_map_export", "export") {
     def testTable = "tbl_test_map_export"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
+
 
     sql """
         CREATE TABLE IF NOT EXISTS ${testTable} (
@@ -78,6 +78,14 @@ suite("test_map_export", "export") {
     qt_select_count """SELECT COUNT(m) FROM ${testTable}"""
 
     def outFilePath = """${context.file.parent}/test_map_export"""
+    List<List<Object>> backends =  sql """ show backends """
+    assertTrue(backends.size() > 0)
+    def outFile = outFilePath
+    if (backends.size() > 1) {
+        outFile = "/tmp"
+    }
+    def urlHost = ""
+    def csvFiles = ""
     logger.info("test_map_export the outFilePath=" + outFilePath)
     // map select into outfile
     try {
@@ -87,9 +95,18 @@ suite("test_map_export", "export") {
         } else {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
-        sql """
-                    SELECT * FROM ${testTable} ORDER BY id INTO OUTFILE "file://${outFilePath}/";
+        def result = sql """
+                    SELECT * FROM ${testTable} ORDER BY id INTO OUTFILE "file://${outFile}/";
         """
+        url = result[0][3]
+        urlHost = url.substring(8, url.indexOf("${outFile}"))
+        if (backends.size() > 1) {
+            // custer will scp files
+            def filePrifix = url.split("${outFile}")[1]
+            csvFiles = "${outFile}${filePrifix}*.csv"
+            scpFiles ("root", urlHost, csvFiles, outFilePath)
+        }
+
         File[] files = path.listFiles()
         assert files.length == 1
 
@@ -127,6 +144,10 @@ suite("test_map_export", "export") {
                 f.delete();
             }
             path.delete();
+        }
+        if (csvFiles != "") {
+            cmd = "rm -rf ${csvFiles}"
+            sshExec("root", urlHost, cmd)
         }
     }
 }

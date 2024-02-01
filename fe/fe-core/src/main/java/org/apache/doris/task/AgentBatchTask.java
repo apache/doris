@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TCompactionReq;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TDownloadReq;
 import org.apache.doris.thrift.TDropTabletReq;
+import org.apache.doris.thrift.TGcBinlogReq;
 import org.apache.doris.thrift.TMoveDirReq;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishVersionRequest;
@@ -159,12 +160,17 @@ public class AgentBatchTask implements Runnable {
                 }
                 List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
                 // create AgentClient
-                String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getIp();
+                String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getHost();
                 address = new TNetworkAddress(host, backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
                 for (AgentTask task : tasks) {
-                    agentTaskRequests.add(toAgentTaskRequest(task));
+                    try {
+                        agentTaskRequests.add(toAgentTaskRequest(task));
+                    } catch (Exception e) {
+                        task.failed();
+                        throw e;
+                    }
                 }
                 client.submitTasks(agentTaskRequests);
                 if (LOG.isDebugEnabled()) {
@@ -373,6 +379,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setPushCooldownConf(request);
+                return tAgentTaskRequest;
+            }
+            case GC_BINLOG: {
+                BinlogGcTask binlogGcTask = (BinlogGcTask) task;
+                TGcBinlogReq request = binlogGcTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setGcBinlogReq(request);
                 return tAgentTaskRequest;
             }
             default:

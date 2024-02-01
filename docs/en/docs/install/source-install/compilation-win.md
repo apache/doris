@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Compile With Windows 
+# Compilation on Windows 
 
 This topic is about how to compile Doris from source with Windows.
 
@@ -73,7 +73,7 @@ This topic is about how to compile Doris from source with Windows.
     - [Java8](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u131-linux-x64.tar.gz)
     - [Apache Maven 3.6.3](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz)
     - [Node v12.13.0](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v12.13.0-linux-x64.tar.gz)
-    - [LDB_TOOLCHAIN](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.14.2/ldb_toolchain_gen.sh)
+    - [LDB_TOOLCHAIN](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh)
 
 5. Configure environment variables
 
@@ -91,4 +91,4 @@ This topic is about how to compile Doris from source with Windows.
     ```
 ## Note
 
-The default data storage drive letter of WSL2 distribution is the C drive. If neccessary, you can change that to prevent the system drive letter from getting full.
+The default data storage drive letter of WSL2 distribution is the C drive. If necessary, you can change that to prevent the system drive letter from getting full.

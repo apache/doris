@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -44,7 +45,7 @@ import java.util.Optional;
  * @param <RIGHT_CHILD_TYPE> subquery.
  */
 public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
-        extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements PropagateFuncDeps {
 
     // correlation column
     private final List<Expression> correlationSlot;
@@ -55,37 +56,46 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     // The slot replaced by the subquery in MarkJoin
     private final Optional<MarkJoinSlotReference> markJoinSlotReference;
 
-    private final Optional<Expression> subCorrespondingConjunct;
-
     // Whether the subquery is in logicalProject
+    private final boolean inProject;
+
+    // Whether adding the subquery's output to projects
     private final boolean needAddSubOutputToProjects;
 
-    /**
-     * Constructor.
-     */
-    public LogicalApply(Optional<GroupExpression> groupExpression,
+    /*
+    * This flag is indicate the mark join slot can be non-null or not
+    * in InApplyToJoin rule, if it's semi join with non-null mark slot
+    * we can safely change the mark conjunct to hash conjunct
+    * see SubqueryToApply rule for more info
+    */
+    private final boolean isMarkJoinSlotNotNull;
+
+    private LogicalApply(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
             List<Expression> correlationSlot,
             SubqueryExpr subqueryExpr, Optional<Expression> correlationFilter,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
-            Optional<Expression> subCorrespondingConjunct,
+            boolean needAddSubOutputToProjects,
             boolean inProject,
+            boolean isMarkJoinSlotNotNull,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.LOGICAL_APPLY, groupExpression, logicalProperties, leftChild, rightChild);
         this.correlationSlot = correlationSlot == null ? ImmutableList.of() : ImmutableList.copyOf(correlationSlot);
         this.subqueryExpr = Objects.requireNonNull(subqueryExpr, "subquery can not be null");
         this.correlationFilter = correlationFilter;
         this.markJoinSlotReference = markJoinSlotReference;
-        this.subCorrespondingConjunct = subCorrespondingConjunct;
-        this.needAddSubOutputToProjects = inProject;
+        this.needAddSubOutputToProjects = needAddSubOutputToProjects;
+        this.inProject = inProject;
+        this.isMarkJoinSlotNotNull = isMarkJoinSlotNotNull;
     }
 
     public LogicalApply(List<Expression> correlationSlot, SubqueryExpr subqueryExpr,
             Optional<Expression> correlationFilter, Optional<MarkJoinSlotReference> markJoinSlotReference,
-            Optional<Expression> subCorrespondingConjunct, boolean inProject,
+            boolean needAddSubOutputToProjects, boolean inProject, boolean isMarkJoinSlotNotNull,
             LEFT_CHILD_TYPE input, RIGHT_CHILD_TYPE subquery) {
-        this(Optional.empty(), Optional.empty(), correlationSlot, subqueryExpr,
-                correlationFilter, markJoinSlotReference, subCorrespondingConjunct, inProject, input, subquery);
+        this(Optional.empty(), Optional.empty(), correlationSlot, subqueryExpr, correlationFilter,
+                markJoinSlotReference, needAddSubOutputToProjects, inProject, isMarkJoinSlotNotNull, input,
+                subquery);
     }
 
     public List<Expression> getCorrelationSlot() {
@@ -128,12 +138,16 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         return markJoinSlotReference;
     }
 
-    public Optional<Expression> getSubCorrespondingConjunct() {
-        return subCorrespondingConjunct;
-    }
-
     public boolean isNeedAddSubOutputToProjects() {
         return needAddSubOutputToProjects;
+    }
+
+    public boolean isInProject() {
+        return inProject;
+    }
+
+    public boolean isMarkJoinSlotNotNull() {
+        return isMarkJoinSlotNotNull;
     }
 
     @Override
@@ -153,9 +167,8 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                 "correlationSlot", correlationSlot,
                 "correlationFilter", correlationFilter,
                 "isMarkJoin", markJoinSlotReference.isPresent(),
-                "MarkJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty",
-                "scalarSubCorrespondingSlot",
-                subCorrespondingConjunct.isPresent() ? subCorrespondingConjunct.get() : "empty");
+                "isMarkJoinSlotNotNull", isMarkJoinSlotNotNull,
+                "MarkJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty");
     }
 
     @Override
@@ -166,20 +179,21 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalApply that = (LogicalApply) o;
+        LogicalApply<?, ?> that = (LogicalApply<?, ?>) o;
         return Objects.equals(correlationSlot, that.getCorrelationSlot())
                 && Objects.equals(subqueryExpr, that.getSubqueryExpr())
                 && Objects.equals(correlationFilter, that.getCorrelationFilter())
                 && Objects.equals(markJoinSlotReference, that.getMarkJoinSlotReference())
-                && Objects.equals(subCorrespondingConjunct, that.getSubCorrespondingConjunct())
-                && needAddSubOutputToProjects == that.needAddSubOutputToProjects;
+                && needAddSubOutputToProjects == that.needAddSubOutputToProjects
+                && inProject == that.inProject
+                && isMarkJoinSlotNotNull == that.isMarkJoinSlotNotNull;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
                 correlationSlot, subqueryExpr, correlationFilter,
-                markJoinSlotReference, subCorrespondingConjunct, needAddSubOutputToProjects);
+                markJoinSlotReference, needAddSubOutputToProjects, inProject, isMarkJoinSlotNotNull);
     }
 
     @Override
@@ -194,31 +208,40 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                     .addAll(correlationSlot)
                     .add(correlationFilter.get())
                     .build();
+        } else {
+            return new ImmutableList.Builder<Expression>()
+                    .addAll(correlationSlot)
+                    .build();
         }
-        return new ImmutableList.Builder<Expression>()
-                .addAll(correlationSlot)
-                .build();
+    }
+
+    public LogicalApply<Plan, Plan> withSubqueryExprAndChildren(SubqueryExpr subqueryExpr, List<Plan> children) {
+        return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
+                markJoinSlotReference, needAddSubOutputToProjects, inProject, isMarkJoinSlotNotNull,
+                children.get(0), children.get(1));
     }
 
     @Override
-    public LogicalBinary<Plan, Plan> withChildren(List<Plan> children) {
+    public LogicalApply<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
-                markJoinSlotReference, subCorrespondingConjunct, needAddSubOutputToProjects,
+                markJoinSlotReference, needAddSubOutputToProjects, inProject, isMarkJoinSlotNotNull,
                 children.get(0), children.get(1));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalApply<>(groupExpression, Optional.of(getLogicalProperties()),
-                correlationSlot, subqueryExpr, correlationFilter,
-                markJoinSlotReference, subCorrespondingConjunct, needAddSubOutputToProjects, left(), right());
+                correlationSlot, subqueryExpr, correlationFilter, markJoinSlotReference,
+                needAddSubOutputToProjects, inProject, isMarkJoinSlotNotNull, left(), right());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalApply<>(Optional.empty(), logicalProperties,
-                correlationSlot, subqueryExpr, correlationFilter,
-                markJoinSlotReference, subCorrespondingConjunct, needAddSubOutputToProjects, left(), right());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new LogicalApply<>(groupExpression, logicalProperties, correlationSlot, subqueryExpr,
+                correlationFilter, markJoinSlotReference,
+                needAddSubOutputToProjects, inProject, isMarkJoinSlotNotNull, children.get(0), children.get(1));
     }
 }

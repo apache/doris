@@ -47,7 +47,7 @@ class TIcebergDeleteFileDesc;
 class TupleDescriptor;
 
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 struct TypeDescriptor;
 
@@ -69,8 +69,8 @@ public:
 
     IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
-                       const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                       io::IOContext* io_ctx);
+                       const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
+                       int64_t push_down_count);
     ~IcebergTableReader() override = default;
 
     Status init_row_filters(const TFileRangeDesc& range) override;
@@ -80,7 +80,7 @@ public:
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
     bool fill_all_columns() const override;
 
@@ -91,11 +91,11 @@ public:
             const std::vector<std::string>& file_col_names,
             const std::unordered_map<int, std::string>& col_id_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            VExprContext* vconjunct_ctx, const TupleDescriptor* tuple_descriptor,
+            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
-            const std::vector<VExprContext*>* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, std::vector<VExprContext*>>* slot_id_to_filter_conjuncts);
+            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
     enum { DATA, POSITION_DELETE, EQUALITY_DELETE };
 
@@ -154,6 +154,8 @@ private:
     io::IOContext* _io_ctx;
     bool _has_schema_change = false;
     bool _has_iceberg_schema = false;
+
+    int64_t _remaining_push_down_count;
 };
 } // namespace vectorized
 } // namespace doris

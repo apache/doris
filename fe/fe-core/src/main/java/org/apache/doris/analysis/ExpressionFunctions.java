@@ -31,6 +31,7 @@ import org.apache.doris.rewrite.FEFunctions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -50,6 +51,10 @@ public enum ExpressionFunctions {
 
     private static final Logger LOG = LogManager.getLogger(ExpressionFunctions.class);
     private ImmutableMultimap<String, FEFunctionInvoker> functions;
+    public static final Set<String> unfixedFn = ImmutableSet.of(
+            "uuid",
+            "random"
+    );
 
     private ExpressionFunctions() {
         registerFunctions();
@@ -58,7 +63,7 @@ public enum ExpressionFunctions {
     public Expr evalExpr(Expr constExpr) {
         // Function's arg are all LiteralExpr.
         for (Expr child : constExpr.getChildren()) {
-            if (!(child instanceof LiteralExpr) && !(child instanceof SysVariableDesc)) {
+            if (!(child instanceof LiteralExpr) && !(child instanceof VariableExpr)) {
                 return constExpr;
             }
         }
@@ -67,6 +72,15 @@ public enum ExpressionFunctions {
                 || constExpr instanceof FunctionCallExpr
                 || constExpr instanceof TimestampArithmeticExpr) {
             Function fn = constExpr.getFn();
+            if (fn == null) {
+                return constExpr;
+            }
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable() != null
+                    && !ConnectContext.get().getSessionVariable().isEnableFoldNondeterministicFn()
+                    && unfixedFn.contains(fn.getFunctionName().getFunction())) {
+                return constExpr;
+            }
 
             Preconditions.checkNotNull(fn, "Expr's fn can't be null.");
 
@@ -104,6 +118,9 @@ public enum ExpressionFunctions {
                         try {
                             ((DateLiteral) dateLiteral).checkValueValid();
                         } catch (AnalysisException e) {
+                            if (ConnectContext.get() != null) {
+                                ConnectContext.get().getState().reset();
+                            }
                             return NullLiteral.create(dateLiteral.getType());
                         }
                         return dateLiteral;
@@ -111,12 +128,15 @@ public enum ExpressionFunctions {
                         return invoker.invoke(constExpr.getChildrenWithoutCast());
                     }
                 } catch (AnalysisException e) {
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                     LOG.debug("failed to invoke", e);
                     return constExpr;
                 }
             }
-        } else if (constExpr instanceof SysVariableDesc) {
-            return ((SysVariableDesc) constExpr).getLiteralExpr();
+        } else if (constExpr instanceof VariableExpr) {
+            return ((VariableExpr) constExpr).getLiteralExpr();
         }
         return constExpr;
     }
@@ -258,8 +278,10 @@ public enum ExpressionFunctions {
             LiteralExpr[] exprs;
             if (argType.isStringType()) {
                 exprs = new StringLiteral[args.size()];
-            } else if (argType.isFixedPointType()) {
+            } else if (argType.isIntegerType()) {
                 exprs = new IntLiteral[args.size()];
+            } else if (argType.isLargeIntType()) {
+                exprs = new LargeIntLiteral[args.size()];
             } else if (argType.isDateType()) {
                 exprs = new DateLiteral[args.size()];
             } else if (argType.isDecimalV2() || argType.isDecimalV3()) {

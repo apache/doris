@@ -35,7 +35,7 @@ struct TTabletStat {
     2: optional i64 data_size
     3: optional i64 row_num
     4: optional i64 version_count
-    5: optional i64 remote_data_size 
+    5: optional i64 remote_data_size
 }
 
 struct TTabletStatResult {
@@ -65,6 +65,9 @@ struct TRoutineLoadTask {
     12: optional TKafkaLoadInfo kafka_load_info
     13: optional PaloInternalService.TExecPlanFragmentParams params
     14: optional PlanNodes.TFileFormatType format
+    15: optional PaloInternalService.TPipelineFragmentParams pipeline_params
+    16: optional bool is_multi_table
+    17: optional bool memtable_on_sink_node;
 }
 
 struct TKafkaMetaProxyRequest {
@@ -121,6 +124,200 @@ struct TCheckStorageFormatResult {
     2: optional list<i64> v2_tablets;
 }
 
+struct TPreCacheAsyncRequest {
+    1: required string host
+    2: required i32 brpc_port
+    3: required list<i64> tablet_ids
+}
+
+struct TPreCacheAsyncResponse {
+    1: required Status.TStatus status
+}
+
+struct TCheckPreCacheRequest {
+    1: optional list<i64> tablets
+}
+
+struct TCheckPreCacheResponse {
+    1: required Status.TStatus status
+    2: optional map<i64, bool> task_done;
+}
+
+struct TSyncLoadForTabletsRequest {
+    1: required list<i64> tablet_ids
+}
+
+struct TSyncLoadForTabletsResponse {
+}
+
+struct THotPartition {
+    1: required i64 partition_id
+    2: required i64 last_access_time
+    3: optional i64 query_per_day
+    4: optional i64 query_per_week
+}
+
+struct THotTableMessage {
+    1: required i64 table_id
+    2: required i64 index_id
+    3: optional list<THotPartition> hot_partitions
+}
+
+struct TGetTopNHotPartitionsRequest {
+}
+
+struct TGetTopNHotPartitionsResponse {
+    1: required i64 file_cache_size
+    2: optional list<THotTableMessage> hot_tables
+}
+
+enum TDownloadType {
+    BE = 0,
+    S3 = 1,
+}
+
+enum TWarmUpTabletsRequestType {
+    SET_JOB = 0,
+    SET_BATCH = 1,
+    GET_CURRENT_JOB_STATE_AND_LEASE = 2,
+    CLEAR_JOB = 3,
+}
+
+struct TJobMeta {
+    1: required TDownloadType download_type
+    2: optional string be_ip
+    3: optional i32 brpc_port
+    4: optional list<i64> tablet_ids
+}
+
+struct TWarmUpTabletsRequest {
+    1: required i64 job_id
+    2: required i64 batch_id
+    3: optional list<TJobMeta> job_metas
+    4: required TWarmUpTabletsRequestType type
+}
+
+struct TWarmUpTabletsResponse {
+    1: required Status.TStatus status;
+    2: optional i64 job_id
+    3: optional i64 batch_id
+    4: optional i64 pending_job_size
+    5: optional i64 finish_job_size
+}
+
+struct TIngestBinlogRequest {
+    1: optional i64 txn_id;
+    2: optional i64 remote_tablet_id;
+    3: optional i64 binlog_version;
+    4: optional string remote_host;
+    5: optional string remote_port;
+    6: optional i64 partition_id;
+    7: optional i64 local_tablet_id;
+    8: optional Types.TUniqueId load_id;
+}
+
+struct TIngestBinlogResult {
+    1: optional Status.TStatus status;
+    2: optional bool is_async;
+}
+
+struct TQueryIngestBinlogRequest {
+    1: optional i64 txn_id;
+    2: optional i64 partition_id;
+    3: optional i64 tablet_id;
+    4: optional Types.TUniqueId load_id;
+}
+
+enum TIngestBinlogStatus {
+    ANALYSIS_ERROR,
+    UNKNOWN,
+    NOT_FOUND,
+    OK,
+    FAILED,
+    DOING
+}
+
+struct TQueryIngestBinlogResult {
+    1: optional TIngestBinlogStatus status;
+    2: optional string err_msg;
+}
+
+enum TTopicInfoType {
+    WORKLOAD_GROUP
+    MOVE_QUERY_TO_GROUP
+    WORKLOAD_SCHED_POLICY
+}
+
+struct TWorkloadGroupInfo {
+  1: optional i64 id
+  2: optional string name
+  3: optional i64 version
+  4: optional i64 cpu_share
+  5: optional i32 cpu_hard_limit
+  6: optional string mem_limit
+  7: optional bool enable_memory_overcommit
+  8: optional bool enable_cpu_hard_limit
+}
+
+struct TWorkloadMoveQueryToGroupAction {
+    1: optional Types.TUniqueId query_id
+    2: optional i64 workload_group_id
+}
+
+enum TWorkloadMetricType {
+    QUERY_TIME
+    SCAN_ROWS
+    SCAN_BYTES
+}
+
+enum TCompareOperator {
+    EQUAL
+    GREATER
+    GREATER_EQUAL
+    LESS
+    LESS_EQUAL
+}
+
+struct TWorkloadCondition {
+    1: optional TWorkloadMetricType metric_name
+    2: optional TCompareOperator op
+    3: optional string value
+}
+
+enum TWorkloadActionType {
+    MOVE_QUERY_TO_GROUP
+    CANCEL_QUERY
+}
+
+struct TWorkloadAction {
+    1: optional TWorkloadActionType action
+    2: optional string action_args
+}
+
+struct TWorkloadSchedPolicy {
+    1: optional i64 id
+    2: optional string name
+    3: optional i32 version
+    4: optional i32 priority
+    5: optional bool enabled
+    6: optional list<TWorkloadCondition> condition_list
+    7: optional list<TWorkloadAction> action_list
+}
+
+struct TopicInfo {
+    1: optional TWorkloadGroupInfo workload_group_info
+    2: optional TWorkloadMoveQueryToGroupAction move_action
+    3: optional TWorkloadSchedPolicy workload_sched_policy
+}
+
+struct TPublishTopicRequest {
+    1: required map<TTopicInfoType, list<TopicInfo>> topic_map
+}
+
+struct TPublishTopicResult {
+    1: required Status.TStatus status
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -152,9 +349,9 @@ service BackendService {
     Status.TStatus erase_export_task(1:Types.TUniqueId task_id);
 
     TTabletStatResult get_tablet_stat();
-    
+
     i64 get_trash_used_capacity();
-    
+
     list<TDiskTrashInfo> get_disk_trash_used_capacity();
 
     Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
@@ -174,4 +371,19 @@ service BackendService {
 
     // check tablet rowset type
     TCheckStorageFormatResult check_storage_format();
+
+    TPreCacheAsyncResponse pre_cache_async(1: TPreCacheAsyncRequest request);
+
+    TCheckPreCacheResponse check_pre_cache(1: TCheckPreCacheRequest request);
+
+    TSyncLoadForTabletsResponse sync_load_for_tablets(1: TSyncLoadForTabletsRequest request);
+
+    TGetTopNHotPartitionsResponse get_top_n_hot_partitions(1: TGetTopNHotPartitionsRequest request);
+
+    TWarmUpTabletsResponse warm_up_tablets(1: TWarmUpTabletsRequest request);
+
+    TIngestBinlogResult ingest_binlog(1: TIngestBinlogRequest ingest_binlog_request);
+    TQueryIngestBinlogResult query_ingest_binlog(1: TQueryIngestBinlogRequest query_ingest_binlog_request);
+
+    TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
 }

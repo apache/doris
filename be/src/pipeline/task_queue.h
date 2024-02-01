@@ -33,7 +33,6 @@
 #include "runtime/task_group/task_group.h"
 
 namespace doris {
-
 namespace pipeline {
 
 class TaskQueue {
@@ -53,8 +52,8 @@ public:
 
     virtual void update_statistics(PipelineTask* task, int64_t time_spent) {}
 
-    virtual void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                                   taskgroup::TaskGroupPtr& task_group) = 0;
+    virtual void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                                     taskgroup::TGPTEntityPtr entity) = 0;
 
     int cores() const { return _core_size; }
 
@@ -95,11 +94,9 @@ private:
 // A Multilevel Feedback Queue
 class PriorityTaskQueue {
 public:
-    explicit PriorityTaskQueue();
+    PriorityTaskQueue();
 
     void close();
-
-    PipelineTask* try_take_unprotected(bool is_steal);
 
     PipelineTask* try_take(bool is_steal);
 
@@ -111,7 +108,10 @@ public:
         _sub_queues[level].inc_runtime(runtime);
     }
 
+    int task_size();
+
 private:
+    PipelineTask* _try_take_unprotected(bool is_steal);
     static constexpr auto LEVEL_QUEUE_TIME_FACTOR = 2;
     static constexpr size_t SUB_QUEUE_LEVEL = 6;
     SubTaskQueue _sub_queues[SUB_QUEUE_LEVEL];
@@ -154,9 +154,9 @@ public:
                                                                          time_spent);
     }
 
-    void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                           taskgroup::TaskGroupPtr& task_group) override {
-        LOG(FATAL) << "update_task_group not implemented";
+    void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                             taskgroup::TGPTEntityPtr entity) override {
+        LOG(FATAL) << "update_tg_cpu_share not implemented";
     }
 
 private:
@@ -184,30 +184,30 @@ public:
 
     void update_statistics(PipelineTask* task, int64_t time_spent) override;
 
-    void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                           taskgroup::TaskGroupPtr& task_group) override;
+    void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                             taskgroup::TGPTEntityPtr entity) override;
 
 private:
     template <bool from_executor>
     Status _push_back(PipelineTask* task);
     template <bool from_worker>
-    void _enqueue_task_group(taskgroup::TGEntityPtr);
-    void _dequeue_task_group(taskgroup::TGEntityPtr);
-    taskgroup::TGEntityPtr _next_tg_entity();
-    int64_t _ideal_runtime_ns(taskgroup::TGEntityPtr tg_entity) const;
+    void _enqueue_task_group(taskgroup::TGPTEntityPtr);
+    void _dequeue_task_group(taskgroup::TGPTEntityPtr);
+    taskgroup::TGPTEntityPtr _next_tg_entity();
+    uint64_t _ideal_runtime_ns(taskgroup::TGPTEntityPtr tg_entity) const;
     void _update_min_tg();
 
     // Like cfs rb tree in sched_entity
     struct TaskGroupSchedEntityComparator {
-        bool operator()(const taskgroup::TGEntityPtr&, const taskgroup::TGEntityPtr&) const;
+        bool operator()(const taskgroup::TGPTEntityPtr&, const taskgroup::TGPTEntityPtr&) const;
     };
-    using ResouceGroupSet = std::set<taskgroup::TGEntityPtr, TaskGroupSchedEntityComparator>;
+    using ResouceGroupSet = std::set<taskgroup::TGPTEntityPtr, TaskGroupSchedEntityComparator>;
     ResouceGroupSet _group_entities;
     std::condition_variable _wait_task;
     std::mutex _rs_mutex;
     bool _closed = false;
     int _total_cpu_share = 0;
-    std::atomic<taskgroup::TGEntityPtr> _min_tg_entity = nullptr;
+    std::atomic<taskgroup::TGPTEntityPtr> _min_tg_entity = nullptr;
     uint64_t _min_tg_v_runtime_ns = 0;
 };
 

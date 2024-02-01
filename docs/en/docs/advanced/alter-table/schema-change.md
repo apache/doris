@@ -211,7 +211,7 @@ When done, the Schema becomes:
 +-----------+-------+-------------+------+------+---------+-------+
 ```
 
-Because the Schema Chanage job is an asynchronous operation, only one Schema chanage job can be performed on the same table at the same time. To check the operation status of the job, you can use the following command
+Because the Schema Change job is an asynchronous operation, only one Schema change job can be performed on the same table at the same time. To check the operation status of the job, you can use the following command
 
 ```sql
 SHOW ALTER TABLE COLUMN\G;
@@ -256,7 +256,7 @@ SHOW ALTER TABLE COLUMN\G;
     Schema Change can only be started when the table data is complete and unbalanced. If some data shard copies of the table are incomplete, or if some copies are undergoing an equalization operation, the submission is rejected.
         
     Whether the data shard copy is complete can be checked with the following command:
-        ```ADMIN SHOW REPLICA STATUS FROM tbl WHERE STATUS != "OK";```
+        ```SHOW REPLICA STATUS FROM tbl WHERE STATUS != "OK";```
     
     If a result is returned, there is a problem with the copy. These problems are usually fixed automatically by the system. You can also use the following commands to repair this table first:    
     ```ADMIN REPAIR TABLE tbl1;```
@@ -280,6 +280,7 @@ SHOW ALTER TABLE COLUMN\G;
 * `alter_tablet_worker_count`: Number of threads used to perform historical data conversion on the BE side. The default is 3. If you want to speed up the Schema Change job, you can increase this parameter appropriately and restart the BE. But too many conversion threads can cause increased IO pressure and affect other operations. This thread is shared with the Rollup job.
 
 
+* `alter_index_worker_count`: Number of threads used to perform historical data build index on the BE size (note: only inverted index is supported now). The default is 3. If you want to speed up the Index Change job, you can increase this parameter appropriately and restart the BE. But too many threads can cause increased IO pressure and affect other operations.
 
 ## More Help
 

@@ -89,6 +89,16 @@ public interface LoadTaskInfo {
 
     Separator getLineDelimiter();
 
+    /**
+     * only for csv
+     */
+    byte getEnclose();
+
+    /**
+     * only for csv
+     */
+    byte getEscape();
+
     int getSendBatchParallelism();
 
     boolean isLoadToSingleTablet();
@@ -96,6 +106,8 @@ public interface LoadTaskInfo {
     String getHeaderType();
 
     List<String> getHiddenColumns();
+
+    boolean isPartialUpdate();
 
     default boolean getTrimDoubleQuotes() {
         return false;
@@ -107,6 +119,14 @@ public interface LoadTaskInfo {
 
     default boolean getEnableProfile() {
         return false;
+    }
+
+    default boolean isMemtableOnSinkNode() {
+        return false;
+    }
+
+    default int getStreamPerNode() {
+        return 20;
     }
 
     class ImportColumnDescs {

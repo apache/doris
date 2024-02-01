@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SetNamesVar;
 import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetTransaction;
+import org.apache.doris.analysis.SetUserDefinedVar;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.common.DdlException;
 
@@ -54,6 +55,8 @@ public class SetExecutor {
         } else if (var instanceof SetTransaction) {
             // do nothing
             return;
+        } else if (var instanceof SetUserDefinedVar) {
+            ConnectContext.get().setUserVar(var);
         } else {
             VariableMgr.setVar(ctx.getSessionVariable(), var);
         }

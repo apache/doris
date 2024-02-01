@@ -17,8 +17,18 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -49,6 +59,7 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 
 public class TypeCoercionUtilsTest {
@@ -299,8 +310,8 @@ public class TypeCoercionUtilsTest {
                 DecimalV2Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT,
                 DecimalV3Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT, FloatType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT, DoubleType.INSTANCE);
+        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, FloatType.INSTANCE);
+        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, DoubleType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, CharType.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, StringType.INSTANCE);
@@ -349,7 +360,7 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(FloatType.INSTANCE, FloatType.INSTANCE, IntegerType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(FloatType.INSTANCE, FloatType.INSTANCE, BigIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, FloatType.INSTANCE, LargeIntType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, FloatType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
+        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, FloatType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, FloatType.INSTANCE, DecimalV3Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(FloatType.INSTANCE, FloatType.INSTANCE, FloatType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, FloatType.INSTANCE, DoubleType.INSTANCE);
@@ -372,7 +383,7 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, IntegerType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, BigIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, LargeIntType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
+        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, DecimalV3Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, FloatType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, DoubleType.INSTANCE);
@@ -684,8 +695,44 @@ public class TypeCoercionUtilsTest {
     @Test
     public void testCastIfNotSameType() {
         Assertions.assertEquals(new DoubleLiteral(5L),
-                TypeCoercionUtils.castIfNotMatchType(new DoubleLiteral(5L), DoubleType.INSTANCE));
+                TypeCoercionUtils.castIfNotSameType(new DoubleLiteral(5L), DoubleType.INSTANCE));
         Assertions.assertEquals(new Cast(new DoubleLiteral(5L), BooleanType.INSTANCE),
-                TypeCoercionUtils.castIfNotMatchType(new DoubleLiteral(5L), BooleanType.INSTANCE));
+                TypeCoercionUtils.castIfNotSameType(new DoubleLiteral(5L), BooleanType.INSTANCE));
+        Assertions.assertEquals(new StringLiteral("varchar"),
+                TypeCoercionUtils.castIfNotSameType(new VarcharLiteral("varchar"), StringType.INSTANCE));
+        Assertions.assertEquals(new StringLiteral("char"),
+                TypeCoercionUtils.castIfNotSameType(new CharLiteral("char", 4), StringType.INSTANCE));
+        Assertions.assertEquals(new CharLiteral("char", 4),
+                TypeCoercionUtils.castIfNotSameType(new CharLiteral("char", 4), VarcharType.createVarcharType(100)));
+        Assertions.assertEquals(new StringLiteral("string"),
+                TypeCoercionUtils.castIfNotSameType(new StringLiteral("string"), VarcharType.createVarcharType(100)));
+
+    }
+
+    @Test
+    public void testDecimalArithmetic() {
+        Multiply multiply = new Multiply(new DecimalLiteral(new BigDecimal("987654.321")),
+                new DecimalV3Literal(new BigDecimal("123.45")));
+        Expression expression = TypeCoercionUtils.processBinaryArithmetic(multiply);
+        Assertions.assertEquals(expression.child(0),
+                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
+
+        Divide divide = new Divide(new DecimalLiteral(new BigDecimal("987654.321")),
+                new DecimalV3Literal(new BigDecimal("123.45")));
+        expression = TypeCoercionUtils.processBinaryArithmetic(divide);
+        Assertions.assertEquals(expression.child(0),
+                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
+
+        Add add = new Add(new DecimalLiteral(new BigDecimal("987654.321")),
+                new DecimalV3Literal(new BigDecimal("123.45")));
+        expression = TypeCoercionUtils.processBinaryArithmetic(add);
+        Assertions.assertEquals(expression.child(0),
+                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(10, 3)));
+
+        Subtract sub = new Subtract(new DecimalLiteral(new BigDecimal("987654.321")),
+                new DecimalV3Literal(new BigDecimal("123.45")));
+        expression = TypeCoercionUtils.processBinaryArithmetic(sub);
+        Assertions.assertEquals(expression.child(0),
+                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(10, 3)));
     }
 }

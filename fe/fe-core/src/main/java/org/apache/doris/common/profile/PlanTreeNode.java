@@ -20,17 +20,19 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.planner.PlanNodeId;
 
+import java.util.List;
+
 public class PlanTreeNode extends TreeNode<PlanTreeNode> {
-    private PlanNodeId id;
+    private List<PlanNodeId> ids;
     private String explainStr;
 
-    public PlanTreeNode(PlanNodeId id, String explainStr) {
-        this.id = id;
+    public PlanTreeNode(List<PlanNodeId> ids, String explainStr) {
+        this.ids = ids;
         this.explainStr = explainStr;
     }
 
-    public PlanNodeId getId() {
-        return id;
+    public List<PlanNodeId> getIds() {
+        return ids;
     }
 
     public String getExplainStr() {

@@ -17,8 +17,11 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
@@ -36,6 +39,8 @@ import java.util.Comparator;
 public class Replica implements Writable {
     private static final Logger LOG = LogManager.getLogger(Replica.class);
     public static final VersionComparator<Replica> VERSION_DESC_COMPARATOR = new VersionComparator<Replica>();
+    public static final LastSuccessVersionComparator<Replica> LAST_SUCCESS_VERSION_COMPARATOR =
+            new LastSuccessVersionComparator<Replica>();
     public static final IdComparator<Replica> ID_COMPARATOR = new IdComparator<Replica>();
 
     public enum ReplicaState {
@@ -65,7 +70,8 @@ public class Replica implements Writable {
         VERSION_ERROR, // missing version
         MISSING, // replica does not exist
         SCHEMA_ERROR, // replica's schema hash does not equal to index's schema hash
-        BAD // replica is broken.
+        BAD, // replica is broken.
+        DROP,  // user force drop replica on this backend
     }
 
     @SerializedName(value = "id")
@@ -113,25 +119,48 @@ public class Replica implements Writable {
     private TUniqueId cooldownMetaId;
     private long cooldownTerm = -1;
 
+    // A replica version should increase monotonically,
+    // but backend may missing some versions due to disk failure or bugs.
+    // FE should found these and mark the replica as missing versions.
+    // If backend's report version < fe version, record the backend's report version as `regressiveVersion`,
+    // and if time exceed 5min, fe should mark this replica as missing versions.
+    private long regressiveVersion = -1;
+    private long regressiveVersionTimestamp = 0;
+
     /*
-     * If set to true, with means this replica need to be repaired. explicitly.
      * This can happen when this replica is created by a balance clone task, and
      * when task finished, the version of this replica is behind the partition's visible version.
      * So this replica need a further repair.
      * If we do not do this, this replica will be treated as version stale, and will be removed,
      * so that the balance task is failed, which is unexpected.
      *
-     * furtherRepairSetTime set alone with needFurtherRepair.
+     * furtherRepairSetTime and leftFurtherRepairCount are set alone with needFurtherRepair.
      * This is an insurance, in case that further repair task always fail. If 20 min passed
      * since we set needFurtherRepair to true, the 'needFurtherRepair' will be set to false.
      */
-    private boolean needFurtherRepair = false;
     private long furtherRepairSetTime = -1;
-    private static final long FURTHER_REPAIR_TIMEOUT_MS = 20 * 60 * 1000L; // 20min
+    private int leftFurtherRepairCount = 0;
 
-    // if this watermarkTxnId is set, which means before deleting a replica,
-    // we should ensure that all txns on this replicas are finished.
-    private long watermarkTxnId = -1;
+    // During full clone, the replica's state is CLONE, it will not load the data.
+    // After full clone finished, even if the replica's version = partition's visible version,
+    //
+    // notice: furtherRepairWatermarkTxnTd is used to clone a replica, protected it from be removed.
+    //
+    private long furtherRepairWatermarkTxnTd = -1;
+
+    /* Decommission a backend B, steps are as follow:
+     * 1. wait peer backends catchup with B;
+     * 2. B change state to DECOMMISSION, set preWatermarkTxnId. B can load data now.
+     * 3. wait txn before preWatermarkTxnId finished, set postWatermarkTxnId. B can't load data now.
+     * 4. wait txn before postWatermarkTxnId finished, delete B.
+     *
+     * notice: preWatermarkTxnId and postWatermarkTxnId are used to delete this replica.
+     *
+     */
+    private long preWatermarkTxnId = -1;
+    private long postWatermarkTxnId = -1;
+
+    private long userDropTime = -1;
 
     public Replica() {
     }
@@ -195,6 +224,11 @@ public class Replica implements Writable {
         return this.backendId;
     }
 
+    // just for ut
+    public void setBackendId(long backendId) {
+        this.backendId = backendId;
+    }
+
     public long getDataSize() {
         return dataSize;
     }
@@ -256,15 +290,35 @@ public class Replica implements Writable {
     }
 
     public boolean needFurtherRepair() {
-        if (needFurtherRepair && System.currentTimeMillis() - this.furtherRepairSetTime < FURTHER_REPAIR_TIMEOUT_MS) {
-            return true;
-        }
-        return false;
+        return leftFurtherRepairCount > 0
+                && System.currentTimeMillis() < furtherRepairSetTime
+                        + Config.tablet_further_repair_timeout_second * 1000;
     }
 
     public void setNeedFurtherRepair(boolean needFurtherRepair) {
-        this.needFurtherRepair = needFurtherRepair;
-        this.furtherRepairSetTime = System.currentTimeMillis();
+        if (needFurtherRepair) {
+            furtherRepairSetTime = System.currentTimeMillis();
+            leftFurtherRepairCount = Config.tablet_further_repair_max_times;
+        } else {
+            leftFurtherRepairCount = 0;
+            furtherRepairSetTime = -1;
+        }
+    }
+
+    public void incrFurtherRepairCount() {
+        leftFurtherRepairCount--;
+    }
+
+    public int getLeftFurtherRepairCount() {
+        return leftFurtherRepairCount;
+    }
+
+    public long getFurtherRepairWatermarkTxnTd() {
+        return furtherRepairWatermarkTxnTd;
+    }
+
+    public void setFurtherRepairWatermarkTxnTd(long furtherRepairWatermarkTxnTd) {
+        this.furtherRepairWatermarkTxnTd = furtherRepairWatermarkTxnTd;
     }
 
     // for compatibility
@@ -289,6 +343,42 @@ public class Replica implements Writable {
     public synchronized void updateVersionWithFailedInfo(
             long newVersion, long lastFailedVersion, long lastSuccessVersion) {
         updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, remoteDataSize, rowCount);
+    }
+
+    public synchronized void adminUpdateVersionInfo(Long version, Long lastFailedVersion, Long lastSuccessVersion,
+            long updateTime) {
+        long oldLastFailedVersion = this.lastFailedVersion;
+        if (version != null) {
+            this.version = version;
+        }
+        if (lastSuccessVersion != null) {
+            this.lastSuccessVersion = lastSuccessVersion;
+        }
+        if (lastFailedVersion != null) {
+            if (this.lastFailedVersion < lastFailedVersion) {
+                this.lastFailedTimestamp = updateTime;
+            }
+            this.lastFailedVersion = lastFailedVersion;
+        }
+        if (this.lastFailedVersion < this.version) {
+            this.lastFailedVersion = -1;
+            this.lastFailedTimestamp  = -1;
+            this.lastFailedVersionHash = 0;
+        }
+        if (this.lastFailedVersion > 0
+                && this.lastSuccessVersion > this.lastFailedVersion) {
+            this.lastSuccessVersion = this.version;
+        }
+        if (this.lastSuccessVersion < this.version) {
+            this.lastSuccessVersion = this.version;
+        }
+        if (oldLastFailedVersion < 0 && this.lastFailedVersion > 0) {
+            LOG.info("change replica last failed version from '< 0' to '> 0', replica {}, old last failed version {}",
+                    this, oldLastFailedVersion);
+        } else if (oldLastFailedVersion > 0 && this.lastFailedVersion < 0) {
+            LOG.info("change replica last failed version from '> 0' to '< 0', replica {}, old last failed version {}",
+                    this, oldLastFailedVersion);
+        }
     }
 
     /* last failed version:  LFV
@@ -339,6 +429,8 @@ public class Replica implements Writable {
             return;
         }
 
+        long oldLastFailedVersion = this.lastFailedVersion;
+
         this.version = newVersion;
         this.dataSize = newDataSize;
         this.remoteDataSize = newRemoteDataSize;
@@ -363,9 +455,9 @@ public class Replica implements Writable {
 
         if (lastFailedVersion != this.lastFailedVersion) {
             // Case 2:
-            if (lastFailedVersion > this.lastFailedVersion) {
+            if (lastFailedVersion > this.lastFailedVersion || lastFailedVersion < 0) {
                 this.lastFailedVersion = lastFailedVersion;
-                this.lastFailedTimestamp = System.currentTimeMillis();
+                this.lastFailedTimestamp = lastFailedVersion > 0 ? System.currentTimeMillis() : -1L;
             }
 
             this.lastSuccessVersion = this.version;
@@ -391,6 +483,14 @@ public class Replica implements Writable {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("after update {}", this.toString());
+        }
+
+        if (oldLastFailedVersion < 0 && this.lastFailedVersion > 0) {
+            LOG.info("change replica last failed version from '< 0' to '> 0', replica {}, old last failed version {}",
+                    this, oldLastFailedVersion);
+        } else if (oldLastFailedVersion > 0 && this.lastFailedVersion < 0) {
+            LOG.info("change replica last failed version from '> 0' to '< 0', replica {}, old last failed version {}",
+                    this, oldLastFailedVersion);
         }
     }
 
@@ -426,10 +526,6 @@ public class Replica implements Writable {
         return true;
     }
 
-    public void setLastFailedVersion(long lastFailedVersion) {
-        this.lastFailedVersion = lastFailedVersion;
-    }
-
     public void setState(ReplicaState replicaState) {
         this.state = replicaState;
     }
@@ -442,12 +538,35 @@ public class Replica implements Writable {
         return state == ReplicaState.COMPACTION_TOO_SLOW;
     }
 
+    public boolean isNormal() {
+        return state == ReplicaState.NORMAL;
+    }
+
     public long getVersionCount() {
         return versionCount;
     }
 
     public void setVersionCount(long versionCount) {
         this.versionCount = versionCount;
+    }
+
+    public boolean checkVersionRegressive(long newVersion) {
+        if (newVersion >= version) {
+            regressiveVersion = -1;
+            regressiveVersionTimestamp = -1;
+            return false;
+        }
+
+        if (DebugPointUtil.isEnable("Replica.regressive_version_immediately")) {
+            return true;
+        }
+
+        if (newVersion != regressiveVersion) {
+            regressiveVersion = newVersion;
+            regressiveVersionTimestamp = System.currentTimeMillis();
+        }
+
+        return System.currentTimeMillis() - regressiveVersionTimestamp >= 5 * 60 * 1000L;
     }
 
     @Override
@@ -473,6 +592,54 @@ public class Replica implements Writable {
         strBuffer.append(", state=");
         strBuffer.append(state.name());
         strBuffer.append("]");
+        return strBuffer.toString();
+    }
+
+    public String toStringSimple(boolean checkBeAlive) {
+        StringBuilder strBuffer = new StringBuilder("[replicaId=");
+        strBuffer.append(id);
+        strBuffer.append(", backendId=");
+        strBuffer.append(backendId);
+        if (checkBeAlive) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (backend == null) {
+                strBuffer.append(", backend=null");
+            } else {
+                strBuffer.append(", backendAlive=");
+                strBuffer.append(backend.isAlive());
+                if (backend.isDecommissioned()) {
+                    strBuffer.append(", backendDecommission=true");
+                }
+            }
+        }
+        strBuffer.append(", version=");
+        strBuffer.append(version);
+        if (lastFailedVersion > 0) {
+            strBuffer.append(", lastFailedVersion=");
+            strBuffer.append(lastFailedVersion);
+            strBuffer.append(", lastSuccessVersion=");
+            strBuffer.append(lastSuccessVersion);
+            strBuffer.append(", lastFailedTimestamp=");
+            strBuffer.append(lastFailedTimestamp);
+        }
+        if (isBad()) {
+            strBuffer.append(", isBad=true");
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (backend != null && pathHash != -1) {
+                DiskInfo diskInfo = backend.getDisks().values().stream()
+                        .filter(disk -> disk.getPathHash() == pathHash)
+                        .findFirst().orElse(null);
+                if (diskInfo == null) {
+                    strBuffer.append(", disk with path hash " + pathHash + " not exists");
+                } else if (diskInfo.getState() == DiskInfo.DiskState.OFFLINE) {
+                    strBuffer.append(", disk " + diskInfo.getRootPath() + " is bad");
+                }
+            }
+        }
+        strBuffer.append(", state=");
+        strBuffer.append(state.name());
+        strBuffer.append("]");
+
         return strBuffer.toString();
     }
 
@@ -507,7 +674,7 @@ public class Replica implements Writable {
     }
 
     public static Replica read(DataInput in) throws IOException {
-        Replica replica = new Replica();
+        Replica replica = EnvFactory.getInstance().createReplica();
         replica.readFields(in);
         return replica;
     }
@@ -548,6 +715,22 @@ public class Replica implements Writable {
         }
     }
 
+    private static class LastSuccessVersionComparator<T extends Replica> implements Comparator<T> {
+        public LastSuccessVersionComparator() {
+        }
+
+        @Override
+        public int compare(T replica1, T replica2) {
+            if (replica1.getLastSuccessVersion() < replica2.getLastSuccessVersion()) {
+                return 1;
+            } else if (replica1.getLastSuccessVersion() == replica2.getLastSuccessVersion()) {
+                return 0;
+            } else {
+                return -1;
+            }
+        }
+    }
+
     private static class IdComparator<T extends Replica> implements Comparator<T> {
         public IdComparator() {
         }
@@ -564,17 +747,45 @@ public class Replica implements Writable {
         }
     }
 
-    public void setWatermarkTxnId(long watermarkTxnId) {
-        this.watermarkTxnId = watermarkTxnId;
+    public void setPreWatermarkTxnId(long preWatermarkTxnId) {
+        this.preWatermarkTxnId = preWatermarkTxnId;
     }
 
-    public long getWatermarkTxnId() {
-        return watermarkTxnId;
+    public long getPreWatermarkTxnId() {
+        return preWatermarkTxnId;
+    }
+
+    public void setPostWatermarkTxnId(long postWatermarkTxnId) {
+        this.postWatermarkTxnId = postWatermarkTxnId;
+    }
+
+    public long getPostWatermarkTxnId() {
+        return postWatermarkTxnId;
+    }
+
+    public void setUserDropTime(long userDropTime) {
+        this.userDropTime = userDropTime;
+    }
+
+    public boolean isUserDrop() {
+        if (userDropTime > 0) {
+            if (System.currentTimeMillis() - userDropTime < Config.manual_drop_replica_valid_second * 1000L) {
+                return true;
+            }
+            userDropTime = -1;
+        }
+
+        return false;
     }
 
     public boolean isAlive() {
         return getState() != ReplicaState.CLONE
                 && getState() != ReplicaState.DECOMMISSION
                 && !isBad();
+    }
+
+    public boolean isScheduleAvailable() {
+        return Env.getCurrentSystemInfo().checkBackendScheduleAvailable(backendId)
+            && !isUserDrop();
     }
 }

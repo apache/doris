@@ -26,7 +26,7 @@ under the License.
 
 # SQL Block Rule
 
-This function is only used to limit the query statement, and does not limit the execution of the explain statement.
+This function is used to limit any sql statement (no matter DDL or DML statement).
 Support SQL block rule by user level:
 
 1. by regex way to deny specify SQL
@@ -86,7 +86,7 @@ ALTER SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","en
 ALTER SQL_BLOCK_RULE test_rule2 PROPERTIES("partition_num" = "10","tablet_num"="300","enable"="true")
 ```
 
-- drop SQL block rule，Support multiple rules, separated by `,`,Please see the specific grammar[DROP SQL BLOCK RULR](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE.md)
+- drop SQL block rule，Support multiple rules, separated by `,`,Please see the specific grammar[DROP SQL BLOCK RULE](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE.md)
 ```sql
 DROP SQL_BLOCK_RULE test_rule1,test_rule2
 ```

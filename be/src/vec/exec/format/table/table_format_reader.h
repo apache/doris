@@ -50,6 +50,11 @@ public:
         return _file_format_reader->get_columns(name_to_type, missing_cols);
     }
 
+    Status get_parsed_schema(std::vector<std::string>* col_names,
+                             std::vector<TypeDescriptor>* col_types) override {
+        return _file_format_reader->get_parsed_schema(col_names, col_types);
+    }
+
     virtual Status init_row_filters(const TFileRangeDesc& range) = 0;
 
 protected:

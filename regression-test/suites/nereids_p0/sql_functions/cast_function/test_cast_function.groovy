@@ -25,5 +25,9 @@ suite("test_cast_function") {
     qt_sql """ select cast (NULL AS CHAR(1)); """
     qt_sql """ select cast ('20190101' AS CHAR(2)); """
     qt_sql_null_cast_bitmap """ select cast (case when BITMAP_EMPTY() is NULL then null else null end as bitmap) is NULL; """
+    qt_sql_to_tiny """ select cast('1212.31' as tinyint);""" 
+    qt_sql_to_small """ select cast('1212.31' as smallint);""" 
+    qt_sql_to_int """ select cast('1212.31' as int);""" 
+    qt_sql_to_big """ select cast('1212.31' as bigint);""" 
 }
 

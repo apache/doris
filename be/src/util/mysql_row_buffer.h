@@ -49,6 +49,8 @@ namespace doris {
  */
 using int128_t = __int128;
 class DecimalV2Value;
+class IPv4Value;
+class IPv6Value;
 
 template <bool is_binary_format = false>
 class MysqlRowBuffer {
@@ -72,9 +74,12 @@ public:
     int push_float(float data);
     int push_double(double data);
     int push_time(double data);
+    int push_timev2(double data, int scale);
     template <typename DateType>
     int push_datetime(const DateType& data);
     int push_decimal(const DecimalV2Value& data, int round_scale);
+    int push_ipv4(const IPv4Value& ipv4_val);
+    int push_ipv6(const IPv6Value& ipv6_val);
     int push_string(const char* str, int64_t length);
     int push_null();
 
@@ -123,6 +128,8 @@ public:
      */
     void close_dynamic_mode();
 
+    void set_faster_float_convert(bool faster) { _faster_float_convert = faster; }
+
 private:
     int reserve(int64_t size);
 
@@ -132,8 +139,8 @@ private:
     // the first few bytes is length, followed by data
     int append_var_string(const char* data, int64_t len);
 
-    char* _pos;
-    char* _buf;
+    char* _pos = nullptr;
+    char* _buf = nullptr;
     int64_t _buf_size;
     char _default_buf[4096];
 
@@ -141,6 +148,8 @@ private:
     uint64_t _len_pos;
     uint32_t _field_pos = 0;
     uint32_t _field_count = 0;
+
+    bool _faster_float_convert = false;
 };
 
 } // namespace doris

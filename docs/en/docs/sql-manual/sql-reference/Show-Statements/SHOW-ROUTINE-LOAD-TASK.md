@@ -57,11 +57,11 @@ DataSourceProperties: {"0":19}
 
 - `TaskId`: The unique ID of the subtask.
 - `TxnId`: The import transaction ID corresponding to the subtask.
-- `TxnStatus`: The import transaction status corresponding to the subtask. Usually UNKNOWN. No real meaning.
+- `TxnStatus`: The import transaction status corresponding to the subtask. When TxnStatus is null, it means that the subtask has not yet started scheduling.
 - `JobId`: The job ID corresponding to the subtask.
 - `CreateTime`: The creation time of the subtask.
 - `ExecuteStartTime`: The time when the subtask is scheduled to be executed, usually later than the creation time.
-- `Timeout`: Subtask timeout, usually twice the `MaxIntervalS` set by the job.
+- `Timeout`: Subtask timeout, usually twice the `max_batch_interval` set by the job.
 - `BeId`: The ID of the BE node executing this subtask.
 - `DataSourceProperties`: The starting offset of the Kafka Partition that the subtask is ready to consume. is a Json format string. Key is Partition Id. Value is the starting offset of consumption.
 

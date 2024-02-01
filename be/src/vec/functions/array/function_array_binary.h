@@ -36,8 +36,6 @@ public:
     bool is_variadic() const override { return false; }
     size_t get_number_of_arguments() const override { return 2; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0])) << arguments[0]->get_name();
         DCHECK(is_array(arguments[1])) << arguments[1]->get_name();
@@ -52,7 +50,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const auto& [left_column, left_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto& [right_column, right_const] =

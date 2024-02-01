@@ -18,17 +18,21 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
+import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.RefreshCatalogStmt;
-import org.apache.doris.analysis.RefreshDbStmt;
+import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.external.TestExternalTable;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.utframe.TestWithFeService;
@@ -69,74 +73,16 @@ public class RefreshTableTest extends TestWithFeService {
     }
 
     @Test
-    public void testRefreshCatalog() throws Exception {
-        CatalogIf test1 = env.getCatalogMgr().getCatalog("test1");
-        TestExternalTable table = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
-        Assertions.assertFalse(table.isObjectCreated());
-        table.makeSureInitialized();
-        Assertions.assertTrue(table.isObjectCreated());
-        RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt("test1", null);
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-        Assertions.assertTrue(table.isObjectCreated());
-        test1.getDbNullable("db1").getTables();
-        Assertions.assertFalse(table.isObjectCreated());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-        Assertions.assertFalse(((ExternalCatalog) test1).isInitialized());
-        table.makeSureInitialized();
-        Assertions.assertTrue(((ExternalCatalog) test1).isInitialized());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-    }
-
-    @Test
-    public void testRefreshDatabase() throws Exception {
-        CatalogIf test1 = env.getCatalogMgr().getCatalog("test1");
-        TestExternalTable table = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
-        Assertions.assertFalse(table.isObjectCreated());
-        table.makeSureInitialized();
-        Assertions.assertTrue(table.isObjectCreated());
-        RefreshDbStmt refreshDbStmt = new RefreshDbStmt("test1", "db1", null);
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-        Assertions.assertTrue(table.isObjectCreated());
-        test1.getDbNullable("db1").getTables();
-        Assertions.assertFalse(table.isObjectCreated());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-        Assertions.assertFalse(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
-        table.makeSureInitialized();
-        Assertions.assertTrue(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-    }
-
-    @Test
     public void testRefreshTable() throws Exception {
         CatalogIf test1 = env.getCatalogMgr().getCatalog("test1");
         TestExternalTable table = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
         Assertions.assertFalse(table.isObjectCreated());
+        long l1 = table.getSchemaUpdateTime();
+        Assertions.assertTrue(l1 == 0);
         table.makeSureInitialized();
         Assertions.assertTrue(table.isObjectCreated());
+        long l2 = table.getSchemaUpdateTime();
+        Assertions.assertTrue(l2 == l1);
         RefreshTableStmt refreshTableStmt = new RefreshTableStmt(new TableName("test1", "db1", "tbl11"));
         try {
             DdlExecutor.execute(Env.getCurrentEnv(), refreshTableStmt);
@@ -144,6 +90,58 @@ public class RefreshTableTest extends TestWithFeService {
             // Do nothing
         }
         Assertions.assertFalse(table.isObjectCreated());
+        long l3 = table.getSchemaUpdateTime();
+        Assertions.assertTrue(l3 == l2);
+        table.getFullSchema();
+        // only table.getFullSchema() can change table.lastUpdateTime
+        long l4 = table.getSchemaUpdateTime();
+        Assertions.assertTrue(l4 > l3);
+        // updateTime is equal to schema update time as default
+        long l5 = table.getUpdateTime();
+        Assertions.assertTrue(l5 == l4);
+
+        // external info schema db
+        ExternalInfoSchemaDatabase infoDb = (ExternalInfoSchemaDatabase) test1.getDbNullable(InfoSchemaDb.DATABASE_NAME);
+        Assertions.assertNotNull(infoDb);
+        for (String tblName : SchemaTable.TABLE_MAP.keySet()) {
+            ExternalInfoSchemaTable infoTbl = (ExternalInfoSchemaTable) infoDb.getTableNullable(tblName);
+            Assertions.assertNotNull(infoTbl);
+            List<Column> schema = infoTbl.getFullSchema();
+            Assertions.assertEquals(SchemaTable.TABLE_MAP.get(tblName).getColumns().size(), schema.size());
+        }
+    }
+
+    @Test
+    public void testRefreshPriv() throws Exception {
+        Auth auth = Env.getCurrentEnv().getAuth();
+        // create user1
+        auth.createUser((CreateUserStmt) parseAndAnalyzeStmt(
+                "create user 'user1'@'%' identified by 'pwd1';", rootCtx));
+        // grant only create_priv to user1 on test1.db1.tbl11
+        GrantStmt grantStmt = (GrantStmt) parseAndAnalyzeStmt(
+                "grant create_priv on test1.db1.tbl11 to 'user1'@'%';", rootCtx);
+        auth.grant(grantStmt);
+
+        // mock login user1
+        UserIdentity user1 = new UserIdentity("user1", "%");
+        user1.analyze();
+        ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Access denied; you need (at least one of) the DROP privilege(s) for this operation",
+                () -> parseAndAnalyzeStmt("refresh table test1.db1.tbl11", user1Ctx));
+        ConnectContext.remove();
+
+        // add drop priv to user1
+        rootCtx.setThreadLocalInfo();
+        grantStmt = (GrantStmt) parseAndAnalyzeStmt(
+                "grant drop_priv on test1.db1.tbl11 to 'user1'@'%';", rootCtx);
+        auth.grant(grantStmt);
+        ConnectContext.remove();
+
+        // user1 can do refresh table
+        user1Ctx.setThreadLocalInfo();
+        ExceptionChecker.expectThrowsNoException(
+                () -> parseAndAnalyzeStmt("refresh table test1.db1.tbl11", user1Ctx));
     }
 
     public static class RefreshTableProvider implements TestExternalCatalog.TestCatalogProvider {

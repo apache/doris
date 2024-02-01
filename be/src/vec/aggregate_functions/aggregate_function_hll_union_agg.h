@@ -76,7 +76,7 @@ struct AggregateFunctionHLLData {
     void reset() { dst_hll.clear(); }
 
     void add(const IColumn* column, size_t row_num) {
-        const auto& sources = static_cast<const ColumnHLL&>(*column);
+        const auto& sources = assert_cast<const ColumnHLL&>(*column);
         dst_hll.merge(sources.get_element(row_num));
     }
 };
@@ -109,8 +109,9 @@ template <typename Data>
 class AggregateFunctionHLLUnion
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>> {
 public:
-    AggregateFunctionHLLUnion(const DataTypes& argument_types)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>(argument_types) {}
+    AggregateFunctionHLLUnion(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>(argument_types_) {
+    }
 
     String get_name() const override { return Data::name(); }
 

@@ -25,11 +25,10 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <map>
+#include <memory>
 #include <sstream>
-#include <typeinfo>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -42,12 +41,12 @@
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
-#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
+#include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
+#include "vec/exec/scan/group_commit_scan_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
@@ -62,6 +61,7 @@
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vmysql_scan_node.h" // IWYU pragma: keep
+#include "vec/exec/vpartition_sort_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
@@ -71,13 +71,11 @@
 #include "vec/exec/vunion_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
-class QueryStatistics;
 
-const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
+const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsProducedRate";
 
 ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : _id(tnode.node_id),
@@ -86,16 +84,12 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _tuple_ids(tnode.row_tuples),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _resource_profile(tnode.resource_profile),
-          _limit(tnode.limit),
-          _num_rows_returned(0),
-          _rows_returned_counter(nullptr),
-          _rows_returned_rate(nullptr),
-          _memory_used_counter(nullptr),
-          _is_closed(false),
-          _ref(0) {
+          _limit(tnode.limit) {
     if (tnode.__isset.output_tuple_id) {
-        _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
+        _output_row_descriptor = std::make_unique<RowDescriptor>(
+                descs, std::vector {tnode.output_tuple_id}, std::vector {true});
     }
+    _query_statistics = std::make_shared<QueryStatistics>();
 }
 
 ExecNode::~ExecNode() = default;
@@ -104,16 +98,21 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(get_name());
 
     if (tnode.__isset.vconjunct) {
-        _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
-        RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
-                                                                   _vconjunct_ctx_ptr.get()));
+        vectorized::VExprContextSPtr context;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(tnode.vconjunct, context));
+        _conjuncts.emplace_back(context);
+    } else if (tnode.__isset.conjuncts) {
+        for (const auto& conjunct : tnode.conjuncts) {
+            vectorized::VExprContextSPtr context;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(conjunct, context));
+            _conjuncts.emplace_back(context);
+        }
     }
 
     // create the projections expr
     if (tnode.__isset.projections) {
         DCHECK(tnode.__isset.output_tuple_id);
-        RETURN_IF_ERROR(
-                vectorized::VExpr::create_expr_trees(_pool, tnode.projections, &_projections));
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
     }
 
     return Status::OK();
@@ -121,32 +120,40 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
-    _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
+    _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
+    _rows_returned_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
+    _output_bytes_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BytesProduced", TUnit::BYTES, 1);
+    _block_count_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
-            std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
-                               runtime_profile()->total_time_counter()),
+            [this, capture0 = runtime_profile()->total_time_counter()] {
+                return RuntimeProfile::units_per_second(_rows_returned_counter, capture0);
+            },
             "");
-    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
-                                                _runtime_profile.get(), nullptr, "PeakMemoryUsage");
+    _memory_used_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
+    _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
+            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
+    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name());
 
-    if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
+    for (auto& conjunct : _conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->prepare(state));
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->prepare(state));
     }
-
     return Status::OK();
 }
 
-Status ExecNode::alloc_resource(doris::RuntimeState* state) {
-    if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
+Status ExecNode::alloc_resource(RuntimeState* state) {
+    for (auto& conjunct : _conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
     return Status::OK();
@@ -158,16 +165,8 @@ Status ExecNode::open(RuntimeState* state) {
 
 Status ExecNode::reset(RuntimeState* state) {
     _num_rows_returned = 0;
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->reset(state));
-    }
-    return Status::OK();
-}
-
-Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
-    DCHECK(statistics != nullptr);
-    for (auto child_node : _children) {
-        child_node->collect_query_statistics(statistics);
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->reset(state));
     }
     return Status::OK();
 }
@@ -178,33 +177,33 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
 
-        if (_vconjunct_ctx_ptr) {
-            (*_vconjunct_ctx_ptr)->close(state);
-        }
-        vectorized::VExpr::close(_projections, state);
-
-        runtime_profile()->add_to_span();
         _is_resource_released = true;
+    }
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
 }
 
 Status ExecNode::close(RuntimeState* state) {
     if (_is_closed) {
-        LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id())
+        LOG(INFO) << "query= " << print_id(state->query_id())
+                  << " fragment_instance_id=" << print_id(state->fragment_instance_id())
                   << " already closed";
         return Status::OK();
     }
-    LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id()) << " closed";
     _is_closed = true;
 
     Status result;
-    for (int i = 0; i < _children.size(); ++i) {
-        auto st = _children[i]->close(state);
+    for (auto& i : _children) {
+        auto st = i->close(state);
         if (result.ok() && !st.ok()) {
             result = st;
         }
     }
     release_resource(state);
+    LOG(INFO) << "query= " << print_id(state->query_id())
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", id=" << _id << " type=" << print_plan_node_type(_type) << " closed";
     return result;
 }
 
@@ -223,7 +222,7 @@ void ExecNode::add_runtime_exec_option(const std::string& str) {
 
 Status ExecNode::create_tree(RuntimeState* state, ObjectPool* pool, const TPlan& plan,
                              const DescriptorTbl& descs, ExecNode** root) {
-    if (plan.nodes.size() == 0) {
+    if (plan.nodes.empty()) {
         *root = nullptr;
         return Status::OK();
     }
@@ -241,96 +240,71 @@ Status ExecNode::create_tree(RuntimeState* state, ObjectPool* pool, const TPlan&
 }
 
 Status ExecNode::create_tree_helper(RuntimeState* state, ObjectPool* pool,
-                                    const std::vector<TPlanNode>& tnodes,
+                                    const std::vector<TPlanNode>& thrift_plan_nodes,
                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
                                     ExecNode** root) {
     // propagate error case
-    if (*node_idx >= tnodes.size()) {
+    if (*node_idx >= thrift_plan_nodes.size()) {
         // TODO: print thrift msg
         return Status::InternalError("Failed to reconstruct plan tree from thrift.");
     }
-    const TPlanNode& tnode = tnodes[*node_idx];
 
-    int num_children = tnodes[*node_idx].num_children;
-    ExecNode* node = nullptr;
-    RETURN_IF_ERROR(create_node(state, pool, tnodes[*node_idx], descs, &node));
+    const TPlanNode& cur_plan_node = thrift_plan_nodes[*node_idx];
+    int num_children = cur_plan_node.num_children;
 
-    // assert(parent != nullptr || (node_idx == 0 && root_expr != nullptr));
-    if (parent != nullptr) {
-        parent->_children.push_back(node);
-    } else {
-        *root = node;
+    // Step 1 Create current ExecNode according to current thrift plan node.
+    ExecNode* cur_exec_node = nullptr;
+    RETURN_IF_ERROR(create_node(state, pool, cur_plan_node, descs, &cur_exec_node));
+    if (cur_exec_node != nullptr && state->get_query_ctx()) {
+        state->get_query_ctx()->register_query_statistics(cur_exec_node->get_query_statistics());
     }
 
+    // Step 1.1
+    // Record current node if we have parent or record myself as root node.
+    if (parent != nullptr) {
+        parent->_children.push_back(cur_exec_node);
+    } else {
+        *root = cur_exec_node;
+    }
+
+    // Step 2
+    // Create child ExecNode tree of current node in a recursive manner.
     for (int i = 0; i < num_children; i++) {
         ++*node_idx;
-        RETURN_IF_ERROR(create_tree_helper(state, pool, tnodes, descs, node, node_idx, nullptr));
+        RETURN_IF_ERROR(create_tree_helper(state, pool, thrift_plan_nodes, descs, cur_exec_node,
+                                           node_idx, nullptr));
 
         // we are expecting a child, but have used all nodes
         // this means we have been given a bad tree and must fail
-        if (*node_idx >= tnodes.size()) {
+        if (*node_idx >= thrift_plan_nodes.size()) {
             // TODO: print thrift msg
             return Status::InternalError("Failed to reconstruct plan tree from thrift.");
         }
     }
 
-    RETURN_IF_ERROR(node->init(tnode, state));
+    // Step 3 Init myself after sub ExecNode tree is created and initialized
+    RETURN_IF_ERROR(cur_exec_node->init(cur_plan_node, state));
 
     // build up tree of profiles; add children >0 first, so that when we print
     // the profile, child 0 is printed last (makes the output more readable)
-    for (int i = 1; i < node->_children.size(); ++i) {
-        node->runtime_profile()->add_child(node->_children[i]->runtime_profile(), true, nullptr);
+    for (int i = 1; i < cur_exec_node->_children.size(); ++i) {
+        cur_exec_node->runtime_profile()->add_child(cur_exec_node->_children[i]->runtime_profile(),
+                                                    true, nullptr);
     }
 
-    if (!node->_children.empty()) {
-        node->runtime_profile()->add_child(node->_children[0]->runtime_profile(), true, nullptr);
+    if (!cur_exec_node->_children.empty()) {
+        cur_exec_node->runtime_profile()->add_child(cur_exec_node->_children[0]->runtime_profile(),
+                                                    true, nullptr);
     }
 
     return Status::OK();
 }
 
+// NOLINTBEGIN(readability-function-size)
 Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                              const DescriptorTbl& descs, ExecNode** node) {
-    std::stringstream error_msg;
-
-    switch (tnode.node_type) {
-    case TPlanNodeType::OLAP_SCAN_NODE:
-    case TPlanNodeType::ASSERT_NUM_ROWS_NODE:
-    case TPlanNodeType::HASH_JOIN_NODE:
-    case TPlanNodeType::AGGREGATION_NODE:
-    case TPlanNodeType::UNION_NODE:
-    case TPlanNodeType::CROSS_JOIN_NODE:
-    case TPlanNodeType::SORT_NODE:
-    case TPlanNodeType::EXCHANGE_NODE:
-    case TPlanNodeType::ODBC_SCAN_NODE:
-    case TPlanNodeType::MYSQL_SCAN_NODE:
-    case TPlanNodeType::INTERSECT_NODE:
-    case TPlanNodeType::EXCEPT_NODE:
-    case TPlanNodeType::ES_HTTP_SCAN_NODE:
-    case TPlanNodeType::EMPTY_SET_NODE:
-    case TPlanNodeType::SCHEMA_SCAN_NODE:
-    case TPlanNodeType::ANALYTIC_EVAL_NODE:
-    case TPlanNodeType::SELECT_NODE:
-    case TPlanNodeType::REPEAT_NODE:
-    case TPlanNodeType::TABLE_FUNCTION_NODE:
-    case TPlanNodeType::DATA_GEN_SCAN_NODE:
-    case TPlanNodeType::FILE_SCAN_NODE:
-    case TPlanNodeType::JDBC_SCAN_NODE:
-    case TPlanNodeType::META_SCAN_NODE:
-        break;
-    default: {
-        const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
-        const char* str = "unknown node type";
-
-        if (i != _TPlanNodeType_VALUES_TO_NAMES.end()) {
-            str = i->second;
-        }
-        error_msg << "V" << str << " not implemented";
-        return Status::InternalError(error_msg.str());
-    }
-    }
-
     VLOG_CRITICAL << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
+
     switch (tnode.node_type) {
     case TPlanNodeType::MYSQL_SCAN_NODE:
 #ifdef DORIS_WITH_MYSQL
@@ -371,7 +345,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::AGGREGATION_NODE:
-        *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
+        if (tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_exec()) {
+            *node = pool->add(new vectorized::DistinctAggregationNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
@@ -437,21 +415,30 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new vectorized::VDataGenFunctionScanNode(pool, tnode, descs));
         return Status::OK();
 
+    case TPlanNodeType::PARTITION_SORT_NODE:
+        *node = pool->add(new vectorized::VPartitionSortNode(pool, tnode, descs));
+        return Status::OK();
+
+    case TPlanNodeType::GROUP_COMMIT_SCAN_NODE:
+        *node = pool->add(new vectorized::GroupCommitScanNode(pool, tnode, descs));
+        return Status::OK();
+
     default:
-        std::map<int, const char*>::const_iterator i =
-                _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
+        auto i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
         const char* str = "unknown node type";
 
         if (i != _TPlanNodeType_VALUES_TO_NAMES.end()) {
             str = i->second;
         }
 
+        std::stringstream error_msg;
         error_msg << str << " not implemented";
         return Status::InternalError(error_msg.str());
     }
 
     return Status::OK();
 }
+// NOLINTEND(readability-function-size)
 
 std::string ExecNode::debug_string() const {
     std::stringstream out;
@@ -468,9 +455,9 @@ void ExecNode::debug_string(int indentation_level, std::stringstream* out) const
     }
     *out << "]";
 
-    for (int i = 0; i < _children.size(); ++i) {
+    for (auto* i : _children) {
         *out << "\n";
-        _children[i]->debug_string(indentation_level + 1, out);
+        i->debug_string(indentation_level + 1, out);
     }
 }
 
@@ -479,8 +466,8 @@ void ExecNode::collect_nodes(TPlanNodeType::type node_type, std::vector<ExecNode
         nodes->push_back(this);
     }
 
-    for (int i = 0; i < _children.size(); ++i) {
-        _children[i]->collect_nodes(node_type, nodes);
+    for (auto& i : _children) {
+        i->collect_nodes(node_type, nodes);
     }
 }
 
@@ -490,44 +477,14 @@ void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::DATA_GEN_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::FILE_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::META_SCAN_NODE, nodes);
-}
-
-void ExecNode::try_do_aggregate_serde_improve() {
-    std::vector<ExecNode*> agg_node;
-    collect_nodes(TPlanNodeType::AGGREGATION_NODE, &agg_node);
-    if (agg_node.size() != 1) {
-        return;
-    }
-
-    if (agg_node[0]->_children.size() != 1) {
-        return;
-    }
-
-    if (agg_node[0]->_children[0]->type() != TPlanNodeType::OLAP_SCAN_NODE) {
-        return;
-    }
-
-    // TODO(cmy): should be removed when NewOlapScanNode is ready
-    ExecNode* child0 = agg_node[0]->_children[0];
-    if (typeid(*child0) == typeid(vectorized::NewOlapScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewOdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewEsScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewJdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::VMetaScanNode)) {
-        vectorized::VScanNode* scan_node =
-                static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
-        scan_node->set_no_agg_finalize();
-    } else {
-        ScanNode* scan_node = static_cast<ScanNode*>(agg_node[0]->_children[0]);
-        scan_node->set_no_agg_finalize();
-    }
+    collect_nodes(TPlanNodeType::JDBC_SCAN_NODE, nodes);
+    collect_nodes(TPlanNodeType::ODBC_SCAN_NODE, nodes);
 }
 
 void ExecNode::init_runtime_profile(const std::string& name) {
     std::stringstream ss;
     ss << name << " (id=" << _id << ")";
-    _runtime_profile.reset(new RuntimeProfile(ss.str()));
+    _runtime_profile = std::make_unique<RuntimeProfile>(ss.str());
     _runtime_profile->set_metadata(_id);
 }
 
@@ -555,18 +512,23 @@ std::string ExecNode::get_name() {
 }
 
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_projection_timer);
     using namespace vectorized;
-    auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
-            is_mem_reuse ? MutableBlock(output_block)
-                         : MutableBlock(VectorizedUtils::create_empty_columnswithtypename(
-                                   *_output_row_descriptor));
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
     auto rows = origin_block->rows();
 
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
-        DCHECK(mutable_columns.size() == _projections.size());
+
+        if (mutable_columns.size() != _projections.size()) {
+            return Status::InternalError(
+                    "Logical error during processing {}, output of projections {} mismatches with "
+                    "exec node output {}",
+                    this->get_name(), _projections.size(), mutable_columns.size());
+        }
+
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
@@ -581,9 +543,8 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
                 mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
             }
         }
-
-        if (!is_mem_reuse) output_block->swap(mutable_block.to_block());
-        DCHECK(output_block->rows() == rows);
+        DCHECK(mutable_block.rows() == rows);
+        output_block->set_columns(std::move(mutable_columns));
     }
 
     return Status::OK();
@@ -597,11 +558,18 @@ Status ExecNode::get_next_after_projects(
         if (clear_data) {
             clear_origin_block();
         }
-        auto status = func(state, &_origin_block, eos);
-        if (UNLIKELY(!status.ok())) return status;
-        return do_projections(&_origin_block, block);
+        RETURN_IF_ERROR(func(state, &_origin_block, eos));
+        RETURN_IF_ERROR(do_projections(&_origin_block, block));
+    } else {
+        RETURN_IF_ERROR(func(state, block, eos));
     }
-    return func(state, block, eos);
+    _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+
+    if (block && !block->empty()) {
+        COUNTER_UPDATE(_output_bytes_counter, block->allocated_bytes());
+        COUNTER_UPDATE(_block_count_counter, 1);
+    }
+    return Status::OK();
 }
 
 Status ExecNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {

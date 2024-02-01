@@ -19,21 +19,22 @@ package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.fs.remote.BrokerFileSystem;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.fs.remote.dfs.JFSFileSystem;
 import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+
+import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 public class FileSystemFactory {
 
-    public static FileSystem get(StorageBackend.StorageType type, Map<String, String> properties) {
-        // use for test
-        return get(type.name(), type, properties);
-    }
-
-    public static FileSystem get(String name, StorageBackend.StorageType type, Map<String, String> properties) {
+    public static RemoteFileSystem get(String name, StorageBackend.StorageType type, Map<String, String> properties) {
         // TODO: rename StorageBackend.StorageType
         if (type == StorageBackend.StorageType.S3) {
             return new S3FileSystem(properties);
@@ -48,5 +49,34 @@ public class FileSystemFactory {
         } else {
             throw new UnsupportedOperationException(type.toString() + "backend is not implemented");
         }
+    }
+
+    public static RemoteFileSystem getRemoteFileSystem(FileSystemType type, Configuration conf,
+                                                       String bindBrokerName) {
+        Map<String, String> properties = new HashMap<>();
+        conf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
+        switch (type) {
+            case S3:
+                return new S3FileSystem(properties);
+            case DFS:
+                return new DFSFileSystem(properties);
+            case OFS:
+                return new OFSFileSystem(properties);
+            case JFS:
+                return new JFSFileSystem(properties);
+            case BROKER:
+                return new BrokerFileSystem(bindBrokerName, properties);
+            default:
+                throw new IllegalStateException("Not supported file system type: " + type);
+        }
+    }
+
+    public static RemoteFileSystem getS3FileSystem(Map<String, String> properties) {
+        // use for test
+        return get(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, properties);
+    }
+
+    public static org.apache.hadoop.fs.FileSystem getNativeByPath(Path path, Configuration conf) throws IOException {
+        return path.getFileSystem(conf);
     }
 }

@@ -43,18 +43,18 @@ Status VExplodeSplitTableFunction::open() {
     return Status::OK();
 }
 
-Status VExplodeSplitTableFunction::process_init(Block* block) {
-    CHECK(_vexpr_context->root()->children().size() == 2)
+Status VExplodeSplitTableFunction::process_init(Block* block, RuntimeState* state) {
+    CHECK(_expr_context->root()->children().size() == 2)
             << "VExplodeSplitTableFunction must be have 2 children but have "
-            << _vexpr_context->root()->children().size();
+            << _expr_context->root()->children().size();
 
     int text_column_idx = -1;
     int delimiter_column_idx = -1;
 
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
-                                                                   &text_column_idx));
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[1]->execute(_vexpr_context, block,
-                                                                   &delimiter_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
+                                                                  &text_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[1]->execute(_expr_context.get(), block,
+                                                                  &delimiter_column_idx));
 
     // dispose test column
     _text_column =
@@ -71,6 +71,10 @@ Status VExplodeSplitTableFunction::process_init(Block* block) {
     auto& delimiter_const_column = block->get_by_position(delimiter_column_idx).column;
     if (is_column_const(*delimiter_const_column)) {
         _delimiter = delimiter_const_column->get_data_at(0);
+        if (_delimiter.empty()) {
+            return Status::InvalidArgument(
+                    "explode_split(test, delimiter) delimiter column must be not empty");
+        }
     } else {
         return Status::NotSupported(
                 "explode_split(test, delimiter) delimiter column must be const");
@@ -79,18 +83,18 @@ Status VExplodeSplitTableFunction::process_init(Block* block) {
     return Status::OK();
 }
 
-Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
-    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
+void VExplodeSplitTableFunction::process_row(size_t row_idx) {
+    TableFunction::process_row(row_idx);
 
     if (!(_test_null_map && _test_null_map[row_idx]) && _delimiter.data != nullptr) {
         // TODO: use the function to be better string_view/StringRef split
         auto split = [](std::string_view strv, std::string_view delims = " ") {
             std::vector<std::string_view> output;
-            auto first = strv.begin();
-            auto last = strv.end();
+            const auto* first = strv.begin();
+            const auto* last = strv.end();
 
             do {
-                const auto second =
+                const auto* second =
                         std::search(first, last, std::cbegin(delims), std::cend(delims));
                 if (first != second) {
                     output.emplace_back(strv.substr(std::distance(strv.begin(), first),
@@ -111,15 +115,13 @@ Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
 
         _cur_size = _backup.size();
     }
-    return Status::OK();
 }
 
-Status VExplodeSplitTableFunction::process_close() {
+void VExplodeSplitTableFunction::process_close() {
     _text_column = nullptr;
     _real_text_column = nullptr;
     _test_null_map = nullptr;
     _delimiter = {};
-    return Status::OK();
 }
 
 void VExplodeSplitTableFunction::get_value(MutableColumnPtr& column) {

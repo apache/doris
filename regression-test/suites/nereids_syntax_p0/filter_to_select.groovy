@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("filter_to_select") {
+    suite("filter_to_select") {
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=true;"
 

@@ -29,7 +29,7 @@ suite("test_bitmap_index", "inverted_index") {
                 k3 INT,
                 k4 BIGINT,
                 k5 CHAR,
-                k6 VARCHAR,
+                k6 VARCHAR(1),
                 k7 DATE,
                 k8 DATETIME,
                 k9 LARGEINT,
@@ -56,7 +56,8 @@ suite("test_bitmap_index", "inverted_index") {
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -70,14 +71,28 @@ suite("test_bitmap_index", "inverted_index") {
 
     sql "insert into ${tbName1} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1);"
     qt_sql "desc ${tbName1};"
-    qt_sql "SHOW INDEX FROM ${tbName1};"
+    def show_result = sql "show index from ${tbName1}"
+    logger.info("show index from " + tbName1 + " result: " + show_result)
+    assertEquals(show_result.size(), 11)
+    assertEquals(show_result[0][2], "index1")
+    assertEquals(show_result[1][2], "index2")
+    assertEquals(show_result[2][2], "index3")
+    assertEquals(show_result[3][2], "index4")
+    assertEquals(show_result[4][2], "index5")
+    assertEquals(show_result[5][2], "index6")
+    assertEquals(show_result[6][2], "index7")
+    assertEquals(show_result[7][2], "index8")
+    assertEquals(show_result[8][2], "index9")
+    assertEquals(show_result[9][2], "index10")
+    assertEquals(show_result[10][2], "index11")
     qt_sql "select * from ${tbName1};"
 
     sql "DROP INDEX IF EXISTS index1 ON ${tbName1};"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -100,7 +115,7 @@ suite("test_bitmap_index", "inverted_index") {
                 k3 INT,
                 k4 BIGINT,
                 k5 CHAR,
-                k6 VARCHAR,
+                k6 VARCHAR(1),
                 k7 DATE,
                 k8 DATETIME,
                 k9 LARGEINT,
@@ -129,7 +144,8 @@ suite("test_bitmap_index", "inverted_index") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName2)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -147,14 +163,28 @@ suite("test_bitmap_index", "inverted_index") {
 
     sql "insert into ${tbName2} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,1);"
     qt_sql "desc ${tbName2};"
-    qt_sql "SHOW INDEX FROM ${tbName2};"
+    show_result = sql "show index from ${tbName2}"
+    logger.info("show index from " + tbName2 + " result: " + show_result)
+    assertEquals(show_result.size(), 11)
+    assertEquals(show_result[0][2], "index1")
+    assertEquals(show_result[1][2], "index2")
+    assertEquals(show_result[2][2], "index3")
+    assertEquals(show_result[3][2], "index4")
+    assertEquals(show_result[4][2], "index5")
+    assertEquals(show_result[5][2], "index6")
+    assertEquals(show_result[6][2], "index7")
+    assertEquals(show_result[7][2], "index8")
+    assertEquals(show_result[8][2], "index9")
+    assertEquals(show_result[9][2], "index10")
+    assertEquals(show_result[10][2], "index11")
     qt_sql "select * from ${tbName2};"
 
     sql "DROP INDEX IF EXISTS index1 ON ${tbName2};"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName2)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -176,7 +206,7 @@ suite("test_bitmap_index", "inverted_index") {
                 k3 INT,
                 k4 BIGINT,
                 k5 CHAR,
-                k6 VARCHAR,
+                k6 VARCHAR(1),
                 k7 DATE,
                 k8 DATETIME,
                 k9 LARGEINT,
@@ -206,7 +236,8 @@ suite("test_bitmap_index", "inverted_index") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName3)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -220,14 +251,29 @@ suite("test_bitmap_index", "inverted_index") {
 
     sql "insert into ${tbName3} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,1);"
     qt_sql "desc ${tbName3};"
-    qt_sql "SHOW INDEX FROM ${tbName3};"
+    show_result = sql "show index from ${tbName3}"
+    logger.info("show index from " + tbName3 + " result: " + show_result)
+    assertEquals(show_result.size(), 12)
+    assertEquals(show_result[0][2], "index1")
+    assertEquals(show_result[1][2], "index2")
+    assertEquals(show_result[2][2], "index3")
+    assertEquals(show_result[3][2], "index4")
+    assertEquals(show_result[4][2], "index5")
+    assertEquals(show_result[5][2], "index6")
+    assertEquals(show_result[6][2], "index7")
+    assertEquals(show_result[7][2], "index8")
+    assertEquals(show_result[8][2], "index9")
+    assertEquals(show_result[9][2], "index10")
+    assertEquals(show_result[10][2], "index11")
+    assertEquals(show_result[11][2], "index12")
     qt_sql "select * from ${tbName3};"
 
     sql "DROP INDEX IF EXISTS index1 ON ${tbName3};"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName3)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {

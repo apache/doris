@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.NumericLiteralExpr;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -36,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -57,6 +61,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
@@ -84,6 +89,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -91,6 +97,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.time.Instant;
@@ -131,36 +138,116 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     //TODO: case-when need to re-implemented
     @Override
     public ColumnStatistic visitCaseWhen(CaseWhen caseWhen, Statistics context) {
-        ColumnStatisticBuilder columnStat = new ColumnStatisticBuilder();
-        columnStat.setNdv(caseWhen.getWhenClauses().size() + 1);
-        columnStat.setMinValue(0);
-        columnStat.setMaxValue(Double.MAX_VALUE);
-        columnStat.setAvgSizeByte(8);
-        columnStat.setNumNulls(0);
-        return columnStat.build();
+        double ndv = caseWhen.getWhenClauses().size();
+        if (caseWhen.getDefaultValue().isPresent()) {
+            ndv += 1;
+        }
+        for (WhenClause clause : caseWhen.getWhenClauses()) {
+            ColumnStatistic colStats = ExpressionEstimation.estimate(clause.getResult(), context);
+            ndv = Math.max(ndv, colStats.ndv);
+        }
+        if (caseWhen.getDefaultValue().isPresent()) {
+            ColumnStatistic colStats = ExpressionEstimation.estimate(caseWhen.getDefaultValue().get(), context);
+            ndv = Math.max(ndv, colStats.ndv);
+        }
+        return new ColumnStatisticBuilder()
+                .setNdv(ndv)
+                .setMinValue(Double.NEGATIVE_INFINITY)
+                .setMaxValue(Double.POSITIVE_INFINITY)
+                .setAvgSizeByte(8)
+                .setNumNulls(0)
+                .build();
     }
 
+    @Override
+    public ColumnStatistic visitIf(If ifClause, Statistics context) {
+        double ndv = 2;
+        ColumnStatistic colStatsThen = ExpressionEstimation.estimate(ifClause.child(1), context);
+        ndv = Math.max(ndv, colStatsThen.ndv);
+        ColumnStatistic colStatsElse = ExpressionEstimation.estimate(ifClause.child(2), context);
+        ndv = Math.max(ndv, colStatsElse.ndv);
+        return new ColumnStatisticBuilder()
+                .setNdv(ndv)
+                .setMinValue(Double.NEGATIVE_INFINITY)
+                .setMaxValue(Double.POSITIVE_INFINITY)
+                .setAvgSizeByte(8)
+                .setNumNulls(0)
+                .build();
+    }
+
+    @Override
     public ColumnStatistic visitCast(Cast cast, Statistics context) {
         ColumnStatistic stats = context.findColumnStatistics(cast);
         if (stats != null) {
             return stats;
         }
-        return cast.child().accept(this, context);
+        ColumnStatistic childColStats = cast.child().accept(this, context);
+        Preconditions.checkNotNull(childColStats, "childColStats is null");
+        return castMinMax(childColStats, cast.getDataType());
+    }
+
+    private ColumnStatistic castMinMax(ColumnStatistic colStats, DataType targetType) {
+        // cast str to date/datetime
+        if (colStats.minExpr instanceof StringLiteral
+                && colStats.maxExpr instanceof StringLiteral
+                && targetType.isDateLikeType()) {
+            boolean convertSuccess = true;
+            ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
+            if (colStats.minExpr != null) {
+                try {
+                    String strMin = colStats.minExpr.getStringValue();
+                    DateLiteral dateMinLiteral = new DateLiteral(strMin);
+                    long min = dateMinLiteral.getValue();
+                    builder.setMinValue(min);
+                    builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
+                } catch (AnalysisException e) {
+                    convertSuccess = false;
+                }
+            }
+            if (convertSuccess && colStats.maxExpr != null) {
+                try {
+                    String strMax = colStats.maxExpr.getStringValue();
+                    DateLiteral dateMaxLiteral = new DateLiteral(strMax);
+                    long max = dateMaxLiteral.getValue();
+                    builder.setMaxValue(max);
+                    builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
+                } catch (AnalysisException e) {
+                    convertSuccess = false;
+                }
+            }
+            if (convertSuccess) {
+                return builder.build();
+            }
+        }
+        // cast numeric to numeric
+        if (colStats.minExpr instanceof NumericLiteralExpr && colStats.maxExpr instanceof NumericLiteralExpr) {
+            if (targetType.isNumericType()) {
+                return colStats;
+            }
+        }
+
+        // cast other date types, set min/max infinity
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
+        builder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
+                .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
+        return builder.build();
     }
 
     @Override
     public ColumnStatistic visitLiteral(Literal literal, Statistics context) {
-        if (ColumnStatistic.MAX_MIN_UNSUPPORTED_TYPE.contains(literal.getDataType().toCatalogDataType())) {
+        if (ColumnStatistic.UNSUPPORTED_TYPE.contains(literal.getDataType().toCatalogDataType())) {
             return ColumnStatistic.UNKNOWN;
         }
         double literalVal = literal.getDouble();
-        ColumnStatisticBuilder columnStatBuilder = new ColumnStatisticBuilder();
-        columnStatBuilder.setMaxValue(literalVal);
-        columnStatBuilder.setMinValue(literalVal);
-        columnStatBuilder.setNdv(1);
-        columnStatBuilder.setNumNulls(1);
-        columnStatBuilder.setAvgSizeByte(1);
-        return columnStatBuilder.build();
+        return new ColumnStatisticBuilder()
+                .setMaxValue(literalVal)
+                .setMinValue(literalVal)
+                .setNdv(1)
+                .setNumNulls(1)
+                .setAvgSizeByte(1)
+                .setMinExpr(literal.toLegacyLiteral())
+                .setMaxExpr(literal.toLegacyLiteral())
+                .build();
     }
 
     @Override
@@ -189,13 +276,13 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (binaryArithmetic instanceof Add) {
             return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
                     .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(leftMin + rightMin)
-                    .setMaxValue(leftMax + rightMax).setSelectivity(1.0)
+                    .setMaxValue(leftMax + rightMax)
                     .setMinExpr(null).setMaxExpr(null).build();
         }
         if (binaryArithmetic instanceof Subtract) {
             return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
                     .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(leftMin - rightMax)
-                    .setMaxValue(leftMax - rightMin).setSelectivity(1.0).setMinExpr(null)
+                    .setMaxValue(leftMax - rightMin).setMinExpr(null)
                     .setMaxExpr(null).build();
         }
         // TODO: stat for multiply and divide produced by below algorithm may have huge deviation with reality.
@@ -211,7 +298,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                         leftMax * rightMin),
                     leftMax * rightMax);
             return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
-                    .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(min).setMaxValue(max).setSelectivity(1.0)
+                    .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(min).setMaxValue(max)
                     .setMaxExpr(null).setMinExpr(null).build();
         }
         if (binaryArithmetic instanceof Divide || binaryArithmetic instanceof IntegralDivide) {
@@ -227,7 +314,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     leftMax / noneZeroDivisor(rightMax));
             return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
                     .setNumNulls(numNulls).setDataSize(binaryArithmetic.getDataType().width()).setMinValue(min)
-                    .setMaxValue(max).setSelectivity(1.0).build();
+                    .setMaxValue(max).build();
         }
         if (binaryArithmetic instanceof Mod) {
             double min = -Math.max(Math.abs(rightMin), Math.abs(rightMax));
@@ -252,42 +339,42 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitMin(Min min, Statistics context) {
         Expression child = min.child();
         ColumnStatistic columnStat = child.accept(this, context);
-        if (columnStat == ColumnStatistic.UNKNOWN) {
+        if (columnStat.isUnKnown) {
             return ColumnStatistic.UNKNOWN;
         }
         /*
         we keep columnStat.min and columnStat.max, but set ndv=1.
-        if there is group-by keys, we will update ndv when visiting group clause
+        if there is group-by keys, we will update count when visiting group clause
         */
         double width = min.child().getDataType().width();
-        return new ColumnStatisticBuilder().setCount(1).setNdv(1).setAvgSizeByte(width).setNumNulls(width)
-                .setDataSize(child.getDataType().width()).setMinValue(columnStat.minValue)
-                .setMaxValue(columnStat.maxValue).setSelectivity(1.0)
-                .setMinExpr(null).build();
+        return new ColumnStatisticBuilder().setCount(1).setNdv(1).setAvgSizeByte(width)
+                .setMinValue(columnStat.minValue).setMinExpr(columnStat.minExpr)
+                .setMaxValue(columnStat.maxValue).setMaxExpr(columnStat.maxExpr).build();
     }
 
     @Override
     public ColumnStatistic visitMax(Max max, Statistics context) {
         Expression child = max.child();
         ColumnStatistic columnStat = child.accept(this, context);
-        if (columnStat == ColumnStatistic.UNKNOWN) {
+        if (columnStat.isUnKnown) {
             return ColumnStatistic.UNKNOWN;
         }
         /*
         we keep columnStat.min and columnStat.max, but set ndv=1.
-        if there is group-by keys, we will update ndv when visiting group clause
+        if there is group-by keys, we will update count when visiting group clause
         */
         int width = max.child().getDataType().width();
-        return new ColumnStatisticBuilder().setCount(1D).setNdv(1D).setAvgSizeByte(width).setNumNulls(0)
-                .setDataSize(width).setMinValue(columnStat.minValue).setMaxValue(columnStat.maxValue)
-                .setSelectivity(1.0).setMaxExpr(null).setMinExpr(null).build();
+        return new ColumnStatisticBuilder().setCount(1D).setNdv(1D).setAvgSizeByte(width)
+                .setMinValue(columnStat.minValue).setMinExpr(columnStat.minExpr)
+                .setMaxValue(columnStat.maxValue).setMaxExpr(columnStat.maxExpr)
+                .build();
     }
 
     @Override
     public ColumnStatistic visitCount(Count count, Statistics context) {
         double width = count.getDataType().width();
         return new ColumnStatisticBuilder().setCount(1D).setAvgSizeByte(width).setNumNulls(0)
-                .setDataSize(width).setMinValue(0).setMaxValue(context.getRowCount()).setSelectivity(1.0)
+                .setDataSize(width).setMinValue(0).setMaxValue(context.getRowCount())
                 .setMaxExpr(null).setMinExpr(null).build();
     }
 
@@ -315,7 +402,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                 .setNumNulls(childStat.numNulls)
                 .setDataSize(4 * childStat.count)
                 .setMinValue(minYear)
-                .setMaxValue(maxYear).setSelectivity(1.0).setMinExpr(null).build();
+                .setMaxValue(maxYear).setMinExpr(null).build();
     }
 
     @Override
@@ -326,7 +413,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                 .setNdv(54)
                 .setAvgSizeByte(width)
                 .setNumNulls(childStat.numNulls)
-                .setDataSize(1).setMinValue(1).setMaxValue(53).setSelectivity(1.0).setMinExpr(null)
+                .setDataSize(1).setMinValue(1).setMaxValue(53).setMinExpr(null)
                 .build();
     }
 
@@ -363,7 +450,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         ColumnStatistic rightStats = cp.right().accept(this, context);
         return new ColumnStatisticBuilder(leftStats)
                 .setNumNulls(StatsMathUtil.maxNonNaN(leftStats.numNulls, rightStats.numNulls))
-                .setHistogram(null)
                 .setNdv(2).build();
     }
 
@@ -376,7 +462,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             ColumnStatistic columnStatistic = childExprs.get(i).accept(this, context);
             maxNull = StatsMathUtil.maxNonNaN(maxNull, columnStatistic.numNulls);
         }
-        return new ColumnStatisticBuilder(firstChild).setNumNulls(maxNull).setNdv(2).setHistogram(null).build();
+        return new ColumnStatisticBuilder(firstChild).setNumNulls(maxNull).setNdv(2).build();
     }
 
     @Override
@@ -508,13 +594,22 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (childColumnStats.minOrMaxIsInf()) {
             return columnStatisticBuilder.build();
         }
-        double minValue = getDatetimeFromLong((long) childColumnStats.minValue).toLocalDate()
-                .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
-        double maxValue = getDatetimeFromLong((long) childColumnStats.maxValue).toLocalDate()
-                .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
+        double minValue;
+        double maxValue;
+        try {
+            // min/max value is infinite, but they may be too large to convert to date
+            minValue = getDatetimeFromLong((long) childColumnStats.minValue).toLocalDate()
+                    .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
+            maxValue = getDatetimeFromLong((long) childColumnStats.maxValue).toLocalDate()
+                    .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
+        } catch (Exception e) {
+            // ignore DateTimeException
+            minValue = Double.NEGATIVE_INFINITY;
+            maxValue = Double.POSITIVE_INFINITY;
+        }
         return columnStatisticBuilder.setMaxValue(maxValue)
-                .setMinValue(minValue)
-                .build();
+                .setMinValue(minValue).build();
+
     }
 
     private LocalDateTime getDatetimeFromLong(long dateTime) {
@@ -530,10 +625,18 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (childColumnStats.minOrMaxIsInf()) {
             return columnStatisticBuilder.build();
         }
-        double minValue = getDatetimeFromLong((long) childColumnStats.minValue).toLocalDate().toEpochDay()
-                + (double) DAYS_FROM_0_TO_1970;
-        double maxValue = getDatetimeFromLong((long) childColumnStats.maxValue).toLocalDate().toEpochDay()
-                + (double) DAYS_FROM_0_TO_1970;
+        double minValue;
+        double maxValue;
+        try {
+            minValue = getDatetimeFromLong((long) childColumnStats.minValue).toLocalDate().toEpochDay()
+                    + (double) DAYS_FROM_0_TO_1970;
+            maxValue = getDatetimeFromLong((long) childColumnStats.maxValue).toLocalDate().toEpochDay()
+                    + (double) DAYS_FROM_0_TO_1970;
+        } catch (Exception e) {
+            // ignore DateTimeException
+            minValue = Double.NEGATIVE_INFINITY;
+            maxValue = Double.POSITIVE_INFINITY;
+        }
         return columnStatisticBuilder.setMaxValue(maxValue)
                 .setMinValue(minValue)
                 .build();
@@ -653,7 +756,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                 .setMinValue(0)
                 .setMaxValue(1)
                 .setNumNulls(0)
-                .setHistogram(null)
                 .setAvgSizeByte(random.getDataType().width())
                 .setDataSize(random.getDataType().width() * context.getRowCount()).build();
     }
@@ -789,3 +891,4 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         return dateDiff(1, secondsDiff, context);
     }
 }
+

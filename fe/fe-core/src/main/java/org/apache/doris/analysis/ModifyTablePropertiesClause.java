@@ -44,6 +44,18 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
 
     private String storagePolicy;
 
+    private boolean isBeingSynced = false;
+
+    private short minLoadReplicaNum = -1;
+
+    public void setIsBeingSynced(boolean isBeingSynced) {
+        this.isBeingSynced = isBeingSynced;
+    }
+
+    public boolean isBeingSynced() {
+        return isBeingSynced;
+    }
+
     public ModifyTablePropertiesClause(Map<String, String> properties) {
         super(AlterOpType.MODIFY_TABLE_PROPERTY);
         this.properties = properties;
@@ -56,8 +68,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         }
 
         if (properties.size() != 1
-                && !TableProperty.isSamePrefixProperties(properties, TableProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
-            throw new AnalysisException("Can only set one table property at a time");
+                && !TableProperty.isSamePrefixProperties(properties, TableProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
+                && !TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_BINLOG_PREFIX)) {
+            throw new AnalysisException(
+                    "Can only set one table property(without dynamic partition && binlog) at a time");
         }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
@@ -105,6 +119,9 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TABLET_TYPE)) {
             throw new AnalysisException("Alter tablet type not supported");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM)) {
+            // do nothing, will be alter in Alter.processAlterOlapTable
+            this.needTableStable = false;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
             this.needTableStable = false;
             String storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
@@ -117,8 +134,154 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             setStoragePolicy(storagePolicy);
         } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
             throw new AnalysisException("Can not change UNIQUE KEY to Merge-On-Write mode");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT)) {
+            throw new AnalysisException("Can not change enable_duplicate_without_keys_by_default");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE)) {
             // do nothing, will be alter in SchemaChangeHandler.updateTableProperties
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)) {
+            this.needTableStable = false;
+            setIsBeingSynced(Boolean.parseBoolean(properties.getOrDefault(
+                    PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false")));
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
+            // do nothing, will be alter in SchemaChangeHandler.updateBinlogConfig
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
+            String compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, "");
+            if (compactionPolicy != null
+                                    && !compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+                                    && !compactionPolicy.equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
+                throw new AnalysisException(
+                        "Table compaction policy only support for " + PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
+                        + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
+            long goalSizeMbytes;
+            String goalSizeMbytesStr = properties
+                                        .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            try {
+                goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
+                if (goalSizeMbytes < 10) {
+                    throw new AnalysisException("time_series_compaction_goal_size_mbytes can not be less than 10:"
+                        + goalSizeMbytesStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
+                        + goalSizeMbytesStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
+            long fileCountThreshold;
+            String fileCountThresholdStr = properties
+                                        .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+            try {
+                fileCountThreshold = Long.parseLong(fileCountThresholdStr);
+                if (fileCountThreshold < 10) {
+                    throw new AnalysisException("time_series_compaction_file_count_threshold can not be less than 10:"
+                                                                                        + fileCountThresholdStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
+                                                                                + fileCountThresholdStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
+            long timeThresholdSeconds;
+            String timeThresholdSecondsStr = properties
+                                    .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+            try {
+                timeThresholdSeconds = Long.parseLong(timeThresholdSecondsStr);
+                if (timeThresholdSeconds < 60) {
+                    throw new AnalysisException("time_series_compaction_time_threshold_seconds can not be less than 60:"
+                                                                                        + timeThresholdSecondsStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_time_threshold_seconds format: "
+                                                                                        + timeThresholdSecondsStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+            long emptyRowsetsThreshold;
+            String emptyRowsetsThresholdStr = properties
+                                    .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
+            try {
+                emptyRowsetsThreshold = Long.parseLong(emptyRowsetsThresholdStr);
+                if (emptyRowsetsThreshold < 2) {
+                    throw new AnalysisException("time_series_compaction_empty_rowsets_threshold can not be less than 2:"
+                        + emptyRowsetsThresholdStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_empty_rowsets_threshold format: "
+                        + emptyRowsetsThresholdStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer
+                                                .PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                    "Property "
+                    + PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD + " should be set to true or false");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer
+                                            .PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                    "Property "
+                    + PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION + " should be set to true or false");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer
+                                            .PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                    "Property "
+                        + PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION + " should be set to true or false");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
+            long groupCommitIntervalMs;
+            String groupCommitIntervalMsStr = properties.get(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            try {
+                groupCommitIntervalMs = Long.parseLong(groupCommitIntervalMsStr);
+                if (groupCommitIntervalMs < 0) {
+                    throw new AnalysisException("group_commit_interval_ms can not be less than 0:"
+                                                                                        + groupCommitIntervalMsStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid group_commit_interval_ms format: "
+                                                                                        + groupCommitIntervalMsStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
+            long groupCommitDataBytes;
+            String groupCommitDataBytesStr = properties.get(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            try {
+                groupCommitDataBytes = Long.parseLong(groupCommitDataBytesStr);
+                if (groupCommitDataBytes < 0) {
+                    throw new AnalysisException("group_commit_data_bytes can not be less than 0:"
+                        + groupCommitDataBytesStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid group_commit_data_bytes format: "
+                    + groupCommitDataBytesStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

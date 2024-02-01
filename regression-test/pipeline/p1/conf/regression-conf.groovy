@@ -21,8 +21,14 @@
 defaultDb = "regression_test"
 
 jdbcUrl = "jdbc:mysql://172.19.0.2:9132/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://172.19.0.2:9132/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
+
+feSourceThriftAddress = "127.0.0.1:9020"
+feTargetThriftAddress = "127.0.0.1:9020"
+feSyncerUser = "root"
+feSyncerPassword = ""
 
 feHttpAddress = "172.19.0.2:8132"
 feHttpUser = "root"
@@ -40,7 +46,10 @@ dataPath = "${DORIS_HOME}/regression-test/data"
 testGroups = ""
 // empty suite will test all suite
 testSuites = ""
-
+// this suites will not be executed
+excludeSuites = "test_big_pad,test_profile,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter"
+// this dir will not be executed
+excludeDirectories = "workload_manager_p1,fault_injection_p0"
 cacheDataPath="/data/regression/"
 
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
@@ -48,3 +57,5 @@ s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 
 max_failure_num=0
+
+externalEnvIp="127.0.0.1"

@@ -27,15 +27,14 @@ public class ColumnStatisticBuilder {
     private double dataSize;
     private double minValue;
     private double maxValue;
-    private double selectivity = 1.0;
     private LiteralExpr minExpr;
     private LiteralExpr maxExpr;
 
     private boolean isUnknown;
 
-    private Histogram histogram;
+    private ColumnStatistic original;
 
-    private double originalNdv;
+    private String updatedTime;
 
     public ColumnStatisticBuilder() {
     }
@@ -48,12 +47,11 @@ public class ColumnStatisticBuilder {
         this.dataSize = columnStatistic.dataSize;
         this.minValue = columnStatistic.minValue;
         this.maxValue = columnStatistic.maxValue;
-        this.selectivity = columnStatistic.selectivity;
         this.minExpr = columnStatistic.minExpr;
         this.maxExpr = columnStatistic.maxExpr;
         this.isUnknown = columnStatistic.isUnKnown;
-        this.histogram = columnStatistic.histogram;
-        this.originalNdv = columnStatistic.originalNdv;
+        this.original = columnStatistic.original;
+        this.updatedTime = columnStatistic.updatedTime;
     }
 
     public ColumnStatisticBuilder setCount(double count) {
@@ -66,8 +64,8 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
-    public ColumnStatisticBuilder setOriginalNdv(double originalNdv) {
-        this.originalNdv = originalNdv;
+    public ColumnStatisticBuilder setOriginal(ColumnStatistic original) {
+        this.original = original;
         return this;
     }
 
@@ -93,11 +91,6 @@ public class ColumnStatisticBuilder {
 
     public ColumnStatisticBuilder setMaxValue(double maxValue) {
         this.maxValue = maxValue;
-        return this;
-    }
-
-    public ColumnStatisticBuilder setSelectivity(double selectivity) {
-        this.selectivity = selectivity;
         return this;
     }
 
@@ -144,10 +137,6 @@ public class ColumnStatisticBuilder {
         return maxValue;
     }
 
-    public double getSelectivity() {
-        return selectivity;
-    }
-
     public LiteralExpr getMinExpr() {
         return minExpr;
     }
@@ -160,18 +149,25 @@ public class ColumnStatisticBuilder {
         return isUnknown;
     }
 
-    public Histogram getHistogram() {
-        return histogram;
+    public String getUpdatedTime() {
+        return updatedTime;
     }
 
-    public ColumnStatisticBuilder setHistogram(Histogram histogram) {
-        this.histogram = histogram;
+    public ColumnStatisticBuilder setUpdatedTime(String updatedTime) {
+        this.updatedTime = updatedTime;
         return this;
     }
 
     public ColumnStatistic build() {
-        dataSize = Math.max((count - numNulls + 1) * avgSizeByte, 0);
-        return new ColumnStatistic(count, ndv, originalNdv, avgSizeByte, numNulls,
-            dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, isUnknown, histogram);
+        dataSize = dataSize > 0 ? dataSize : Math.max((count - numNulls + 1) * avgSizeByte, 0);
+        if (original == null && !isUnknown) {
+            original = new ColumnStatistic(count, ndv, null, avgSizeByte, numNulls,
+                    dataSize, minValue, maxValue, minExpr, maxExpr,
+                    isUnknown, updatedTime);
+        }
+        ColumnStatistic colStats = new ColumnStatistic(count, ndv, original, avgSizeByte, numNulls,
+                dataSize, minValue, maxValue, minExpr, maxExpr,
+                isUnknown, updatedTime);
+        return colStats;
     }
 }

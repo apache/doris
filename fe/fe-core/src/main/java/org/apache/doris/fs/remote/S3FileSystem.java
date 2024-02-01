@@ -18,12 +18,13 @@
 package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.obj.S3ObjStorage;
 
+import com.amazonaws.services.s3.model.AmazonS3Exception;
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -32,10 +33,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.FileNotFoundException;
-import java.net.URI;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 
 public class S3FileSystem extends ObjFileSystem {
 
@@ -43,17 +42,27 @@ public class S3FileSystem extends ObjFileSystem {
 
     public S3FileSystem(Map<String, String> properties) {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, new S3ObjStorage(properties));
-        this.properties = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        initFsProperties();
+    }
+
+    @VisibleForTesting
+    public S3FileSystem(S3ObjStorage storage) {
+        super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, storage);
+        initFsProperties();
+    }
+
+    private void initFsProperties() {
+        this.properties.putAll(((S3ObjStorage) objStorage).getProperties());
     }
 
     @Override
-    protected FileSystem getFileSystem(String remotePath) throws UserException {
+    protected FileSystem nativeFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem == null) {
             Configuration conf = new Configuration();
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
             PropertyConverter.convertToHadoopFSProperties(properties).forEach(conf::set);
             try {
-                dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
+                dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
             } catch (Exception e) {
                 throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
             }
@@ -65,7 +74,7 @@ public class S3FileSystem extends ObjFileSystem {
     @Override
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
-            FileSystem s3AFileSystem = getFileSystem(remotePath);
+            FileSystem s3AFileSystem = nativeFileSystem(remotePath);
             Path pathPattern = new Path(remotePath);
             FileStatus[] files = s3AFileSystem.globStatus(pathPattern);
             if (files == null) {
@@ -75,16 +84,32 @@ public class S3FileSystem extends ObjFileSystem {
                 RemoteFile remoteFile = new RemoteFile(
                         fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
                         !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen(),
-                        fileStatus.getBlockSize());
+                        fileStatus.getBlockSize(), fileStatus.getModificationTime());
                 result.add(remoteFile);
             }
         } catch (FileNotFoundException e) {
             LOG.info("file not found: " + e.getMessage());
             return new Status(Status.ErrCode.NOT_FOUND, "file not found: " + e.getMessage());
         } catch (Exception e) {
+            if (e.getCause() instanceof AmazonS3Exception) {
+                // process minio error msg
+                AmazonS3Exception ea = (AmazonS3Exception) e.getCause();
+                Map<String, String> callbackHeaders = ea.getHttpHeaders();
+                if (callbackHeaders != null && !callbackHeaders.isEmpty()) {
+                    String minioErrMsg = callbackHeaders.get("X-Minio-Error-Desc");
+                    if (minioErrMsg != null) {
+                        return new Status(Status.ErrCode.COMMON_ERROR, "Minio request error: " + minioErrMsg);
+                    }
+                }
+            }
             LOG.error("errors while get file status ", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         return Status.OK;
     }
+
+    public Status deleteDirectory(String absolutePath) {
+        return ((S3ObjStorage) objStorage).deleteObjects(absolutePath);
+    }
 }
+

@@ -174,8 +174,8 @@ suite("test_union") {
     qt_union36 """select * from (select 1 as a, 2 as b union select 3, 3) c where a = 1"""
     sql """drop view if exists nullable"""
     sql """CREATE VIEW `nullable` AS SELECT `a`.`k1` AS `n1`, `b`.`k2` AS `n2` 
-           FROM `default_cluster:${db}`.`baseall` a LEFT OUTER JOIN 
-           `default_cluster:${db}`.`bigtable` b ON `a`.`k1` = `b`.`k1` + 10
+           FROM `${db}`.`baseall` a LEFT OUTER JOIN 
+           `${db}`.`bigtable` b ON `a`.`k1` = `b`.`k1` + 10
            WHERE `b`.`k2` IS NULL"""
     order_qt_union37 """select n1 from nullable union all select n2 from nullable"""
     qt_union38 """(select n1 from nullable) union all (select n2 from nullable order by n1) order by n1"""
@@ -279,4 +279,9 @@ suite("test_union") {
     qt_union35 """select cast("2016-07-01" as date) union (select cast("2016-07-02 1:10:0" as date)) order by 1"""
 
     qt_union36 """SELECT a,2 as a FROM (SELECT '1' as a) b where a=1;"""
+    
+    test {
+        sql 'select * from (values (1, 2, 3), (4, 5, 6)) a'
+        result([[1, 2, 3], [4, 5, 6]])
+    }
 }

@@ -19,7 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.jobs.batch.CheckLegalityAfterRewrite;
+import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -56,16 +56,16 @@ public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
         PlanChecker.from(connectContext)
                 .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
-                .matchesFromRoot(logicalAggregate().when(agg ->
+                .matches(logicalAggregate().when(agg ->
                     agg.getOutputExpressions().get(0).child(0) instanceof Count
                 ))
                 .rewrite()
-                .matchesFromRoot(logicalAggregate().when(agg ->
+                .matches(logicalAggregate().when(agg ->
                     agg.getOutputExpressions().get(0).child(0) instanceof BitmapUnionCount
                 ));
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "column must use with specific function", () ->
+                "COUNT DISTINCT could not process type", () ->
                         PlanChecker.from(connectContext)
                                 .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
                                 .applyBottomUp(new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE))

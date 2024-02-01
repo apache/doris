@@ -42,8 +42,7 @@ import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
-import org.apache.doris.transaction.DatabaseTransactionMgr;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 
@@ -122,10 +121,10 @@ public class CanalSyncChannel extends SyncChannel {
             String label = "label_job" + + jobId + "_channel" + id + "_db" + db.getId() + "_tbl" + tbl.getId()
                     + "_batch" + batchId + "_" + currentTime;
             String targetColumn = Joiner.on(",").join(columns) + "," + DELETE_COLUMN;
-            GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
-            DatabaseTransactionMgr databaseTransactionMgr = globalTransactionMgr.getDatabaseTransactionMgr(db.getId());
+            GlobalTransactionMgrIface globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
             long txnLimit = db.getTransactionQuotaSize();
-            if (databaseTransactionMgr.getRunningTxnNums() < txnLimit) {
+            long runningTxnNums = globalTransactionMgr.getRunningTxnNums(db.getId());
+            if (runningTxnNums < txnLimit) {
                 TransactionEntry txnEntry = txnExecutor.getTxnEntry();
                 TTxnParams txnConf = txnEntry.getTxnConf();
                 TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
@@ -184,7 +183,7 @@ public class CanalSyncChannel extends SyncChannel {
                 }
             } else {
                 String failMsg = "current running txns on db " + db.getId() + " is "
-                        + databaseTransactionMgr.getRunningTxnNums()
+                        + runningTxnNums
                         + ", larger than limit " + txnLimit;
                 LOG.warn(failMsg);
                 throw new BeginTransactionException(failMsg);

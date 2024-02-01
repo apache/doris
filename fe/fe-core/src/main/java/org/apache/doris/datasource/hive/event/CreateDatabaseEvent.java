@@ -20,8 +20,11 @@ package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.ExternalMetaIdMgr;
+import org.apache.doris.datasource.MetaIdMappingsLog;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 
@@ -31,6 +34,11 @@ import java.util.List;
  * MetastoreEvent for CREATE_DATABASE event type
  */
 public class CreateDatabaseEvent extends MetastoreEvent {
+
+    // for test
+    public CreateDatabaseEvent(long eventId, String catalogName, String dbName) {
+        super(eventId, catalogName, dbName, null, MetastoreEventType.CREATE_DATABASE);
+    }
 
     private CreateDatabaseEvent(NotificationEvent event,
             String catalogName) {
@@ -48,10 +56,19 @@ public class CreateDatabaseEvent extends MetastoreEvent {
         try {
             infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
             Env.getCurrentEnv().getCatalogMgr()
-                    .createExternalDatabase(dbName, catalogName);
+                    .createExternalDatabase(dbName, catalogName, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"));
+                    debugString("Failed to process event"), e);
         }
+    }
+
+    @Override
+    protected List<MetaIdMappingsLog.MetaIdMapping> transferToMetaIdMappings() {
+        MetaIdMappingsLog.MetaIdMapping metaIdMapping = new MetaIdMappingsLog.MetaIdMapping(
+                    MetaIdMappingsLog.OPERATION_TYPE_ADD,
+                    MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
+                    dbName, ExternalMetaIdMgr.nextMetaId());
+        return ImmutableList.of(metaIdMapping);
     }
 }

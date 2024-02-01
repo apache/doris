@@ -50,7 +50,7 @@ ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env)
     });
 }
 
-ExternalScanContextMgr::~ExternalScanContextMgr() {
+void ExternalScanContextMgr::stop() {
     DEREGISTER_HOOK_METRIC(active_scan_context_count);
     _stop_background_threads_latch.count_down();
     if (_keep_alive_reaper) {
@@ -96,16 +96,17 @@ Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id)
             context = iter->second;
             if (context == nullptr) {
                 _active_contexts.erase(context_id);
-                Status::OK();
+                return Status::OK();
             }
             iter = _active_contexts.erase(iter);
         }
     }
     if (context != nullptr) {
         // first cancel the fragment instance, just ignore return status
-        _exec_env->fragment_mgr()->cancel(context->fragment_instance_id);
+        _exec_env->fragment_mgr()->cancel_instance(context->fragment_instance_id,
+                                                   PPlanFragmentCancelReason::INTERNAL_ERROR);
         // clear the fragment instance's related result queue
-        _exec_env->result_queue_mgr()->cancel(context->fragment_instance_id);
+        static_cast<void>(_exec_env->result_queue_mgr()->cancel(context->fragment_instance_id));
         LOG(INFO) << "close scan context: context id [ " << context_id << " ]";
     }
     return Status::OK();
@@ -143,8 +144,10 @@ void ExternalScanContextMgr::gc_expired_context() {
         }
         for (auto expired_context : expired_contexts) {
             // must cancel the fragment instance, otherwise return thrift transport TTransportException
-            _exec_env->fragment_mgr()->cancel(expired_context->fragment_instance_id);
-            _exec_env->result_queue_mgr()->cancel(expired_context->fragment_instance_id);
+            _exec_env->fragment_mgr()->cancel_instance(expired_context->fragment_instance_id,
+                                                       PPlanFragmentCancelReason::INTERNAL_ERROR);
+            static_cast<void>(
+                    _exec_env->result_queue_mgr()->cancel(expired_context->fragment_instance_id));
         }
     }
 #endif

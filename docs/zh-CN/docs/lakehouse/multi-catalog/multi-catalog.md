@@ -1,6 +1,6 @@
 ---
 {
-    "title": "多源数据目录",
+    "title": "概述",
     "language": "zh-CN"
 }
 ---
@@ -25,25 +25,22 @@ under the License.
 -->
 
 
-# 多源数据目录
+# 概述
 
-<version since="1.2.0">
-
-多源数据目录（Multi-Catalog）是 Doris 1.2.0 版本中推出的功能，旨在能够更方便对接外部数据目录，以增强Doris的数据湖分析和联邦数据查询能力。
+多源数据目录（Multi-Catalog）功能，旨在能够更方便对接外部数据目录，以增强Doris的数据湖分析和联邦数据查询能力。
 
 在之前的 Doris 版本中，用户数据只有两个层级：Database 和 Table。当我们需要连接一个外部数据目录时，我们只能在Database 或 Table 层级进行对接。比如通过 `create external table` 的方式创建一个外部数据目录中的表的映射，或通过 `create external database` 的方式映射一个外部数据目录中的 Database。 如果外部数据目录中的 Database 或 Table 非常多，则需要用户手动进行一一映射，使用体验不佳。
 
 而新的 Multi-Catalog 功能在原有的元数据层级上，新增一层Catalog，构成 Catalog -> Database -> Table 的三层元数据层级。其中，Catalog 可以直接对应到外部数据目录。目前支持的外部数据目录包括：
 
-1. Hive
-2. Iceberg
-3. Hudi
+1. Apache Hive
+2. Apache Iceberg
+3. Apache Hudi
 4. Elasticsearch
 5. JDBC: 对接数据库访问的标准接口(JDBC)来访问各式数据库的数据。
+6. Apache Paimon(Incubating)
 
 该功能将作为之前外表连接方式（External Table）的补充和增强，帮助用户进行快速的多数据目录联邦查询。
-
-</version>
 
 ## 基础概念
 
@@ -76,12 +73,6 @@ under the License.
     
     该操作仅会删除 Doris 中该 Catalog 的映射信息，并不会修改或变更任何外部数据目录的内容。
     
-5. Resource
-
-	Resource 是一组配置的集合。用户可以通过 [CREATE RESOURCE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md) 命令创建一个 Resource。之后可以在创建 Catalog 时使用这个 Resource。
-	
-	一个 Resource 可以被多个 Catalog 使用，以复用其中的配置。
-
 ## 连接示例
 
 ### 连接 Hive
@@ -107,12 +98,12 @@ under the License.
 	
 	```
 	mysql> SHOW CATALOGS;
-	+-----------+-------------+----------+
-	| CatalogId | CatalogName | Type     |
-	+-----------+-------------+----------+
-	|     10024 | hive        | hms      |
-	|         0 | internal    | internal |
-	+-----------+-------------+----------+
+	+-----------+-------------+----------+-----------+-------------------------+---------------------+------------------------+
+	| CatalogId | CatalogName | Type     | IsCurrent | CreateTime              | LastUpdateTime      | Comment                |
+	+-----------+-------------+----------+-----------+-------------------------+---------------------+------------------------+
+	|     10024 | hive        | hms      | yes       | 2023-12-25 16:11:41.687 | 2023-12-25 20:43:18 | NULL                   |
+	|         0 | internal    | internal |           | UNRECORDED              | NULL                | Doris internal catalog |
+	+-----------+-------------+----------+-----------+-------------------------+---------------------+------------------------+
 	```
 	
 	> [SHOW CATALOGS 语法帮助](../../sql-manual/sql-reference/Show-Statements/SHOW-CATALOGS.md)
@@ -253,27 +244,9 @@ under the License.
 	{'label':'insert_212f67420c6444d5_9bfc184bf2e7edb8', 'status':'VISIBLE', 'txnId':'4'}
 	```
 
-### 连接 Iceberg
-
-详见 [Iceberg Catalog](./iceberg.md)
-
-### 连接 Hudi
-
-详见 [Hudi Catalog](./hudi.md)
-
-### 连接 Elasticsearch
-
-详见 [Elasticsearch Catalog](./es.md)
-
-### 连接 JDBC
-
-详见 [JDBC Catalog](./jdbc.md)
-
 ## 列类型映射
 
 用户创建 Catalog 后，Doris 会自动同步数据目录的数据库和表，针对不同的数据目录和数据表格式，Doris 会进行以下列映射关系。
-
-<version since="1.2.2">
 
 对于当前无法映射到 Doris 列类型的外表类型，如 `UNION`, `INTERVAL` 等。Doris 会将列类型映射为 UNSUPPORTED 类型。对于 UNSUPPORTED 类型的查询，示例如下：
 
@@ -293,83 +266,49 @@ select k1, k3 from table;           // Error: Unsupported type 'UNSUPPORTED_TYPE
 select k1, k4 from table;           // Query OK.
 ```
 
-</version>
-
 不同的数据源的列映射规则，请参阅不同数据源的文档。
 
 ## 权限管理
 
-使用 Doris 对 External Catalog 中库表进行访问，并不受外部数据目录自身的权限控制，而是依赖 Doris 自身的权限访问管理功能。
+使用 Doris 对 External Catalog 中库表进行访问时，默认情况下，依赖 Doris 自身的权限访问管理功能。
 
 Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参阅 [权限管理](../../admin-manual/privilege-ldap/user-privilege.md) 文档。
 
-## 元数据更新
+用户也可以通过 `access_controller.class` 属性指定自定义的鉴权类。如通过指定：
 
-### 手动刷新
+`"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory"`
+
+则可以使用 Apache Range 对 Hive Catalog 进行鉴权管理。详细信息请参阅：[Hive Catalog](./hive.md)
+
+## 指定需要同步的数据库
+
+通过在 Catalog 配置中设置 `include_database_list` 和 `exclude_database_list` 可以指定需要同步的数据库。
+
+`include_database_list`: 支持只同步指定的多个database，以 `,` 分隔。默认同步所有database。db名称是大小写敏感的。
+
+`exclude_database_list`: 支持指定不需要同步的多个database，以 `,` 分割。默认不做任何过滤，同步所有database。db名称是大小写敏感的。
+
+> 当 `include_database_list` 和 `exclude_database_list` 有重合的database配置时，`exclude_database_list`会优先生效。
+>
+> 连接 JDBC 时，上述 2 个配置需要和配置 `only_specified_database` 搭配使用，详见 [JDBC](./jdbc.md)
+
+## 元数据更新
 
 默认情况下，外部数据源的元数据变动，如创建、删除表，加减列等操作，不会同步给 Doris。
 
-用户需要通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) 命令手动刷新元数据。
+用户可以通过以下几种方式刷新元数据。
 
-### 自动刷新
+### 手动刷新
 
-<version since="1.2.2"></version>
+用户需要通过 [REFRESH](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) 命令手动刷新元数据。
 
-#### Hive Metastore
-
-自动刷新目前仅支持 Hive Metastore 元数据服务。通过让 FE 节点定时读取 HMS 的 notification event 来感知 Hive 表元数据的变更情况，目前支持处理如下event：
-
-|事件 | 事件行为和对应的动作 |
-|---|---|
-| CREATE DATABASE | 在对应数据目录下创建数据库。 |
-| DROP DATABASE | 在对应数据目录下删除数据库。 |
-| ALTER DATABASE  | 此事件的影响主要有更改数据库的属性信息，注释及默认存储位置等，这些改变不影响doris对外部数据目录的查询操作，因此目前会忽略此event。 |
-| CREATE TABLE | 在对应数据库下创建表。 |
-| DROP TABLE  | 在对应数据库下删除表，并失效表的缓存。 |
-| ALTER TABLE | 如果是重命名，先删除旧名字的表，再用新名字创建表，否则失效该表的缓存。 |
-| ADD PARTITION | 在对应表缓存的分区列表里添加分区。 |
-| DROP PARTITION | 在对应表缓存的分区列表里删除分区，并失效该分区的缓存。 |
-| ALTER PARTITION | 如果是重命名，先删除旧名字的分区，再用新名字创建分区，否则失效该分区的缓存。 |
-
-> 当导入数据导致文件变更,分区表会走ALTER PARTITION event逻辑，不分区表会走ALTER TABLE event逻辑。
-> 
-> 如果绕过HMS直接操作文件系统的话，HMS不会生成对应事件，doris因此也无法感知
-
-该特性在 fe.conf 中有如下参数：
-
-1. `enable_hms_events_incremental_sync`: 是否开启元数据自动增量同步功能,默认关闭。
-2. `hms_events_polling_interval_ms`: 读取 event 的间隔时间，默认值为 10000，单位：毫秒。
-3. `hms_events_batch_size_per_rpc`: 每次读取 event 的最大数量，默认值为 500。
-
-如果想使用该特性，需要更改HMS的 hive-site.xml 并重启HMS：
-
-```
-<property>
-    <name>hive.metastore.event.db.notification.api.auth</name>
-    <value>false</value>
-</property>
-<property>
-    <name>hive.metastore.dml.events</name>
-    <value>true</value>
-</property>
-<property>
-    <name>hive.metastore.transactional.event.listeners</name>
-    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
-</property>
-
-```
-
-> 使用建议： 无论是之前已经创建好的catalog现在想改为自动刷新，还是新创建的 catalog，都只需要把 `enable_hms_events_incremental_sync` 设置为true，重启fe节点，无需重启之前或之后再手动刷新元数据。
-
-#### 定时刷新
+### 定时刷新
 
 在创建catalog时，在properties 中指定刷新时间参数`metadata_refresh_interval_sec` ，以秒为单位，若在创建catalog时设置了该参数，FE 的master节点会根据参数值定时刷新该catalog。目前支持三种类型
 
 - hms：Hive MetaStore
 - es：Elasticsearch
 - jdbc：数据库访问的标准接口(JDBC)
-
-##### Example
 
 ```
 -- 设置catalog刷新间隔为20秒
@@ -379,4 +318,9 @@ CREATE CATALOG es PROPERTIES (
     "metadata_refresh_interval_sec"="20"
 );
 ```
+
+### 自动刷新
+
+自动刷新目前仅支持 [Hive Catalog](./hive.md)。
+
 

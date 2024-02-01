@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -40,7 +41,8 @@ import java.util.Optional;
  * If the number of rows is more than the desired num of rows, the query will be cancelled.
  * The cancelled reason will be reported by Backend and displayed back to the user.
  */
-public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements
+        PropagateFuncDeps {
 
     private final AssertNumRowsElement assertNumRowsElement;
 
@@ -105,8 +107,10 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalAssertNumRows<>(assertNumRowsElement, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalAssertNumRows<>(assertNumRowsElement, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override

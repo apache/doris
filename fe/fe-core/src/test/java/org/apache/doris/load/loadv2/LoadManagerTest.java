@@ -40,6 +40,7 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.util.List;
 import java.util.Map;
 
 public class LoadManagerTest {
@@ -123,7 +124,7 @@ public class LoadManagerTest {
         LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", userInfo);
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
-        //make job1 don't serialize
+        // make job1 don't serialize
         Config.streaming_label_keep_max_second = 1;
         Thread.sleep(2000);
 
@@ -133,6 +134,49 @@ public class LoadManagerTest {
         Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
 
         Assert.assertEquals(0, newLoadJobs.size());
+    }
+
+    @Test
+    public void testCleanOverLimitJobs(@Mocked Env env,
+            @Mocked InternalCatalog catalog, @Injectable Database database, @Injectable Table table) throws Exception {
+        new Expectations() {
+            {
+                env.getNextId();
+                returns(1L, 2L);
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = catalog;
+                catalog.getDbNullable(anyLong);
+                minTimes = 0;
+                result = database;
+                database.getTableNullable(anyLong);
+                minTimes = 0;
+                result = table;
+                table.getName();
+                minTimes = 0;
+                result = "tablename";
+                Env.getCurrentEnvJournalVersion();
+                minTimes = 0;
+                result = FeMetaVersion.VERSION_CURRENT;
+            }
+        };
+
+        loadManager = new LoadManager(new LoadJobScheduler());
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", userInfo);
+        Thread.sleep(100);
+        LoadJob job2 = new InsertLoadJob("job2", 1L, 1L, 1L, System.currentTimeMillis(), "", "", userInfo);
+        Deencapsulation.invoke(loadManager, "addLoadJob", job2);
+        Deencapsulation.invoke(loadManager, "addLoadJob", job1);
+        Config.label_num_threshold = 1;
+        loadManager.removeOverLimitLoadJob();
+        Map<Long, LoadJob> idToJobs = Deencapsulation.getField(loadManager, fieldName);
+        Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Deencapsulation.getField(loadManager,
+                "dbIdToLabelToLoadJobs");
+        Assert.assertEquals(1, idToJobs.size());
+        Assert.assertEquals(1, dbIdToLabelToLoadJobs.size());
+        LoadJob loadJob = idToJobs.get(job2.getId());
+        Assert.assertEquals("job2", loadJob.getLabel());
+        Assert.assertNotNull(dbIdToLabelToLoadJobs.get(1L).get("job2"));
     }
 
     private File serializeToFile(LoadManager loadManager) throws Exception {

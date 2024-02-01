@@ -29,7 +29,7 @@ concurrency:
 jobs:
   run-ut:
     name: BE UT (macOS)
-    runs-on: macos-12
+    runs-on: macos-13
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -79,9 +79,9 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@15'
+            'llvm@16'
           )
-          brew install "${cellars[@]}"
+          brew install "${cellars[@]}" || true
 
           pushd thirdparty
           branch="${{ github.base_ref }}"
@@ -96,4 +96,3 @@ jobs:
           popd
 
           ./run-be-ut.sh --run -j "$(nproc)" --clean
-

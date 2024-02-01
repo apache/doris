@@ -17,14 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.algebra.Scan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
@@ -35,26 +34,22 @@ import java.util.Optional;
 /**
  * PhysicalSchemaScan.
  */
-public class PhysicalSchemaScan extends PhysicalRelation implements Scan {
+public class PhysicalSchemaScan extends PhysicalCatalogRelation {
 
-    private final Table table;
-
-    public PhysicalSchemaScan(ObjectId id, Table table, List<String> qualifier,
+    public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
-        super(id, PlanType.PHYSICAL_SCHEMA_SCAN, qualifier, groupExpression, logicalProperties);
-        this.table = table;
+        super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties);
     }
 
-    public PhysicalSchemaScan(ObjectId id, Table table, List<String> qualifier,
+    public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics) {
-        super(id, PlanType.PHYSICAL_SCHEMA_SCAN, qualifier, groupExpression, logicalProperties, physicalProperties,
-                statistics);
-        this.table = table;
+        super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression,
+                logicalProperties, physicalProperties, statistics);
     }
 
     @Override
-    public Table getTable() {
+    public TableIf getTable() {
         return table;
     }
 
@@ -65,35 +60,32 @@ public class PhysicalSchemaScan extends PhysicalRelation implements Scan {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalSchemaScan(id, table, qualifier, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics);
+        return new PhysicalSchemaScan(relationId, getTable(), qualifier,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics);
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalSchemaScan(id, table, qualifier, groupExpression, logicalProperties.get(),
-                physicalProperties, statistics);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalSchemaScan(relationId, getTable(), qualifier,
+                groupExpression, logicalProperties.get(), physicalProperties, statistics);
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalSchemaScan(id, table, qualifier, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return super.equals(o);
-    }
-
-    @Override
-    public int hashCode() {
-        return super.hashCode();
+        return new PhysicalSchemaScan(relationId, getTable(), qualifier,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics);
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalSchemaScan");
+    }
+
+    @Override
+    public boolean canPushDownRuntimeFilter() {
+        // currently be doesn't support schema scan rf
+        return false;
     }
 }

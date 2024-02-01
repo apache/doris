@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -100,10 +101,16 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
         return phase == LimitPhase.GLOBAL;
     }
 
+    public Plan withLimit(long limit) {
+        return new PhysicalLimit<>(limit, offset, phase, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, children.get(0));
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalLimit<>(limit, offset, phase, getLogicalProperties(), children.get(0));
+        return new PhysicalLimit<>(limit, offset, phase, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, children.get(0));
     }
 
     @Override
@@ -117,8 +124,10 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
     }
 
     @Override
-    public PhysicalLimit<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalLimit<>(limit, offset, phase, logicalProperties.get(), child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new PhysicalLimit<>(limit, offset, phase, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
@@ -152,11 +161,27 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalLimit[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalLimit[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "limit", limit,
                 "offset", offset,
                 "phase", phase,
                 "stats", statistics
         );
+    }
+
+    @Override
+    public String shapeInfo() {
+        return this.getClass().getSimpleName() + "[" + phase + "]";
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalLimit<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalLimit<>(limit, offset, phase, groupExpression, null, physicalProperties,
+                statistics, child());
     }
 }

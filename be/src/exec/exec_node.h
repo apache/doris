@@ -21,10 +21,10 @@
 #pragma once
 
 #include <gen_cpp/PlanNodes_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -36,18 +36,14 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class ObjectPool;
 class RuntimeState;
 class MemTracker;
 class QueryStatistics;
-
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
 
 namespace pipeline {
 class OperatorBase;
@@ -71,7 +67,7 @@ public:
     /// Initializes this object from the thrift tnode desc. The subclass should
     /// do any initialization that can fail in Init() rather than the ctor.
     /// If overridden in subclass, must first call superclass's Init().
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state);
+    [[nodiscard]] virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     // Sets up internal structures, etc., without doing any actual work.
     // Must be called prior to open(). Will only be called once in this
@@ -80,17 +76,28 @@ public:
     // in prepare().  Retrieving the jit compiled function pointer must happen in
     // open().
     // If overridden in subclass, must first call superclass's prepare().
-    virtual Status prepare(RuntimeState* state);
+    [[nodiscard]] virtual Status prepare(RuntimeState* state);
 
+    /*
+     * For open and alloc_resource:
+     *  Base class ExecNode's `open` only calls `alloc_resource`, which opens some public projections.
+     *  If was overrided, `open` must call corresponding `alloc_resource` since it's a (early) part of opening.
+     *  Or just call `ExecNode::open` is alternative way.
+     *  Then `alloc_resource` call father's after it's own business to make the progress completed, including the projections.
+     *  In Pipeline engine: 
+     *      PipeContext::prepare -> node::prepare
+     *      Task::open -> StreamingOp::open -> node::alloc_resource, for sink+source splits, only open in SinkOperator.
+     *  So in pipeline, the things directly done by open(like call child's) wouldn't be done in `open`.
+    */
     // Performs any preparatory work prior to calling get_next().
     // Can be called repeatedly (after calls to close()).
     // Caller must not be holding any io buffers. This will cause deadlock.
-    virtual Status open(RuntimeState* state);
+    [[nodiscard]] virtual Status open(RuntimeState* state);
 
     // Alloc and open resource for the node
     // Only pipeline operator use exec node need to impl the virtual function
     // so only vectorized exec node need to impl
-    virtual Status alloc_resource(RuntimeState* state);
+    [[nodiscard]] virtual Status alloc_resource(RuntimeState* state);
 
     // Retrieves rows and returns them via row_batch. Sets eos to true
     // if subsequent calls will not retrieve any more rows.
@@ -105,9 +112,9 @@ public:
     // row_batch's tuple_data_pool.
     // Caller must not be holding any io buffers. This will cause deadlock.
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
+    [[nodiscard]] virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
     // new interface to compatible new optimizers in FE
-    Status get_next_after_projects(
+    [[nodiscard]] virtual Status get_next_after_projects(
             RuntimeState* state, vectorized::Block* block, bool* eos,
             const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn,
             bool clear_data = true);
@@ -125,20 +132,25 @@ public:
 
     // Emit data, both need impl with method: sink
     // Eg: Aggregation, Sort, Scan
-    virtual Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    [[nodiscard]] virtual Status pull(RuntimeState* state, vectorized::Block* output_block,
+                                      bool* eos) {
         return get_next(state, output_block, eos);
     }
 
-    virtual Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+    [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
+                                      bool eos) {
         return Status::OK();
     }
 
     bool can_read() const { return _can_read; }
 
+    [[nodiscard]] virtual bool can_terminate_early() { return false; }
+
     // Sink Data to ExecNode to do some stock work, both need impl with method: get_result
     // `eos` means source is exhausted, exec node should do some finalize work
     // Eg: Aggregation, Sort
-    virtual Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos);
+    [[nodiscard]] virtual Status sink(RuntimeState* state, vectorized::Block* input_block,
+                                      bool eos);
 
     // Resets the stream of row batches to be retrieved by subsequent GetNext() calls.
     // Clears all internal state, returning this node to the state it was in after calling
@@ -153,12 +165,7 @@ public:
     // implementation calls Reset() on children.
     // Note that this function may be called many times (proportional to the input data),
     // so should be fast.
-    virtual Status reset(RuntimeState* state);
-
-    // This should be called before close() and after get_next(), it is responsible for
-    // collecting statistics sent with row batch, it can't be called when prepare() returns
-    // error.
-    virtual Status collect_query_statistics(QueryStatistics* statistics);
+    [[nodiscard]] virtual Status reset(RuntimeState* state);
 
     // close() will get called for every exec node, regardless of what else is called and
     // the status of these calls (i.e. prepare() may never have been called, or
@@ -183,8 +190,9 @@ public:
     // Creates exec node tree from list of nodes contained in plan via depth-first
     // traversal. All nodes are placed in pool.
     // Returns error if 'plan' is corrupted, otherwise success.
-    static Status create_tree(RuntimeState* state, ObjectPool* pool, const TPlan& plan,
-                              const DescriptorTbl& descs, ExecNode** root);
+    [[nodiscard]] static Status create_tree(RuntimeState* state, ObjectPool* pool,
+                                            const TPlan& plan, const DescriptorTbl& descs,
+                                            ExecNode** root);
 
     // Collect all nodes of given 'node_type' that are part of this subtree, and return in
     // 'nodes'.
@@ -194,12 +202,6 @@ public:
     void collect_scan_nodes(std::vector<ExecNode*>* nodes);
 
     virtual void prepare_for_next() {}
-
-    // When the agg node is the scan node direct parent,
-    // we directly return agg object from scan node to agg node,
-    // and don't serialize the agg object.
-    // This improve is cautious, we ensure the correctness firstly.
-    void try_do_aggregate_serde_improve();
 
     // Returns a string representation in DFS order of the plan rooted at this.
     std::string debug_string() const;
@@ -226,12 +228,11 @@ public:
     void reached_limit(vectorized::Block* block, bool* eos);
     const std::vector<TupleId>& get_tuple_ids() const { return _tuple_ids; }
 
+    RuntimeProfile* faker_runtime_profile() const { return _faker_runtime_profile.get(); }
     RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
-
-    OpentelemetrySpan get_next_span() { return _get_next_span; }
 
     virtual std::string get_name();
 
@@ -241,6 +242,8 @@ public:
     ExecNode* child(int i) { return _children[i]; }
 
     size_t children_count() const { return _children.size(); }
+
+    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
 
 protected:
     friend class DataSink;
@@ -255,23 +258,23 @@ protected:
 
     int _id; // unique w/in single plan tree
     TPlanNodeType::type _type;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     std::vector<TupleId> _tuple_ids;
 
-    std::unique_ptr<doris::vectorized::VExprContext*> _vconjunct_ctx_ptr;
+    vectorized::VExprContextSPtrs _conjuncts;
 
     std::vector<ExecNode*> _children;
     RowDescriptor _row_descriptor;
     vectorized::Block _origin_block;
 
     std::unique_ptr<RowDescriptor> _output_row_descriptor;
-    std::vector<doris::vectorized::VExprContext*> _projections;
+    vectorized::VExprContextSPtrs _projections;
 
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;
 
     int64_t _limit; // -1: no limit
-    int64_t _num_rows_returned;
+    int64_t _num_rows_returned = 0;
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
@@ -279,19 +282,22 @@ protected:
     // which will providea reference for operator memory.
     std::unique_ptr<MemTracker> _mem_tracker;
 
-    RuntimeProfile::Counter* _rows_returned_counter;
-    RuntimeProfile::Counter* _rows_returned_rate;
+    RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _rows_returned_counter = nullptr;
+    RuntimeProfile::Counter* _output_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _block_count_counter = nullptr;
+    RuntimeProfile::Counter* _rows_returned_rate = nullptr;
+    RuntimeProfile::Counter* _memory_used_counter = nullptr;
+    RuntimeProfile::Counter* _projection_timer = nullptr;
     // Account for peak memory used by this node
-    RuntimeProfile::Counter* _memory_used_counter;
-    RuntimeProfile::Counter* _projection_timer;
+    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
-    /// Since get_next is a frequent operation, it is not necessary to generate a span for each call
-    /// to the get_next method. Therefore, the call of the get_next method in the ExecNode is
-    /// merged into this _get_next_span. The _get_next_span is initialized by
-    /// INIT_AND_SCOPE_GET_NEXT_SPAN when the get_next method is called for the first time
-    /// (recording the start timestamp), and is ended by RETURN_IF_ERROR_AND_CHECK_SPAN after the
-    /// last call to the get_next method (the record is terminated timestamp).
-    OpentelemetrySpan _get_next_span;
+    //NOTICE: now add a faker profile, because sometimes the profile record is useless
+    //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
+    //and shared hash table, some counter/timer about build hash table is useless,
+    //so we could add those counter/timer in faker profile, and those will not display in web profile.
+    std::unique_ptr<RuntimeProfile> _faker_runtime_profile =
+            std::make_unique<RuntimeProfile>("faker profile");
 
     // Execution options that are determined at runtime.  This is added to the
     // runtime profile at close().  Examples for options logged here would be
@@ -304,23 +310,9 @@ protected:
 
     bool is_closed() const { return _is_closed; }
 
-    // TODO(zc)
-    /// Pointer to the containing SubplanNode or nullptr if not inside a subplan.
-    /// Set by SubplanNode::Init(). Not owned.
-    // SubplanNode* containing_subplan_;
-
-    /// Returns true if this node is inside the right-hand side plan tree of a SubplanNode.
-    /// Valid to call in or after Prepare().
-    bool is_in_subplan() const { return false; }
-
     // Create a single exec node derived from thrift node; place exec node in 'pool'.
     static Status create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                               const DescriptorTbl& descs, ExecNode** node);
-
-    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
-                                     const std::vector<TPlanNode>& tnodes,
-                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
-                                     ExecNode** root);
 
     virtual bool is_scan_node() const { return false; }
 
@@ -331,11 +323,18 @@ protected:
 
     std::atomic<bool> _can_read = false;
 
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
+
 private:
+    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
+                                     const std::vector<TPlanNode>& tnodes,
+                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
+                                     ExecNode** root);
+
     friend class pipeline::OperatorBase;
-    bool _is_closed;
+    bool _is_closed = false;
     bool _is_resource_released = false;
-    std::atomic_int _ref; // used by pipeline operator to release resource.
+    std::atomic_int _ref = 0; // used by pipeline operator to release resource.
 };
 
 } // namespace doris

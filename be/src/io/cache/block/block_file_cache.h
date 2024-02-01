@@ -37,6 +37,7 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_fwd.h"
 #include "io/cache/block/block_file_cache_settings.h"
+#include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "util/hash_util.hpp"
 #include "vec/common/uint128.h"
@@ -53,21 +54,28 @@ enum CacheType {
     INDEX,
     NORMAL,
     DISPOSABLE,
+    TTL,
 };
+
 struct CacheContext {
-    CacheContext(const IOContext* io_ctx) {
-        if (io_ctx->read_segment_index) {
+    CacheContext(const IOContext* io_context) {
+        if (io_context->is_index_data) {
             cache_type = CacheType::INDEX;
-        } else if (io_ctx->is_disposable) {
+        } else if (io_context->is_disposable) {
             cache_type = CacheType::DISPOSABLE;
+        } else if (io_context->expiration_time != 0) {
+            cache_type = CacheType::TTL;
+            expiration_time = io_context->expiration_time;
         } else {
             cache_type = CacheType::NORMAL;
         }
-        query_id = io_ctx->query_id ? *io_ctx->query_id : TUniqueId();
+        query_id = io_context->query_id ? *io_context->query_id : TUniqueId();
     }
     CacheContext() = default;
     TUniqueId query_id;
     CacheType cache_type;
+    int64_t expiration_time {0};
+    bool is_cold_data {false};
 };
 
 /**
@@ -106,6 +114,8 @@ public:
 
     static Key hash(const std::string& path);
 
+    virtual size_t try_release() = 0;
+
     std::string get_path_in_local_cache(const Key& key, size_t offset, CacheType type) const;
 
     std::string get_path_in_local_cache(const Key& key) const;
@@ -135,7 +145,10 @@ public:
 
     virtual size_t get_file_segments_num(CacheType type) const = 0;
 
-    static std::string cache_type_to_string(CacheType type);
+    virtual void change_cache_type(const Key& key, size_t offset, CacheType new_type,
+                                   std::lock_guard<std::mutex>& cache_lock) = 0;
+
+    static std::string_view cache_type_to_string(CacheType type);
     static CacheType string_to_cache_type(const std::string& str);
 
     IFileCache& operator=(const IFileCache&) = delete;
@@ -290,6 +303,33 @@ public:
     };
     using QueryFileCacheContextHolderPtr = std::unique_ptr<QueryFileCacheContextHolder>;
     QueryFileCacheContextHolderPtr get_query_context_holder(const TUniqueId& query_id);
+
+private:
+    static inline std::list<std::pair<AccessKeyAndOffset, std::shared_ptr<FileReader>>>
+            s_file_reader_cache;
+    static inline std::unordered_map<AccessKeyAndOffset, decltype(s_file_reader_cache.begin()),
+                                     KeyAndOffsetHash>
+            s_file_name_to_reader;
+    static inline std::mutex s_file_reader_cache_mtx;
+    static inline std::atomic_bool s_read_only {false};
+    static inline uint64_t _max_file_reader_cache_size = 65533;
+
+public:
+    // should be call when BE start
+    static void init();
+
+    static void set_read_only(bool read_only);
+
+    static bool read_only() { return s_read_only; }
+
+    static std::weak_ptr<FileReader> cache_file_reader(const AccessKeyAndOffset& key,
+                                                       std::shared_ptr<FileReader> file_reader);
+
+    static void remove_file_reader(const AccessKeyAndOffset& key);
+
+    // use for test
+    static bool contains_file_reader(const AccessKeyAndOffset& key);
+    static size_t file_reader_cache_size();
 };
 
 using CloudFileCachePtr = IFileCache*;

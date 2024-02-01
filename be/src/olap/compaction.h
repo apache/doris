@@ -29,6 +29,7 @@
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/rowid_conversion.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
@@ -57,15 +58,20 @@ public:
     virtual Status prepare_compact() = 0;
     Status execute_compact();
     virtual Status execute_compact_impl() = 0;
+
+    const std::vector<RowsetSharedPtr>& input_rowsets() { return _input_rowsets; }
 #ifdef BE_TEST
     void set_input_rowset(const std::vector<RowsetSharedPtr>& rowsets);
     RowsetSharedPtr output_rowset();
 #endif
 
+    RuntimeProfile* runtime_profile() const { return _profile.get(); }
+
+    virtual ReaderType compaction_type() const = 0;
+    virtual std::string compaction_name() const = 0;
+
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
-    virtual std::string compaction_name() const = 0;
-    virtual ReaderType compaction_type() const = 0;
 
     Status do_compaction(int64_t permits);
     Status do_compaction_impl(int64_t permits);
@@ -73,7 +79,7 @@ protected:
     virtual Status modify_rowsets(const Merger::Statistics* stats = nullptr);
     void gc_output_rowset();
 
-    Status construct_output_rowset_writer(bool is_vertical = false);
+    Status construct_output_rowset_writer(RowsetWriterContext& ctx, bool is_vertical = false);
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
@@ -90,6 +96,15 @@ protected:
     bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs);
     void build_basic_info();
 
+    void init_profile(const std::string& label);
+    [[nodiscard]] bool allow_delete_in_cumu_compaction() const {
+        return _allow_delete_in_cumu_compaction;
+    }
+
+private:
+    bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
+    void _load_segment_to_cache();
+
 protected:
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
@@ -104,6 +119,7 @@ protected:
     int64_t _input_index_size;
 
     RowsetSharedPtr _output_rowset;
+    PendingRowsetGuard _pending_rs_guard;
     std::unique_ptr<RowsetWriter> _output_rs_writer;
 
     enum CompactionState { INITED = 0, SUCCESS = 1 };
@@ -114,6 +130,20 @@ protected:
     int64_t _newest_write_timestamp;
     RowIdConversion _rowid_conversion;
     TabletSchemaSPtr _cur_tablet_schema;
+
+    std::unique_ptr<RuntimeProfile> _profile;
+    bool _allow_delete_in_cumu_compaction = false;
+
+    RuntimeProfile::Counter* _input_rowsets_data_size_counter = nullptr;
+    RuntimeProfile::Counter* _input_rowsets_counter = nullptr;
+    RuntimeProfile::Counter* _input_row_num_counter = nullptr;
+    RuntimeProfile::Counter* _input_segments_num_counter = nullptr;
+    RuntimeProfile::Counter* _merged_rows_counter = nullptr;
+    RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* _output_rowset_data_size_counter = nullptr;
+    RuntimeProfile::Counter* _output_row_num_counter = nullptr;
+    RuntimeProfile::Counter* _output_segments_num_counter = nullptr;
+    RuntimeProfile::Counter* _merge_rowsets_latency_timer = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

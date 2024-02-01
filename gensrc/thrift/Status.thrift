@@ -69,12 +69,13 @@ enum TStatusCode {
     NOT_AUTHORIZED      = 38,
     ABORTED             = 39,
     REMOTE_ERROR        = 40,
-    SERVICE_UNAVAILABLE = 41,
+    //SERVICE_UNAVAILABLE = 41, // Not used any more
     UNINITIALIZED       = 42,
     CONFIGURATION_ERROR = 43,
     INCOMPLETE          = 44,
     OLAP_ERR_VERSION_ALREADY_MERGED = 45,
     DATA_QUALITY_ERROR  = 46,
+    INVALID_JSON_PATH   = 47,
 
     VEC_EXCEPTION = 50,
     VEC_LOGIC_ERROR = 51,
@@ -84,7 +85,26 @@ enum TStatusCode {
     VEC_CANNOT_MUNMAP = 55,
     VEC_CANNOT_MREMAP = 56,
     VEC_BAD_ARGUMENTS = 57,
-    
+
+    // Binlog Related from 60
+    BINLOG_DISABLE = 60,
+    BINLOG_TOO_OLD_COMMIT_SEQ = 61,
+    BINLOG_TOO_NEW_COMMIT_SEQ = 62,
+    BINLOG_NOT_FOUND_DB = 63,
+    BINLOG_NOT_FOUND_TABLE = 64,
+
+    // Snapshot Related from 70
+    SNAPSHOT_NOT_EXIST = 70,
+
+    // BE Status HTTP_ERROR
+    HTTP_ERROR = 71,
+
+    TABLET_MISSING = 72,
+
+    NOT_MASTER = 73,
+
+    // used for cloud
+    DELETE_BITMAP_LOCK_ERROR = 100,
 }
 
 struct TStatus {

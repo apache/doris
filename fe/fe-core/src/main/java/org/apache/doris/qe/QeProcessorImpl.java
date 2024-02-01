@@ -17,11 +17,12 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.ProfileWriter;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryType;
@@ -36,7 +37,10 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -73,6 +77,16 @@ public final class QeProcessorImpl implements QeProcessor {
             return queryInfo.getCoord();
         }
         return null;
+    }
+
+    @Override
+    public List<Coordinator> getAllCoordinators() {
+        List<Coordinator> res = new ArrayList<>();
+
+        for (QueryInfo co : coordinatorMap.values()) {
+            res.add(co.coord);
+        }
+        return res;
     }
 
     @Override
@@ -128,8 +142,9 @@ public final class QeProcessorImpl implements QeProcessor {
         QueryInfo queryInfo = coordinatorMap.remove(queryId);
         if (queryInfo != null) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("deregister query id {}", DebugUtil.printId(queryId));
+                LOG.debug("Deregister query id {}", DebugUtil.printId(queryId));
             }
+
             if (queryInfo.getConnectContext() != null
                     && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
             ) {
@@ -151,6 +166,9 @@ public final class QeProcessorImpl implements QeProcessor {
                 LOG.debug("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
             }
         }
+
+        // commit hive tranaction if needed
+        Env.getCurrentHiveTransactionMgr().deregister(DebugUtil.printId(queryId));
     }
 
     @Override
@@ -163,16 +181,12 @@ public final class QeProcessorImpl implements QeProcessor {
                 continue;
             }
             final String queryIdStr = DebugUtil.printId(info.getConnectContext().queryId());
-            final QueryStatisticsItem item = new QueryStatisticsItem.Builder()
-                    .queryId(queryIdStr)
-                    .queryStartTime(info.getStartExecTime())
-                    .sql(info.getSql())
-                    .user(context.getQualifiedUser())
-                    .connId(String.valueOf(context.getConnectionId()))
-                    .db(context.getDatabase())
+            final QueryStatisticsItem item = new QueryStatisticsItem.Builder().queryId(queryIdStr)
+                    .queryStartTime(info.getStartExecTime()).sql(info.getSql()).user(context.getQualifiedUser())
+                    .connId(String.valueOf(context.getConnectionId())).db(context.getDatabase())
                     .catalog(context.getDefaultCatalog())
                     .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
-                    .profile(info.getCoord().getQueryProfile())
+                    .profile(info.getCoord().getExecutionProfile().getExecutionProfile())
                     .isReportSucc(context.getSessionVariable().enableProfile()).build();
             querySet.put(queryIdStr, item);
         }
@@ -188,6 +202,15 @@ public final class QeProcessorImpl implements QeProcessor {
             LOG.debug("params: {}", params);
         }
         final TReportExecStatusResult result = new TReportExecStatusResult();
+
+        if (params.isSetReportWorkloadRuntimeStatus()) {
+            Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().updateBeQueryStats(params.report_workload_runtime_status);
+            if (!params.isSetQueryId()) {
+                result.setStatus(new TStatus(TStatusCode.OK));
+                return result;
+            }
+        }
+
         final QueryInfo info = coordinatorMap.get(params.query_id);
 
         if (info == null) {
@@ -197,17 +220,18 @@ public final class QeProcessorImpl implements QeProcessor {
             } else {
                 result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
             }
-            LOG.info("ReportExecStatus() runtime error, query {} with type {} does not exist",
+            LOG.warn("ReportExecStatus() runtime error, query {} with type {} does not exist",
                     DebugUtil.printId(params.query_id), params.query_type);
             return result;
         }
         try {
             info.getCoord().updateFragmentExecStatus(params);
-            if (info.getCoord().getProfileWriter() != null && params.isSetProfile()) {
+            if (params.isSetProfile()) {
                 writeProfileExecutor.submit(new WriteProfileTask(params, info));
             }
         } catch (Exception e) {
-            LOG.warn(e.getMessage());
+            LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
+                    DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id));
             return result;
         }
         result.setStatus(new TStatus(TStatusCode.OK));
@@ -221,6 +245,18 @@ public final class QeProcessorImpl implements QeProcessor {
             return info.sql;
         }
         return "";
+    }
+
+    public Map<String, QueryInfo> getQueryInfoMap() {
+        Map<String, QueryInfo> retQueryInfoMap = Maps.newHashMap();
+        Set<TUniqueId> queryIdSet = coordinatorMap.keySet();
+        for (TUniqueId qid : queryIdSet) {
+            QueryInfo queryInfo = coordinatorMap.get(qid);
+            if (queryInfo != null) {
+                retQueryInfoMap.put(DebugUtil.printId(qid), queryInfo);
+            }
+        }
+        return retQueryInfoMap;
     }
 
     public static final class QueryInfo {
@@ -276,10 +312,8 @@ public final class QeProcessorImpl implements QeProcessor {
                 return;
             }
 
-            ProfileWriter profileWriter = info.getCoord().getProfileWriter();
-            if (profileWriter != null) {
-                profileWriter.writeProfile(false);
-            }
+            ExecutionProfile executionProfile = info.getCoord().getExecutionProfile();
+            executionProfile.update(-1, false);
         }
     }
 }

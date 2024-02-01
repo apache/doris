@@ -48,7 +48,7 @@ Status DataConsumerPool::get_consumer(std::shared_ptr<StreamLoadContext> ctx,
     while (iter != std::end(_pool)) {
         if ((*iter)->match(ctx)) {
             VLOG_NOTICE << "get an available data consumer from pool: " << (*iter)->id();
-            (*iter)->reset();
+            static_cast<void>((*iter)->reset());
             *ret = *iter;
             iter = _pool.erase(iter);
             return Status::OK();
@@ -113,11 +113,10 @@ void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
         return;
     }
 
-    consumer->reset();
+    static_cast<void>(consumer->reset());
     _pool.push_back(consumer);
     VLOG_NOTICE << "return the data consumer: " << consumer->id()
                 << ", current pool size: " << _pool.size();
-    return;
 }
 
 void DataConsumerPool::return_consumers(DataConsumerGroup* grp) {
@@ -130,9 +129,6 @@ Status DataConsumerPool::start_bg_worker() {
     RETURN_IF_ERROR(Thread::create(
             "ResultBufferMgr", "clean_idle_consumer",
             [this]() {
-#ifdef GOOGLE_PROFILER
-                ProfilerRegisterThread();
-#endif
                 do {
                     _clean_idle_consumer_bg();
                 } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)));

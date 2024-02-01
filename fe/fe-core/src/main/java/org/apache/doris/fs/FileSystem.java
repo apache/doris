@@ -17,14 +17,12 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
-
-import org.apache.hadoop.fs.LocatedFileStatus;
-import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * File system interface.
@@ -36,6 +34,8 @@ import java.util.List;
  * @see org.apache.doris.fs.operations.FileOperations
  */
 public interface FileSystem {
+    Map<String, String> getProperties();
+
     Status exists(String remotePath);
 
     Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize);
@@ -50,16 +50,13 @@ public interface FileSystem {
 
     Status makeDir(String remotePath);
 
-    default RemoteIterator<LocatedFileStatus> listLocatedStatus(String remotePath) throws UserException {
-        throw new UserException("Not support to listLocatedStatus.");
-    }
+    RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) throws UserException;
 
     // List files in remotePath
-    // The remote file name will only contains file name only(Not full path)
+    // The remote file name will only contain file name only(Not full path)
     default Status list(String remotePath, List<RemoteFile> result) {
         return list(remotePath, result, true);
     }
 
     Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
-
 }

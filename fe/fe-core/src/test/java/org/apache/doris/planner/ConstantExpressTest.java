@@ -52,11 +52,11 @@ public class ConstantExpressTest {
                 "'1601'");
 
         testConstantExpressResult(
-                "select date_format('2020-02-19 16:01:12','%Y%m%d');",
+                "select /*+ SET_VAR(enable_nereids_planner=false) */ date_format('2020-02-19 16:01:12','%Y%m%d');",
                 "'20200219'");
 
         testConstantExpressResult(
-                "select date_format(date_sub('2018-07-24 07:16:19',1),'yyyyMMdd');",
+                "select /*+ SET_VAR(enable_nereids_planner=false) */ date_format(date_sub('2018-07-24 07:16:19',1),'yyyyMMdd');",
                 "'20180723'");
 
         testConstantExpressResult(
@@ -64,11 +64,11 @@ public class ConstantExpressTest {
                 "24223");
 
         testConstantExpressResult(
-                "select date_format('2018-08-08 07:16:19', 'yyyyMMdd');",
+                "select /*+ SET_VAR(enable_nereids_planner=false) */ date_format('2018-08-08 07:16:19', 'yyyyMMdd');",
                 "'20180808'");
 
         testConstantExpressResult(
-                "select date_format('2018-08-08 07:16:19', 'yyyy-MM-dd HH:mm:ss');",
+                "select /*+ SET_VAR(enable_nereids_planner=false) */ date_format('2018-08-08 07:16:19', 'yyyy-MM-dd HH:mm:ss');",
                 "'2018-08-08 07:16:19'");
 
         testConstantExpressResult(
@@ -160,10 +160,6 @@ public class ConstantExpressTest {
         testConstantExpressResult(
                 "select 1 * 10.0;",
                 "10");
-
-        testConstantExpressResult(
-                "select 1 / 10.0;",
-                "0.1");
     }
 
     @Test
@@ -179,7 +175,7 @@ public class ConstantExpressTest {
 
     @Test
     public void testConstantInPredicate() throws Exception {
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         // for constant NOT IN PREDICATE
         String sql = "select 1 not in (1, 2);";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);

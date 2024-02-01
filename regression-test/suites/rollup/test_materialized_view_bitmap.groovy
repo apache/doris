@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_materialized_view_bitmap", "rollup") {
+
     def tbName1 = "test_materialized_view_bitmap"
 
     def getJobState = { tableName ->
@@ -35,7 +36,8 @@ suite("test_materialized_view_bitmap", "rollup") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {

@@ -18,7 +18,7 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
@@ -28,11 +28,10 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -47,6 +46,7 @@ import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -54,8 +54,9 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
-public class LoadScanProvider implements FileScanProviderIf {
+public class LoadScanProvider {
 
     private FileGroupInfo fileGroupInfo;
     private TupleDescriptor destTupleDesc;
@@ -65,27 +66,22 @@ public class LoadScanProvider implements FileScanProviderIf {
         this.destTupleDesc = destTupleDesc;
     }
 
-    @Override
     public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
         return null;
     }
 
-    @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
         return null;
     }
 
-    @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
         return null;
     }
 
-    @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
         return null;
     }
 
-    @Override
     public FileLoadScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException {
         FileLoadScanNode.ParamCreateContext ctx = new FileLoadScanNode.ParamCreateContext();
         ctx.destTupleDescriptor = destTupleDesc;
@@ -93,9 +89,13 @@ public class LoadScanProvider implements FileScanProviderIf {
         ctx.timezone = analyzer.getTimezone();
 
         TFileScanRangeParams params = new TFileScanRangeParams();
-        params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat(), ""));
+        params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat()));
         params.setCompressType(fileGroupInfo.getFileGroup().getCompressType());
         params.setStrictMode(fileGroupInfo.isStrictMode());
+        if (fileGroupInfo.getFileGroup().getFileFormat() != null
+                && fileGroupInfo.getFileGroup().getFileFormat().equals("hive_text")) {
+            params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
+        }
         params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());
@@ -115,6 +115,8 @@ public class LoadScanProvider implements FileScanProviderIf {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
         textParams.setColumnSeparator(fileGroup.getColumnSeparator());
         textParams.setLineDelimiter(fileGroup.getLineDelimiter());
+        textParams.setEnclose(fileGroup.getEnclose());
+        textParams.setEscape(fileGroup.getEscape());
         fileAttributes.setTextParams(textParams);
         fileAttributes.setStripOuterArray(fileGroup.isStripOuterArray());
         fileAttributes.setJsonpaths(fileGroup.getJsonPaths());
@@ -130,15 +132,14 @@ public class LoadScanProvider implements FileScanProviderIf {
 
     private String getHeaderType(String formatType) {
         if (formatType != null) {
-            if (formatType.equalsIgnoreCase(FeConstants.csv_with_names) || formatType.equalsIgnoreCase(
-                    FeConstants.csv_with_names_and_types)) {
+            if (formatType.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
+                    || formatType.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
                 return formatType;
             }
         }
         return "";
     }
 
-    @Override
     public void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
                                          FederationBackendPolicy backendPolicy,
                                          List<TScanRangeLocations> scanRangeLocations) throws UserException {
@@ -147,18 +148,10 @@ public class LoadScanProvider implements FileScanProviderIf {
         fileGroupInfo.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
     }
 
-    @Override
-    public void createScanRangeLocations(List<Expr> conjuncts, TFileScanRangeParams params,
-                                         FederationBackendPolicy backendPolicy,
-                                         List<TScanRangeLocations> scanRangeLocations) throws UserException {
-    }
-
-    @Override
     public int getInputSplitNum() {
         return fileGroupInfo.getFileStatuses().size();
     }
 
-    @Override
     public long getInputFileSize() {
         long res = 0;
         for (TBrokerFileStatus fileStatus : fileGroupInfo.getFileStatuses()) {
@@ -196,18 +189,38 @@ public class LoadScanProvider implements FileScanProviderIf {
         // add columnExpr for sequence column
         TableIf targetTable = getTargetTable();
         if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()) {
-            String sequenceCol = ((OlapTable) targetTable).getSequenceMapCol();
-            if (sequenceCol == null) {
+            OlapTable olapTable = (OlapTable) targetTable;
+            String sequenceCol = olapTable.getSequenceMapCol();
+            if (sequenceCol != null) {
+                String finalSequenceCol = sequenceCol;
+                Optional<ImportColumnDesc> foundCol = columnDescs.descs.stream()
+                        .filter(c -> c.getColumnName().equalsIgnoreCase(finalSequenceCol)).findAny();
+                // if `columnDescs.descs` is empty, that means it's not a partial update load, and user not specify
+                // column name.
+                if (foundCol.isPresent() || shouldAddSequenceColumn(columnDescs)) {
+                    columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                            new SlotRef(null, sequenceCol)));
+                } else if (!fileGroupInfo.isPartialUpdate()) {
+                    Column seqCol = olapTable.getFullSchema().stream()
+                                    .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
+                                    .findFirst().get();
+                    if (seqCol.getDefaultValue() == null
+                                    || !seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                        throw new UserException("Table " + olapTable.getName()
+                                + " has sequence column, need to specify the sequence column");
+                    }
+                }
+            } else {
                 sequenceCol = context.fileGroup.getSequenceCol();
+                columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                        new SlotRef(null, sequenceCol)));
             }
-            columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
-                    new SlotRef(null, sequenceCol)));
         }
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
-                formatType(context.fileGroup.getFileFormat(), ""), fileGroupInfo.getHiddenColumns(),
-                VectorizedUtil.isVectorized());
+                formatType(context.fileGroup.getFileFormat()), fileGroupInfo.getHiddenColumns(),
+                fileGroupInfo.isPartialUpdate());
 
         int columnCountFromPath = 0;
         if (context.fileGroup.getColumnNamesFromPath() != null) {
@@ -226,31 +239,29 @@ public class LoadScanProvider implements FileScanProviderIf {
         }
     }
 
-    private TFileFormatType formatType(String fileFormat, String path) throws UserException {
-        if (fileFormat != null) {
-            String lowerFileFormat = fileFormat.toLowerCase();
-            if (lowerFileFormat.equals("parquet")) {
-                return TFileFormatType.FORMAT_PARQUET;
-            } else if (lowerFileFormat.equals("orc")) {
-                return TFileFormatType.FORMAT_ORC;
-            } else if (lowerFileFormat.equals("json")) {
-                return TFileFormatType.FORMAT_JSON;
-                // csv/csv_with_name/csv_with_names_and_types treat as csv format
-            } else if (lowerFileFormat.equals(FeConstants.csv) || lowerFileFormat.equals(FeConstants.csv_with_names)
-                    || lowerFileFormat.equals(FeConstants.csv_with_names_and_types)
-                    // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
-                    || lowerFileFormat.equals(FeConstants.text)) {
-                return TFileFormatType.FORMAT_CSV_PLAIN;
-            } else {
-                throw new UserException("Not supported file format: " + fileFormat);
-            }
-        } else {
-            // get file format by the suffix of file
-            return Util.getFileFormatType(path);
+    /**
+     * if not set sequence column and column size is null or only have deleted sign ,return true
+     */
+    private boolean shouldAddSequenceColumn(LoadTaskInfo.ImportColumnDescs columnDescs) {
+        if (columnDescs.descs.isEmpty()) {
+            return true;
         }
+        return columnDescs.descs.size() == 1 && columnDescs.descs.get(0).getColumnName()
+                .equalsIgnoreCase(Column.DELETE_SIGN);
     }
 
-    @Override
+    private TFileFormatType formatType(String fileFormat) throws UserException {
+        if (fileFormat == null) {
+            // get file format by the file path
+            return TFileFormatType.FORMAT_CSV_PLAIN;
+        }
+        TFileFormatType formatType = Util.getFileFormatTypeFromName(fileFormat);
+        if (formatType == TFileFormatType.FORMAT_UNKNOWN) {
+            throw new UserException("Not supported file format: " + fileFormat);
+        }
+        return formatType;
+    }
+
     public TableIf getTargetTable() {
         return fileGroupInfo.getTargetTable();
     }

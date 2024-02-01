@@ -24,6 +24,11 @@ suite("test_window_function") {
 
     sql """ INSERT INTO ${windowFunctionTable1} VALUES ('JDR',12.86,'2014-10-02 00:00:00','2014-10-02 00:00:00.111111','2014-10-02 00:00:00.111111','2014-10-02 00:00:00.111111'),('JDR',12.89,'2014-10-03 00:00:00','2014-10-03 00:00:00.111111','2014-10-03 00:00:00.111111','2014-10-03 00:00:00.111111'),('JDR',12.94,'2014-10-04 00:00:00','2014-10-04 00:00:00.111111','2014-10-04 00:00:00.111111','2014-10-04 00:00:00.111111'),('JDR',12.55,'2014-10-05 00:00:00','2014-10-05 00:00:00.111111','2014-10-05 00:00:00.111111','2014-10-05 00:00:00.111111'),('JDR',14.03,'2014-10-06 00:00:00','2014-10-06 00:00:00.111111','2014-10-06 00:00:00.111111','2014-10-06 00:00:00.111111'),('JDR',14.75,'2014-10-07 00:00:00','2014-10-07 00:00:00.111111','2014-10-07 00:00:00.111111','2014-10-07 00:00:00.111111'),('JDR',13.98,'2014-10-08 00:00:00','2014-10-08 00:00:00.111111','2014-10-08 00:00:00.111111','2014-10-08 00:00:00.111111') """
 
+    qt_sql """SELECT row_number() OVER (partition by 1 order by 2) from ${windowFunctionTable1} order by 1; """
+
+    // test constant folding by be on OrderExpression
+    sql """set enable_fold_constant_by_be = true"""
+    sql """SELECT row_number() OVER (partition by 1 order by 2) from ${windowFunctionTable1} order by 1; """
     // Nereids does't support window function
     // qt_sql """
     //         SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
@@ -335,7 +340,7 @@ suite("test_window_function") {
 
     sql """ drop table   ${windowFunctionTable4}  """
 
-    sql "use test_query_db"
+    sql "use nereids_test_query_db"
     List<String> fields = ["k1", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9"]
 
     // test_query_first_value
@@ -532,10 +537,10 @@ suite("test_window_function") {
     String cur
     for (p in range(0, 829)) {
         if (p == 0) {
-            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, 1 as wj from baseall order by ${k1}, ${k3} limit 1)".toString()
+            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1, parallel_pipeline_task_num=1) */ ${k1}, 1 as wj from baseall order by ${k1}, ${k3} limit 1)".toString()
         }
         else {
-            cur = """(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, ${p+1} as wj from baseall order by ${k1} , ${k3}
+            cur = """(select /*+SET_VAR(parallel_fragment_exec_instance_num=1, parallel_pipeline_task_num=1) */ ${k1}, ${p+1} as wj from baseall order by ${k1} , ${k3}
                     limit ${p}, 1 ) """.toString()
 
         }
@@ -559,9 +564,9 @@ suite("test_window_function") {
     line = "("
     for (p in range(0, 829)) {
         if (p == 0 ) {
-            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ * from baseall order by k1, k6 limit 1)"
+            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1, parallel_pipeline_task_num=1) */ * from baseall order by k1, k6 limit 1)"
         } else {
-            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ * from baseall order by k1, k6 limit ${p}, 1)"
+            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1, parallel_pipeline_task_num=1) */ * from baseall order by k1, k6 limit ${p}, 1)"
         }
         if (p < 828) {
             line = line + cur + " union all "

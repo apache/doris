@@ -32,6 +32,7 @@
 #include "runtime/thread_context.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/core/block.h"
 #include "vec/core/block_spill_reader.h"
 #include "vec/core/block_spill_writer.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -39,6 +40,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class RowDescriptor;
@@ -97,12 +99,14 @@ Status MergeSorterState::add_sorted_block(Block& block) {
 }
 
 void MergeSorterState::_build_merge_tree_not_spilled(const SortDescription& sort_description) {
-    for (const auto& block : sorted_blocks_) {
+    for (auto& block : sorted_blocks_) {
         cursors_.emplace_back(block, sort_description);
     }
 
     if (sorted_blocks_.size() > 1) {
-        for (auto& cursor : cursors_) priority_queue_.push(MergeSortCursor(&cursor));
+        for (auto& cursor : cursors_) {
+            priority_queue_.emplace(&cursor);
+        }
     }
 }
 
@@ -160,9 +164,8 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
                                                       doris::vectorized::Block* block, bool* eos) {
     size_t num_columns = sorted_blocks_[0].columns();
 
-    bool mem_reuse = block->mem_reuse();
-    MutableColumns merged_columns =
-            mem_reuse ? block->mutate_columns() : sorted_blocks_[0].clone_empty_columns();
+    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, sorted_blocks_[0]);
+    MutableColumns& merged_columns = m_block.mutable_columns();
 
     /// Take rows from queue in right order and push to 'merged'.
     size_t merged_rows = 0;
@@ -185,15 +188,11 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
 
         if (merged_rows == batch_size) break;
     }
+    block->set_columns(std::move(merged_columns));
 
     if (merged_rows == 0) {
         *eos = true;
         return Status::OK();
-    }
-
-    if (!mem_reuse) {
-        Block merge_block = sorted_blocks_[0].clone_with_columns(std::move(merged_columns));
-        merge_block.swap(*block);
     }
 
     return Status::OK();
@@ -325,10 +324,10 @@ Status FullSorter::append_block(Block* block) {
         for (int i = 0; i < data.size(); ++i) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)))
                     << " type1: " << data[i].type->get_name()
-                    << " type2: " << arrival_data[i].type->get_name();
+                    << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
             //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
-            RETURN_IF_CATCH_EXCEPTION(data[i].column->assume_mutable()->insert_range_from(
-                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz));
+            data[i].column->assume_mutable()->insert_range_from(
+                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz);
         }
         block->clear_column_data();
     }
@@ -361,7 +360,7 @@ Status FullSorter::_do_sort() {
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
         if (_state->num_rows() < _offset + _limit) {
-            _state->add_sorted_block(desc_block);
+            static_cast<void>(_state->add_sorted_block(desc_block));
             // if it's spilled, sorted_block is not added into sorted block vector,
             // so it's should not be added to _block_priority_queue, since
             // sorted_block will be destroyed when _do_sort is finished
@@ -374,7 +373,7 @@ Status FullSorter::_do_sort() {
                     std::make_unique<MergeSortCursorImpl>(desc_block, _sort_description);
             MergeSortBlockCursor block_cursor(tmp_cursor_impl.get());
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
-                _state->add_sorted_block(desc_block);
+                static_cast<void>(_state->add_sorted_block(desc_block));
                 if (!_state->is_spilled()) {
                     _block_priority_queue.emplace(_pool->add(new MergeSortCursorImpl(
                             _state->last_sorted_block(), _sort_description)));
@@ -383,7 +382,7 @@ Status FullSorter::_do_sort() {
         }
     } else {
         // dispose normal sort logic
-        _state->add_sorted_block(desc_block);
+        static_cast<void>(_state->add_sorted_block(desc_block));
     }
     if (_state->is_spilled()) {
         std::priority_queue<MergeSortBlockCursor> tmp;

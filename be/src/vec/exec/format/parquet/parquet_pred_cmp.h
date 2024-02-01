@@ -20,9 +20,12 @@
 #include <cstring>
 #include <vector>
 
+#include "cctz/civil_time.h"
+#include "cctz/time_zone.h"
 #include "exec/olap_common.h"
 #include "gutil/endian.h"
 #include "parquet_common.h"
+#include "util/timezone_utils.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/schema_desc.h"
@@ -120,7 +123,7 @@ private:
     static bool _filter_by_min_max(const ColumnValueRange<primitive_type>& col_val_range,
                                    const ScanPredicate& predicate, const FieldSchema* col_schema,
                                    const std::string& encoded_min, const std::string& encoded_max,
-                                   const cctz::time_zone& ctz) {
+                                   const cctz::time_zone& ctz, bool use_min_max_value = false) {
         using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
         std::vector<CppType> predicate_values;
         for (const void* v : predicate.values) {
@@ -144,6 +147,13 @@ private:
         case TYPE_CHAR:
             [[fallthrough]];
         case TYPE_STRING:
+            // TODO: In parquet, min and max statistics may not be able to handle UTF8 correctly.
+            // Current processing method is using min_value and max_value statistics introduced by PARQUET-1025 if they are used.
+            // If not, current processing method is temporarily ignored. A better way is try to read min and max statistics
+            // if it contains only ASCII characters.
+            if (!use_min_max_value) {
+                return false;
+            }
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 min_value = StringRef(encoded_min);
                 max_value = StringRef(encoded_max);
@@ -153,7 +163,7 @@ private:
             break;
         case TYPE_DECIMALV2:
             if constexpr (std::is_same_v<CppType, DecimalV2Value>) {
-                size_t max_precision = max_decimal_precision<Decimal<__int128_t>>();
+                size_t max_precision = max_decimal_precision<Decimal128V2>();
                 if (col_schema->parquet_schema.precision < 1 ||
                     col_schema->parquet_schema.precision > max_precision ||
                     col_schema->parquet_schema.scale > max_precision) {
@@ -161,19 +171,19 @@ private:
                 }
                 int v2_scale = DecimalV2Value::SCALE;
                 if (physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-                    min_value = DecimalV2Value(
-                            _decode_binary_decimal<Int128>(col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(
-                            _decode_binary_decimal<Int128>(col_schema, encoded_max, v2_scale));
-                } else if (physical_type == tparquet::Type::INT32) {
-                    min_value = DecimalV2Value(_decode_primitive_decimal<Int128, Int32>(
+                    min_value = DecimalV2Value(_decode_binary_decimal<Decimal128V2>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_primitive_decimal<Int128, Int32>(
+                    max_value = DecimalV2Value(_decode_binary_decimal<Decimal128V2>(
+                            col_schema, encoded_max, v2_scale));
+                } else if (physical_type == tparquet::Type::INT32) {
+                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int32>(
+                            col_schema, encoded_min, v2_scale));
+                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int32>(
                             col_schema, encoded_max, v2_scale));
                 } else if (physical_type == tparquet::Type::INT64) {
-                    min_value = DecimalV2Value(_decode_primitive_decimal<Int128, Int64>(
+                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int64>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_primitive_decimal<Int128, Int64>(
+                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int64>(
                             col_schema, encoded_max, v2_scale));
                 } else {
                     return false;
@@ -187,9 +197,10 @@ private:
         case TYPE_DECIMAL64:
             [[fallthrough]];
         case TYPE_DECIMAL128I:
-            if constexpr (std::is_same_v<CppType, int32_t> || std::is_same_v<CppType, int64_t> ||
-                          std::is_same_v<CppType, __int128_t>) {
-                size_t max_precision = max_decimal_precision<Decimal<CppType>>();
+            if constexpr (std::is_same_v<CppType, Decimal32> ||
+                          std::is_same_v<CppType, Decimal64> ||
+                          std::is_same_v<CppType, Decimal128V3>) {
+                size_t max_precision = max_decimal_precision<CppType>();
                 if (col_schema->parquet_schema.precision < 1 ||
                     col_schema->parquet_schema.precision > max_precision ||
                     col_schema->parquet_schema.scale > max_precision) {
@@ -369,16 +380,26 @@ private:
     }
 
 public:
-    static bool filter_by_min_max(const ColumnValueRangeType& col_val_range,
-                                  const FieldSchema* col_schema, const std::string& encoded_min,
-                                  const std::string& encoded_max, const cctz::time_zone& ctz) {
+    static bool filter_by_stats(const ColumnValueRangeType& col_val_range,
+                                const FieldSchema* col_schema, bool is_set_min_max,
+                                const std::string& encoded_min, const std::string& encoded_max,
+                                bool is_all_null, const cctz::time_zone& ctz,
+                                bool use_min_max_value = false) {
         bool need_filter = false;
         std::visit(
                 [&](auto&& range) {
                     std::vector<ScanPredicate> filters = _value_range_to_predicate(range);
+                    // Currently, ScanPredicate doesn't include "is null" && "x = null", filters will be empty when contains these exprs.
+                    // So we can handle is_all_null safely.
+                    if (!filters.empty()) {
+                        need_filter = is_all_null;
+                        if (need_filter) {
+                            return;
+                        }
+                    }
                     for (auto& filter : filters) {
                         need_filter |= _filter_by_min_max(range, filter, col_schema, encoded_min,
-                                                          encoded_max, ctz);
+                                                          encoded_max, ctz, use_min_max_value);
                         if (need_filter) {
                             break;
                         }

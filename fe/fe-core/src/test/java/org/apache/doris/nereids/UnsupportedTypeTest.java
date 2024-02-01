@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -30,10 +29,8 @@ import org.junit.jupiter.api.Test;
 public class UnsupportedTypeTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
-        Config.enable_map_type = true;
-        Config.enable_struct_type = true;
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTables(
                 "create table type_tb (\n"
                 + "            id int NOT NULL, \n"
@@ -63,26 +60,14 @@ public class UnsupportedTypeTest extends TestWithFeService {
     public void testUnsupportedTypeThrowException() {
         String[] sqls = {
                 "select id from type_tb",
-                "select jsonb_parse('{\"k1\":\"v31\",\"k2\":300}')",
                 "select karr from type_tb",
                 "select array_range(10)",
                 "select kmap from type_tb1",
-                "select * from type_tb",
                 "select * from type_tb1",
+                "select * from type_tb",
         };
-        Class[] exceptions = {
-                null,
-                AnalysisException.class,
-                AnalysisException.class,
-                AnalysisException.class,
-                AnalysisException.class,
-                AnalysisException.class,
-                AnalysisException.class
-        };
-        runPlanner(sqls[0]);
-        for (int i = 1; i < sqls.length; ++i) {
-            int iCopy = i;
-            Assertions.assertThrows(exceptions[i], () -> runPlanner(sqls[iCopy]));
+        for (int i = 0; i < sqls.length; ++i) {
+            runPlanner(sqls[i]);
         }
     }
 
@@ -109,6 +94,9 @@ public class UnsupportedTypeTest extends TestWithFeService {
     }
 
     private void runPlanner(String sql) {
-        new NereidsPlanner(MemoTestUtils.createStatementContext(connectContext, sql)).plan(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY);
+        new NereidsPlanner(MemoTestUtils.createStatementContext(connectContext, sql)).plan(
+                new NereidsParser().parseSingle(sql),
+                PhysicalProperties.ANY
+        );
     }
 }

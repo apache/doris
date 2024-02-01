@@ -39,15 +39,16 @@ namespace doris {
 // User can use this class to access or deal with column data in memory.
 class Field {
 public:
-    explicit Field() : _type_info(TypeInfoPtr(nullptr, nullptr)) {}
-    explicit Field(const TabletColumn& column)
+    Field(const TabletColumn& column)
             : _type_info(get_type_info(&column)),
+              _desc(column),
               _length(column.length()),
               _key_coder(get_key_coder(column.type())),
               _name(column.name()),
               _index_size(column.index_length()),
               _is_nullable(column.is_nullable()),
-              _unique_id(column.unique_id()) {}
+              _unique_id(column.unique_id()),
+              _path(column.path_info()) {}
 
     virtual ~Field() = default;
 
@@ -57,6 +58,7 @@ public:
     size_t index_size() const { return _index_size; }
     int32_t unique_id() const { return _unique_id; }
     const std::string& name() const { return _name; }
+    const vectorized::PathInData& path() const { return _path; }
 
     virtual void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
     virtual void set_to_zone_map_max(char* buf) const { set_to_max(buf); }
@@ -76,14 +78,12 @@ public:
         return allocate_value(arena);
     }
 
-    virtual char* allocate_memory(char* cell_ptr, char* variable_ptr) const { return variable_ptr; }
-
     virtual size_t get_variable_len() const { return 0; }
 
     virtual void modify_zone_map_index(char*) const {}
 
     virtual Field* clone() const {
-        auto* local = new Field();
+        auto* local = new Field(_desc);
         this->clone(local);
         return local;
     }
@@ -204,9 +204,11 @@ public:
     void set_scale(int32_t scale) { _scale = scale; }
     int32_t get_precision() const { return _precision; }
     int32_t get_scale() const { return _scale; }
+    const TabletColumn& get_desc() const { return _desc; }
 
 protected:
     TypeInfoPtr _type_info;
+    TabletColumn _desc;
     // unit : byte
     // except for strings, other types have fixed lengths
     // Note that, the struct type itself has fixed length, but due to
@@ -255,32 +257,19 @@ private:
     int32_t _precision;
     int32_t _scale;
     int32_t _unique_id;
+    vectorized::PathInData _path;
 };
 
 class MapField : public Field {
 public:
-    explicit MapField(const TabletColumn& column) : Field(column) {}
-
-    // make variable_ptr memory allocate to cell_ptr as MapValue
-    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
-        return variable_ptr + _length;
-    }
+    MapField(const TabletColumn& column) : Field(column) {}
 
     size_t get_variable_len() const override { return _length; }
 };
 
 class StructField : public Field {
 public:
-    explicit StructField(const TabletColumn& column) : Field(column) {}
-    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
-        auto struct_v = (StructValue*)cell_ptr;
-        struct_v->set_values(reinterpret_cast<void**>(variable_ptr));
-        variable_ptr += _length;
-        for (size_t i = 0; i < get_sub_field_count(); i++) {
-            variable_ptr += get_sub_field(i)->get_variable_len();
-        }
-        return variable_ptr;
-    }
+    StructField(const TabletColumn& column) : Field(column) {}
 
     size_t get_variable_len() const override {
         size_t variable_len = _length;
@@ -293,34 +282,19 @@ public:
 
 class ArrayField : public Field {
 public:
-    explicit ArrayField(const TabletColumn& column) : Field(column) {}
-
-    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
-        auto array_v = (CollectionValue*)cell_ptr;
-        array_v->set_null_signs(reinterpret_cast<bool*>(variable_ptr));
-        return variable_ptr + _length;
-    }
+    ArrayField(const TabletColumn& column) : Field(column) {}
 
     size_t get_variable_len() const override { return _length; }
 };
 
 class CharField : public Field {
 public:
-    explicit CharField() : Field() {}
-    explicit CharField(const TabletColumn& column) : Field(column) {}
+    CharField(const TabletColumn& column) : Field(column) {}
 
     size_t get_variable_len() const override { return _length; }
 
-    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
-        auto slice = (Slice*)cell_ptr;
-        slice->data = variable_ptr;
-        slice->size = _length;
-        variable_ptr += slice->size;
-        return variable_ptr;
-    }
-
     CharField* clone() const override {
-        auto* local = new CharField();
+        auto* local = new CharField(_desc);
         Field::clone(local);
         return local;
     }
@@ -367,22 +341,12 @@ public:
 
 class VarcharField : public Field {
 public:
-    explicit VarcharField() : Field() {}
-    explicit VarcharField(const TabletColumn& column) : Field(column) {}
+    VarcharField(const TabletColumn& column) : Field(column) {}
 
     size_t get_variable_len() const override { return _length - OLAP_VARCHAR_MAX_BYTES; }
 
-    // minus OLAP_VARCHAR_MAX_BYTES here just for being compatible with old storage format
-    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
-        auto slice = (Slice*)cell_ptr;
-        slice->data = variable_ptr;
-        slice->size = _length - OLAP_VARCHAR_MAX_BYTES;
-        variable_ptr += slice->size;
-        return variable_ptr;
-    }
-
     VarcharField* clone() const override {
-        auto* local = new VarcharField();
+        auto* local = new VarcharField(_desc);
         Field::clone(local);
         return local;
     }
@@ -428,16 +392,10 @@ public:
 };
 class StringField : public Field {
 public:
-    explicit StringField() : Field() {}
-    explicit StringField(const TabletColumn& column) : Field(column) {}
-
-    // minus OLAP_VARCHAR_MAX_BYTES here just for being compatible with old storage format
-    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
-        return variable_ptr;
-    }
+    StringField(const TabletColumn& column) : Field(column) {}
 
     StringField* clone() const override {
-        auto* local = new StringField();
+        auto* local = new StringField(_desc);
         Field::clone(local);
         return local;
     }
@@ -480,17 +438,10 @@ public:
 
 class BitmapAggField : public Field {
 public:
-    explicit BitmapAggField() : Field() {}
-    explicit BitmapAggField(const TabletColumn& column) : Field(column) {}
-
-    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
-        auto slice = (Slice*)cell_ptr;
-        slice->data = nullptr;
-        return variable_ptr;
-    }
+    BitmapAggField(const TabletColumn& column) : Field(column) {}
 
     BitmapAggField* clone() const override {
-        auto* local = new BitmapAggField();
+        auto* local = new BitmapAggField(_desc);
         Field::clone(local);
         return local;
     }
@@ -498,17 +449,21 @@ public:
 
 class QuantileStateAggField : public Field {
 public:
-    explicit QuantileStateAggField() : Field() {}
-    explicit QuantileStateAggField(const TabletColumn& column) : Field(column) {}
-
-    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
-        auto slice = (Slice*)cell_ptr;
-        slice->data = nullptr;
-        return variable_ptr;
-    }
+    QuantileStateAggField(const TabletColumn& column) : Field(column) {}
 
     QuantileStateAggField* clone() const override {
-        auto* local = new QuantileStateAggField();
+        auto* local = new QuantileStateAggField(_desc);
+        Field::clone(local);
+        return local;
+    }
+};
+
+class AggStateField : public Field {
+public:
+    AggStateField(const TabletColumn& column) : Field(column) {}
+
+    AggStateField* clone() const override {
+        auto* local = new AggStateField(_desc);
         Field::clone(local);
         return local;
     }
@@ -516,17 +471,10 @@ public:
 
 class HllAggField : public Field {
 public:
-    explicit HllAggField() : Field() {}
-    explicit HllAggField(const TabletColumn& column) : Field(column) {}
-
-    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
-        auto slice = (Slice*)cell_ptr;
-        slice->data = nullptr;
-        return variable_ptr;
-    }
+    HllAggField(const TabletColumn& column) : Field(column) {}
 
     HllAggField* clone() const override {
-        auto* local = new HllAggField();
+        auto* local = new HllAggField(_desc);
         Field::clone(local);
         return local;
     }
@@ -541,6 +489,7 @@ public:
             case FieldType::OLAP_FIELD_TYPE_CHAR:
                 return new CharField(column);
             case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+            case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
                 return new VarcharField(column);
             case FieldType::OLAP_FIELD_TYPE_STRING:
                 return new StringField(column);
@@ -575,6 +524,8 @@ public:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
                 [[fallthrough]];
+            case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+                [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
                 Field* field = new Field(column);
                 field->set_precision(column.precision());
@@ -588,12 +539,12 @@ public:
 
         // for value column
         switch (column.aggregation()) {
-        case OLAP_FIELD_AGGREGATION_NONE:
-        case OLAP_FIELD_AGGREGATION_SUM:
-        case OLAP_FIELD_AGGREGATION_MIN:
-        case OLAP_FIELD_AGGREGATION_MAX:
-        case OLAP_FIELD_AGGREGATION_REPLACE:
-        case OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MIN:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MAX:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
             switch (column.type()) {
             case FieldType::OLAP_FIELD_TYPE_CHAR:
                 return new CharField(column);
@@ -633,6 +584,8 @@ public:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
                 [[fallthrough]];
+            case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+                [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
                 Field* field = new Field(column);
                 field->set_precision(column.precision());
@@ -642,22 +595,23 @@ public:
             default:
                 return new Field(column);
             }
-        case OLAP_FIELD_AGGREGATION_HLL_UNION:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_HLL_UNION:
             return new HllAggField(column);
-        case OLAP_FIELD_AGGREGATION_BITMAP_UNION:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_BITMAP_UNION:
             return new BitmapAggField(column);
-        case OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
             return new QuantileStateAggField(column);
-        case OLAP_FIELD_AGGREGATION_UNKNOWN:
-            LOG(WARNING) << "WOW! value column agg type is unknown";
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC:
+            return new AggStateField(column);
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_UNKNOWN:
+            CHECK(false) << ", value column no agg type";
             return nullptr;
         }
-        LOG(WARNING) << "WOW! value column no agg type";
         return nullptr;
     }
 
     static Field* create_by_type(const FieldType& type) {
-        TabletColumn column(OLAP_FIELD_AGGREGATION_NONE, type);
+        TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, type);
         return create(column);
     }
 };

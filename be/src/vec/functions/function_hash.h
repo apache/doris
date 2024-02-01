@@ -20,14 +20,6 @@
 
 #pragma once
 
-#include "vec/common/hash_table/hash.h"
 #include "vec/core/types.h"
 
-namespace doris::vectorized {
-
-struct IntHash64Impl {
-    using ReturnType = UInt64;
-
-    static UInt64 apply(UInt64 x) { return int_hash64(x ^ 0x4CF2D2BAAE6DA887ULL); }
-};
-} // namespace doris::vectorized
+namespace doris::vectorized {} // namespace doris::vectorized

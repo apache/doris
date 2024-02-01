@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -36,6 +37,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * LogicalRepeat.
@@ -117,9 +119,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 .build();
     }
 
-    /**
-     * Determine the equality with another plan
-     */
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -127,9 +127,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalRepeat that = (LogicalRepeat) o;
-        return Objects.equals(groupingSets, that.groupingSets)
-                && Objects.equals(outputExpressions, that.outputExpressions);
+        LogicalRepeat<?> that = (LogicalRepeat<?>) o;
+        return groupingSets.equals(that.groupingSets) && outputExpressions.equals(that.outputExpressions);
     }
 
     @Override
@@ -150,9 +149,11 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public LogicalRepeat<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalRepeat<>(groupingSets, outputExpressions, Optional.empty(),
-                logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression, logicalProperties,
+                children.get(0));
     }
 
     public LogicalRepeat<CHILD_TYPE> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
@@ -170,8 +171,22 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return new LogicalRepeat<>(groupingSets, outputExpressionList, child);
     }
 
+    public LogicalRepeat<Plan> withAggOutputAndChild(List<NamedExpression> newOutput, Plan child) {
+        return new LogicalRepeat<>(groupingSets, newOutput, child);
+    }
+
     public boolean canBindVirtualSlot() {
         return bound() && outputExpressions.stream()
                 .noneMatch(output -> output.containsType(VirtualSlotReference.class));
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        // Note uniform does not reject nullable slots
+        outputSupplier.get().stream()
+                .filter(child(0).getLogicalProperties().getFunctionalDependencies()::isUniform)
+                .forEach(builder::addUniformSlot);
+        return builder.build();
     }
 }

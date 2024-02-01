@@ -67,7 +67,7 @@ public class TableAddOrDropColumnsInfoTest {
         List<Index> indexes = Lists.newArrayList(
                 new Index(0, "index", Lists.newArrayList("testCol1"), IndexDef.IndexType.BITMAP, null, "xxxxxx"));
 
-        TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo1 = new TableAddOrDropColumnsInfo(dbId, tableId,
+        TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo1 = new TableAddOrDropColumnsInfo("", dbId, tableId,
                 indexSchemaMap, indexes, jobId);
 
         String c1Json = GsonUtils.GSON.toJson(tableAddOrDropColumnsInfo1);

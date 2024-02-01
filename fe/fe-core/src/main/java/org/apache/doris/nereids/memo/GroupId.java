@@ -44,6 +44,6 @@ public class GroupId extends Id<GroupId> {
 
     @Override
     public String toString() {
-        return "GroupId#" + id;
+        return "@" + id;
     }
 }

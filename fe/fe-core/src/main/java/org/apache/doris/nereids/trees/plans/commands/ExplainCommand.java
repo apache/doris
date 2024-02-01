@@ -18,8 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -38,12 +41,14 @@ public class ExplainCommand extends Command implements NoForward {
         NONE(false),
         NORMAL(false),
         VERBOSE(false),
+        TREE(false),
         GRAPH(false),
         PARSED_PLAN(true),
         ANALYZED_PLAN(true),
         REWRITTEN_PLAN(true),
         OPTIMIZED_PLAN(true),
         SHAPE_PLAN(true),
+        MEMO_PLAN(true),
         ALL_PLAN(true)
         ;
 
@@ -65,12 +70,22 @@ public class ExplainCommand extends Command implements NoForward {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan, ctx.getStatementContext());
+        LogicalPlan explainPlan;
+        if (!(logicalPlan instanceof Explainable)) {
+            throw new AnalysisException(logicalPlan.getClass().getSimpleName() + " cannot be explained");
+        }
+        explainPlan = ((LogicalPlan) ((Explainable) logicalPlan).getExplainPlan(ctx));
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
         logicalPlanAdapter.setIsExplain(new ExplainOptions(level));
         executor.setParsedStmt(logicalPlanAdapter);
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
+            planner.addHook(InitMaterializationContextHook.INSTANCE);
+        }
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-        executor.handleExplainStmt(planner.getExplainString(new ExplainOptions(level)));
+        executor.setPlanner(planner);
+        executor.checkBlockRules();
+        executor.handleExplainStmt(planner.getExplainString(new ExplainOptions(level)), true);
     }
 
     @Override

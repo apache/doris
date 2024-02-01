@@ -17,50 +17,74 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.qe.InternalQueryExecutionException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy;
 
 public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<ColumnStatistic>> {
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatisticsCacheLoader.class);
 
-    private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
-            + "id = CONCAT('${tblId}', '-', ${idxId}, '-', '${colId}')";
+    private static final ThreadPoolExecutor singleThreadPool = ThreadPoolManager.newDaemonFixedThreadPool(
+            StatisticConstants.RETRY_LOAD_THREAD_POOL_SIZE,
+            StatisticConstants.RETRY_LOAD_QUEUE_SIZE, "STATS_RELOAD",
+            true,
+            new DiscardOldestPolicy());
 
     @Override
     protected Optional<ColumnStatistic> doLoad(StatisticsCacheKey key) {
-        Map<String, String> params = new HashMap<>();
-        params.put("tblId", String.valueOf(key.tableId));
-        params.put("idxId", String.valueOf(key.idxId));
-        params.put("colId", String.valueOf(key.colName));
-
-        List<ColumnStatistic> columnStatistics;
-        List<ResultRow> columnResult =
-                StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                        .replace(QUERY_COLUMN_STATISTICS));
+        Optional<ColumnStatistic> columnStatistic = Optional.empty();
         try {
-            columnStatistics = StatisticsUtil.deserializeToColumnStatistics(columnResult);
-        } catch (Exception e) {
-            LOG.warn("Failed to deserialize column statistics", e);
-            throw new CompletionException(e);
+            // Load from statistics table.
+            columnStatistic = loadFromStatsTable(key);
+            if (columnStatistic.isPresent()) {
+                return columnStatistic;
+            }
+            // Load from data source metadata
+            try {
+                TableIf table = StatisticsUtil.findTable(key.catalogId, key.dbId, key.tableId);
+                columnStatistic = table.getColumnStatistic(key.colName);
+            } catch (Exception e) {
+                LOG.debug(String.format("Exception to get column statistics by metadata. [Catalog:{}, DB:{}, Table:{}]",
+                        key.catalogId, key.dbId, key.tableId), e);
+            }
+        } catch (Throwable t) {
+            LOG.warn("Failed to load stats for column [Catalog:{}, DB:{}, Table:{}, Column:{}], Reason: {}",
+                    key.catalogId, key.dbId, key.tableId, key.colName, t.getMessage());
+            LOG.debug(t);
         }
-        if (CollectionUtils.isEmpty(columnStatistics)) {
+        return columnStatistic;
+    }
+
+    private Optional<ColumnStatistic> loadFromStatsTable(StatisticsCacheKey key) {
+        List<ResultRow> columnResults = null;
+        try {
+            columnResults = StatisticsRepository.loadColStats(key.tableId, key.idxId, key.colName);
+        } catch (InternalQueryExecutionException e) {
+            LOG.info("Failed to load stats for table {} column {}. Reason:{}",
+                    key.tableId, key.colName, e.getMessage());
+            return Optional.empty();
+        }
+        ColumnStatistic columnStatistics;
+        try {
+            columnStatistics = StatisticsUtil.deserializeToColumnStatistics(columnResults);
+        } catch (Exception e) {
+            LOG.warn("Exception to deserialize column statistics", e);
+            return Optional.empty();
+        }
+        if (columnStatistics == null) {
             return Optional.empty();
         } else {
-            return Optional.of(columnStatistics.get(0));
+            return Optional.of(columnStatistics);
         }
     }
 }

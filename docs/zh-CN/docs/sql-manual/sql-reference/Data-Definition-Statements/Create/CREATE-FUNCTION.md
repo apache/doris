@@ -77,88 +77,49 @@ CREATE [GLOBAL] [AGGREGATE] [ALIAS] FUNCTION function_name
 
 -  `origin_function`：用于表示别名函数对应的原始函数。
 
-- `properties`: 用于设定聚合函数和标量函数相关属性，能够设置的属性包括：	
+- `properties`: 用于设定函数相关属性，能够设置的属性包括：	
 
-  - `object_file`: 自定义函数动态库的URL路径，当前只支持 HTTP/HTTPS 协议，此路径需要在函数整个生命周期内保持有效。此选项为必选项
+  - `file`: 表示的包含用户UDF的jar包，当在多机环境时，也可以使用http的方式下载jar包。这个参数是必须设定的。
 
-  - `symbol`: 标量函数的函数签名，用于从动态库里面找到函数入口。此选项对于标量函数是必选项
+  - `symbol`: 表示的是包含UDF类的类名。这个参数是必须设定的
 
-  - `init_fn`: 聚合函数的初始化函数签名。对于聚合函数是必选项
+  - `type`: 表示的 UDF 调用类型，默认为 Native，使用 Java UDF时传 JAVA_UDF。
 
-  - `update_fn`: 聚合函数的更新函数签名。对于聚合函数是必选项
+  - `always_nullable`：表示的 UDF 返回结果中是否有可能出现NULL值，是可选参数，默认值为true。
 
-  - `merge_fn`: 聚合函数的合并函数签名。对于聚合函数是必选项
-
-  - `serialize_fn`: 聚合函数的序列化函数签名。对于聚合函数是可选项，如果没有指定，那么将会使用默认的序列化函数
-
-  - `finalize_fn`: 聚合函数获取最后结果的函数签名。对于聚合函数是可选项，如果没有指定，将会使用默认的获取结果函数
-
-  - `md5`: 函数动态链接库的MD5值，用于校验下载的内容是否正确。此选项是可选项
-
-  - `prepare_fn`: 自定义函数的prepare函数的函数签名，用于从动态库里面找到prepare函数入口。此选项对于自定义函数是可选项
-
-  - `close_fn`: 自定义函数的close函数的函数签名，用于从动态库里面找到close函数入口。此选项对于自定义函数是可选项     
 
 ### Example
 
-1. 创建一个自定义标量函数
+1. 创建一个自定义UDF函数
 
    ```sql
-   CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
-   	"symbol" = "_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-   	"object_file" = "http://host:port/libmyadd.so"
+   CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
+       "file"="file:///path/to/java-udf-demo-jar-with-dependencies.jar",
+       "symbol"="org.apache.doris.udf.AddOne",
+       "always_nullable"="true",
+       "type"="JAVA_UDF"
    );
    ```
 
-2. 创建一个有prepare/close函数的自定义标量函数
+
+2. 创建一个自定义UDAF函数
 
    ```sql
-   CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
-   	"symbol" = "_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-   	"prepare_fn" = 	"_ZN9doris_udf14AddUdf_prepareEPNS_15FunctionContextENS0_18FunctionStateScopeE",
-   	"close_fn" = "_ZN9doris_udf12AddUdf_closeEPNS_15FunctionContextENS0_18FunctionStateScopeE",
-   	"object_file" = "http://host:port/libmyadd.so"
+   CREATE AGGREGATE FUNCTION simple_sum(INT) RETURNS INT PROPERTIES (
+       "file"="file:///pathTo/java-udaf.jar",
+       "symbol"="org.apache.doris.udf.demo.SimpleDemo",
+       "always_nullable"="true",
+       "type"="JAVA_UDF"
    );
    ```
 
-3. 创建一个自定义聚合函数
-
-    ```sql
-   CREATE AGGREGATE FUNCTION my_count (BIGINT) RETURNS BIGINT PROPERTIES (
-            "init_fn"="_ZN9doris_udf9CountInitEPNS_15FunctionContextEPNS_9BigIntValE",
-            "update_fn"="_ZN9doris_udf11CountUpdateEPNS_15FunctionContextERKNS_6IntValEPNS_9BigIntValE",
-            "merge_fn"="_ZN9doris_udf10CountMergeEPNS_15FunctionContextERKNS_9BigIntValEPS2_",
-            "finalize_fn"="_ZN9doris_udf13CountFinalizeEPNS_15FunctionContextERKNS_9BigIntValE",
-            "object_file"="http://host:port/libudasample.so"
-   );
-   ```
-
-
-4. 创建一个变长参数的标量函数
-
-   ```sql
-   CREATE FUNCTION strconcat(varchar, ...) RETURNS varchar properties (
-   	"symbol" = "_ZN9doris_udf6StrConcatUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-   	"object_file" = "http://host:port/libmyStrConcat.so"
-   );
-   ```
-
-5. 创建一个自定义别名函数
+3. 创建一个自定义别名函数
 
    ```sql
    CREATE ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id)  AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
    ```
 
-6. 创建一个全局自定义标量函数
-
-   ```sql
-   CREATE GLOBAL FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
-   "symbol" = "_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-   "object_file" = "http://host:port/libmyadd.so"
-   );
-   ````
-
-7. 创建一个全局自定义别名函数
+4. 创建一个全局自定义别名函数
 
    ```sql
    CREATE GLOBAL ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));

@@ -28,8 +28,9 @@ import java.util.Map;
 
 public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
 
-    public IcebergDLFExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name);
+    public IcebergDLFExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) {
+        super(catalogId, name, comment);
         props.put(HMSProperties.HIVE_METASTORE_TYPE, "dlf");
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);

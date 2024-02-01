@@ -32,7 +32,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TNullSide;
@@ -45,7 +44,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -79,12 +77,12 @@ public abstract class JoinNodeBase extends PlanNode {
 
         joinOp = innerRef.getJoinOp();
         if (joinOp.equals(JoinOperator.FULL_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getTupleIds());
-            nullableTupleIds.addAll(inner.getTupleIds());
+            nullableTupleIds.addAll(outer.getOutputTupleIds());
+            nullableTupleIds.addAll(inner.getOutputTupleIds());
         } else if (joinOp.equals(JoinOperator.LEFT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(inner.getTupleIds());
+            nullableTupleIds.addAll(inner.getOutputTupleIds());
         } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getTupleIds());
+            nullableTupleIds.addAll(outer.getOutputTupleIds());
         }
         this.isMark = this.innerRef != null && innerRef.isMark();
     }
@@ -170,9 +168,6 @@ public abstract class JoinNodeBase extends PlanNode {
                 boolean needSetToNullable =
                         getChild(0) instanceof JoinNodeBase && analyzer.isOuterJoined(leftTupleDesc.getId());
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
-                    if (!isMaterializedByChild(leftSlotDesc, getChild(0).getOutputSmap())) {
-                        continue;
-                    }
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, leftSlotDesc);
                     if (leftNullable) {
@@ -193,9 +188,6 @@ public abstract class JoinNodeBase extends PlanNode {
                 boolean needSetToNullable =
                         getChild(1) instanceof JoinNodeBase && analyzer.isOuterJoined(rightTupleDesc.getId());
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
-                    if (!isMaterializedByChild(rightSlotDesc, getChild(1).getOutputSmap())) {
-                        continue;
-                    }
                     SlotDescriptor outputSlotDesc =
                             analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, rightSlotDesc);
                     if (rightNullable) {
@@ -228,6 +220,7 @@ public abstract class JoinNodeBase extends PlanNode {
                 rSlotRef.getDesc().setIsMaterialized(lSlotRef.getDesc().isMaterialized());
             } else {
                 rSlotRef.getDesc().setIsMaterialized(true);
+                rSlotRef.materializeSrcExpr();
             }
         }
 
@@ -237,10 +230,11 @@ public abstract class JoinNodeBase extends PlanNode {
         // Condition1: the left child is null-side
         // Condition2: the left child is a inline view
         // Then: add tuple is null in left child columns
-        if (leftNullable && getChild(0).tblRefIds.size() == 1 && analyzer.isInlineView(getChild(0).tblRefIds.get(0))) {
-            List<Expr> tupleIsNullLhs = TupleIsNullPredicate
-                    .wrapExprs(vSrcToOutputSMap.getLhs().subList(0, leftNullableNumber), new ArrayList<>(),
-                            TNullSide.LEFT, analyzer);
+        if (leftNullable && getChild(0).getTblRefIds().size() == 1
+                && analyzer.isInlineView(getChild(0).getTblRefIds().get(0))) {
+            List<Expr> tupleIsNullLhs = TupleIsNullPredicate.wrapExprs(
+                    vSrcToOutputSMap.getLhs().subList(0, leftNullableNumber), new ArrayList<>(), TNullSide.LEFT,
+                    analyzer);
             tupleIsNullLhs
                     .addAll(vSrcToOutputSMap.getLhs().subList(leftNullableNumber, vSrcToOutputSMap.getLhs().size()));
             vSrcToOutputSMap.updateLhsExprs(tupleIsNullLhs);
@@ -248,12 +242,13 @@ public abstract class JoinNodeBase extends PlanNode {
         // Condition1: the right child is null-side
         // Condition2: the right child is a inline view
         // Then: add tuple is null in right child columns
-        if (rightNullable && getChild(1).tblRefIds.size() == 1 && analyzer.isInlineView(getChild(1).tblRefIds.get(0))) {
+        if (rightNullable && getChild(1).getTblRefIds().size() == 1
+                && analyzer.isInlineView(getChild(1).getTblRefIds().get(0))) {
             if (rightNullableNumber != 0) {
                 int rightBeginIndex = vSrcToOutputSMap.size() - rightNullableNumber;
-                List<Expr> tupleIsNullLhs = TupleIsNullPredicate
-                        .wrapExprs(vSrcToOutputSMap.getLhs().subList(rightBeginIndex, vSrcToOutputSMap.size()),
-                                new ArrayList<>(), TNullSide.RIGHT, analyzer);
+                List<Expr> tupleIsNullLhs = TupleIsNullPredicate.wrapExprs(
+                        vSrcToOutputSMap.getLhs().subList(rightBeginIndex, vSrcToOutputSMap.size()), new ArrayList<>(),
+                        TNullSide.RIGHT, analyzer);
                 List<Expr> newLhsList = Lists.newArrayList();
                 if (rightBeginIndex > 0) {
                     newLhsList.addAll(vSrcToOutputSMap.getLhs().subList(0, rightBeginIndex));
@@ -264,30 +259,6 @@ public abstract class JoinNodeBase extends PlanNode {
         }
         // 4. change the outputSmap
         outputSmap = ExprSubstitutionMap.composeAndReplace(outputSmap, srcTblRefToOutputTupleSmap, analyzer);
-    }
-
-    protected void replaceOutputSmapForOuterJoin() {
-        if (joinOp.isOuterJoin() && !VectorizedUtil.isVectorized()) {
-            List<Expr> lhs = new ArrayList<>();
-            List<Expr> rhs = new ArrayList<>();
-
-            for (int i = 0; i < outputSmap.size(); i++) {
-                Expr expr = outputSmap.getLhs().get(i);
-                boolean isInNullableTuple = false;
-                for (TupleId tupleId : nullableTupleIds) {
-                    if (expr.isBound(tupleId)) {
-                        isInNullableTuple = true;
-                        break;
-                    }
-                }
-
-                if (!isInNullableTuple) {
-                    lhs.add(outputSmap.getLhs().get(i));
-                    rhs.add(outputSmap.getRhs().get(i));
-                }
-            }
-            outputSmap = new ExprSubstitutionMap(lhs, rhs);
-        }
     }
 
     @Override
@@ -430,11 +401,17 @@ public abstract class JoinNodeBase extends PlanNode {
         // 4. replace other conjuncts and conjuncts
         computeOtherConjuncts(analyzer, originToIntermediateSmap);
         conjuncts = Expr.substituteList(conjuncts, originToIntermediateSmap, analyzer, false);
-        if (vconjunct != null) {
-            vconjunct = Expr.substituteList(Arrays.asList(vconjunct), originToIntermediateSmap, analyzer, false).get(0);
-        }
         // 5. replace tuple is null expr
         TupleIsNullPredicate.substitueListForTupleIsNull(vSrcToOutputSMap.getLhs(), originTidsToIntermediateTidMap);
+
+        Preconditions.checkState(vSrcToOutputSMap.getLhs().size() == vOutputTupleDesc.getSlots().size());
+        List<Expr> exprs = vSrcToOutputSMap.getLhs();
+        ArrayList<SlotDescriptor> slots = vOutputTupleDesc.getSlots();
+        for (int i = 0; i < slots.size(); i++) {
+            slots.get(i).setIsNullable(exprs.get(i).isNullable());
+        }
+        vSrcToOutputSMap.reCalculateNullableInfoForSlotInRhs();
+        vOutputTupleDesc.computeMemLayout();
     }
 
     protected abstract List<SlotId> computeSlotIdsForJoinConjuncts(Analyzer analyzer);
@@ -468,9 +445,7 @@ public abstract class JoinNodeBase extends PlanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         super.finalize(analyzer);
-        if (VectorizedUtil.isVectorized()) {
-            computeIntermediateTuple(analyzer);
-        }
+        computeIntermediateTuple(analyzer);
     }
 
     /**
@@ -494,7 +469,6 @@ public abstract class JoinNodeBase extends PlanNode {
         assignedConjuncts = analyzer.getAssignedConjuncts();
         // outSmap replace in outer join may cause NULL be replace by literal
         // so need replace the outsmap in nullableTupleID
-        replaceOutputSmapForOuterJoin();
         computeStats(analyzer);
 
         if (isMarkJoin() && !joinOp.supportMarkJoin()) {
@@ -611,6 +585,7 @@ public abstract class JoinNodeBase extends PlanNode {
                 rhsExpr = rhsExpr.substitute(tmpSmap);
                 vSrcToOutputSMap.getLhs().add(rhsExpr);
                 SlotRef slotRef = new SlotRef(slotDesc);
+                slotRef.materializeSrcExpr();
                 vSrcToOutputSMap.getRhs().add(slotRef);
                 newRhs.add(slotRef);
                 bSmapChanged = true;

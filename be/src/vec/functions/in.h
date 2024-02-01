@@ -89,6 +89,24 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
+    // size of [ in ( 1 , 2  , 3 , null) ]  is 3
+    size_t get_size_with_out_null(FunctionContext* context) {
+        if ((context->get_num_args() - 1) > FIXED_CONTAINER_MAX_SIZE) {
+            return context->get_num_args() - 1;
+        }
+        size_t sz = 0;
+        for (int i = 1; i < context->get_num_args(); ++i) {
+            const auto& const_column_ptr = context->get_constant_col(i);
+            if (const_column_ptr != nullptr) {
+                auto const_data = const_column_ptr->column_ptr->get_data_at(0);
+                if (const_data.data != nullptr) {
+                    sz++;
+                }
+            }
+        }
+        return sz;
+    }
+
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL) {
             return Status::OK();
@@ -96,15 +114,16 @@ public:
         std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
         DCHECK(context->get_num_args() >= 1);
-        if (context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_CHAR ||
-            context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_VARCHAR ||
-            context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_STRING) {
+        if (context->get_arg_type(0)->type == PrimitiveType::TYPE_NULL) {
+            state->hybrid_set.reset(create_set(TYPE_BOOLEAN, 0));
+        } else if (context->get_arg_type(0)->type == PrimitiveType::TYPE_CHAR ||
+                   context->get_arg_type(0)->type == PrimitiveType::TYPE_VARCHAR ||
+                   context->get_arg_type(0)->type == PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
             state->hybrid_set.reset(create_string_value_set((size_t)(context->get_num_args() - 1)));
-
         } else {
-            state->hybrid_set.reset(create_set(context->get_arg_type(0)->type,
-                                               (size_t)(context->get_num_args() - 1)));
+            state->hybrid_set.reset(
+                    create_set(context->get_arg_type(0)->type, get_size_with_out_null(context)));
         }
 
         for (int i = 1; i < context->get_num_args(); ++i) {
@@ -125,7 +144,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto in_state = reinterpret_cast<InState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
@@ -140,7 +159,6 @@ public:
         col_null_map_to = ColumnUInt8::create(input_rows_count, false);
         auto& vec_null_map_to = col_null_map_to->get_data();
 
-        /// First argument may be a single column.
         const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
         const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
 
@@ -148,14 +166,14 @@ public:
             if (materialized_column->is_nullable()) {
                 auto* null_col_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(
                         materialized_column);
-                auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                          null_col_ptr->get_null_map_column())
                                          .get_data();
                 auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
 
                 if (nested_col_ptr->is_column_string()) {
                     const auto* column_string_ptr =
-                            reinterpret_cast<const vectorized::ColumnString*>(nested_col_ptr);
+                            assert_cast<const vectorized::ColumnString*>(nested_col_ptr);
                     search_hash_set_check_null(in_state, input_rows_count, vec_res, null_map,
                                                column_string_ptr);
                 } else {
@@ -177,8 +195,7 @@ public:
             } else { // non-nullable
                 if (materialized_column->is_column_string()) {
                     const auto* column_string_ptr =
-                            reinterpret_cast<const vectorized::ColumnString*>(
-                                    materialized_column.get());
+                            assert_cast<const vectorized::ColumnString*>(materialized_column.get());
                     search_hash_set(in_state, input_rows_count, vec_res, column_string_ptr);
                 } else {
                     search_hash_set(in_state, input_rows_count, vec_res, materialized_column.get());

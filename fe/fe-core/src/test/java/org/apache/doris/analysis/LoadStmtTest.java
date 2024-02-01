@@ -68,7 +68,7 @@ public class LoadStmtTest {
 
                 ctx.getQualifiedUser();
                 minTimes = 0;
-                result = "default_cluster:user";
+                result = "user";
 
                 desc.toSql();
                 minTimes = 0;
@@ -96,9 +96,9 @@ public class LoadStmtTest {
                 desc.getTableName();
                 minTimes = 0;
                 result = "testTbl";
-                desc.analyzeFullDbName("testCluster:testDb", (Analyzer) any);
+                desc.analyzeFullDbName("testDb", (Analyzer) any);
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
                 env.getResourceMgr();
                 result = resourceMgr;
                 resourceMgr.getResource(resourceName);
@@ -110,13 +110,13 @@ public class LoadStmtTest {
             }
         };
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, null, null, null, "");
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, (BrokerDesc) null, null, "");
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:testDb", stmt.getLabel().getDbName());
+        Assert.assertEquals("testDb", stmt.getLabel().getDbName());
         Assert.assertEquals(dataDescriptionList, stmt.getDataDescriptions());
         Assert.assertNull(stmt.getProperties());
 
-        Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n"
+        Assert.assertEquals("LOAD LABEL `testDb`.`testLabel`\n"
                 + "(XXX)", stmt.toString());
 
         // test ResourceDesc
@@ -124,7 +124,7 @@ public class LoadStmtTest {
                             new ResourceDesc(resourceName, null), null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals(EtlJobType.SPARK, stmt.getResourceDesc().getEtlJobType());
-        Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n(XXX)\nWITH RESOURCE 'spark0'",
+        Assert.assertEquals("LOAD LABEL `testDb`.`testLabel`\n(XXX)\nWITH RESOURCE 'spark0'",
                             stmt.toString());
     }
 
@@ -137,7 +137,7 @@ public class LoadStmtTest {
             }
         };
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null, null, "");
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, (BrokerDesc) null, null, "");
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");
@@ -150,13 +150,13 @@ public class LoadStmtTest {
         columnDescs.descs = columns1;
         columnDescs.isColumnDescsRewrited = false;
         Load.rewriteColumns(columnDescs);
-        String orig = "`c1` + 1 + 1";
+        String orig = "((`c1` + 1) + 1)";
         Assert.assertEquals(orig, columns1.get(4).getExpr().toString());
 
         List<ImportColumnDesc> columns2 = getColumns("c1,c2,c3,tmp_c5 = tmp_c4+1, tmp_c4=c1 + 1");
         columnDescs.descs = columns2;
         columnDescs.isColumnDescsRewrited = false;
-        String orig2 = "`tmp_c4` + 1";
+        String orig2 = "(`tmp_c4` + 1)";
         Load.rewriteColumns(columnDescs);
         Assert.assertEquals(orig2, columns2.get(3).getExpr().toString());
 
@@ -212,7 +212,7 @@ public class LoadStmtTest {
 
                 desc.analyzeFullDbName(null, (Analyzer) any);
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 desc.getMergeType();
                 minTimes = 0;
@@ -239,6 +239,14 @@ public class LoadStmtTest {
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getLabel().getDbName());
         Assert.assertEquals(EtlJobType.LOCAL_FILE, stmt.getEtlJobType());
+
+        // unified load stmt
+        UnifiedLoadStmt unifiedStmt = UnifiedLoadStmt.buildMysqlLoadStmt(desc, Maps.newHashMap(), "");
+        Config.mysql_load_server_secure_path = "/";
+        unifiedStmt.analyze(analyzer);
+        Assert.assertTrue(unifiedStmt.getProxyStmt() instanceof LoadStmt);
+        Assert.assertNull(((LoadStmt) unifiedStmt.getProxyStmt()).getLabel().getDbName());
+        Assert.assertEquals(unifiedStmt.getRedirectStatus(), RedirectStatus.NO_FORWARD);
     }
 
     @Test
@@ -266,7 +274,7 @@ public class LoadStmtTest {
 
                 desc.analyzeFullDbName(null, (Analyzer) any);
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 desc.getMergeType();
                 minTimes = 0;

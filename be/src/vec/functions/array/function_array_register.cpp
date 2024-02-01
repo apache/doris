@@ -26,8 +26,8 @@ void register_function_array_shuffle(SimpleFunctionFactory&);
 void register_function_array_exists(SimpleFunctionFactory&);
 void register_function_array_element(SimpleFunctionFactory&);
 void register_function_array_index(SimpleFunctionFactory&);
-void register_function_array_size(SimpleFunctionFactory&);
 void register_function_array_aggregation(SimpleFunctionFactory&);
+void register_function_array_distance(SimpleFunctionFactory&);
 void register_function_array_distinct(SimpleFunctionFactory&);
 void register_function_array_remove(SimpleFunctionFactory&);
 void register_function_array_sort(SimpleFunctionFactory&);
@@ -50,16 +50,19 @@ void register_function_array_apply(SimpleFunctionFactory&);
 void register_function_array_concat(SimpleFunctionFactory&);
 void register_function_array_zip(SimpleFunctionFactory&);
 void register_function_array_pushfront(SimpleFunctionFactory& factory);
-void register_function_array_first_index(SimpleFunctionFactory& factory);
+void register_function_array_pushback(SimpleFunctionFactory& factory);
+void register_function_array_first_or_last_index(SimpleFunctionFactory& factory);
 void register_function_array_cum_sum(SimpleFunctionFactory& factory);
+void register_function_array_count(SimpleFunctionFactory&);
+void register_function_array_filter_function(SimpleFunctionFactory&);
 
 void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_shuffle(factory);
     register_function_array_exists(factory);
     register_function_array_element(factory);
     register_function_array_index(factory);
-    register_function_array_size(factory);
     register_function_array_aggregation(factory);
+    register_function_array_distance(factory);
     register_function_array_distinct(factory);
     register_function_array_remove(factory);
     register_function_array_sort(factory);
@@ -82,8 +85,11 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_concat(factory);
     register_function_array_zip(factory);
     register_function_array_pushfront(factory);
-    register_function_array_first_index(factory);
+    register_function_array_pushback(factory);
+    register_function_array_first_or_last_index(factory);
     register_function_array_cum_sum(factory);
+    register_function_array_count(factory);
+    register_function_array_filter_function(factory);
 }
 
 } // namespace doris::vectorized

@@ -89,4 +89,51 @@ suite("sort") {
     """
 
     qt_sql_orderby_non_overlap_desc """ select * from sort_non_overlap order by time_period desc limit 4; """
+
+    sql """ DROP TABLE if exists `sort_default_value`; """
+    sql """ CREATE TABLE `sort_default_value` (
+      `k1` int NOT NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "disable_auto_compaction" = "true"
+    );
+    """
+    sql "insert into sort_default_value values (1)"
+    sql "insert into sort_default_value values (2)"
+    sql """ alter table sort_default_value add column k4 INT default "1024" """
+    sql "insert into sort_default_value values (3, 0)"
+    sql "insert into sort_default_value values (4, null)"
+    qt_sql "select * from sort_default_value order by k1 limit 10"
+
+    def tblName = "sort_one_float_column"
+    sql """ DROP TABLE IF EXISTS ${tblName} """
+    sql """ CREATE TABLE `${tblName}` (
+      `time_period` datetime NOT NULL,
+      `dc` double NULL,
+      `ic` int NOT NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`time_period`)
+    DISTRIBUTED BY HASH(`time_period`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "disable_auto_compaction" = "true"
+    );
+
+
+    """
+    StringBuilder sb = new StringBuilder("""INSERT INTO ${tblName} values """)
+    for (int i = 1; i <= 1024; i++) {
+        sb.append("""
+            ('${i+2000}-03-21 08:00:00', ${i}.${i},${i}),
+        """)
+    }
+    sb.append("""('2023-03-21 08:00:00', 1.1,1)""")
+    sql """ ${sb.toString()} """
+
+    qt_order_by_float """ select /*SET_VAR(parallel_pipeline_task_num=1,parallel_fragment_exec_instance_num=1)*/ * from ${tblName} order by dc; """
+    qt_order_by_int """ select /*SET_VAR(parallel_pipeline_task_num=1,parallel_fragment_exec_instance_num=1)*/ * from ${tblName} order by ic; """
+    qt_order_by_uint """ select /*SET_VAR(parallel_pipeline_task_num=1,parallel_fragment_exec_instance_num=1)*/ * from ${tblName} order by time_period; """
 }

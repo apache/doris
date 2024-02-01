@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -40,17 +41,13 @@ import java.util.stream.Collectors;
  * select hint plan.
  * e.g. LogicalSelectHint (set_var(query_timeout='1800', exec_mem_limit='2147483648'))
  */
-public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements BlockFuncDepsPropagation {
 
     private final Map<String, SelectHint> hints;
 
     public LogicalSelectHint(Map<String, SelectHint> hints, CHILD_TYPE child) {
         this(hints, Optional.empty(), Optional.empty(), child);
-    }
-
-    public LogicalSelectHint(Map<String, SelectHint> hints,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        this(hints, Optional.empty(), logicalProperties, child);
     }
 
     /**
@@ -79,7 +76,7 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalSelectHint((LogicalSelectHint<Plan>) this, context);
+        return visitor.visitLogicalSelectHint(this, context);
     }
 
     @Override
@@ -93,8 +90,10 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     }
 
     @Override
-    public LogicalSelectHint<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSelectHint<>(hints, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalSelectHint<>(hints, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override

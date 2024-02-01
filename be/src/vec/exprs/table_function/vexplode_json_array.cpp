@@ -22,8 +22,11 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <limits>
 
 #include "common/status.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -34,6 +37,8 @@ namespace doris::vectorized {
 
 std::string ParsedData::true_value = "true";
 std::string ParsedData::false_value = "false";
+auto max_value = std::numeric_limits<int64_t>::max(); //9223372036854775807
+auto min_value = std::numeric_limits<int64_t>::min(); //-9223372036854775808
 
 int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& document) {
     int size = document.GetArray().Size();
@@ -45,6 +50,24 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
         for (auto& v : document.GetArray()) {
             if (v.IsInt64()) {
                 _backup_int[i] = v.GetInt64();
+                _data[i] = &_backup_int[i];
+            } else if (v.IsUint64()) {
+                auto value = v.GetUint64();
+                if (value > max_value) {
+                    _backup_int[i] = max_value;
+                } else {
+                    _backup_int[i] = value;
+                }
+                _data[i] = &_backup_int[i];
+            } else if (v.IsDouble()) {
+                auto value = v.GetDouble();
+                if (value > max_value) {
+                    _backup_int[i] = max_value;
+                } else if (value < min_value) {
+                    _backup_int[i] = min_value;
+                } else {
+                    _backup_int[i] = value;
+                }
                 _data[i] = &_backup_int[i];
             } else {
                 _data[i] = nullptr;
@@ -101,21 +124,44 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
                 // change each time `emplace_back()` is called.
                 break;
             case rapidjson::Type::kFalseType:
-                _data_string.emplace_back(true_value);
+                _backup_string.emplace_back(true_value);
                 _string_nulls.push_back(false);
                 break;
             case rapidjson::Type::kTrueType:
-                _data_string.emplace_back(false_value);
+                _backup_string.emplace_back(false_value);
                 _string_nulls.push_back(false);
                 break;
             case rapidjson::Type::kNullType:
-                _data_string.push_back({});
+                _backup_string.emplace_back();
                 _string_nulls.push_back(true);
                 break;
             default:
-                _data_string.push_back({});
+                _backup_string.emplace_back();
                 _string_nulls.push_back(true);
                 break;
+            }
+        }
+        // Must set _data_string at the end, so that we can
+        // save the real addr of string in `_backup_string` to `_data_string`.
+        for (auto& str : _backup_string) {
+            _data_string.emplace_back(str);
+        }
+        break;
+    }
+    case ExplodeJsonArrayType::JSON: {
+        _data_string.clear();
+        _backup_string.clear();
+        _string_nulls.clear();
+        for (auto& v : document.GetArray()) {
+            if (v.IsObject()) {
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+                v.Accept(writer);
+                _backup_string.emplace_back(buffer.GetString(), buffer.GetSize());
+                _string_nulls.push_back(false);
+            } else {
+                _data_string.push_back({});
+                _string_nulls.push_back(true);
             }
         }
         // Must set _data_string at the end, so that we can
@@ -137,20 +183,20 @@ VExplodeJsonArrayTableFunction::VExplodeJsonArrayTableFunction(ExplodeJsonArrayT
     _fn_name = "vexplode_json_array";
 }
 
-Status VExplodeJsonArrayTableFunction::process_init(Block* block) {
-    CHECK(_vexpr_context->root()->children().size() == 1)
-            << _vexpr_context->root()->children().size();
+Status VExplodeJsonArrayTableFunction::process_init(Block* block, RuntimeState* state) {
+    CHECK(_expr_context->root()->children().size() == 1)
+            << _expr_context->root()->children().size();
 
     int text_column_idx = -1;
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
-                                                                   &text_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
+                                                                  &text_column_idx));
     _text_column = block->get_by_position(text_column_idx).column;
 
     return Status::OK();
 }
 
-Status VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
-    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
+void VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
+    TableFunction::process_row(row_idx);
 
     StringRef text = _text_column->get_data_at(row_idx);
     if (text.data != nullptr) {
@@ -160,16 +206,14 @@ Status VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
             _cur_size = _parsed_data.set_output(_type, document);
         }
     }
-    return Status::OK();
 }
 
-Status VExplodeJsonArrayTableFunction::process_close() {
+void VExplodeJsonArrayTableFunction::process_close() {
     _text_column = nullptr;
-    return Status::OK();
 }
 
 void VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column) {
-    if (current_empty()) {
+    if (current_empty() || _parsed_data.get_value(_type, _cur_offset, true) == nullptr) {
         column->insert_default();
     } else {
         column->insert_data((char*)_parsed_data.get_value(_type, _cur_offset, true),

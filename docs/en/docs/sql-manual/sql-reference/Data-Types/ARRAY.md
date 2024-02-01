@@ -38,6 +38,12 @@ ARRAY
 
 An array of T-type items, it cannot be used as a key column. Now ARRAY can only used in Duplicate Model Tables.
 
+<version since="2.0">
+
+After version 2.0, it supports the use of non-key columns in Unique model tables.
+
+</version>
+
 T-type could be any of:
 
 ```

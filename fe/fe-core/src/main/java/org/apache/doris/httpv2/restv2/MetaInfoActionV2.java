@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -72,9 +71,9 @@ public class MetaInfoActionV2 extends RestBaseController {
      *   "msg": "success",
      *   "code": 0,
      *   "data": [
-     *     "default_cluster:db1",
-     *     "default_cluster:doris_audit_db__",
-     *     "default_cluster:information_schema"
+     *     "db1",
+     *     "doris_audit_db__",
+     *     "information_schema"
      *   ],
      *   "count": 0
      * }
@@ -91,12 +90,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         }
 
         // 1. get all database with privilege
-        List<String> dbNames = null;
-        try {
-            dbNames = Env.getCurrentInternalCatalog().getClusterDbNames(ns);
-        } catch (AnalysisException e) {
-            return ResponseEntityBuilder.okWithCommonError("namespace does not exist: " + ns);
-        }
+        List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);

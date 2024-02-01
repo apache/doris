@@ -25,6 +25,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
@@ -33,6 +34,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 
 public class Frontend implements Writable {
     @SerializedName("role")
@@ -40,35 +42,38 @@ public class Frontend implements Writable {
     // nodeName = ip:port_timestamp
     @SerializedName("nodeName")
     private String nodeName;
-    @SerializedName("ip")
-    private volatile String ip;
+    @SerializedName(value = "host", alternate = {"ip"})
+    private volatile String host;
     // used for getIpByHostname
-    @SerializedName("hostName")
-    private String hostName;
     @SerializedName("editLogPort")
     private int editLogPort;
     private String version;
 
     private int queryPort;
     private int rpcPort;
+    private int arrowFlightSqlPort;
 
     private long replayedJournalId;
+    private long lastStartupTime;
     private long lastUpdateTime;
     private String heartbeatErrMsg = "";
+    private List<FeDiskInfo> diskInfos;
 
     private boolean isAlive = false;
 
-    public Frontend() {}
+    private long processUUID = 0;
 
-    public Frontend(FrontendNodeType role, String nodeName, String ip, int editLogPort) {
-        this(role, nodeName, ip, "", editLogPort);
+    public Frontend() {
     }
 
-    public Frontend(FrontendNodeType role, String nodeName, String ip, String hostName, int editLogPort) {
+    public Frontend(FrontendNodeType role, String nodeName, String host, int editLogPort) {
+        this(role, nodeName, host, "", editLogPort);
+    }
+
+    public Frontend(FrontendNodeType role, String nodeName, String host, String hostName, int editLogPort) {
         this.role = role;
         this.nodeName = nodeName;
-        this.ip = ip;
-        this.hostName = hostName;
+        this.host = host;
         this.editLogPort = editLogPort;
     }
 
@@ -76,20 +81,12 @@ public class Frontend implements Writable {
         return this.role;
     }
 
-    public String getIp() {
-        return this.ip;
+    public String getHost() {
+        return this.host;
     }
 
     public String getVersion() {
         return version;
-    }
-
-    public String getHostName() {
-        return hostName;
-    }
-
-    public void setHostName(String hostName) {
-        this.hostName = hostName;
     }
 
     public String getNodeName() {
@@ -104,8 +101,16 @@ public class Frontend implements Writable {
         return rpcPort;
     }
 
+    public int getArrowFlightSqlPort() {
+        return arrowFlightSqlPort;
+    }
+
     public boolean isAlive() {
         return isAlive;
+    }
+
+    public void setIsAlive(boolean isAlive) {
+        this.isAlive = isAlive;
     }
 
     public int getEditLogPort() {
@@ -120,8 +125,20 @@ public class Frontend implements Writable {
         return heartbeatErrMsg;
     }
 
+    public long getLastStartupTime() {
+        return lastStartupTime;
+    }
+
+    public long getProcessUUID() {
+        return processUUID;
+    }
+
     public long getLastUpdateTime() {
         return lastUpdateTime;
+    }
+
+    public List<FeDiskInfo> getDiskInfos() {
+        return diskInfos;
     }
 
     /**
@@ -141,11 +158,20 @@ public class Frontend implements Writable {
             version = hbResponse.getVersion();
             queryPort = hbResponse.getQueryPort();
             rpcPort = hbResponse.getRpcPort();
+            arrowFlightSqlPort = hbResponse.getArrowFlightSqlPort();
             replayedJournalId = hbResponse.getReplayedJournalId();
             lastUpdateTime = hbResponse.getHbTime();
             heartbeatErrMsg = "";
+            lastStartupTime = hbResponse.getProcessUUID();
+            diskInfos = hbResponse.getDiskInfos();
             isChanged = true;
+            processUUID = hbResponse.getProcessUUID();
         } else {
+            // A non-master node disconnected.
+            // Set startUUID to zero, and be's heartbeat mgr will ignore this hb,
+            // so that its cancel worker will not cancel queries from this fe immediately
+            // until it receives a valid start UUID.
+            processUUID = 0;
             if (isAlive) {
                 isAlive = false;
                 isChanged = true;
@@ -169,7 +195,7 @@ public class Frontend implements Writable {
             // we changed REPLICA to FOLLOWER
             role = FrontendNodeType.FOLLOWER;
         }
-        ip = Text.readString(in);
+        host = Text.readString(in);
         editLogPort = in.readInt();
         nodeName = Text.readString(in);
     }
@@ -188,16 +214,16 @@ public class Frontend implements Writable {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("name: ").append(nodeName).append(", role: ").append(role.name());
-        sb.append(", hostname: ").append(hostName);
-        sb.append(", ").append(ip).append(":").append(editLogPort);
+        sb.append(", ").append(host).append(":").append(editLogPort);
+        sb.append(", is alive: ").append(isAlive);
         return sb.toString();
     }
 
-    public void setIp(String ip) {
-        this.ip = ip;
+    public void setHost(String host) {
+        this.host = host;
     }
 
     public HostInfo toHostInfo() {
-        return new HostInfo(ip, hostName, editLogPort);
+        return new HostInfo(host, editLogPort);
     }
 }

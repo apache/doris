@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -36,6 +37,9 @@ public class PlannerTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+
+        connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+
         // Create database `db1`.
         createDatabase("db1");
 
@@ -78,9 +82,9 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
-        String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+        String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan1, "UNION"));
-        String sql2 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
+        String sql2 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1 where k1='a' and k4=1\n"
                 + "union distinct\n"
                 + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
                 + "   union all\n"
@@ -102,11 +106,11 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
-        String plan2 = planner2.getExplainString(new ExplainOptions(false, false));
+        String plan2 = planner2.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(4, StringUtils.countMatches(plan2, "UNION"));
 
         // intersect
-        String sql3 = "explain select * from\n"
+        String sql3 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from\n"
                 + "  (select k1, k2 from db1.tbl1\n"
                 + "   intersect\n"
                 + "   select k1, k2 from db1.tbl1) a\n"
@@ -117,9 +121,9 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor3 = new StmtExecutor(connectContext, sql3);
         stmtExecutor3.execute();
         Planner planner3 = stmtExecutor3.planner();
-        String plan3 = planner3.getExplainString(new ExplainOptions(false, false));
+        String plan3 = planner3.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan3, "INTERSECT"));
-        String sql4 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
+        String sql4 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1 where k1='a' and k4=1\n"
                 + "intersect distinct\n"
                 + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
                 + "   intersect\n"
@@ -142,11 +146,11 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor4 = new StmtExecutor(connectContext, sql4);
         stmtExecutor4.execute();
         Planner planner4 = stmtExecutor4.planner();
-        String plan4 = planner4.getExplainString(new ExplainOptions(false, false));
+        String plan4 = planner4.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(3, StringUtils.countMatches(plan4, "INTERSECT"));
 
         // except
-        String sql5 = "explain select * from\n"
+        String sql5 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from\n"
                 + "  (select k1, k2 from db1.tbl1\n"
                 + "   except\n"
                 + "   select k1, k2 from db1.tbl1) a\n"
@@ -157,10 +161,10 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor5 = new StmtExecutor(connectContext, sql5);
         stmtExecutor5.execute();
         Planner planner5 = stmtExecutor5.planner();
-        String plan5 = planner5.getExplainString(new ExplainOptions(false, false));
+        String plan5 = planner5.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan5, "EXCEPT"));
 
-        String sql6 = "select * from db1.tbl1 where k1='a' and k4=1\n"
+        String sql6 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1 where k1='a' and k4=1\n"
                 + "except\n"
                 + "select * from db1.tbl1 where k1='a' and k4=1\n"
                 + "except\n"
@@ -171,10 +175,10 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor6 = new StmtExecutor(connectContext, sql6);
         stmtExecutor6.execute();
         Planner planner6 = stmtExecutor6.planner();
-        String plan6 = planner6.getExplainString(new ExplainOptions(false, false));
+        String plan6 = planner6.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan6, "EXCEPT"));
 
-        String sql7 = "select * from db1.tbl1 where k1='a' and k4=1\n"
+        String sql7 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1 where k1='a' and k4=1\n"
                 + "except distinct\n"
                 + "select * from db1.tbl1 where k1='a' and k4=1\n"
                 + "except\n"
@@ -185,11 +189,11 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor7 = new StmtExecutor(connectContext, sql7);
         stmtExecutor7.execute();
         Planner planner7 = stmtExecutor7.planner();
-        String plan7 = planner7.getExplainString(new ExplainOptions(false, false));
+        String plan7 = planner7.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan7, "EXCEPT"));
 
         // mixed
-        String sql8 = "select * from db1.tbl1 where k1='a' and k4=1\n"
+        String sql8 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1 where k1='a' and k4=1\n"
                 + "union\n"
                 + "select * from db1.tbl1 where k1='a' and k4=1\n"
                 + "except\n"
@@ -200,12 +204,12 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor8 = new StmtExecutor(connectContext, sql8);
         stmtExecutor8.execute();
         Planner planner8 = stmtExecutor8.planner();
-        String plan8 = planner8.getExplainString(new ExplainOptions(false, false));
+        String plan8 = planner8.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan8, "UNION"));
         Assertions.assertEquals(1, StringUtils.countMatches(plan8, "INTERSECT"));
         Assertions.assertEquals(1, StringUtils.countMatches(plan8, "EXCEPT"));
 
-        String sql9 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
+        String sql9 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1 where k1='a' and k4=1\n"
                 + "intersect distinct\n"
                 + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
                 + "   union all\n"
@@ -228,12 +232,12 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor9 = new StmtExecutor(connectContext, sql9);
         stmtExecutor9.execute();
         Planner planner9 = stmtExecutor9.planner();
-        String plan9 = planner9.getExplainString(new ExplainOptions(false, false));
+        String plan9 = planner9.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(2, StringUtils.countMatches(plan9, "UNION"));
         Assertions.assertEquals(3, StringUtils.countMatches(plan9, "INTERSECT"));
         Assertions.assertEquals(2, StringUtils.countMatches(plan9, "EXCEPT"));
 
-        String sql10 = "select 499 union select 670 except select 499";
+        String sql10 = "select /*+ SET_VAR(enable_nereids_planner=false) */ 499 union select 670 except select 499";
         StmtExecutor stmtExecutor10 = new StmtExecutor(connectContext, sql10);
         stmtExecutor10.execute();
         Planner planner10 = stmtExecutor10.planner();
@@ -243,7 +247,7 @@ public class PlannerTest extends TestWithFeService {
         Assertions.assertTrue(fragments10.get(0).getPlanRoot()
                 .getFragment().getPlanRoot().getChild(1) instanceof UnionNode);
 
-        String sql11 = "SELECT a.x FROM\n"
+        String sql11 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.x FROM\n"
                 + "(SELECT '01' x) a \n"
                 + "INNER JOIN\n"
                 + "(SELECT '01' x UNION all SELECT '02') b";
@@ -253,7 +257,7 @@ public class PlannerTest extends TestWithFeService {
         SetOperationNode setNode11 = (SetOperationNode) (planner11.getFragments().get(1).getPlanRoot());
         Assertions.assertEquals(2, setNode11.getMaterializedConstExprLists().size());
 
-        String sql12 = "SELECT a.x \n"
+        String sql12 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.x \n"
                 + "FROM (SELECT '01' x) a \n"
                 + "INNER JOIN \n"
                 + "(SELECT k1 from db1.tbl1 \n"
@@ -269,7 +273,7 @@ public class PlannerTest extends TestWithFeService {
     @Test
     public void testPushDown() throws Exception {
         String sql1 =
-                "SELECT\n"
+                "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ \n"
                 + "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n"
                 + "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n"
                 + "    k4\n"
@@ -302,7 +306,7 @@ public class PlannerTest extends TestWithFeService {
         Assertions.assertEquals(3, fragments1.get(0).getPlanRoot().getChild(0).getChild(0).conjuncts.size());
 
         String sql2 =
-                "SELECT\n"
+                "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ \n"
                         + "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n"
                         + "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n"
                         + "    k4\n"
@@ -333,12 +337,12 @@ public class PlannerTest extends TestWithFeService {
         // union
         String sql1 = "with a as (select NULL as user_id ), "
                 + "b as ( select '543' as user_id) "
-                + "select user_id from a union all select user_id from b";
+                + "select /*+ SET_VAR(enable_nereids_planner=false) */ user_id from a union all select user_id from b";
 
         StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
-        String plan1 = planner1.getExplainString(new ExplainOptions(true, false));
+        String plan1 = planner1.getExplainString(new ExplainOptions(true, false, false));
         Assertions.assertEquals(2, StringUtils.countMatches(plan1, "nullable=true"));
     }
 
@@ -352,7 +356,7 @@ public class PlannerTest extends TestWithFeService {
 
     @Test
     public void testAnalyticSortNodeLeftJoin() throws Exception {
-        String sql = "SELECT a.k1, a.k3, SUM(COUNT(t.k2)) OVER (PARTITION BY a.k3 ORDER BY a.k1) AS c\n"
+        String sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.k1, a.k3, SUM(COUNT(t.k2)) OVER (PARTITION BY a.k3 ORDER BY a.k1) AS c\n"
                 + "FROM ( SELECT k1, k3 FROM db1.tbl3) a\n"
                 + "LEFT JOIN (SELECT 1 AS line, k1, k2, k3 FROM db1.tbl3) t\n"
                 + "ON t.k1 = a.k1 AND t.k3 = a.k3\n"
@@ -388,7 +392,7 @@ public class PlannerTest extends TestWithFeService {
                 e.printStackTrace();
             }
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
 
             StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
             try {
@@ -397,23 +401,23 @@ public class PlannerTest extends TestWithFeService {
                 e.printStackTrace();
             }
             Planner planner2 = stmtExecutor2.planner();
-            String plan2 = planner2.getExplainString(new ExplainOptions(false, false));
+            String plan2 = planner2.getExplainString(new ExplainOptions(false, false, false));
 
             Assertions.assertEquals(plan1, plan2);
         };
 
-        compare.accept("select * from db1.tbl2 where k1 = 2.0", "select * from db1.tbl2 where k1 = 2");
-        compare.accept("select * from db1.tbl2 where k1 = 2.1", "select * from db1.tbl2 where 2 = 2.1");
-        compare.accept("select * from db1.tbl2 where k1 != 2.0", "select * from db1.tbl2 where k1 != 2");
-        compare.accept("select * from db1.tbl2 where k1 != 2.1", "select * from db1.tbl2 where TRUE");
-        compare.accept("select * from db1.tbl2 where k1 <= 2.0", "select * from db1.tbl2 where k1 <= 2");
-        compare.accept("select * from db1.tbl2 where k1 <= 2.1", "select * from db1.tbl2 where k1 <= 2");
-        compare.accept("select * from db1.tbl2 where k1 >= 2.0", "select * from db1.tbl2 where k1 >= 2");
-        compare.accept("select * from db1.tbl2 where k1 >= 2.1", "select * from db1.tbl2 where k1 > 2");
-        compare.accept("select * from db1.tbl2 where k1 < 2.0", "select * from db1.tbl2 where k1 < 2");
-        compare.accept("select * from db1.tbl2 where k1 < 2.1", "select * from db1.tbl2 where k1 <= 2");
-        compare.accept("select * from db1.tbl2 where k1 > 2.0", "select * from db1.tbl2 where k1 > 2");
-        compare.accept("select * from db1.tbl2 where k1 > 2.1", "select * from db1.tbl2 where k1 > 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl2 where k1 = 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl2 where k1 = 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl2 where k1 = 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl2 where 2 = 2.1");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 != 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 != 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 != 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where TRUE");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 <= 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 <= 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 <= 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 <= 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 >= 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 >= 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 >= 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 > 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 < 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 < 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 < 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 <= 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 > 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 > 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 > 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 > 2");
     }
 
     @Test
@@ -427,13 +431,13 @@ public class PlannerTest extends TestWithFeService {
 
     @Test
     public void testPushDownPredicateOnGroupingSetAggregate() throws Exception {
-        String sql = "explain select k1, k2, count(distinct v1) from db1.tbl4"
+        String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1, k2, count(distinct v1) from db1.tbl4"
                 + " group by grouping sets((k1), (k1, k2)) having k1 = 1 and k2 = 1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
-        String plan = planner.getExplainString(new ExplainOptions(false, false));
-        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
+        String plan = planner.getExplainString(new ExplainOptions(false, false, false));
+        Assertions.assertTrue(plan.contains("`k1` = 1"));
     }
 
     @Test
@@ -443,31 +447,31 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
-        String plan = planner.getExplainString(new ExplainOptions(false, false));
+        String plan = planner.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertFalse(plan.contains("PREDICATES:"));
     }
 
     @Test
     public void testPushDownPredicateOnNormalAggregate() throws Exception {
-        String sql = "explain select k1, k2, count(distinct v1) from db1.tbl4"
+        String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1, k2, count(distinct v1) from db1.tbl4"
                 + " group by k1, k2 having k1 = 1 and k2 = 1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
-        String plan = planner.getExplainString(new ExplainOptions(false, false));
-        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1 AND `k2` = 1\n"));
+        String plan = planner.getExplainString(new ExplainOptions(false, false, false));
+        Assertions.assertTrue(plan.contains("(`k1` = 1) AND (`k2` = 1)"));
     }
 
     @Test
     public void testPushDownPredicateOnWindowFunction() throws Exception {
-        String sql = "explain select v1, k1,"
+        String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ v1, k1,"
                 + " sum(v1) over (partition by k1 order by v1 rows between 1 preceding and 1 following)"
                 + " as 'moving total' from db1.tbl4 where k1 = 1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
-        String plan = planner.getExplainString(new ExplainOptions(false, false));
-        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
+        String plan = planner.getExplainString(new ExplainOptions(false, false, false));
+        Assertions.assertTrue(plan.contains("`k1` = 1"));
     }
 
     @Test
@@ -505,7 +509,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
-        String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+        String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
         Assertions.assertFalse(plan1.contains("TOPN OPT"));
@@ -516,30 +520,30 @@ public class PlannerTest extends TestWithFeService {
         stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         planner1 = stmtExecutor1.planner();
-        plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+        plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
         Assertions.assertFalse(plan1.contains("TOPN OPT"));
 
         // Push sort success limit = topnOptLimitThreshold
-        sql1 = "explain select k1 from db1.tbl3 order by k1, k2 limit "
+        sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl3 order by k1, k2 limit "
             + (connectContext.getSessionVariable().topnOptLimitThreshold);
         stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         planner1 = stmtExecutor1.planner();
-        plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+        plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
         Assertions.assertTrue(plan1.contains("TOPN OPT"));
 
         // Push sort success limit < topnOptLimitThreshold
         if (connectContext.getSessionVariable().topnOptLimitThreshold > 1) {
-            sql1 = "explain select k1 from db1.tbl3 order by k1, k2 limit "
+            sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl3 order by k1, k2 limit "
                 + (connectContext.getSessionVariable().topnOptLimitThreshold - 1);
             stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             planner1 = stmtExecutor1.planner();
-            plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
             Assertions.assertTrue(plan1.contains("TOPN OPT"));
@@ -550,155 +554,165 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
-        String plan2 = planner2.getExplainString(new ExplainOptions(false, false));
+        String plan2 = planner2.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertFalse(plan2.contains("SORT INFO:"));
         Assertions.assertFalse(plan2.contains("SORT LIMIT:"));
     }
 
     @Test
     public void testEliminatingSortNode() throws Exception {
-            // success case 1
+            // fail case 1
             {
-            String sql1 = "explain select k1 from db1.tbl1 where k1 = 1 order by k1, k2 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+            String sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where k1 = 1 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // fail case 2
             {
-            String sql1 = "explain select k1 from db1.tbl1 where k1 = 1 and k3 = 2 order by k1, k2 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+            String sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where k1 = 1 and k3 = 2 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // fail case 3
             {
-            String sql1 = "explain select k1 from db1.tbl1 where k1 = 1 and k2 != 2 order by k1, k2 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+            String sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where k1 = 1 and k2 != 2 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // fail case 4
             {
-            String sql1 = "explain select k1 from db1.tbl1 where k1 = 1 or k2 = 2 order by k1, k2 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+            String sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where k1 = 1 or k2 = 2 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // fail case 5
             {
-            String sql1 = "explain select k1 from db1.tbl1 where k1 = 1 and k2 = 2 or k3 = 3 order by k1, k2 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+            String sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where k1 = 1 and k2 = 2 or k3 = 3 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // fail case 6
             // TODO, support: in (select 1)
             {
-            String sql1 = "explain select k1 from db1.tbl1 where k1 in (select 1) and k2 = 2 order by k1, k2 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+            String sql1 = "explain select k1 from db1.tbl1 where k1 in (select 1) and k2 = 2 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // fail case 7
             {
-            String sql1 = "explain select k1 from db1.tbl1 where k1 not in (1) and k2 = 2 order by k1, k2 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+            String sql1 = "explain select k1 from db1.tbl1 where k1 not in (1) and k2 = 2 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // success case 1
             {
-            String sql1 = "explain select k1 from db1.tbl1 where k1 = 1 and k2 = 2 order by k1, k2 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+            String sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where k1 = 1 and k2 = 2 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertFalse(plan1.contains("order by:"));
             }
 
             // success case 2
             {
-            String sql1 = "explain select k1 from db1.tbl1 where k3 = 3 and k2 = 2 and k1 = 1 order by k1, k2 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+            String sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where k3 = 3 and k2 = 2 and k1 = 1 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertFalse(plan1.contains("order by:"));
             }
 
             // success case 3
             {
-            String sql1 = "explain select k1 from db1.tbl1 where k1 in (1) and k2 in (2) and k2 !=2 order by k1, k2 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+            String sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where k1 in (1) and k2 in (2) and k2 !=2 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertFalse(plan1.contains("order by:"));
             }
 
             // success case 4
             {
-            String sql1 = "explain select k1 from db1.tbl1 where k1 in (concat('1','2')) and k2 = 2 order by k1, k2 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+            String sql1 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where k1 in (concat('1','2')) and k2 = 2 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertFalse(plan1.contains("order by:"));
             }
 
             // success case 5
             {
             String sql1 = "explain select tbl1.k1 from db1.tbl1 join db1.tbl2 on tbl1.k1 = tbl2.k1"
-                    + " where tbl1.k1 = 1 and tbl2.k1 = 2 and tbl1.k2 = 3 order by tbl1.k1, tbl2.k1 limit "
-                    + connectContext.getSessionVariable().topnOptLimitThreshold;
+                    + " where tbl1.k1 = 1 and tbl2.k1 = 2 and tbl1.k2 = 3 order by tbl1.k1, tbl2.k1";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertFalse(plan1.contains("SORT INFO:"));
-            Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertFalse(plan1.contains("order by:"));
             }
+    }
+
+    @Test
+    public void testInsertPlan() throws Exception {
+        FeConstants.runningUnitTest = true;
+        // 1. should not contains exchange node in old planner
+        boolean v = connectContext.getSessionVariable().isEnableNereidsPlanner();
+        try {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+            String sql1 = "explain insert into db1.tbl1 select * from db1.tbl1";
+            StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
+            stmtExecutor1.execute();
+            Planner planner1 = stmtExecutor1.planner();
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertFalse(plan1.contains("VEXCHANGE"));
+        } finally {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(v);
+        }
+
+        // 1. should not contains exchange node in new planner
+        v = connectContext.getSessionVariable().isEnableNereidsPlanner();
+        try {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(true);
+            String sql1 = "explain insert into db1.tbl1 select * from db1.tbl1";
+            StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
+            stmtExecutor1.execute();
+            Planner planner1 = stmtExecutor1.planner();
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertFalse(plan1.contains("VEXCHANGE"));
+        } finally {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(v);
+        }
     }
 }

@@ -19,18 +19,21 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.io.Writable;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class MetaObject implements Writable {
+public abstract class MetaObject implements Writable {
 
+    @SerializedName(value = "signature")
     protected long signature;
+    @SerializedName(value = "lastCheckTime")
     protected long lastCheckTime; // last check consistency time
 
-    public MetaObject() {
+    protected MetaObject() {
         signature = -1L;
         lastCheckTime = -1L;
     }

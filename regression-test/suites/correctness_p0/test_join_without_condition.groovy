@@ -63,6 +63,12 @@ suite("test_join_without_condition") {
         order by a.a, b.a;
     """
 
+    explain {
+        sql("select * from (select 1 id) t where (1 in (select a from test_join_without_condition_a))")
+        notContains "CROSS JOIN"
+        contains "LEFT SEMI JOIN"
+    }
+
     sql """
         drop table if exists test_join_without_condition_a;
     """

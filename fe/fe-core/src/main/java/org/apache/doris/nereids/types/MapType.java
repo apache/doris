@@ -19,7 +19,8 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+
+import java.util.Objects;
 
 /**
  * Struct type in Nereids.
@@ -27,20 +28,47 @@ import org.apache.doris.nereids.types.coercion.AbstractDataType;
 @Developing
 public class MapType extends DataType {
 
-    public static final MapType INSTANCE = new MapType();
+    public static final MapType SYSTEM_DEFAULT = new MapType();
 
     public static final int WIDTH = 24;
 
+    private final DataType keyType;
+    private final DataType valueType;
+
     private MapType() {
+        keyType = NullType.INSTANCE;
+        valueType = NullType.INSTANCE;
+    }
+
+    private MapType(DataType keyType, DataType valueType) {
+        this.keyType = Objects.requireNonNull(keyType, "key type should not be null");
+        this.valueType = Objects.requireNonNull(valueType, "value type should not be null");
+    }
+
+    public static MapType of(DataType keyType, DataType valueType) {
+        return new MapType(keyType, valueType);
+    }
+
+    public DataType getKeyType() {
+        return keyType;
+    }
+
+    public DataType getValueType() {
+        return valueType;
+    }
+
+    @Override
+    public DataType conversion() {
+        return MapType.of(keyType.conversion(), valueType.conversion());
     }
 
     @Override
     public Type toCatalogDataType() {
-        return Type.MAP;
+        return new org.apache.doris.catalog.MapType(keyType.toCatalogDataType(), valueType.toCatalogDataType());
     }
 
     @Override
-    public boolean acceptsType(AbstractDataType other) {
+    public boolean acceptsType(DataType other) {
         return other instanceof MapType;
     }
 
@@ -50,13 +78,23 @@ public class MapType extends DataType {
     }
 
     @Override
-    public DataType defaultConcreteType() {
-        return INSTANCE;
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        MapType mapType = (MapType) o;
+        return Objects.equals(keyType, mapType.keyType) && Objects.equals(valueType, mapType.valueType);
     }
 
     @Override
-    public boolean equals(Object o) {
-        return o instanceof MapType;
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), keyType, valueType);
     }
 
     @Override
@@ -66,6 +104,11 @@ public class MapType extends DataType {
 
     @Override
     public String toSql() {
-        return "MAP";
+        return "MAP<" + keyType.toSql() + "," + valueType.toSql() + ">";
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
     }
 }

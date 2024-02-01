@@ -24,7 +24,9 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/exec_node.h"
+#include "exprs/runtime_filter.h"
 #include "runtime/descriptors.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -44,7 +46,8 @@ VDataGenFunctionScanNode::VDataGenFunctionScanNode(ObjectPool* pool, const TPlan
         : ScanNode(pool, tnode, descs),
           _is_init(false),
           _tuple_id(tnode.data_gen_scan_node.tuple_id),
-          _tuple_desc(nullptr) {
+          _tuple_desc(nullptr),
+          _runtime_filter_descs(tnode.runtime_filters) {
     // set _table_func here
     switch (tnode.data_gen_scan_node.func_name) {
     case TDataGenFunctionName::NUMBERS:
@@ -75,6 +78,23 @@ Status VDataGenFunctionScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
+    // TODO: use runtime filter to filte result block, maybe this node need derive from vscan_node.
+    for (const auto& filter_desc : _runtime_filter_descs) {
+        IRuntimeFilter* runtime_filter = nullptr;
+        if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf) {
+            RETURN_IF_ERROR(state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
+                    filter_desc, state->query_options(), id(), false));
+            RETURN_IF_ERROR(state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
+                    filter_desc.filter_id, id(), &runtime_filter));
+        } else {
+            RETURN_IF_ERROR(state->runtime_filter_mgr()->register_consumer_filter(
+                    filter_desc, state->query_options(), id(), false));
+            RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
+                                                                            id(), &runtime_filter));
+        }
+        runtime_filter->init_profile(_runtime_profile.get());
+    }
+
     _is_init = true;
     return Status::OK();
 }
@@ -102,7 +122,7 @@ Status VDataGenFunctionScanNode::get_next(RuntimeState* state, vectorized::Block
     }
     RETURN_IF_CANCELLED(state);
     Status res = _table_func->get_next(state, block, eos);
-    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     reached_limit(block, eos);
     return res;
 }
@@ -111,13 +131,14 @@ Status VDataGenFunctionScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    _table_func->close(state);
+    static_cast<void>(_table_func->close(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     return ExecNode::close(state);
 }
 
-Status VDataGenFunctionScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+Status VDataGenFunctionScanNode::set_scan_ranges(RuntimeState* state,
+                                                 const std::vector<TScanRangeParams>& scan_ranges) {
     return _table_func->set_scan_ranges(scan_ranges);
 }
 

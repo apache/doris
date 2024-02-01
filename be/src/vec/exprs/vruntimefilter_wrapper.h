@@ -44,26 +44,18 @@ class VRuntimeFilterWrapper final : public VExpr {
     ENABLE_FACTORY_CREATOR(VRuntimeFilterWrapper);
 
 public:
-    VRuntimeFilterWrapper(const TExprNode& node, VExpr* impl);
-    VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr);
+    VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl);
     ~VRuntimeFilterWrapper() override = default;
-    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id) override;
-    doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                          VExprContext* context) override;
-    doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
     std::string debug_string() const override { return _impl->debug_string(); }
-    bool is_constant() const override;
-    void close(doris::RuntimeState* state, VExprContext* context,
-               FunctionContext::FunctionStateScope scope) override;
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(VRuntimeFilterWrapper::create_unique(*this).release());
-    }
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
-    const std::vector<VExpr*>& children() const override { return _impl->children(); }
+    const VExprSPtrs& children() const override { return _impl->children(); }
 
-    const VExpr* get_impl() const override { return _impl; }
+    const VExprSPtr get_impl() const override { return _impl; }
 
     // if filter rate less than this, bloom filter will set always true
     constexpr static double EXPECTED_FILTER_RATE = 0.4;
@@ -71,8 +63,7 @@ public:
     static void calculate_filter(int64_t filter_rows, int64_t scan_rows, bool& has_calculate,
                                  bool& always_true) {
         if ((!has_calculate) && (scan_rows > config::bloom_filter_predicate_check_row_num)) {
-            if (filter_rows / (scan_rows * 1.0) <
-                vectorized::VRuntimeFilterWrapper::EXPECTED_FILTER_RATE) {
+            if (filter_rows / (scan_rows * 1.0) < VRuntimeFilterWrapper::EXPECTED_FILTER_RATE) {
                 always_true = true;
             }
             has_calculate = true;
@@ -80,7 +71,7 @@ public:
     }
 
 private:
-    VExpr* _impl;
+    VExprSPtr _impl;
 
     bool _always_true;
     /// TODO: statistic filter rate in the profile

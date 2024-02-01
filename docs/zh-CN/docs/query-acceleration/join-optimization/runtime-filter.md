@@ -102,7 +102,8 @@ Runtime Filter主要用于大表join小表的优化，如果左表的数据量�
   - `runtime_bloom_filter_min_size`: Runtime Filter中Bloom Filter的最小长度，默认1048576（1M）
   - `runtime_bloom_filter_max_size`: Runtime Filter中Bloom Filter的最大长度，默认16777216（16M）
   - `runtime_bloom_filter_size`: Runtime Filter中Bloom Filter的默认长度，默认2097152（2M）
-  - `runtime_filter_max_in_num`: 如果join右表数据行数大于这个值，我们将不生成IN predicate，默认102400
+  - `runtime_filter_max_in_num`: 如果join右表数据行数大于这个值，我们将不生成IN predicate，默认1024
+  - `runtime_filter_wait_infinitely`: 如果参数为 true，那么左表的scan节点将会一直等待直到接收到 runtime filer或者查询超超时，默认为false
 
 下面对查询选项做进一步说明。
 
@@ -138,7 +139,7 @@ set runtime_filter_type=7;
   - 当同时指定In predicate和其他filter，并且in的过滤数值没达到runtime_filter_max_in_num时，会尝试把其他filter去除掉。原因是In predicate是精确的过滤条件，即使没有其他filter也可以高效过滤，如果同时使用则其他filter会做无用功。目前仅在Runtime filter的生产者和消费者处于同一个fragment时才会有去除非in filter的逻辑。
 - **Bitmap Filter**:
   - 当前仅当[in subquery](../../sql-manual/sql-reference/Operators/in.md)操作中的子查询返回bitmap列时会使用bitmap filter.
-  - 当前只在仅在向量化引擎中支持bitmap filter.
+  - 当前仅在向量化引擎中支持bitmap filter.
 
 #### 2.runtime_filter_mode
 

@@ -21,9 +21,6 @@
 #include "util/runtime_profile.h"
 
 #include <gen_cpp/RuntimeProfile_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/tracer.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -38,8 +35,6 @@ namespace doris {
 
 // Thread counters name
 static const std::string THREAD_TOTAL_TIME = "TotalWallClockTime";
-static const std::string THREAD_USER_TIME = "UserTime";
-static const std::string THREAD_SYS_TIME = "SysTime";
 static const std::string THREAD_VOLUNTARY_CONTEXT_SWITCHES = "VoluntaryContextSwitches";
 static const std::string THREAD_INVOLUNTARY_CONTEXT_SWITCHES = "InvoluntaryContextSwitches";
 
@@ -52,8 +47,10 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
           _metadata(-1),
           _timestamp(-1),
           _is_averaged_profile(is_averaged_profile),
-          _counter_total_time(TUnit::TIME_NS, 0),
+          _counter_total_time(TUnit::TIME_NS, 0, 3),
           _local_time_percent(0) {
+    // TotalTime counter has level3 to disable it from plan profile, because
+    // it contains its child running time, we use exec time instead.
     _counter_map["TotalTime"] = &_counter_total_time;
 }
 
@@ -278,6 +275,12 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     std::lock_guard<std::mutex> l(_children_lock);
     DCHECK(_child_map.find(name) == _child_map.end());
     RuntimeProfile* child = _pool->add(new RuntimeProfile(name));
+    if (this->is_set_metadata()) {
+        child->set_metadata(this->metadata());
+    }
+    if (this->is_set_sink()) {
+        child->set_is_sink(this->is_sink());
+    }
     if (_children.empty()) {
         add_child_unlock(child, indent, nullptr);
     } else {
@@ -361,7 +364,8 @@ const std::string* RuntimeProfile::get_info_string(const std::string& key) {
 
 #define ADD_COUNTER_IMPL(NAME, T)                                                                  \
     RuntimeProfile::T* RuntimeProfile::NAME(const std::string& name, TUnit::type unit,             \
-                                            const std::string& parent_counter_name) {              \
+                                            const std::string& parent_counter_name,                \
+                                            int64_t level) {                                       \
         DCHECK_EQ(_is_averaged_profile, false);                                                    \
         std::lock_guard<std::mutex> l(_counter_map_lock);                                          \
         if (_counter_map.find(name) != _counter_map.end()) {                                       \
@@ -369,7 +373,7 @@ const std::string* RuntimeProfile::get_info_string(const std::string& key) {
         }                                                                                          \
         DCHECK(parent_counter_name == ROOT_COUNTER ||                                              \
                _counter_map.find(parent_counter_name) != _counter_map.end());                      \
-        T* counter = _pool->add(new T(unit));                                                      \
+        T* counter = _pool->add(new T(unit, level));                                               \
         _counter_map[name] = counter;                                                              \
         std::set<std::string>* child_counters =                                                    \
                 find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>()); \
@@ -405,7 +409,8 @@ std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> RuntimeProfile::AddSharedH
 }
 
 RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TUnit::type type,
-                                                     const std::string& parent_counter_name) {
+                                                     const std::string& parent_counter_name,
+                                                     int64_t level) {
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
     // TODO(yingchun): Can we ensure that 'name' is not exist in '_counter_map'? Use CHECK instead?
@@ -416,7 +421,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
 
     DCHECK(parent_counter_name == ROOT_COUNTER ||
            _counter_map.find(parent_counter_name) != _counter_map.end());
-    Counter* counter = _pool->add(new Counter(type, 0));
+    Counter* counter = _pool->add(new Counter(type, 0, level));
     _counter_map[name] = counter;
     std::set<std::string>* child_counters =
             find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
@@ -546,88 +551,6 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
     }
 }
 
-void RuntimeProfile::add_to_span() {
-    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    if (!span->IsRecording() || _added_to_span) {
-        return;
-    }
-    _added_to_span = true;
-
-    CounterMap counter_map;
-    ChildCounterMap child_counter_map;
-    {
-        std::lock_guard<std::mutex> l(_counter_map_lock);
-        counter_map = _counter_map;
-        child_counter_map = _child_counter_map;
-    }
-
-    auto total_time = counter_map.find("TotalTime");
-    DCHECK(total_time != counter_map.end());
-
-    // profile name like "VDataBufferSender  (dst_fragment_instance_id=-2608c96868f3b77d--713968f450bfbe0d):"
-    // to "VDataBufferSender"
-    auto i = _name.find_first_of("(: ");
-    auto short_name = _name.substr(0, i);
-    span->SetAttribute("TotalTime", print_json_counter(short_name, total_time->second));
-
-    {
-        std::lock_guard<std::mutex> l(_info_strings_lock);
-        for (const std::string& key : _info_strings_display_order) {
-            // nlohmann json will core dump when serializing 'KeyRanges', here temporarily skip it.
-            if (key.compare("KeyRanges") == 0) {
-                continue;
-            }
-            span->SetAttribute(key, print_json_info(short_name, _info_strings.find(key)->second));
-        }
-    }
-
-    RuntimeProfile::add_child_counters_to_span(span, short_name, ROOT_COUNTER, counter_map,
-                                               child_counter_map);
-
-    ChildVector children;
-    {
-        std::lock_guard<std::mutex> l(_children_lock);
-        children = _children;
-    }
-
-    for (int i = 0; i < children.size(); ++i) {
-        RuntimeProfile* profile = children[i].first;
-        profile->add_to_span();
-    }
-}
-
-void RuntimeProfile::add_child_counters_to_span(OpentelemetrySpan span,
-                                                const std::string& profile_name,
-                                                const std::string& counter_name,
-                                                const CounterMap& counter_map,
-                                                const ChildCounterMap& child_counter_map) {
-    ChildCounterMap::const_iterator itr = child_counter_map.find(counter_name);
-
-    if (itr != child_counter_map.end()) {
-        const std::set<std::string>& child_counters = itr->second;
-        for (const std::string& child_counter : child_counters) {
-            CounterMap::const_iterator iter = counter_map.find(child_counter);
-            DCHECK(iter != counter_map.end());
-            span->SetAttribute(iter->first, print_json_counter(profile_name, iter->second));
-            RuntimeProfile::add_child_counters_to_span(span, profile_name, child_counter,
-                                                       counter_map, child_counter_map);
-        }
-    }
-}
-
-std::string RuntimeProfile::print_json_info(const std::string& profile_name, std::string value) {
-    rapidjson::StringBuffer s;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(s);
-
-    writer.StartObject();
-    writer.Key("profile");
-    writer.String(profile_name.c_str());
-    writer.Key("pretty");
-    writer.String(value.c_str());
-    writer.EndObject();
-    return s.GetString();
-}
-
 void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree) {
     tree->nodes.clear();
     to_thrift(&tree->nodes);
@@ -640,11 +563,12 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];
     node.name = _name;
-    node.num_children = _children.size();
     node.metadata = _metadata;
     node.timestamp = _timestamp;
     node.indent = true;
-
+    if (this->is_set_sink()) {
+        node.__set_is_sink(this->is_sink());
+    }
     CounterMap counter_map;
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
@@ -658,6 +582,7 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
         counter.name = iter->first;
         counter.value = iter->second->value();
         counter.type = iter->second->type();
+        counter.__set_level(iter->second->level());
         node.counters.push_back(counter);
     }
 
@@ -672,6 +597,7 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
         std::lock_guard<std::mutex> l(_children_lock);
         children = _children;
     }
+    node.num_children = children.size();
 
     for (int i = 0; i < children.size(); ++i) {
         int child_idx = nodes->size();

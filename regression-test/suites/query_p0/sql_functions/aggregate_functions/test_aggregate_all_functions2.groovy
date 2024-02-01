@@ -49,6 +49,8 @@ suite("test_aggregate_all_functions2") {
         file "../../baseall.txt"
     }
 
+    sql "sync"
+
     qt_select_approx_count_distinct1 """ SELECT approx_count_distinct(k0) FROM baseall """
     qt_select_approx_count_distinct2 """ SELECT approx_count_distinct(k1) FROM baseall """
     qt_select_collect_set1 """ SELECT size(collect_set(k10,5)) FROM baseall """
@@ -79,5 +81,36 @@ suite("test_aggregate_all_functions2") {
     qt_select_topn_array6 """ select topn_array(k11,3,100) from baseall; """ 
     qt_select_count1 """ select count(distinct k1,k2,k5) from baseall; """ 
     qt_select_count2 """ select count(distinct k1,k2,cast(k5 as decimalv3(38,18))) from baseall; """ 
-      
+
+
+    sql "DROP DATABASE IF EXISTS metric_table"
+    sql """
+        CREATE TABLE `metric_table` (
+        `datekey` int(11) NULL,
+        `hour` int(11) NULL,
+        `device_id` bitmap BITMAP_UNION NOT NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`datekey`, `hour`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`datekey`, `hour`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "is_being_synced" = "false",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false"
+        ); 
+    """
+    sql """
+        insert into metric_table values
+        (20200622, 1, to_bitmap(243)),
+        (20200622, 2, bitmap_from_array([1,2,3,4,5,434543])),
+        (20200622, 3, to_bitmap(287667876573));
+    """
+
+    qt_select_minmax1 """ select * from metric_table order by hour; """
+    qt_select_minmax2 """ select max_by(datekey,hour) from metric_table; """
+    qt_select_minmax3 """ select bitmap_to_string(max_by(device_id,hour)) from metric_table; """
+    qt_select_minmax4 """ select bitmap_to_string(min_by(device_id,hour)) from metric_table; """
 }

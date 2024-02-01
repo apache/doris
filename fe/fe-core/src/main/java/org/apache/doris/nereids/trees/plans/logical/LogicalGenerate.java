@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -30,10 +31,12 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * plan for table generator, the statement like: SELECT * FROM tbl LATERAL VIEW EXPLODE(c1) g as (gc1);
@@ -50,7 +53,7 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_GENERATE, groupExpression, logicalProperties, child);
         this.generators = ImmutableList.copyOf(generators);
         this.generatorOutput = ImmutableList.copyOf(generatorOutput);
     }
@@ -79,8 +82,16 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         return generators;
     }
 
+    /**
+     * update generators
+     */
     public LogicalGenerate<Plan> withGenerators(List<Function> generators) {
-        return new LogicalGenerate<>(generators, generatorOutput,
+        Preconditions.checkArgument(generators.size() == generatorOutput.size());
+        List<Slot> newGeneratorOutput = Lists.newArrayList();
+        for (int i = 0; i < generators.size(); i++) {
+            newGeneratorOutput.add(generatorOutput.get(i).withNullable(generators.get(i).nullable()));
+        }
+        return new LogicalGenerate<>(generators, newGeneratorOutput,
                 Optional.empty(), Optional.of(getLogicalProperties()), child());
     }
 
@@ -91,9 +102,10 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     }
 
     @Override
-    public LogicalGenerate<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalGenerate<>(generators, generatorOutput,
-                Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalGenerate<>(generators, generatorOutput, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override
@@ -120,9 +132,6 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         LogicalGenerate<?> that = (LogicalGenerate<?>) o;
         return generators.equals(that.generators)
                 && generatorOutput.equals(that.generatorOutput);
@@ -130,6 +139,13 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), generators, generatorOutput);
+        return Objects.hash(generators, generatorOutput);
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        builder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+        return builder.build();
     }
 }

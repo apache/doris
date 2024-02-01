@@ -125,3 +125,24 @@ DORIS
 -- !sql --
 [6.6,[1,2,3],2]
 
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+

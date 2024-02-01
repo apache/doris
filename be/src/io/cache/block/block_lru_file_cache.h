@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_segment.h"
+#include "util/metrics.h"
 
 namespace doris {
 class TUniqueId;
@@ -126,6 +127,8 @@ private:
     LRUQueue _normal_queue;
     LRUQueue _disposable_queue;
 
+    size_t try_release() override;
+
     LRUFileCache::LRUQueue& get_queue(CacheType type);
     const LRUFileCache::LRUQueue& get_queue(CacheType type) const;
 
@@ -154,6 +157,9 @@ private:
 
     void remove(FileBlockSPtr file_block, std::lock_guard<std::mutex>& cache_lock,
                 std::lock_guard<std::mutex>& segment_lock) override;
+
+    void change_cache_type(const Key& key, size_t offset, CacheType new_type,
+                           std::lock_guard<std::mutex>& cache_lock) override;
 
     size_t get_available_cache_size(CacheType cache_type) const;
 
@@ -187,12 +193,38 @@ private:
 
     void run_background_operation();
 
+    void update_cache_metrics() const;
+
 public:
     std::string dump_structure(const Key& key) override;
 
 private:
     std::atomic_bool _close {false};
     std::thread _cache_background_thread;
+    size_t _num_read_segments = 0;
+    size_t _num_hit_segments = 0;
+    size_t _num_removed_segments = 0;
+
+    std::shared_ptr<MetricEntity> _entity;
+
+    DoubleGauge* file_cache_hits_ratio = nullptr;
+    UIntGauge* file_cache_removed_elements = nullptr;
+
+    UIntGauge* file_cache_index_queue_max_size = nullptr;
+    UIntGauge* file_cache_index_queue_curr_size = nullptr;
+    UIntGauge* file_cache_index_queue_max_elements = nullptr;
+    UIntGauge* file_cache_index_queue_curr_elements = nullptr;
+
+    UIntGauge* file_cache_normal_queue_max_size = nullptr;
+    UIntGauge* file_cache_normal_queue_curr_size = nullptr;
+    UIntGauge* file_cache_normal_queue_max_elements = nullptr;
+    UIntGauge* file_cache_normal_queue_curr_elements = nullptr;
+
+    UIntGauge* file_cache_disposable_queue_max_size = nullptr;
+    UIntGauge* file_cache_disposable_queue_curr_size = nullptr;
+    UIntGauge* file_cache_disposable_queue_max_elements = nullptr;
+    UIntGauge* file_cache_disposable_queue_curr_elements = nullptr;
+    UIntGauge* file_cache_segment_reader_cache_size = nullptr;
 };
 
 } // namespace io

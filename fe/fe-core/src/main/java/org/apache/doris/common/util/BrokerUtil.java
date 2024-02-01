@@ -18,7 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -29,7 +28,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.fs.obj.BlobStorage;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TBrokerCheckPathExistRequest;
 import org.apache.doris.thrift.TBrokerCheckPathExistResponse;
@@ -85,9 +86,9 @@ public class BrokerUtil {
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
         try {
-            BlobStorage storage = BlobStorage.create(
+            RemoteFileSystem fileSystem = FileSystemFactory.get(
                     brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
-            Status st = storage.list(path, rfiles, false);
+            Status st = fileSystem.list(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(brokerDesc.getName() + " list path failed. path=" + path
                         + ",msg=" + st.getErrMsg());
@@ -101,6 +102,7 @@ public class BrokerUtil {
             if (r.isFile()) {
                 TBrokerFileStatus status = new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile());
                 status.setBlockSize(r.getBlockSize());
+                status.setModificationTime(r.getModificationTime());
                 fileStatuses.add(status);
             }
         }
@@ -112,17 +114,20 @@ public class BrokerUtil {
 
     public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
             throws UserException {
-        return parseColumnsFromPath(filePath, columnsFromPath, true);
+        return parseColumnsFromPath(filePath, columnsFromPath, true, false);
     }
 
     public static List<String> parseColumnsFromPath(
             String filePath,
             List<String> columnsFromPath,
-            boolean caseSensitive)
+            boolean caseSensitive,
+            boolean isACID)
             throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
+        // if it is ACID, the path count is 3. The hdfs path is hdfs://xxx/table_name/par=xxx/delta(or base)_xxx/.
+        int pathCount = isACID ? 3 : 2;
         if (!caseSensitive) {
             for (int i = 0; i < columnsFromPath.size(); i++) {
                 String path = columnsFromPath.remove(i);
@@ -136,15 +141,21 @@ public class BrokerUtil {
         }
         String[] columns = new String[columnsFromPath.size()];
         int size = 0;
-        for (int i = strings.length - 2; i >= 0; i--) {
+        boolean skipOnce = true;
+        for (int i = strings.length - pathCount; i >= 0; i--) {
             String str = strings[i];
             if (str != null && str.isEmpty()) {
                 continue;
             }
             if (str == null || !str.contains("=")) {
+                if (!isACID && skipOnce) {
+                    skipOnce = false;
+                    continue;
+                }
                 throw new UserException("Fail to parse columnsFromPath, expected: "
                         + columnsFromPath + ", filePath: " + filePath);
             }
+            skipOnce = false;
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
                 throw new UserException("Fail to parse columnsFromPath, expected: "
@@ -206,7 +217,8 @@ public class BrokerUtil {
             long fileSize = fileStatuses.get(0).getSize();
 
             // open reader
-            String clientId = FrontendOptions.getLocalHostAddress() + ":" + Config.rpc_port;
+            String clientId = NetUtils
+                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.rpc_port);
             TBrokerOpenReaderRequest tOpenReaderRequest = new TBrokerOpenReaderRequest(
                     TBrokerVersion.VERSION_ONE, path, 0, clientId, brokerDesc.getProperties());
             TBrokerOpenReaderResponse tOpenReaderResponse = null;
@@ -263,7 +275,7 @@ public class BrokerUtil {
                         LOG.warn("Broker close reader failed. path={}, address={}", path, address, ex);
                     }
                 }
-                if (tOperationStatus == null || tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close reader failed. path={}, address={}, error={}", path, address,
                              tOperationStatus.getMessage());
                 } else {
@@ -439,7 +451,7 @@ public class BrokerUtil {
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
-        return new TNetworkAddress(broker.ip, broker.port);
+        return new TNetworkAddress(broker.host, broker.port);
     }
 
     public static TPaloBrokerService.Client borrowClient(TNetworkAddress address) throws UserException {
@@ -490,7 +502,8 @@ public class BrokerUtil {
             address = BrokerUtil.getAddress(brokerDesc);
             client = BrokerUtil.borrowClient(address);
             try {
-                String clientId = FrontendOptions.getLocalHostAddress() + ":" + Config.rpc_port;
+                String clientId = NetUtils
+                        .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.rpc_port);
                 TBrokerOpenWriterRequest tOpenWriterRequest = new TBrokerOpenWriterRequest(
                         TBrokerVersion.VERSION_ONE, brokerFilePath, TBrokerOpenMode.APPEND,
                         clientId, brokerDesc.getProperties());
@@ -564,7 +577,9 @@ public class BrokerUtil {
                         LOG.warn("Broker close writer failed. filePath={}, address={}", brokerFilePath, address, ex);
                     }
                 }
-                if (tOperationStatus == null || tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                if (tOperationStatus == null) {
+                    LOG.warn("Broker close reader failed. fd={}, address={}", fd.toString(), address);
+                } else if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close writer failed. filePath={}, address={}, error={}", brokerFilePath,
                              address, tOperationStatus.getMessage());
                 } else {

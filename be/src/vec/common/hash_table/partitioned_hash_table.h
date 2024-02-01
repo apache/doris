@@ -20,7 +20,6 @@
 #pragma once
 
 #include "vec/common/hash_table/hash_table.h"
-#include "vec/common/hash_table/hash_table_utils.h"
 
 /** Partitioned hash table.
   * Represents 16 (or 1ULL << BITS_FOR_SUB_TABLE) small hash tables (sub table count of the first level).
@@ -98,27 +97,14 @@ public:
         }
     }
 
-    template <typename Func>
-    void ALWAYS_INLINE for_each_value(Func&& func) {
-        if (_is_partitioned) {
-            for (auto i = 0u; i < NUM_LEVEL1_SUB_TABLES; ++i) {
-                level1_sub_tables[i].for_each_value(func);
-            }
-        } else {
-            level0_sub_table.for_each_value(func);
-        }
-    }
-
-    size_t get_size() {
+    size_t size() {
         size_t count = 0;
         if (_is_partitioned) {
             for (auto i = 0u; i < this->NUM_LEVEL1_SUB_TABLES; ++i) {
-                for (auto& v : this->level1_sub_tables[i]) {
-                    count += v.get_second().get_row_count();
-                }
+                count += this->level1_sub_tables[i].size();
             }
         } else {
-            count = level0_sub_table.get_size();
+            count = level0_sub_table.size();
         }
         return count;
     }
@@ -151,6 +137,14 @@ public:
         } else {
             level0_sub_table.delete_zero_key(key);
         }
+    }
+
+    int64_t get_collisions() const {
+        size_t collisions = level0_sub_table.get_collisions();
+        for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; i++) {
+            collisions += level1_sub_tables[i].get_collisions();
+        }
+        return collisions;
     }
 
     size_t get_buffer_size_in_bytes() const {
@@ -207,7 +201,10 @@ public:
     }
 
     bool has_null_key_data() const { return false; }
-    char* get_null_key_data() { return nullptr; }
+    template <typename MappedType>
+    char* get_null_key_data() {
+        return nullptr;
+    }
 
 protected:
     typename Impl::iterator begin_of_next_non_empty_sub_table_idx(size_t& sub_table_idx) {
@@ -380,48 +377,13 @@ public:
         }
     }
 
-    template <typename KeyHolder>
-    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
-        if (_is_partitioned) {
-            const auto& key = key_holder_get_key(key_holder);
-            const auto key_hash = hash(key);
-            const auto sub_table_idx = get_sub_table_from_hash(key_hash);
-            level1_sub_tables[sub_table_idx].prefetch(key_holder);
-        } else {
-            level0_sub_table.prefetch(key_holder);
-        }
-    }
-
     template <bool READ>
-    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
+    void ALWAYS_INLINE prefetch(const Key& key, size_t hash_value) {
         if (_is_partitioned) {
             const auto sub_table_idx = get_sub_table_from_hash(hash_value);
-            level1_sub_tables[sub_table_idx].template prefetch_by_hash<READ>(hash_value);
+            level1_sub_tables[sub_table_idx].template prefetch<READ>(hash_value);
         } else {
-            level0_sub_table.template prefetch_by_hash<READ>(hash_value);
-        }
-    }
-
-    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
-        if constexpr (HashTableTraits<Impl>::is_phmap) {
-            if (_is_partitioned) {
-                const auto sub_table_idx = get_sub_table_from_hash(hash_value);
-                level1_sub_tables[sub_table_idx].prefetch_by_hash(hash_value);
-            } else {
-                level0_sub_table.prefetch_by_hash(hash_value);
-            }
-        }
-    }
-
-    template <bool READ, typename KeyHolder>
-    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
-        if (_is_partitioned) {
-            const auto& key = key_holder_get_key(key_holder);
-            const auto key_hash = hash(key);
-            const auto sub_table_idx = get_sub_table_from_hash(key_hash);
-            level1_sub_tables[sub_table_idx].template prefetch<READ>(key_holder);
-        } else {
-            level0_sub_table.template prefetch<READ>(key_holder);
+            level0_sub_table.template prefetch<READ>(hash_value);
         }
     }
 
@@ -442,7 +404,7 @@ public:
       */
     template <typename KeyHolder>
     void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted) {
-        size_t hash_value = hash(key_holder_get_key(key_holder));
+        size_t hash_value = hash(key_holder);
         emplace(key_holder, it, inserted, hash_value);
     }
 
@@ -460,8 +422,7 @@ public:
 
                 // The hash table was converted to partitioned, so we have to re-find the key.
                 size_t sub_table_id = get_sub_table_from_hash(hash_value);
-                it = level1_sub_tables[sub_table_id].find(key_holder_get_key(key_holder),
-                                                          hash_value);
+                it = level1_sub_tables[sub_table_id].find(key_holder, hash_value);
             }
         }
     }
@@ -474,7 +435,7 @@ public:
 
     template <typename KeyHolder, typename Func>
     void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
-        size_t hash_value = hash(key_holder_get_key(key_holder));
+        size_t hash_value = hash(key_holder);
         lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
     }
 
@@ -492,8 +453,7 @@ public:
 
                 // The hash table was converted to partitioned, so we have to re-find the key.
                 size_t sub_table_id = get_sub_table_from_hash(hash_value);
-                it = level1_sub_tables[sub_table_id].find(key_holder_get_key(key_holder),
-                                                          hash_value);
+                it = level1_sub_tables[sub_table_id].find(key_holder, hash_value);
             }
         }
     }
@@ -518,7 +478,9 @@ public:
     size_t size() const {
         if (_is_partitioned) {
             size_t res = 0;
-            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) res += level1_sub_tables[i].size();
+            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                res += level1_sub_tables[i].size();
+            }
             return res;
         } else {
             return level0_sub_table.size();
@@ -555,6 +517,9 @@ private:
     void convert_to_partitioned() {
         SCOPED_RAW_TIMER(&_convert_timer_ns);
 
+        DCHECK(!_is_partitioned);
+        _is_partitioned = true;
+
         auto bucket_count = level0_sub_table.get_buffer_size_in_cells();
         for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
             level1_sub_tables[i] = std::move(Impl(bucket_count / NUM_LEVEL1_SUB_TABLES));
@@ -562,29 +527,19 @@ private:
 
         auto it = level0_sub_table.begin();
 
-        if constexpr (HashTableTraits<Impl>::is_phmap) {
-            for (; it != level0_sub_table.end(); ++it) {
-                size_t hash_value = level0_sub_table.hash(it.get_first());
-                size_t sub_table_idx = get_sub_table_from_hash(hash_value);
-                level1_sub_tables[sub_table_idx].insert(it.get_first(), hash_value,
-                                                        it.get_second());
-            }
-        } else {
-            /// It is assumed that the zero key (stored separately) is first in iteration order.
-            if (it != level0_sub_table.end() && it.get_ptr()->is_zero(level0_sub_table)) {
-                insert(it->get_value());
-                ++it;
-            }
-
-            for (; it != level0_sub_table.end(); ++it) {
-                const auto* cell = it.get_ptr();
-                size_t hash_value = cell->get_hash(level0_sub_table);
-                size_t sub_table_idx = get_sub_table_from_hash(hash_value);
-                level1_sub_tables[sub_table_idx].insert_unique_non_zero(cell, hash_value);
-            }
+        /// It is assumed that the zero key (stored separately) is first in iteration order.
+        if (it != level0_sub_table.end() && it.get_ptr()->is_zero(level0_sub_table)) {
+            insert(it->get_value());
+            ++it;
         }
 
-        _is_partitioned = true;
+        for (; it != level0_sub_table.end(); ++it) {
+            const auto* cell = it.get_ptr();
+            size_t hash_value = cell->get_hash(level0_sub_table);
+            size_t sub_table_idx = get_sub_table_from_hash(hash_value);
+            level1_sub_tables[sub_table_idx].insert_unique_non_zero(cell, hash_value);
+        }
+
         level0_sub_table.clear_and_shrink();
     }
 

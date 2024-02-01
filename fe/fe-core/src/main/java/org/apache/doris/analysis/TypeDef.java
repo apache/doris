@@ -28,6 +28,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
 
@@ -43,9 +44,15 @@ import java.util.Set;
 public class TypeDef implements ParseNode {
     private boolean isAnalyzed;
     private final Type parsedType;
+    private boolean isNullable = false;
 
     public TypeDef(Type parsedType) {
         this.parsedType = parsedType;
+    }
+
+    public TypeDef(Type parsedType, boolean isNullable) {
+        this.parsedType = parsedType;
+        this.isNullable = isNullable;
     }
 
     public static TypeDef create(PrimitiveType type) {
@@ -117,6 +124,7 @@ public class TypeDef implements ParseNode {
         }
 
         if (type.isComplexType()) {
+            // now we not support array / map / struct nesting complex type
             if (type.isArrayType()) {
                 Type itemType = ((ArrayType) type).getItemType();
                 if (itemType instanceof ScalarType) {
@@ -124,10 +132,13 @@ public class TypeDef implements ParseNode {
                 }
             }
             if (type.isMapType()) {
-                ScalarType keyType = (ScalarType) ((MapType) type).getKeyType();
-                ScalarType valueType = (ScalarType) ((MapType) type).getKeyType();
-                analyzeNestedType(type, keyType);
-                analyzeNestedType(type, valueType);
+                MapType mt = (MapType) type;
+                if (mt.getKeyType() instanceof ScalarType) {
+                    analyzeNestedType(type, (ScalarType) mt.getKeyType());
+                }
+                if (mt.getValueType() instanceof ScalarType) {
+                    analyzeNestedType(type, (ScalarType) mt.getValueType());
+                }
             }
             if (type.isStructType()) {
                 ArrayList<StructField> fields = ((StructType) type).getFields();
@@ -156,15 +167,24 @@ public class TypeDef implements ParseNode {
                     parent.getPrimitiveType() + " unsupported sub-type: " + child.toSql());
         }
 
-        if (child.getPrimitiveType().isStringType() && !child.isLengthSet()) {
-            child.setLength(1);
-        }
         analyze(child);
     }
 
     private void analyzeScalarType(ScalarType scalarType)
             throws AnalysisException {
         PrimitiveType type = scalarType.getPrimitiveType();
+        // When string type length is not assigned, it needs to be assigned to 1.
+        if (scalarType.getPrimitiveType().isStringType() && !scalarType.isLengthSet()) {
+            if (scalarType.getPrimitiveType() == PrimitiveType.VARCHAR) {
+                // always set varchar length MAX_VARCHAR_LENGTH
+                scalarType.setLength(ScalarType.MAX_VARCHAR_LENGTH);
+            } else if (scalarType.getPrimitiveType() == PrimitiveType.STRING) {
+                // always set text length MAX_STRING_LENGTH
+                scalarType.setLength(ScalarType.MAX_STRING_LENGTH);
+            } else {
+                scalarType.setLength(1);
+            }
+        }
         switch (type) {
             case CHAR:
             case VARCHAR: {
@@ -176,7 +196,6 @@ public class TypeDef implements ParseNode {
                 } else {
                     name = "CHAR";
                     maxLen = ScalarType.MAX_CHAR_LENGTH;
-                    return;
                 }
                 int len = scalarType.getLength();
                 // len is decided by child, when it is -1.
@@ -271,6 +290,31 @@ public class TypeDef implements ParseNode {
                 }
                 break;
             }
+            case DECIMAL256: {
+                if (SessionVariable.getEnableDecimal256()) {
+                    int precision = scalarType.decimalPrecision();
+                    int scale = scalarType.decimalScale();
+                    if (precision < 1 || precision > ScalarType.MAX_DECIMAL256_PRECISION) {
+                        throw new AnalysisException("Precision of decimal256 must between 1 and 76."
+                                + " Precision was set to: " + precision + ".");
+                    }
+                    // scale >= 0
+                    if (scale < 0) {
+                        throw new AnalysisException("Scale of decimal must not be less than 0." + " Scale was set to: "
+                                + scale + ".");
+                    }
+                    // scale < precision
+                    if (scale > precision) {
+                        throw new AnalysisException("Scale of decimal must be smaller than precision."
+                                + " Scale is " + scale + " and precision is " + precision);
+                    }
+                    break;
+                } else {
+                    int precision = scalarType.decimalPrecision();
+                    throw new AnalysisException(
+                            "Column of type Decimal256 with precision " + precision + " in not supported.");
+                }
+            }
             case TIMEV2:
             case DATETIMEV2: {
                 int precision = scalarType.decimalPrecision();
@@ -295,6 +339,10 @@ public class TypeDef implements ParseNode {
 
     public Type getType() {
         return parsedType;
+    }
+
+    public boolean getNullable() {
+        return isNullable;
     }
 
     @Override

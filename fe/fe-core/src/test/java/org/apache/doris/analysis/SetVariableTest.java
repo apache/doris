@@ -52,7 +52,7 @@ public class SetVariableTest {
         Assert.assertEquals("STRICT_TRANS_TABLES",
                 SqlModeHelper.decode(connectContext.getSessionVariable().getSqlMode()));
 
-        String selectStr = "explain select @@sql_mode;";
+        String selectStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ @@sql_mode;";
         connectContext.getState().reset();
         stmtExecutor = new StmtExecutor(connectContext, selectStr);
         stmtExecutor.execute();

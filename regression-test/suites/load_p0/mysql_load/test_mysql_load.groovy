@@ -153,7 +153,8 @@ suite("test_mysql_load", "p0") {
         (col)
         SET (k1=year(col),k2=month(col),k3=month(col),k4=day(col),k5=7.7,k6="a",k10=date(col),k11=FROM_UNIXTIME(2019,"%Y-%m-%dT%H:%i:%s"),k7="k7",k8=month(col),k9=day(col));
     """
-
+    
+    sql "sync"
     order_qt_sql1 " SELECT * FROM ${tableName2}"
 
 }

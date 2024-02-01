@@ -43,8 +43,6 @@ public:
 
     ConstSetPtr get_data() const { return data; }
 
-    TypeIndex get_data_type() const override { return TypeIndex::String; }
-
 private:
     ConstSetPtr data;
 };

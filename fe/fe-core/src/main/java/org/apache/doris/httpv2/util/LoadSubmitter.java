@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.util;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.NetUtils;
@@ -53,7 +54,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class LoadSubmitter {
     private static final Logger LOG = LogManager.getLogger(LoadSubmitter.class);
 
-    private ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPool(2, "load-submitter", true);
+    private ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPoolThrowException(
+                        Config.http_load_submitter_max_worker_threads, "load-submitter", true);
 
     private static final String STREAM_LOAD_URL_PATTERN = "http://%s/api/%s/%s/_stream_load";
 
@@ -84,7 +86,7 @@ public class LoadSubmitter {
             // choose a backend to submit the stream load
             Backend be = selectOneBackend();
 
-            String hostPort = NetUtils.getHostPortInAccessibleFormat(be.getIp(), be.getHttpPort());
+            String hostPort = NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort());
             String loadUrlStr = String.format(STREAM_LOAD_URL_PATTERN, hostPort, loadContext.db, loadContext.tbl);
             URL loadUrl = new URL(loadUrlStr);
             HttpURLConnection conn = (HttpURLConnection) loadUrl.openConnection();

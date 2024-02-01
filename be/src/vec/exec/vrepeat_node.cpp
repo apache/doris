@@ -18,7 +18,6 @@
 #include "vec/exec/vrepeat_node.h"
 
 #include <gen_cpp/PlanNodes_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <string.h>
 
 #include <functional>
@@ -33,16 +32,17 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 VRepeatNode::VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -53,11 +53,13 @@ VRepeatNode::VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const Descrip
           _grouping_list(tnode.repeat_node.grouping_list),
           _output_tuple_id(tnode.repeat_node.output_tuple_id),
           _child_eos(false),
-          _repeat_id_idx(0) {}
+          _repeat_id_idx(0) {
+    _child_block = Block::create_shared();
+}
 
 Status VRepeatNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, tnode.repeat_node.exprs, &_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.repeat_node.exprs, _expr_ctxs));
     return Status::OK();
 }
 
@@ -66,6 +68,7 @@ Status VRepeatNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_TIMER(_exec_timer);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     if (_output_tuple_desc == nullptr) {
         return Status::InternalError("Failed to get tuple descriptor.");
@@ -81,7 +84,6 @@ Status VRepeatNode::prepare(RuntimeState* state) {
 }
 
 Status VRepeatNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VRepeatNode::open");
     VLOG_CRITICAL << "VRepeatNode::open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -90,7 +92,7 @@ Status VRepeatNode::open(RuntimeState* state) {
 }
 
 Status VRepeatNode::alloc_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VRepeatNode::open");
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(VExpr::open(_expr_ctxs, state));
@@ -104,17 +106,10 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
 
     size_t child_column_size = child_block->columns();
     size_t column_size = _output_slots.size();
-    bool mem_reuse = output_block->mem_reuse();
     DCHECK_LT(child_column_size, column_size);
-    std::vector<vectorized::MutableColumnPtr> columns(column_size);
-    for (size_t i = 0; i < column_size; i++) {
-        if (mem_reuse) {
-            columns[i] = std::move(*output_block->get_by_position(i).column).mutate();
-        } else {
-            columns[i] = _output_slots[i]->get_empty_mutable_column();
-        }
-    }
-
+    MutableBlock m_block =
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, _output_slots);
+    MutableColumns& columns = m_block.mutable_columns();
     /* Fill all slots according to child, for example:select tc1,tc2,sum(tc3) from t1 group by grouping sets((tc1),(tc2));
      * insert into t1 values(1,2,1),(1,3,1),(2,1,1),(3,1,1);
      * slot_id_set_list=[[0],[1]],repeat_id_idx=0,
@@ -172,25 +167,14 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         }
         cur_col++;
     }
-
+    output_block->set_columns(std::move(columns));
     DCHECK_EQ(cur_col, column_size);
 
-    if (!columns.empty() && !columns[0]->empty()) {
-        auto n_columns = 0;
-        if (!mem_reuse) {
-            for (const auto slot_desc : _output_slots) {
-                output_block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
-                                                           slot_desc->get_data_type_ptr(),
-                                                           slot_desc->col_name()));
-            }
-        } else {
-            columns.clear();
-        }
-    }
     return Status::OK();
 }
 
 Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_CANCELLED(state);
     DCHECK(_repeat_id_idx >= 0);
     for (const std::vector<int64_t>& v : _grouping_list) {
@@ -207,18 +191,19 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
         int size = _repeat_id_list.size();
         if (_repeat_id_idx >= size) {
             _intermediate_block->clear();
-            release_block_memory(_child_block);
+            release_block_memory(*_child_block);
             _repeat_id_idx = 0;
         }
     }
-
-    *eos = _child_eos && _child_block.rows() == 0;
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
+    *eos = _child_eos && _child_block->rows() == 0;
     reached_limit(output_block, eos);
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     return Status::OK();
 }
 
 Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     _child_eos = eos;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
     DCHECK(!_expr_ctxs.empty());
@@ -226,7 +211,7 @@ Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bo
     if (input_block->rows() > 0) {
         _intermediate_block = Block::create_unique();
 
-        for (auto expr : _expr_ctxs) {
+        for (auto& expr : _expr_ctxs) {
             int result_column_id = -1;
             RETURN_IF_ERROR(expr->execute(input_block, &result_column_id));
             DCHECK(result_column_id != -1);
@@ -242,14 +227,13 @@ Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bo
 }
 
 bool VRepeatNode::need_more_input_data() const {
-    return !_child_block.rows() && !_child_eos;
+    return !_child_block->rows() && !_child_eos;
 }
 
 Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is nullptr");
     }
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VRepeatNode::get_next");
     VLOG_CRITICAL << "VRepeatNode::get_next";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
@@ -260,16 +244,14 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     }
     DCHECK(block->rows() == 0);
     while (need_more_input_data()) {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, &_child_block, &_child_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), _child_eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, _child_block.get(), &_child_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
-        push(state, &_child_block, _child_eos);
+        static_cast<void>(push(state, _child_block.get(), _child_eos));
     }
 
     return pull(state, block, eos);
@@ -284,8 +266,6 @@ Status VRepeatNode::close(RuntimeState* state) {
 }
 
 void VRepeatNode::release_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::close");
-    VExpr::close(_expr_ctxs, state);
     ExecNode::release_resource(state);
 }
 

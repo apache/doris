@@ -17,19 +17,16 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <ostream>
+#include <sstream>
 #include <string>
 #include <utility>
 
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 #include "olap/tablet.h"
 #include "util/threadpool.h"
 
@@ -37,19 +34,33 @@ namespace doris {
 class DataDir;
 class HttpRequest;
 
+class ExecEnv;
+class StorageEngine;
+
 // Migrate a tablet from a disk to another.
-class TabletMigrationAction : public HttpHandler {
+class TabletMigrationAction : public HttpHandlerWithAuth {
 public:
-    TabletMigrationAction();
+    TabletMigrationAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
+                          TPrivilegeType::type type)
+            : HttpHandlerWithAuth(exec_env, hier, type), _engine(engine) {
+        _init_migration_action();
+    }
+
+    ~TabletMigrationAction() override = default;
+
     void handle(HttpRequest* req) override;
+
     void _init_migration_action();
+
     Status _execute_tablet_migration(TabletSharedPtr tablet, DataDir* dest_store);
+
     Status _check_param(HttpRequest* req, int64_t& tablet_id, int32_t& schema_hash,
                         string& dest_disk, string& goal);
     Status _check_migrate_request(int64_t tablet_id, int32_t schema_hash, string dest_disk,
                                   TabletSharedPtr& tablet, DataDir** dest_store);
 
 private:
+    StorageEngine& _engine;
     std::unique_ptr<ThreadPool> _migration_thread_pool;
 
     struct MigrationTask {

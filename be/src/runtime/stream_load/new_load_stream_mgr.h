@@ -27,6 +27,7 @@
 #include "common/factory_creator.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "util/debug_points.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -42,30 +43,37 @@ public:
     ~NewLoadStreamMgr();
 
     Status put(const UniqueId& id, std::shared_ptr<StreamLoadContext> stream) {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _stream_map.find(id);
-        if (it != std::end(_stream_map)) {
-            return Status::InternalError("id already exist");
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            DBUG_EXECUTE_IF("NewLoadStreamMgr.test_duplicated_load_id",
+                            _stream_map.emplace(id, stream));
+            if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
+                std::stringstream ss;
+                ss << "id: " << id << " already exist";
+                return Status::InternalError(ss.str());
+            }
+            _stream_map.emplace(id, stream);
         }
-        _stream_map.emplace(id, stream);
+
         VLOG_NOTICE << "put stream load pipe: " << id;
         return Status::OK();
     }
 
     std::shared_ptr<StreamLoadContext> get(const UniqueId& id) {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _stream_map.find(id);
-        if (it == std::end(_stream_map)) {
-            return std::shared_ptr<StreamLoadContext>(nullptr);
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
+                return iter->second;
+            }
         }
-        return it->second;
+        VLOG_NOTICE << "stream load pipe does not exist: " << id;
+        return nullptr;
     }
 
     void remove(const UniqueId& id) {
         std::lock_guard<std::mutex> l(_lock);
-        auto it = _stream_map.find(id);
-        if (it != std::end(_stream_map)) {
-            _stream_map.erase(it);
+        if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
+            _stream_map.erase(iter);
             VLOG_NOTICE << "remove stream load pipe: " << id;
         }
     }

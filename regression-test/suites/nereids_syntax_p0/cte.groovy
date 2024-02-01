@@ -35,6 +35,10 @@ suite("cte") {
 
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql """
+        SET enable_pipeline_engine = true
+    """
+
     order_qt_cte_1 """
         WITH cte1 AS (
             SELECT s_suppkey
@@ -233,6 +237,40 @@ suite("cte") {
      
     """
 
+    qt_cte13 """
+            SELECT abs(dd.s_suppkey)
+            FROM (
+            WITH part AS 
+                (SELECT s_suppkey
+                FROM supplier
+                WHERE s_suppkey < 30 )
+                    SELECT p1.s_suppkey
+                    FROM part p1
+                    JOIN part p2
+                        ON p1.s_suppkey = p2.s_suppkey
+                    WHERE p1.s_suppkey > 0 ) dd
+                WHERE dd.s_suppkey > 0
+                ORDER BY dd.s_suppkey;
+    """
+
+    sql "set enable_pipeline_engine=true"
+
+    qt_cte14 """
+            SELECT abs(dd.s_suppkey)
+            FROM (
+            WITH part AS 
+                (SELECT s_suppkey
+                FROM supplier
+                WHERE s_suppkey < 30 )
+                    SELECT p1.s_suppkey
+                    FROM part p1
+                    JOIN part p2
+                        ON p1.s_suppkey = p2.s_suppkey
+                    WHERE p1.s_suppkey > 0 ) dd
+                WHERE dd.s_suppkey > 0
+                ORDER BY dd.s_suppkey;
+    """
+
     test {
         sql = "WITH cte1 (a1, A1) AS (SELECT * FROM supplier) SELECT * FROM cte1"
 
@@ -263,5 +301,38 @@ suite("cte") {
         exception = "[cte1] cannot be used more than once"
     }
 
+    explain {
+        sql("WITH cte_0 AS ( SELECT 1 AS a ) SELECT * from cte_0 t1 join cte_0 t2 on true WHERE false;")
+        notContains "MultiCastDataSinks"
+    }
+
+    sql "WITH cte_0 AS ( SELECT 1 AS a ) SELECT * from cte_0 t1 LIMIT 10 UNION SELECT * from cte_0 t1 LIMIT 10"
+
+    qt_cte_with_repeat """
+        with cte_0 as (select lo_orderkey, lo_linenumber, grouping_id(lo_orderkey) as id from lineorder group by cube(lo_orderkey, lo_linenumber))
+        select * from cte_0 order by lo_orderkey, lo_linenumber, id
+    """
+
+    qt_test """
+        SELECT * FROM (
+        WITH temptable as (
+        SELECT 1 Id, '2023-08-25 00:00:00' UpdateDateTime, 10 Value
+        UNION
+        SELECT 1 Id, '2023-08-25 01:00:00' UpdateDateTime, 20 Value
+        )
+        SELECT temptable.Id, temptable.UpdateDateTime, temptable.Value, rolling.RollingValue FROM temptable
+        LEFT JOIN (
+        SELECT Id, UpdateDateTime, SUM(Value) OVER (PARTITION BY CAST(UpdateDateTime AS DATE) ORDER BY UpdateDateTime) AS RollingValue
+        FROM temptable
+        GROUP BY Id, UpdateDateTime, Value
+        ) rolling ON temptable.Id = rolling.Id AND temptable.UpdateDateTime = rolling.UpdateDateTime
+        ) tab
+        WHERE Id IN (1, 2)
+    """
+
+    // rewrite cte children should work well with cost based rewrite rule. rely on rewrite rule: InferSetOperatorDistinct
+    sql """
+        WITH cte_0 AS ( SELECT 1 AS a ), cte_1 AS ( SELECT 1 AS a ) select * from cte_0, cte_1 union select * from cte_0, cte_1
+    """
 }
 

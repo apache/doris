@@ -28,11 +28,11 @@
 #include "vec/core/block.h"
 #include "vec/core/sort_cursor.h"
 #include "vec/core/sort_description.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
 namespace vectorized {
-class VExprContext;
 
 // VSortedRunMerger is used to merge multiple sorted runs of blocks. A run is a sorted
 // sequence of blocks, which are fetched from a BlockSupplier function object.
@@ -45,10 +45,9 @@ public:
     // Function that returns the next block of rows from an input sorted run. The batch
     // is owned by the supplier (i.e. not VSortedRunMerger). eos is indicated by an NULL
     // batch being returned.
-    VSortedRunMerger(const std::vector<VExprContext*>& ordering_expr,
-                     const std::vector<bool>& _is_asc_order, const std::vector<bool>& _nulls_first,
-                     const size_t batch_size, int64_t limit, size_t offset,
-                     RuntimeProfile* profile);
+    VSortedRunMerger(const VExprContextSPtrs& ordering_expr, const std::vector<bool>& _is_asc_order,
+                     const std::vector<bool>& _nulls_first, const size_t batch_size, int64_t limit,
+                     size_t offset, RuntimeProfile* profile);
 
     VSortedRunMerger(const SortDescription& desc, const size_t batch_size, int64_t limit,
                      size_t offset, RuntimeProfile* profile);
@@ -63,8 +62,10 @@ public:
     // Return the next block of sorted rows from this merger.
     Status get_next(Block* output_block, bool* eos);
 
+    void set_pipeline_engine_enabled(bool value) { _pipeline_engine_enabled = value; }
+
 protected:
-    const std::vector<VExprContext*> _ordering_expr;
+    const VExprContextSPtrs _ordering_expr;
     SortDescription _desc;
     const std::vector<bool> _is_asc_order;
     const std::vector<bool> _nulls_first;
@@ -75,20 +76,28 @@ protected:
     int64_t _limit = -1;
     size_t _offset = 0;
 
+    bool _pipeline_engine_enabled = false;
+
     std::vector<BlockSupplierSortCursorImpl> _cursors;
     std::priority_queue<MergeSortCursor> _priority_queue;
+
+    /// In pipeline engine, if a cursor needs to read one more block from supplier,
+    /// we make it as a pending cursor until the supplier is readable.
+    MergeSortCursorImpl* _pending_cursor = nullptr;
 
     Block _empty_block;
 
     // Times calls to get_next().
-    RuntimeProfile::Counter* _get_next_timer;
+    RuntimeProfile::Counter* _get_next_timer = nullptr;
 
     // Times calls to get the next batch of rows from the input run.
-    RuntimeProfile::Counter* _get_next_block_timer;
+    RuntimeProfile::Counter* _get_next_block_timer = nullptr;
 
 private:
     void init_timers(RuntimeProfile* profile);
-    void next_heap(MergeSortCursor& current);
+
+    /// In pipeline engine, return false if need to read one more block from sender.
+    bool next_heap(MergeSortCursor& current);
     bool has_next_block(MergeSortCursor& current);
 };
 

@@ -29,40 +29,38 @@ namespace doris::vectorized {
 // binary: <size array> | <quantilestate array>
 //  <size array>: row num | quantilestate1 size | quantilestate2 size | ...
 //  <quantilestate array>: quantilestate1 | quantilestate2 | ...
-template <typename T>
-int64_t DataTypeQuantileState<T>::get_uncompressed_serialized_bytes(const IColumn& column,
-                                                                    int be_exec_version) const {
+int64_t DataTypeQuantileState::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                                 int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
-    auto& data_column = assert_cast<const ColumnQuantileState<T>&>(*ptr);
+    auto& data_column = assert_cast<const ColumnQuantileState&>(*ptr);
 
     auto allocate_len_size = sizeof(size_t) * (column.size() + 1);
     auto allocate_content_size = 0;
     for (size_t i = 0; i < column.size(); ++i) {
-        auto& quantile_state = const_cast<QuantileState<T>&>(data_column.get_element(i));
+        auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
         allocate_content_size += quantile_state.get_serialized_size();
     }
 
     return allocate_len_size + allocate_content_size;
 }
 
-template <typename T>
-char* DataTypeQuantileState<T>::serialize(const IColumn& column, char* buf,
-                                          int be_exec_version) const {
+char* DataTypeQuantileState::serialize(const IColumn& column, char* buf,
+                                       int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
-    auto& data_column = assert_cast<const ColumnQuantileState<T>&>(*ptr);
+    auto& data_column = assert_cast<const ColumnQuantileState&>(*ptr);
 
     // serialize the quantile_state size array, row num saves at index 0
     size_t* meta_ptr = (size_t*)buf;
     meta_ptr[0] = column.size();
     for (size_t i = 0; i < meta_ptr[0]; ++i) {
-        auto& quantile_state = const_cast<QuantileState<T>&>(data_column.get_element(i));
+        auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
         meta_ptr[i + 1] = quantile_state.get_serialized_size();
     }
 
     // serialize each quantile_state
     char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
     for (size_t i = 0; i < meta_ptr[0]; ++i) {
-        auto& quantile_state = const_cast<QuantileState<T>&>(data_column.get_element(i));
+        auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
         quantile_state.serialize((uint8_t*)data_ptr);
         data_ptr += meta_ptr[i + 1];
     }
@@ -70,10 +68,9 @@ char* DataTypeQuantileState<T>::serialize(const IColumn& column, char* buf,
     return data_ptr;
 }
 
-template <typename T>
-const char* DataTypeQuantileState<T>::deserialize(const char* buf, IColumn* column,
-                                                  int be_exec_version) const {
-    auto& data_column = assert_cast<ColumnQuantileState<T>&>(*column);
+const char* DataTypeQuantileState::deserialize(const char* buf, IColumn* column,
+                                               int be_exec_version) const {
+    auto& data_column = assert_cast<ColumnQuantileState&>(*column);
     auto& data = data_column.get_data();
 
     // deserialize the quantile_state size array
@@ -91,15 +88,12 @@ const char* DataTypeQuantileState<T>::deserialize(const char* buf, IColumn* colu
     return data_ptr;
 }
 
-template <typename T>
-MutableColumnPtr DataTypeQuantileState<T>::create_column() const {
-    return ColumnQuantileState<T>::create();
+MutableColumnPtr DataTypeQuantileState::create_column() const {
+    return ColumnQuantileState::create();
 }
 
-template <typename T>
-void DataTypeQuantileState<T>::serialize_as_stream(const QuantileState<T>& cvalue,
-                                                   BufferWritable& buf) {
-    auto& value = const_cast<QuantileState<T>&>(cvalue);
+void DataTypeQuantileState::serialize_as_stream(const QuantileState& cvalue, BufferWritable& buf) {
+    auto& value = const_cast<QuantileState&>(cvalue);
     std::string memory_buffer;
     int bytesize = value.get_serialized_size();
     memory_buffer.resize(bytesize);
@@ -107,24 +101,20 @@ void DataTypeQuantileState<T>::serialize_as_stream(const QuantileState<T>& cvalu
     write_string_binary(memory_buffer, buf);
 }
 
-template <typename T>
-void DataTypeQuantileState<T>::deserialize_as_stream(QuantileState<T>& value, BufferReadable& buf) {
+void DataTypeQuantileState::deserialize_as_stream(QuantileState& value, BufferReadable& buf) {
     StringRef ref;
     read_string_binary(ref, buf);
     value.deserialize(ref.to_slice());
 }
 
-template <typename T>
-void DataTypeQuantileState<T>::to_string(const class doris::vectorized::IColumn& column,
-                                         size_t row_num,
-                                         doris::vectorized::BufferWritable& ostr) const {
-    auto& data = const_cast<QuantileState<T>&>(
-            assert_cast<const ColumnQuantileState<T>&>(column).get_element(row_num));
+void DataTypeQuantileState::to_string(const class doris::vectorized::IColumn& column,
+                                      size_t row_num,
+                                      doris::vectorized::BufferWritable& ostr) const {
+    auto& data = const_cast<QuantileState&>(
+            assert_cast<const ColumnQuantileState&>(column).get_element(row_num));
     std::string result(data.get_serialized_size(), '0');
     data.serialize((uint8_t*)result.data());
     ostr.write(result.data(), result.size());
 }
-
-template class DataTypeQuantileState<double>;
 
 } // namespace doris::vectorized

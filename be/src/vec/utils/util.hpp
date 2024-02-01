@@ -22,6 +22,7 @@
 #include <boost/shared_ptr.hpp>
 
 #include "runtime/descriptors.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
@@ -34,7 +35,37 @@ public:
         // Block block;
         return create_columns_with_type_and_name(row_desc);
     }
-
+    static MutableBlock build_mutable_mem_reuse_block(Block* block, const RowDescriptor& row_desc) {
+        if (!block->mem_reuse()) {
+            MutableBlock tmp(VectorizedUtils::create_columns_with_type_and_name(row_desc));
+            block->swap(tmp.to_block());
+        }
+        return MutableBlock::build_mutable_block(block);
+    }
+    static MutableBlock build_mutable_mem_reuse_block(Block* block, const Block& other) {
+        if (!block->mem_reuse()) {
+            MutableBlock tmp(other.clone_empty());
+            block->swap(tmp.to_block());
+        }
+        return MutableBlock::build_mutable_block(block);
+    }
+    static MutableBlock build_mutable_mem_reuse_block(Block* block,
+                                                      std::vector<SlotDescriptor*>& slots) {
+        if (!block->mem_reuse()) {
+            size_t column_size = slots.size();
+            MutableColumns columns(column_size);
+            for (size_t i = 0; i < column_size; i++) {
+                columns[i] = slots[i]->get_empty_mutable_column();
+            }
+            int n_columns = 0;
+            for (const auto slot_desc : slots) {
+                block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
+                                                    slot_desc->get_data_type_ptr(),
+                                                    slot_desc->col_name()));
+            }
+        }
+        return MutableBlock(block);
+    }
     static ColumnsWithTypeAndName create_columns_with_type_and_name(
             const RowDescriptor& row_desc, bool ignore_trivial_slot = true) {
         ColumnsWithTypeAndName columns_with_type_and_name;
@@ -92,34 +123,37 @@ public:
         return data_types;
     }
 
-    static VExpr* dfs_peel_conjunct(RuntimeState* state, VExprContext* context, VExpr* expr,
-                                    int& leaf_index, std::function<bool(int)> checker) {
-        static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
-
-        if (is_leaf(expr)) {
-            if (checker(leaf_index++)) {
-                expr->close(state, context, context->get_function_state_scope());
-                return nullptr;
+    static std::vector<std::string> get_column_names(const RowDescriptor& row_desc) {
+        std::vector<std::string> column_names;
+        for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
+            for (const auto& slot_desc : tuple_desc->slots()) {
+                column_names.push_back(slot_desc->col_name());
             }
-            return expr;
-        } else {
-            VExpr* left_child =
-                    dfs_peel_conjunct(state, context, expr->children()[0], leaf_index, checker);
-            VExpr* right_child =
-                    dfs_peel_conjunct(state, context, expr->children()[1], leaf_index, checker);
-
-            if (left_child != nullptr && right_child != nullptr) {
-                expr->set_children({left_child, right_child});
-                return expr;
-            } else {
-                // here only close the and expr self, do not close the child
-                expr->set_children({});
-                expr->close(state, context, context->get_function_state_scope());
-            }
-
-            return left_child != nullptr ? left_child : right_child;
         }
+        return column_names;
     }
+
+    static bool all_arguments_are_constant(const Block& block, const ColumnNumbers& args) {
+        for (const auto& arg : args) {
+            if (!is_column_const(*block.get_by_position(arg).column)) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
+inline bool match_suffix(const std::string& name, const std::string& suffix) {
+    if (name.length() < suffix.length()) {
+        return false;
+    }
+    return name.substr(name.length() - suffix.length()) == suffix;
+}
+
+inline std::string remove_suffix(const std::string& name, const std::string& suffix) {
+    CHECK(match_suffix(name, suffix))
+            << ", suffix not match, name=" << name << ", suffix=" << suffix;
+    return name.substr(0, name.length() - suffix.length());
 };
 
 } // namespace doris::vectorized

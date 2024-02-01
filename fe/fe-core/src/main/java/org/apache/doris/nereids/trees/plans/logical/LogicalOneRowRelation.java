@@ -18,45 +18,41 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * A relation that contains only one row consist of some constant expressions.
  * e.g. select 100, 'value'
  */
-public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation, OutputPrunable {
+public class LogicalOneRowRelation extends LogicalRelation implements OneRowRelation, OutputPrunable {
 
     private final List<NamedExpression> projects;
-    private final boolean buildUnionNode;
 
-    public LogicalOneRowRelation(List<NamedExpression> projects) {
-        this(projects, true, Optional.empty(), Optional.empty());
+    public LogicalOneRowRelation(RelationId relationId, List<NamedExpression> projects) {
+        this(relationId, projects, Optional.empty(), Optional.empty());
     }
 
-    private LogicalOneRowRelation(List<NamedExpression> projects,
-                                  boolean buildUnionNode,
-                                  Optional<GroupExpression> groupExpression,
-                                  Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
-        Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(Slot.class)),
-                "OneRowRelation can not contains any slot");
+    private LogicalOneRowRelation(RelationId relationId, List<NamedExpression> projects,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        super(relationId, PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
-        this.buildUnionNode = buildUnionNode;
     }
 
     @Override
@@ -76,13 +72,13 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOneRowRelation(projects, buildUnionNode,
-                groupExpression, Optional.of(logicalPropertiesSupplier.get()));
+        return new LogicalOneRowRelation(relationId, projects, groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOneRowRelation(projects, buildUnionNode, Optional.empty(), logicalProperties);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalOneRowRelation(relationId, projects, groupExpression, logicalProperties);
     }
 
     @Override
@@ -90,14 +86,6 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
         return projects.stream()
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
-    }
-
-    @Override
-    public String toString() {
-        return Utils.toSqlString("LogicalOneRowRelation",
-                "projects", projects,
-                "buildUnionNode", buildUnionNode
-        );
     }
 
     @Override
@@ -112,25 +100,23 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
             return false;
         }
         LogicalOneRowRelation that = (LogicalOneRowRelation) o;
-        return Objects.equals(projects, that.projects)
-                && Objects.equals(buildUnionNode, that.buildUnionNode);
+        return Objects.equals(projects, that.projects);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(projects, buildUnionNode);
+        return Objects.hash(super.hashCode(), projects);
     }
 
-    public boolean buildUnionNode() {
-        return buildUnionNode;
+    @Override
+    public String toString() {
+        return Utils.toSqlString("LogicalOneRowRelation",
+                "projects", projects
+        );
     }
 
     public LogicalOneRowRelation withProjects(List<NamedExpression> namedExpressions) {
-        return new LogicalOneRowRelation(namedExpressions, buildUnionNode, Optional.empty(), Optional.empty());
-    }
-
-    public Plan withBuildUnionNode(boolean buildUnionNode) {
-        return new LogicalOneRowRelation(projects, buildUnionNode, Optional.empty(), Optional.empty());
+        return new LogicalOneRowRelation(relationId, namedExpressions, Optional.empty(), Optional.empty());
     }
 
     @Override
@@ -141,5 +127,15 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
     @Override
     public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
         return withProjects(prunedOutputs);
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        outputSupplier.get().forEach(s -> {
+            builder.addUniformSlot(s);
+            builder.addUniqueSlot(s);
+        });
+        return builder.build();
     }
 }

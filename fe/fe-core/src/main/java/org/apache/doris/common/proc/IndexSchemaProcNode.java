@@ -48,10 +48,8 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
         this.bfColumns = bfColumns;
     }
 
-    @Override
-    public ProcResult fetchResult() throws AnalysisException {
+    public static ProcResult createResult(List<Column> schema, Set<String> bfColumns) throws AnalysisException {
         Preconditions.checkNotNull(schema);
-
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
@@ -59,10 +57,13 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             // Extra string (aggregation and bloom filter)
             List<String> extras = Lists.newArrayList();
             if (column.getAggregationType() != null) {
-                extras.add(column.getAggregationType().name());
+                extras.add(column.getAggregationString());
             }
             if (bfColumns != null && bfColumns.contains(column.getName())) {
                 extras.add("BLOOM_FILTER");
+            }
+            if (column.isAutoInc()) {
+                extras.add("AUTO_INCREMENT");
             }
             String extraStr = StringUtils.join(extras, ",");
 
@@ -74,15 +75,14 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                                                          ? FeConstants.null_string : column.getDefaultValue(),
                                                  extraStr);
 
-            if (column.getOriginType().isDateV2()) {
-                rowList.set(1, "DATE");
-            }
-            if (column.getOriginType().isDatetimeV2()) {
-                rowList.set(1, "DATETIME");
-            }
+            rowList.set(1, column.getOriginType().hideVersionForVersionColumn(false));
             result.addRow(rowList);
         }
         return result;
     }
 
+    @Override
+    public ProcResult fetchResult() throws AnalysisException {
+        return createResult(this.schema, this.bfColumns);
+    }
 }

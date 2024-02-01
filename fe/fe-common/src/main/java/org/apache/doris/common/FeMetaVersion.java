@@ -58,11 +58,29 @@ public final class FeMetaVersion {
     public static final int VERSION_118 = 118;
     // TablePropertyInfo add db id
     public static final int VERSION_119 = 119;
-
+    // For export job
     public static final int VERSION_120 = 120;
+    // For BackendHbResponse node type
+    public static final int VERSION_121 = 121;
+    // For IndexChangeJob
+    public static final int VERSION_122 = 122;
+    // For AnalysisInfo
+    public static final int VERSION_123 = 123;
+    // For auto-increment column
+    public static final int VERSION_124 = 124;
+    // For write/read auto create partition expr
+    public static final int VERSION_125 = 125;
+    // For write/read function nullable mode info
+    public static final int VERSION_126 = 126;
+    // For constraints
+    public static final int VERSION_127 = 127;
+    // For statistics. Update rows, new partition loaded, AnalysisJobInfo and AnalysisTaskInfo
+    public static final int VERSION_128 = 128;
+    // For table version
+    public static final int VERSION_129 = 129;
 
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_120;
+    public static final int VERSION_CURRENT = VERSION_129;
 
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
     // if (FE_METAVERSION < VERSION_94) ...

@@ -46,8 +46,6 @@ class FunctionGroupingBase : public IFunction {
 public:
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool use_default_implementation_for_constants() const override { return false; }
-
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
@@ -55,7 +53,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& src_column = block.get_by_position(arguments[0]);
         DCHECK(src_column.column->size() == input_rows_count);
         // result of functions grouping and grouping_id is always not nullable,

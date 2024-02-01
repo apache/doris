@@ -25,30 +25,35 @@ import java.util.Objects;
 /** AggregateParam. */
 public class AggregateParam {
 
-    public final AggPhase aggPhase;
+    public static AggregateParam LOCAL_RESULT = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT);
+    public static AggregateParam LOCAL_BUFFER = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
 
+    public final AggPhase aggPhase;
     public final AggMode aggMode;
+    // TODO: this is a short-term plan to process count(distinct a, b) correctly
+    public final boolean canBeBanned;
 
     /** AggregateParam */
     public AggregateParam(AggPhase aggPhase, AggMode aggMode) {
-        this.aggMode = Objects.requireNonNull(aggMode, "aggMode cannot be null");
-        this.aggPhase = Objects.requireNonNull(aggPhase, "aggPhase cannot be null");
+        this(aggPhase, aggMode, true);
     }
 
-    public static AggregateParam localResult() {
-        return new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT);
+    public AggregateParam(AggPhase aggPhase, AggMode aggMode, boolean canBeBanned) {
+        this.aggMode = Objects.requireNonNull(aggMode, "aggMode cannot be null");
+        this.aggPhase = Objects.requireNonNull(aggPhase, "aggPhase cannot be null");
+        this.canBeBanned = canBeBanned;
     }
 
     public AggregateParam withAggPhase(AggPhase aggPhase) {
-        return new AggregateParam(aggPhase, aggMode);
+        return new AggregateParam(aggPhase, aggMode, canBeBanned);
     }
 
     public AggregateParam withAggPhase(AggMode aggMode) {
-        return new AggregateParam(aggPhase, aggMode);
+        return new AggregateParam(aggPhase, aggMode, canBeBanned);
     }
 
     public AggregateParam withAppPhaseAndAppMode(AggPhase aggPhase, AggMode aggMode) {
-        return new AggregateParam(aggPhase, aggMode);
+        return new AggregateParam(aggPhase, aggMode, canBeBanned);
     }
 
     @Override

@@ -1,18 +1,8 @@
-# Proposed changes
+## Proposed changes
 
 Issue Number: close #xxx
 
-## Problem summary
-
-Describe your changes.
-
-## Checklist(Required)
-
-* [ ] Does it affect the original behavior
-* [ ] Has unit tests been added
-* [ ] Has document been added or modified
-* [ ] Does it need to update dependencies
-* [ ] Is this PR support rollback (If NO, please explain WHY)
+<!--Describe your changes.-->
 
 ## Further comments
 

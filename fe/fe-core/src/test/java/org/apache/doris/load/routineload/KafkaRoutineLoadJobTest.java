@@ -22,7 +22,6 @@ import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -39,6 +38,8 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
+import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
@@ -110,18 +111,15 @@ public class KafkaRoutineLoadJobTest {
         List<Long> beIds1 = Lists.newArrayList(1L);
         List<Long> beIds2 = Lists.newArrayList(1L, 2L, 3L, 4L);
 
-        String clusterName1 = "default1";
-        String clusterName2 = "default2";
-
         new Expectations() {
             {
                 Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
-                systemInfoService.getClusterBackendIds(clusterName1, true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = beIds1;
-                systemInfoService.getClusterBackendIds(clusterName2, true);
+                systemInfoService.getAllBackendIds(true);
                 result = beIds2;
                 minTimes = 0;
             }
@@ -129,25 +127,25 @@ public class KafkaRoutineLoadJobTest {
         Config.max_routine_load_task_concurrent_num = 6;
         // 2 partitions, 1 be
         RoutineLoadJob routineLoadJob =
-                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName1, 1L,
+                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                         1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList1);
         Assert.assertEquals(2, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 3 partitions, 4 be
-        routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
+        routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                 1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList2);
         Assert.assertEquals(3, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 4 partitions, 4 be
-        routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
+        routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                 1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList3);
         Assert.assertEquals(4, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 7 partitions, 4 be
-        routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
+        routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                 1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList4);
         Assert.assertEquals(6, routineLoadJob.calculateCurrentConcurrentTaskNum());
@@ -162,7 +160,7 @@ public class KafkaRoutineLoadJobTest {
         Env env = Deencapsulation.newInstance(Env.class);
 
         RoutineLoadJob routineLoadJob =
-                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "default", 1L,
+                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                         1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
 
         new Expectations(env) {
@@ -207,7 +205,7 @@ public class KafkaRoutineLoadJobTest {
         Env env = Deencapsulation.newInstance(Env.class);
 
         RoutineLoadJob routineLoadJob =
-                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "default", 1L,
+                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                         1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         long maxBatchIntervalS = 10;
         Deencapsulation.setField(routineLoadJob, "maxBatchIntervalS", maxBatchIntervalS);
@@ -222,8 +220,8 @@ public class KafkaRoutineLoadJobTest {
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
         Map<Integer, Long> partitionIdsToOffset = Maps.newHashMap();
         partitionIdsToOffset.put(100, 0L);
-        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, "default_cluster",
-                maxBatchIntervalS * 2 * 1000, partitionIdsToOffset);
+        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L,
+                maxBatchIntervalS * 2 * 1000, partitionIdsToOffset, false);
         kafkaTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis() - maxBatchIntervalS * 2 * 1000 - 1);
         routineLoadTaskInfoList.add(kafkaTaskInfo);
 
@@ -255,10 +253,10 @@ public class KafkaRoutineLoadJobTest {
             PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
             kafkaPartitionInfoList.add(partitionInfo);
         }
-        RoutineLoadDataSourceProperties dsProperties = new RoutineLoadDataSourceProperties();
+        KafkaDataSourceProperties dsProperties = new KafkaDataSourceProperties(null);
         dsProperties.setKafkaPartitionOffsets(partitionIdToOffset);
-        Deencapsulation.setField(dsProperties, "kafkaBrokerList", serverAddress);
-        Deencapsulation.setField(dsProperties, "kafkaTopic", topicName);
+        Deencapsulation.setField(dsProperties, "brokerList", serverAddress);
+        Deencapsulation.setField(dsProperties, "topic", topicName);
         Deencapsulation.setField(createRoutineLoadStmt, "dataSourceProperties", dsProperties);
 
         long dbId = 1L;
@@ -309,9 +307,9 @@ public class KafkaRoutineLoadJobTest {
         String typeName = LoadDataSourceType.KAFKA.name();
         Map<String, String> customProperties = Maps.newHashMap();
 
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
+        customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), topicName);
+        customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), serverAddress);
+        customProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), kafkaPartitionString);
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,

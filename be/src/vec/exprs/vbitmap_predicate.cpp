@@ -66,19 +66,23 @@ doris::Status vectorized::VBitmapPredicate::prepare(doris::RuntimeState* state,
         auto column = child->data_type()->create_column();
         argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
     }
+    _prepare_finished = true;
     return Status::OK();
 }
 
 doris::Status vectorized::VBitmapPredicate::open(doris::RuntimeState* state,
                                                  vectorized::VExprContext* context,
                                                  FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    _open_finished = true;
     return Status::OK();
 }
 
 doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* context,
                                                     doris::vectorized::Block* block,
                                                     int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;
@@ -117,10 +121,9 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
     return Status::OK();
 }
 
-void vectorized::VBitmapPredicate::close(doris::RuntimeState* state,
-                                         vectorized::VExprContext* context,
+void vectorized::VBitmapPredicate::close(vectorized::VExprContext* context,
                                          FunctionContext::FunctionStateScope scope) {
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 const std::string& vectorized::VBitmapPredicate::expr_name() const {

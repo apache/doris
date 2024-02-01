@@ -17,15 +17,16 @@
 
 package org.apache.doris.plugin.audit;
 
-import com.google.common.collect.Queues;
+import org.apache.doris.common.Config;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;
 import org.apache.doris.plugin.PluginException;
 import org.apache.doris.plugin.PluginInfo;
-import org.apache.doris.common.Config;
 
+import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,8 +40,10 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.BlockingQueue;
@@ -54,8 +57,8 @@ import java.util.stream.Collectors;
 public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private final static Logger LOG = LogManager.getLogger(AuditLoaderPlugin.class);
 
-    private static final ThreadLocal<SimpleDateFormat> dateFormatContainer = ThreadLocal.withInitial(
-            () -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
+    private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+            .withZone(ZoneId.systemDefault());
 
     private StringBuilder auditLogBuffer = new StringBuilder();
     private StringBuilder slowLogBuffer = new StringBuilder();
@@ -82,7 +85,6 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
             this.lastLoadTimeSlowLog = System.currentTimeMillis();
 
             loadConfig(ctx, info.getProperties());
-
             this.auditEventQueue = Queues.newLinkedBlockingDeque(conf.maxQueueSize);
             this.streamLoader = new DorisStreamLoader(conf);
             this.loadThread = new Thread(new LoadWorker(this.streamLoader), "audit loader thread");
@@ -178,7 +180,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         logBuffer.append(event.peakMemoryBytes).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
-        String stmt = truncateByBytes(event.stmt).replace("\n", " ").replace("\t", " ");
+        String stmt = truncateByBytes(event.stmt).replace("\n", " ")
+                                                    .replace("\t", " ")
+                                                    .replace("\r", " ");
         LOG.debug("receive audit event with stmt: {}", stmt);
         logBuffer.append(stmt).append("\n");
     }
@@ -207,7 +211,16 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         if (logBuffer.length() >= conf.maxBatchSize || currentTime - lastLoadTime >= conf.maxBatchIntervalSec * 1000) {         
             // begin to load
             try {
-                DorisStreamLoader.LoadResponse response = loader.loadBatch(logBuffer, slowLog);
+                String token = "";
+                if (conf.use_auth_token) {
+                    try {
+                        // Acquire token from master
+                        token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+                    } catch (Exception e) {
+                        LOG.error("Failed to get auth token: {}", e);
+                    }
+                }
+                DorisStreamLoader.LoadResponse response = loader.loadBatch(logBuffer, slowLog, token);
                 LOG.debug("audit loader response: {}", response);
             } catch (Exception e) {
                 LOG.debug("encounter exception when putting current audit batch, discard current batch", e);
@@ -246,6 +259,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         public static final String PROP_ENABLE_SLOW_LOG = "enable_slow_log";
         // the max stmt length to be loaded in audit table.
         public static final String MAX_STMT_LENGTH = "max_stmt_length";
+        public static final String USE_AUTH_TOKEN = "use_auth_token";
 
         public long maxBatchSize = 50 * 1024 * 1024;
         public long maxBatchIntervalSec = 60;
@@ -260,6 +274,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         // the identity of FE which run this plugin
         public String feIdentity = "";
         public int max_stmt_length = 4096;
+        // auth_token is not used by default
+        public boolean use_auth_token = false;
+        
 
         public void init(Map<String, String> properties) throws PluginException {
             try {
@@ -300,6 +317,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
                 if (properties.containsKey(MAX_STMT_LENGTH)) {
                     max_stmt_length = Integer.parseInt(properties.get(MAX_STMT_LENGTH));
                 }
+                if (properties.containsKey(USE_AUTH_TOKEN)) {
+                    use_auth_token = Boolean.valueOf(properties.get(USE_AUTH_TOKEN));
+                }
             } catch (Exception e) {
                 throw new PluginException(e.getMessage());
             }
@@ -337,8 +357,8 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
 
     public static String longToTimeString(long timeStamp) {
         if (timeStamp <= 0L) {
-            return "1900-01-01 00:00:00";
+            return "1900-01-01 00:00:00.000";
         }
-        return dateFormatContainer.get().format(new Date(timeStamp));
+        return DATETIME_FORMAT.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(timeStamp), ZoneId.systemDefault()));
     }
 }

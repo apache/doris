@@ -24,6 +24,7 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
@@ -38,6 +39,10 @@ class ColumnPredicate;
 namespace vectorized {
 struct IteratorRowRef;
 };
+
+namespace segment_v2 {
+struct StreamReader;
+}
 
 class StorageReadOptions {
 public:
@@ -56,11 +61,11 @@ public:
                   include_upper(include_upper_) {}
 
         // the lower bound of the range, nullptr if not existed
-        const RowCursor* lower_key;
+        const RowCursor* lower_key = nullptr;
         // whether `lower_key` is included in the range
         bool include_lower;
         // the upper bound of the range, nullptr if not existed
-        const RowCursor* upper_key;
+        const RowCursor* upper_key = nullptr;
         // whether `upper_key` is included in the range
         bool include_upper;
     };
@@ -101,13 +106,17 @@ public:
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     io::IOContext io_ctx;
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
-    vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
+    std::vector<vectorized::VExprSPtr> remaining_conjunct_roots;
+    vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
     const std::set<int32_t>* output_columns = nullptr;
     // runtime state
     RuntimeState* runtime_state = nullptr;
     RowsetId rowset_id;
     Version version;
     int32_t tablet_id = 0;
+    // slots that cast may be eliminated in storage layer
+    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    RowRanges row_ranges;
 };
 
 class RowwiseIterator;

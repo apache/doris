@@ -26,12 +26,11 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/iterators.h"
-#include "olap/reader.h"
 #include "olap/tablet.h"
+#include "olap/tablet_reader.h"
 #include "olap/utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -49,26 +48,25 @@ class RowSourcesBuffer;
 class VerticalBlockReader final : public TabletReader {
 public:
     VerticalBlockReader(RowSourcesBuffer* row_sources_buffer)
-            : _row_sources_buffer(row_sources_buffer) {}
+            : _row_sources_buffer(row_sources_buffer) {
+        _id = nextId++;
+    }
 
     ~VerticalBlockReader() override;
 
     // Initialize VerticalBlockReader with tablet, data version and fetch range.
     Status init(const ReaderParams& read_params) override;
 
-    Status next_block_with_aggregation(Block* block, bool* eof) override {
-        auto res = (this->*_next_block_func)(block, eof);
-        if (UNLIKELY(res.is_io_error())) {
-            _tablet->increase_io_error_times();
-        }
-        return res;
-    }
+    Status next_block_with_aggregation(Block* block, bool* eof) override;
 
     uint64_t merged_rows() const override {
         DCHECK(_vcollect_iter);
         return _vcollect_iter->merged_rows();
     }
+
     std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
+
+    static uint64_t nextId;
 
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
@@ -95,6 +93,7 @@ private:
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
 private:
+    size_t _id;
     std::shared_ptr<RowwiseIterator> _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
 

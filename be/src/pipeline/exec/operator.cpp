@@ -17,6 +17,10 @@
 
 #include "operator.h"
 
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
+
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
@@ -25,7 +29,10 @@ class RuntimeState;
 namespace doris::pipeline {
 
 OperatorBase::OperatorBase(OperatorBuilderBase* operator_builder)
-        : _operator_builder(operator_builder), _is_closed(false) {}
+        : _operator_builder(operator_builder),
+          _child(nullptr),
+          _child_x(nullptr),
+          _is_closed(false) {}
 
 bool OperatorBase::is_sink() const {
     return _operator_builder->is_sink();
@@ -49,9 +56,9 @@ const RowDescriptor& OperatorBase::row_desc() {
 
 std::string OperatorBase::debug_string() const {
     std::stringstream ss;
-    ss << _operator_builder->get_name() << ", is source: " << is_source();
-    ss << ", is sink: " << is_sink() << ", is closed: " << _is_closed;
-    ss << ", is pending finish: " << is_pending_finish();
+    ss << _operator_builder->get_name() << ": is_source: " << is_source();
+    ss << ", is_sink: " << is_sink() << ", is_closed: " << _is_closed;
+    ss << ", is_pending_finish: " << is_pending_finish();
     return ss.str();
 }
 

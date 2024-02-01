@@ -23,7 +23,9 @@ import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -41,14 +43,17 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -65,14 +70,18 @@ public final class MetricRepo {
 
     public static final String TABLET_NUM = "tablet_num";
     public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
+    public static final String CLOUD_TAG = "cloud";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
     public static LongCounterMetric COUNTER_QUERY_ALL;
     public static LongCounterMetric COUNTER_QUERY_ERR;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
+    public static LongCounterMetric COUNTER_QUERY_HIVE_TABLE;
+    public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ALL;
+    public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ERR;
     public static Histogram HISTO_QUERY_LATENCY;
-    public static AutoMappedMetric<Histogram> DB_HISTO_QUERY_LATENCY;
+    public static AutoMappedMetric<Histogram> USER_HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_QUERY_INSTANCE_NUM;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_INSTANCE_BEGIN;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_ALL;
@@ -92,6 +101,8 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_SUCCESS;
     public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_FAILED;
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
+    public static Histogram HISTO_JOURNAL_BATCH_SIZE;
+    public static Histogram HISTO_JOURNAL_BATCH_DATA_SIZE;
 
     public static LongCounterMetric COUNTER_IMAGE_WRITE_SUCCESS;
     public static LongCounterMetric COUNTER_IMAGE_WRITE_FAILED;
@@ -123,9 +134,110 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
 
+    // cloud metrics
+    public static ConcurrentHashMap<String, LongCounterMetric>
+            CLOUD_CLUSTER_COUNTER_REQUEST_ALL = new ConcurrentHashMap<>();
+    public static ConcurrentHashMap<String, LongCounterMetric>
+            CLOUD_CLUSTER_COUNTER_QUERY_ALL = new ConcurrentHashMap<>();
+    public static ConcurrentHashMap<String, LongCounterMetric>
+            CLOUD_CLUSTER_COUNTER_QUERY_ERR = new ConcurrentHashMap<>();
+
+    public static ConcurrentHashMap<String, GaugeMetricImpl<Double>>
+            CLOUD_CLUSTER_GAUGE_QUERY_PER_SECOND = new ConcurrentHashMap<>();
+
+    public static GaugeMetricImpl<Double> GAUGE_HTTP_COPY_INTO_UPLOAD_PER_SECOND;
+
+    public static GaugeMetricImpl<Double> GAUGE_HTTP_COPY_INTO_UPLOAD_ERR_RATE;
+
+    public static GaugeMetricImpl<Double> GAUGE_HTTP_COPY_INTO_QUERY_PER_SECOND;
+
+    public static GaugeMetricImpl<Double> GAUGE_HTTP_COPY_INTO_QUERY_ERR_RATE;
+
+    public static ConcurrentHashMap<String, GaugeMetricImpl<Double>>
+            CLOUD_CLUSTER_GAUGE_REQUEST_PER_SECOND = new ConcurrentHashMap<>();
+    public static ConcurrentHashMap<String, GaugeMetricImpl<Double>>
+            CLOUD_CLUSTER_GAUGE_QUERY_ERR_RATE = new ConcurrentHashMap<>();
+
+    public static ConcurrentHashMap<String, Histogram>
+            CLOUD_CLUSTER_HISTO_QUERY_LATENCY = new ConcurrentHashMap<>();
+
+    public static Map<String, GaugeMetricImpl<Integer>>
+            CLOUD_CLUSTER_BACKEND_ALIVE = new HashMap<>();
+    public static Map<String, GaugeMetricImpl<Long>>
+            CLOUD_CLUSTER_BACKEND_ALIVE_TOTAL = new HashMap<>();
+
+    private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
+    private static Long lastCalcLoadJobTime = 0L;
+
     private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "metric-timer-pool", true);
     private static MetricCalculator metricCalculator = new MetricCalculator();
+
+    public static void registerClusterMetrics(String clusterName, String clusterId) {
+        CLOUD_CLUSTER_COUNTER_REQUEST_ALL.computeIfAbsent(clusterName, key -> {
+            LongCounterMetric counterRequestAll = new LongCounterMetric("request_total", MetricUnit.REQUESTS,
+                    "total request");
+            counterRequestAll.addLabel(new MetricLabel("cluster_id", clusterId));
+            counterRequestAll.addLabel(new MetricLabel("cluster_name", key));
+            DORIS_METRIC_REGISTER.addMetrics(counterRequestAll);
+            return counterRequestAll;
+        });
+
+        MetricRepo.CLOUD_CLUSTER_COUNTER_QUERY_ALL.computeIfAbsent(clusterName, key -> {
+            LongCounterMetric counterQueryAll = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
+                    "total query");
+            counterQueryAll.addLabel(new MetricLabel("cluster_id", clusterId));
+            counterQueryAll.addLabel(new MetricLabel("cluster_name", key));
+            DORIS_METRIC_REGISTER.addMetrics(counterQueryAll);
+            return counterQueryAll;
+        });
+
+        CLOUD_CLUSTER_COUNTER_QUERY_ERR.computeIfAbsent(clusterName, key -> {
+            LongCounterMetric counterQueryErr = new LongCounterMetric("query_err", MetricUnit.REQUESTS,
+                    "total error query");
+            counterQueryErr.addLabel(new MetricLabel("cluster_id", clusterId));
+            counterQueryErr.addLabel(new MetricLabel("cluster_name", key));
+            DORIS_METRIC_REGISTER.addMetrics(counterQueryErr);
+            return counterQueryErr;
+        });
+
+        CLOUD_CLUSTER_GAUGE_QUERY_PER_SECOND.computeIfAbsent(clusterName, key -> {
+            GaugeMetricImpl<Double> gaugeQueryPerSecond = new GaugeMetricImpl<>("qps", MetricUnit.NOUNIT,
+                    "query per second");
+            gaugeQueryPerSecond.addLabel(new MetricLabel("cluster_id", clusterId));
+            gaugeQueryPerSecond.addLabel(new MetricLabel("cluster_name", clusterName));
+            gaugeQueryPerSecond.setValue(0.0);
+            DORIS_METRIC_REGISTER.addMetrics(gaugeQueryPerSecond);
+            return gaugeQueryPerSecond;
+        }).setValue(0.0);
+
+        CLOUD_CLUSTER_GAUGE_REQUEST_PER_SECOND.computeIfAbsent(clusterName, key -> {
+            GaugeMetricImpl<Double> gaugeRequestPerSecond = new GaugeMetricImpl<>("rps", MetricUnit.NOUNIT,
+                    "request per second");
+            gaugeRequestPerSecond.addLabel(new MetricLabel("cluster_id", clusterId));
+            gaugeRequestPerSecond.addLabel(new MetricLabel("cluster_name", clusterName));
+            gaugeRequestPerSecond.setValue(0.0);
+            DORIS_METRIC_REGISTER.addMetrics(gaugeRequestPerSecond);
+            return gaugeRequestPerSecond;
+        }).setValue(0.0);
+
+        CLOUD_CLUSTER_GAUGE_QUERY_ERR_RATE.computeIfAbsent(clusterName, key -> {
+            GaugeMetricImpl<Double> gaugeQueryErrRate = new GaugeMetricImpl<>("query_err_rate",
+                    MetricUnit.NOUNIT, "query error rate");
+            gaugeQueryErrRate.addLabel(new MetricLabel("cluster_id", clusterId));
+            gaugeQueryErrRate.addLabel(new MetricLabel("cluster_name", clusterName));
+            gaugeQueryErrRate.setValue(0.0);
+            DORIS_METRIC_REGISTER.addMetrics(gaugeQueryErrRate);
+            return gaugeQueryErrRate;
+        }).setValue(0.0);
+
+        CLOUD_CLUSTER_HISTO_QUERY_LATENCY.computeIfAbsent(clusterName, key -> {
+            Histogram histoQueryLatency = MetricRepo.METRIC_REGISTER.histogram(
+                    MetricRegistry.name("query", "latency", "ms",
+                    MetricRepo.CLOUD_TAG, key));
+            return histoQueryLatency;
+        });
+    }
 
     // init() should only be called after catalog is contructed.
     public static synchronized void init() {
@@ -285,10 +397,27 @@ public final class MetricRepo {
         COUNTER_QUERY_OLAP_TABLE = new LongCounterMetric("query_olap_table", MetricUnit.REQUESTS,
                 "total query from olap table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_OLAP_TABLE);
+        COUNTER_QUERY_HIVE_TABLE = new LongCounterMetric("query_hive_table", MetricUnit.REQUESTS,
+                "total query from hive table");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_HIVE_TABLE);
+        USER_COUNTER_QUERY_ALL = new AutoMappedMetric<>(name -> {
+            LongCounterMetric userCountQueryAll  = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
+                    "total query for single user");
+            userCountQueryAll.addLabel(new MetricLabel("user", name));
+            DORIS_METRIC_REGISTER.addMetrics(userCountQueryAll);
+            return userCountQueryAll;
+        });
+        USER_COUNTER_QUERY_ERR = new AutoMappedMetric<>(name -> {
+            LongCounterMetric userCountQueryErr  = new LongCounterMetric("query_err", MetricUnit.REQUESTS,
+                    "total error query for single user");
+            userCountQueryErr.addLabel(new MetricLabel("user", name));
+            DORIS_METRIC_REGISTER.addMetrics(userCountQueryErr);
+            return userCountQueryErr;
+        });
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("query", "latency", "ms"));
-        DB_HISTO_QUERY_LATENCY = new AutoMappedMetric<>(name -> {
-            String metricName = MetricRegistry.name("query", "latency", "ms", "db=" + name);
+        USER_HISTO_QUERY_LATENCY = new AutoMappedMetric<>(name -> {
+            String metricName = MetricRegistry.name("query", "latency", "ms", "user=" + name);
             return METRIC_REGISTER.histogram(metricName);
         });
         USER_COUNTER_QUERY_INSTANCE_BEGIN = addLabeledMetrics("user", () ->
@@ -359,7 +488,11 @@ public final class MetricRepo {
         COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.addLabel(new MetricLabel("type", "current_bytes"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES);
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(
-            MetricRegistry.name("editlog", "write", "latency", "ms"));
+                MetricRegistry.name("editlog", "write", "latency", "ms"));
+        HISTO_JOURNAL_BATCH_SIZE = METRIC_REGISTER.histogram(
+                MetricRegistry.name("journal", "write", "batch_size"));
+        HISTO_JOURNAL_BATCH_DATA_SIZE = METRIC_REGISTER.histogram(
+                MetricRegistry.name("journal", "write", "batch_data_size"));
 
         // edit log clean
         COUNTER_EDIT_LOG_CLEAN_SUCCESS = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS,
@@ -583,7 +716,7 @@ public final class MetricRepo {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
 
-        for (Long beId : infoService.getBackendIds(false)) {
+        for (Long beId : infoService.getAllBackendIds(false)) {
             Backend be = infoService.getBackend(beId);
             if (be == null) {
                 continue;
@@ -599,7 +732,8 @@ public final class MetricRepo {
                     return (long) invertedIndex.getTabletNumByBackendId(beId);
                 }
             };
-            tabletNum.addLabel(new MetricLabel("backend", be.getIp() + ":" + be.getHeartbeatPort()));
+            tabletNum.addLabel(new MetricLabel("backend",
+                    NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHeartbeatPort())));
             DORIS_METRIC_REGISTER.addMetrics(tabletNum);
 
             // max compaction score of tablets on each backends
@@ -613,7 +747,8 @@ public final class MetricRepo {
                     return be.getTabletMaxCompactionScore();
                 }
             };
-            tabletMaxCompactionScore.addLabel(new MetricLabel("backend", be.getIp() + ":" + be.getHeartbeatPort()));
+            tabletMaxCompactionScore.addLabel(new MetricLabel("backend",
+                    NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHeartbeatPort())));
             DORIS_METRIC_REGISTER.addMetrics(tabletMaxCompactionScore);
 
         } // end for backends
@@ -627,33 +762,24 @@ public final class MetricRepo {
         // update the metrics first
         updateMetrics();
 
-        StringBuilder sb = new StringBuilder();
         // jvm
         JvmService jvmService = new JvmService();
         JvmStats jvmStats = jvmService.stats();
-        visitor.visitJvm(sb, jvmStats);
+        visitor.visitJvm(jvmStats);
 
-        visitor.setMetricNumber(
-                DORIS_METRIC_REGISTER.getMetrics().size() + DORIS_METRIC_REGISTER.getSystemMetrics().size());
-        // doris metrics
-        for (Metric metric : DORIS_METRIC_REGISTER.getMetrics()) {
-            visitor.visit(sb, MetricVisitor.FE_PREFIX, metric);
-        }
-        // system metric
-        for (Metric metric : DORIS_METRIC_REGISTER.getSystemMetrics()) {
-            visitor.visit(sb, MetricVisitor.SYS_PREFIX, metric);
-        }
+        // doris metrics and system metrics.
+        DORIS_METRIC_REGISTER.accept(visitor);
 
         // histogram
         SortedMap<String, Histogram> histograms = METRIC_REGISTER.getHistograms();
         for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(sb, MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
         }
 
         // node info
-        visitor.getNodeInfo(sb);
+        visitor.getNodeInfo();
 
-        return sb.toString();
+        return visitor.finish();
     }
 
     public static <M extends Metric<?>> AutoMappedMetric<M> addLabeledMetrics(String label, Supplier<M> metric) {

@@ -1,3 +1,5 @@
+SET runtime_filter_type="BLOOM_FILTER";
+SET runtime_filter_wait_time_ms=5000;
 SELECT
   i_item_desc
 , w_warehouse_name

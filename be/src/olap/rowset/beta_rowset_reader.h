@@ -30,7 +30,9 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/schema.h"
 #include "olap/segment_loader.h"
+#include "util/once.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -45,17 +47,15 @@ public:
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
-    Status init(RowsetReaderContext* read_context,
-                const std::pair<int, int>& segment_offset) override;
+    Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override;
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
-                                 const std::pair<int, int>& segment_offset,
                                  bool use_cache = false) override;
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
     Status next_block_view(vectorized::BlockView* block_view) override;
-    bool support_return_data_by_ref() override { return _iterator->support_return_data_by_ref(); }
+    bool support_return_data_by_ref() override { return _is_merge_iterator(); }
 
     bool delete_flag() override { return _rowset->delete_flag(); }
 
@@ -85,14 +85,34 @@ public:
     RowsetReaderSharedPtr clone() override;
 
 private:
+    [[nodiscard]] Status _init_iterator_once();
+    [[nodiscard]] Status _init_iterator();
     bool _should_push_down_value_predicates() const;
+    bool _is_merge_iterator() const {
+        return _read_context->need_ordered_result &&
+               _rowset->rowset_meta()->is_segments_overlapping() && _get_segment_num() > 1;
+    }
 
-    std::shared_ptr<Schema> _input_schema;
-    RowsetReaderContext* _context;
+    int32_t _get_segment_num() const {
+        auto [seg_start, seg_end] = _segment_offsets;
+        if (seg_start == seg_end) {
+            seg_start = 0;
+            seg_end = _rowset->num_segments();
+        }
+        return seg_end - seg_start;
+    }
+
+    DorisCallOnce<Status> _init_iter_once;
+
+    std::pair<int, int> _segment_offsets;
+    std::vector<RowRanges> _segment_row_ranges;
+
+    SchemaSPtr _input_schema;
+    RowsetReaderContext* _read_context = nullptr;
     BetaRowsetSharedPtr _rowset;
 
     OlapReaderStatistics _owned_stats;
-    OlapReaderStatistics* _stats;
+    OlapReaderStatistics* _stats = nullptr;
 
     std::unique_ptr<RowwiseIterator> _iterator;
 

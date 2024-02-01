@@ -92,11 +92,10 @@ public:
         return std::make_shared<typename Function::ReturnType>();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto column = block.get_by_position(arguments[0]).column;
 
         MutableColumnPtr column_result = get_return_type_impl({})->create_column();

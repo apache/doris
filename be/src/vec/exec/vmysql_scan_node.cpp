@@ -19,8 +19,6 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
-#include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
@@ -78,10 +76,13 @@ Status VMysqlScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a mysql scanner failed.");
     }
 
-    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
+    _text_serdes = create_data_type_serdes(_tuple_desc->slots());
 
-    if (_text_converter == nullptr) {
-        return Status::InternalError("new a text convertor failed.");
+    for (int i = 0; i < _slot_num; ++i) {
+        auto& slot_desc = _tuple_desc->slots()[i];
+        if (slot_desc->is_materialized() && _text_serdes[i].get() == nullptr) {
+            return Status::InternalError("new a {} serde failed.", slot_desc->type().type);
+        }
     }
 
     _is_init = true;
@@ -93,7 +94,6 @@ Status VMysqlScanNode::open(RuntimeState* state) {
     if (nullptr == state) {
         return Status::InternalError("input pointer is nullptr.");
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     VLOG_CRITICAL << "MysqlScanNode::Open";
@@ -126,7 +126,6 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is nullptr");
     }
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VMysqlScanNode::get_next");
     VLOG_CRITICAL << "VMysqlScanNode::GetNext";
 
     if (!_is_init) {
@@ -180,8 +179,14 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
                                 slot_desc->col_name());
                     }
                 } else {
-                    RETURN_IF_ERROR(
-                            write_text_column(data[j], length[j], slot_desc, &columns[i], state));
+                    Slice slice(data[j], length[j]);
+                    if (_text_serdes[i]->deserialize_one_cell_from_hive_text(
+                                *columns[i].get(), slice, _text_formatOptions) != Status::OK()) {
+                        std::stringstream ss;
+                        ss << "Fail to convert mysql value:'" << data[j] << "' to "
+                           << slot_desc->type() << " on column:`" << slot_desc->col_name() + "`";
+                        return Status::InternalError(ss.str());
+                    }
                 }
                 j++;
             }
@@ -203,23 +208,10 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
     return Status::OK();
 }
 
-Status VMysqlScanNode::write_text_column(char* value, int value_length, SlotDescriptor* slot,
-                                         vectorized::MutableColumnPtr* column_ptr,
-                                         RuntimeState* state) {
-    if (!_text_converter->write_column(slot, column_ptr, value, value_length, true, false)) {
-        std::stringstream ss;
-        ss << "Fail to convert mysql value:'" << value << "' to " << slot->type() << " on column:`"
-           << slot->col_name() + "`";
-        return Status::InternalError(ss.str());
-    }
-    return Status::OK();
-}
-
 Status VMysqlScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     return ExecNode::close(state);
@@ -235,7 +227,8 @@ void VMysqlScanNode::debug_string(int indentation_level, std::stringstream* out)
     }
 }
 
-Status VMysqlScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+Status VMysqlScanNode::set_scan_ranges(RuntimeState* state,
+                                       const std::vector<TScanRangeParams>& scan_ranges) {
     return Status::OK();
 }
 } // namespace doris::vectorized

@@ -18,11 +18,10 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 /**
- * Bitmap type in Nereids.
+ * HyperLogLog type in Nereids.
  */
 public class HllType extends PrimitiveType {
 
@@ -39,7 +38,7 @@ public class HllType extends PrimitiveType {
     }
 
     @Override
-    public boolean acceptsType(AbstractDataType other) {
+    public boolean acceptsType(DataType other) {
         return other instanceof HllType;
     }
 

@@ -63,6 +63,9 @@ private:
         if (req_param.last_version_time() > _cache_value->param().last_version_time()) {
             return false;
         }
+        if (req_param.partition_num() != _cache_value->param().partition_num()) {
+            return false;
+        }
         return true;
     }
 
@@ -74,7 +77,15 @@ private:
         if (up_param.last_version_time() > _cache_value->param().last_version_time()) {
             return true;
         }
+        if (up_param.last_version_time() == _cache_value->param().last_version_time() &&
+            up_param.partition_num() != _cache_value->param().partition_num()) {
+            return true;
+        }
         if (up_param.last_version() > _cache_value->param().last_version()) {
+            return true;
+        }
+        if (up_param.last_version() == _cache_value->param().last_version() &&
+            up_param.partition_num() != _cache_value->param().partition_num()) {
             return true;
         }
         return false;
@@ -82,7 +93,7 @@ private:
 
 private:
     int64 _partition_key;
-    PCacheValue* _cache_value;
+    PCacheValue* _cache_value = nullptr;
     size_t _data_size;
     CacheStat _cache_stat;
 };
@@ -163,8 +174,8 @@ public:
 private:
     mutable std::shared_mutex _node_mtx;
     UniqueId _sql_key;
-    ResultNode* _prev;
-    ResultNode* _next;
+    ResultNode* _prev = nullptr;
+    ResultNode* _next = nullptr;
     size_t _data_size;
     PartitionRowBatchList _partition_list;
     PartitionRowBatchMap _partition_map;

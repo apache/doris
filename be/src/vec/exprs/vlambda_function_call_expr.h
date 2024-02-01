@@ -34,12 +34,9 @@ public:
     VLambdaFunctionCallExpr(const TExprNode& node) : VExpr(node) {}
     ~VLambdaFunctionCallExpr() override = default;
 
-    VExpr* clone(ObjectPool* pool) const override {
-        return pool->add(VLambdaFunctionCallExpr::create_unique(*this).release());
-    }
+    const std::string& expr_name() const override { return _expr_name; }
 
-    doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                          VExprContext* context) override {
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
         std::vector<std::string_view> child_expr_name;
@@ -53,13 +50,20 @@ public:
             return Status::InternalError("Lambda Function {} is not implemented.",
                                          _fn.name.function_name);
         }
+        _prepare_finished = true;
         return Status::OK();
     }
 
-    const std::string& expr_name() const override { return _expr_name; }
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override {
+        DCHECK(_prepare_finished);
+        RETURN_IF_ERROR(VExpr::open(state, context, scope));
+        _open_finished = true;
+        return Status::OK();
+    }
 
-    Status execute(VExprContext* context, doris::vectorized::Block* block,
-                   int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+        DCHECK(_open_finished || _getting_const_col);
         return _lambda_function->execute(context, block, result_column_id, _data_type, _children);
     }
 
@@ -69,7 +73,7 @@ public:
         out << _expr_name;
         out << "]{";
         bool first = true;
-        for (VExpr* input_expr : children()) {
+        for (auto& input_expr : children()) {
             if (first) {
                 first = false;
             } else {

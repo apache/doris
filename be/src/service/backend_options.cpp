@@ -33,11 +33,12 @@ static const std::string PRIORITY_CIDR_SEPARATOR = ";";
 
 std::string BackendOptions::_s_localhost;
 std::vector<CIDR> BackendOptions::_s_priority_cidrs;
+TBackend BackendOptions::_backend;
 bool BackendOptions::_bind_ipv6 = false;
 const char* _service_bind_address = "0.0.0.0";
 
 bool BackendOptions::init() {
-    if (!analyze_priority_cidrs()) {
+    if (!analyze_priority_cidrs(config::priority_networks, &_s_priority_cidrs)) {
         return false;
     }
     std::vector<InetAddress> hosts;
@@ -52,36 +53,11 @@ bool BackendOptions::init() {
         LOG(FATAL) << "failed to get host";
         return false;
     }
-
-    std::string loopback;
-    std::vector<InetAddress>::iterator addr_it = hosts.begin();
-    for (; addr_it != hosts.end(); ++addr_it) {
-        VLOG_CRITICAL << "check ip=" << addr_it->get_host_address();
-        if (!_s_priority_cidrs.empty()) {
-            // Whether to use IPV4 or IPV6, it's configured by CIDR format.
-            // If both IPV4 and IPV6 are configured, the config order decides priority.
-            if (is_in_prior_network(addr_it->get_host_address())) {
-                _s_localhost = addr_it->get_host_address();
-                _bind_ipv6 = addr_it->is_ipv6();
-                break;
-            }
-            LOG(INFO) << "skip ip not belonged to priority networks: "
-                      << addr_it->get_host_address();
-        } else if ((*addr_it).is_loopback()) {
-            loopback = addr_it->get_host_address();
-            _bind_ipv6 = addr_it->is_ipv6();
-        } else {
-            _s_localhost = addr_it->get_host_address();
-            _bind_ipv6 = addr_it->is_ipv6();
-            break;
-        }
+    if (!analyze_localhost(_s_localhost, _bind_ipv6, &_s_priority_cidrs, &hosts)) {
+        return false;
     }
     if (_bind_ipv6) {
         _service_bind_address = "[::0]";
-    }
-    if (_s_localhost.empty()) {
-        LOG(INFO) << "fail to find one valid non-loopback address, use loopback address.";
-        _s_localhost = loopback;
     }
     LOG(INFO) << "local host ip=" << _s_localhost;
     return true;
@@ -89,6 +65,17 @@ bool BackendOptions::init() {
 
 const std::string& BackendOptions::get_localhost() {
     return _s_localhost;
+}
+
+TBackend BackendOptions::get_local_backend() {
+    _backend.__set_host(_s_localhost);
+    _backend.__set_be_port(config::be_port);
+    _backend.__set_http_port(config::webserver_port);
+    return _backend;
+}
+
+void BackendOptions::set_localhost(const std::string& host) {
+    _s_localhost = host;
 }
 
 bool BackendOptions::is_bind_ipv6() {
@@ -99,14 +86,21 @@ const char* BackendOptions::get_service_bind_address() {
     return _service_bind_address;
 }
 
-bool BackendOptions::analyze_priority_cidrs() {
-    if (config::priority_networks == "") {
+const char* BackendOptions::get_service_bind_address_without_bracket() {
+    if (_bind_ipv6) {
+        return "::0";
+    }
+    return _service_bind_address;
+}
+
+bool BackendOptions::analyze_priority_cidrs(const std::string& priority_networks,
+                                            std::vector<CIDR>* cidrs) {
+    if (priority_networks == "") {
         return true;
     }
-    LOG(INFO) << "priority cidrs in conf: " << config::priority_networks;
+    LOG(INFO) << "priority cidrs: " << priority_networks;
 
-    std::vector<std::string> cidr_strs =
-            strings::Split(config::priority_networks, PRIORITY_CIDR_SEPARATOR);
+    std::vector<std::string> cidr_strs = strings::Split(priority_networks, PRIORITY_CIDR_SEPARATOR);
 
     for (auto& cidr_str : cidr_strs) {
         CIDR cidr;
@@ -114,7 +108,47 @@ bool BackendOptions::analyze_priority_cidrs() {
             LOG(FATAL) << "wrong cidr format. cidr_str=" << cidr_str;
             return false;
         }
-        _s_priority_cidrs.push_back(cidr);
+        cidrs->push_back(cidr);
+    }
+    return true;
+}
+
+bool BackendOptions::analyze_localhost(std::string& localhost, bool& bind_ipv6,
+                                       std::vector<CIDR>* cidrs, std::vector<InetAddress>* hosts) {
+    std::vector<InetAddress>::iterator addr_it = hosts->begin();
+    if (!cidrs->empty()) {
+        for (; addr_it != hosts->end(); ++addr_it) {
+            VLOG_CRITICAL << "check ip=" << addr_it->get_host_address();
+            // Whether to use IPV4 or IPV6, it's configured by CIDR format.
+            // If both IPV4 and IPV6 are configured, the config order decides priority.
+            if (is_in_prior_network(addr_it->get_host_address())) {
+                localhost = addr_it->get_host_address();
+                bind_ipv6 = addr_it->is_ipv6();
+                break;
+            }
+            LOG(INFO) << "skip ip not belonged to priority networks: "
+                      << addr_it->get_host_address();
+        }
+        if (localhost.empty()) {
+            LOG(FATAL) << "fail to find one valid address, exit.";
+            return false;
+        }
+    } else {
+        std::string loopback;
+        for (; addr_it != hosts->end(); ++addr_it) {
+            if ((*addr_it).is_loopback()) {
+                loopback = addr_it->get_host_address();
+                _bind_ipv6 = addr_it->is_ipv6();
+            } else if (!addr_it->is_ipv6()) {
+                localhost = addr_it->get_host_address();
+                _bind_ipv6 = addr_it->is_ipv6();
+                break;
+            }
+        }
+        if (localhost.empty()) {
+            LOG(INFO) << "fail to find one valid non-loopback address, use loopback address.";
+            localhost = loopback;
+        }
     }
     return true;
 }

@@ -44,6 +44,54 @@ inline uint8_t get_utf8_byte_length(uint8_t character) {
     return UTF8_BYTE_LENGTH[character];
 }
 
+// copy from https://github.com/lemire/fastvalidate-utf-8/blob/master/include/simdasciicheck.h
+// The function returns true (1) if all chars passed in src are
+// 7-bit values (0x00..0x7F). Otherwise, it returns false (0).
+inline bool validate_ascii_fast(const char* src, size_t len) {
+    size_t i = 0;
+    __m128i has_error = _mm_setzero_si128();
+    if (len >= 16) {
+        for (; i <= len - 16; i += 16) {
+            __m128i current_bytes = _mm_loadu_si128((const __m128i*)(src + i));
+            has_error = _mm_or_si128(has_error, current_bytes);
+        }
+    }
+    int error_mask = _mm_movemask_epi8(has_error);
+
+    char tail_has_error = 0;
+    for (; i < len; i++) {
+        tail_has_error |= src[i];
+    }
+    error_mask |= (tail_has_error & 0x80);
+
+    return !error_mask;
+}
+
+#ifdef __AVX2__
+#include <x86intrin.h>
+// The function returns true (1) if all chars passed in src are
+// 7-bit values (0x00..0x7F). Otherwise, it returns false (0).
+inline bool validate_ascii_fast_avx(const char* src, size_t len) {
+    size_t i = 0;
+    __m256i has_error = _mm256_setzero_si256();
+    if (len >= 32) {
+        for (; i <= len - 32; i += 32) {
+            __m256i current_bytes = _mm256_loadu_si256((const __m256i*)(src + i));
+            has_error = _mm256_or_si256(has_error, current_bytes);
+        }
+    }
+    int error_mask = _mm256_movemask_epi8(has_error);
+
+    char tail_has_error = 0;
+    for (; i < len; i++) {
+        tail_has_error |= src[i];
+    }
+    error_mask |= (tail_has_error & 0x80);
+
+    return !error_mask;
+}
+#endif
+
 namespace simd {
 
 class VStringFunctions {
@@ -219,11 +267,10 @@ public:
 
     // Gcc will do auto simd in this function
     static bool is_ascii(const StringRef& str) {
-        char or_code = 0;
-        for (size_t i = 0; i < str.size; i++) {
-            or_code |= str.data[i];
-        }
-        return !(or_code & 0x80);
+#ifdef __AVX2__
+        return validate_ascii_fast_avx(str.data, str.size);
+#endif
+        return validate_ascii_fast(str.data, str.size);
     }
 
     static void reverse(const StringRef& str, StringRef dst) {
@@ -302,6 +349,47 @@ public:
         }
         LowerUpperImpl<'a', 'z'> lowerUpper;
         lowerUpper.transfer(src, src + len, dst);
+    }
+
+    static inline size_t get_char_len(const char* src, size_t len, std::vector<size_t>& str_index) {
+        size_t char_len = 0;
+        for (size_t i = 0, char_size = 0; i < len; i += char_size) {
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)src[i]];
+            str_index.push_back(i);
+            ++char_len;
+        }
+        return char_len;
+    }
+
+    // utf8-encoding:
+    // - 1-byte: 0xxx_xxxx;
+    // - 2-byte: 110x_xxxx 10xx_xxxx;
+    // - 3-byte: 1110_xxxx 10xx_xxxx 10xx_xxxx;
+    // - 4-byte: 1111_0xxx 10xx_xxxx 10xx_xxxx 10xx_xxxx.
+    // Counting utf8 chars in a byte string is equivalent to counting first byte of utf chars, that
+    // is to say, counting bytes which do not match 10xx_xxxx pattern.
+    // All 0xxx_xxxx, 110x_xxxx, 1110_xxxx and 1111_0xxx are greater than 1011_1111 when use int8_t arithmetic,
+    // so just count bytes greater than 1011_1111 in a byte string as the result of utf8_length.
+    static inline size_t get_char_len(const char* src, size_t len) {
+        size_t char_len = 0;
+        const char* p = src;
+        const char* end = p + len;
+#if defined(__SSE2__) || defined(__aarch64__)
+        constexpr auto bytes_sse2 = sizeof(__m128i);
+        const auto src_end_sse2 = p + (len & ~(bytes_sse2 - 1));
+        // threshold = 1011_1111
+        const auto threshold = _mm_set1_epi8(0xBF);
+        for (; p < src_end_sse2; p += bytes_sse2) {
+            char_len += __builtin_popcount(_mm_movemask_epi8(_mm_cmpgt_epi8(
+                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(p)), threshold)));
+        }
+#endif
+        // process remaining bytes the number of which not exceed bytes_sse2 at the
+        // tail of string, one by one.
+        for (; p < end; ++p) {
+            char_len += static_cast<int8_t>(*p) > static_cast<int8_t>(0xBF);
+        }
+        return char_len;
     }
 };
 } // namespace simd

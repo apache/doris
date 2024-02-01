@@ -17,13 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
 /** CatalogRelation */
 public interface CatalogRelation extends Relation {
-    Table getTable();
 
-    Database getDatabase() throws AnalysisException;
+    TableIf getTable();
+
+    DatabaseIf getDatabase() throws AnalysisException;
 }

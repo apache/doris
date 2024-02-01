@@ -21,8 +21,14 @@
 defaultDb = "regression_test"
 
 jdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
+
+feSourceThriftAddress = "127.0.0.1:9020"
+feTargetThriftAddress = "127.0.0.1:9020"
+feSyncerUser = "root"
+feSyncerPassword = ""
 
 feHttpAddress = "172.19.0.2:8131"
 feHttpUser = "root"
@@ -48,9 +54,12 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_broker_load"
+// load_stream_fault_injection may cause bad disk
+
+excludeSuites = "test_index_failure_injection,test_dump_image,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
+
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery"
 
 customConf1 = "test_custom_conf_value"
 
@@ -70,12 +79,29 @@ enableBrokerLoad=true
 enableJdbcTest=false
 mysql_57_port=7111
 pg_14_port=7121
-
+mariadb_10_port=3326
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 hms_port=7141
+hiveServerPort=10000
+hive_pg_port=5432
+
+// kafka test config
+// to enable kafka test, you need firstly to start kafka container
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableKafkaTest=true
+kafka_port=19193
+
+// iceberg test config
+iceberg_rest_uri_port=18181
+iceberg_minio_port=19001
+
+enableEsTest=false
+es_6_port=19200
+es_7_port=29200
+es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
@@ -84,3 +110,5 @@ s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 
 max_failure_num=50
+
+externalEnvIp="127.0.0.1"

@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -54,8 +55,7 @@ VCaseExpr::VCaseExpr(const TExprNode& node)
     }
 }
 
-Status VCaseExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                          VExprContext* context) {
+Status VCaseExpr::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     ColumnsWithTypeAndName argument_template;
@@ -74,32 +74,42 @@ Status VCaseExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor
     }
 
     VExpr::register_function_context(state, context);
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VCaseExpr::open(RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) {
-    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    DCHECK(_prepare_finished);
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->open(state, context, scope));
+    }
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+    }
+    _open_finished = true;
     return Status::OK();
 }
 
-void VCaseExpr::close(RuntimeState* state, VExprContext* context,
-                      FunctionContext::FunctionStateScope scope) {
+void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     VExpr::close_function_context(context, scope, _function);
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
+    if (is_const_and_have_executed()) { // const have execute in open function
+        return get_result_from_const(block, _expr_name, result_column_id);
+    }
+    DCHECK(_open_finished || _getting_const_col);
     ColumnNumbers arguments(_children.size());
-
     for (int i = 0; i < _children.size(); i++) {
         int column_id = -1;
         RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
-
-        block->replace_by_position_if_const(column_id);
     }
+    RETURN_IF_ERROR(check_constant(*block, arguments));
 
     size_t num_columns_without_result = block->columns();
     block->insert({nullptr, _data_type, _expr_name});
@@ -120,7 +130,7 @@ std::string VCaseExpr::debug_string() const {
     out << "CaseExpr(has_case_expr=" << _has_case_expr << " has_else_expr=" << _has_else_expr
         << " function=" << _function_name << "){";
     bool first = true;
-    for (VExpr* input_expr : children()) {
+    for (auto& input_expr : children()) {
         if (first) {
             first = false;
         } else {

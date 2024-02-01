@@ -35,7 +35,7 @@ suite("test_create_table") {
                     "enable_unique_key_merge_on_write" = "true"
              );
         """
-        exception "Unknown properties"
+        exception "enable_unique_key_merge_on_write property only support unique key table"
     }
 
     // duplicate table with enable_unique_key_merge_on_write property
@@ -54,7 +54,7 @@ suite("test_create_table") {
                     "enable_unique_key_merge_on_write" = "false"
              );
         """
-        exception "Unknown properties"
+        exception "enable_unique_key_merge_on_write property only support unique key table"
     }
 
     // agg table with enable_unique_key_merge_on_write property
@@ -73,7 +73,7 @@ suite("test_create_table") {
                     "enable_unique_key_merge_on_write" = "true"
              );
         """
-        exception "Unknown properties"
+        exception "enable_unique_key_merge_on_write property only support unique key table"
     }
 
     // agg table with enable_unique_key_merge_on_write property
@@ -92,6 +92,26 @@ suite("test_create_table") {
                     "enable_unique_key_merge_on_write" = "false"
              );
         """
-        exception "Unknown properties"
+        exception "enable_unique_key_merge_on_write property only support unique key table"
+    }
+
+    // unique table with enable_unique_key_merge_on_write  and enable_single_replica_compaction property
+    test {
+        sql """
+            CREATE TABLE `$tableName` (
+                    `c_custkey` int(11) NOT NULL COMMENT "",
+                    `c_name` varchar(26) NOT NULL COMMENT "",
+                    `c_address` varchar(41) NOT NULL COMMENT "",
+                    `c_city` varchar(11) NOT NULL COMMENT ""
+            )
+            UNIQUE KEY (`c_custkey`)
+            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
+            PROPERTIES (
+                    "replication_num" = "1",
+                    "enable_unique_key_merge_on_write" = "true",
+                    "enable_single_replica_compaction" = "true"
+             );
+        """
+        exception "enable_single_replica_compaction property is not supported for merge-on-write table"
     }
 }

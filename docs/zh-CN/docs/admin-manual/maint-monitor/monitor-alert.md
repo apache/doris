@@ -40,7 +40,7 @@ Dashboard 模板会不定期更新。更新模板的方式见最后一小节。
 
 ## 组件
 
-Doris 使用 [Prometheus](https://prometheus.io/) 和 [Grafana](https://grafana.com/) 进项监控项的采集和展示。
+Doris 使用 [Prometheus](https://prometheus.io/) 和 [Grafana](https://grafana.com/) 进行监控项的采集和展示。
 
 ![](/images/dashboard_overview.png)
 
@@ -84,14 +84,10 @@ jvm_young_size_bytes{type="max"} 907345920
 jvm_old_size_bytes{type="used"} 114633448
 jvm_old_size_bytes{type="peak_used"} 114633448
 jvm_old_size_bytes{type="max"} 7455834112
-# HELP  jvm_young_gc jvm young gc stat
-# TYPE  jvm_young_gc gauge
-jvm_young_gc{type="count"} 247
-jvm_young_gc{type="time"} 860
-# HELP  jvm_old_gc jvm old gc stat
-# TYPE  jvm_old_gc gauge
-jvm_old_gc{type="count"} 3
-jvm_old_gc{type="time"} 211
+# HELP  jvm_gc jvm gc stat
+# TYPE  jvm_gc gauge
+<GarbageCollector>{type="count"} 247
+<GarbageCollector>{type="time"} 860
 # HELP  jvm_thread jvm thread stat
 # TYPE  jvm_thread gauge
 jvm_thread{type="count"} 162
@@ -217,7 +213,7 @@ jvm_heap_size_bytes{type="used"} 156375280
     logs = data/log
     
     # Protocol (http, https, socket)
-    protocal = http
+    protocol = http
     
     # The ip address to bind to, empty will bind to all interfaces
     http_addr =

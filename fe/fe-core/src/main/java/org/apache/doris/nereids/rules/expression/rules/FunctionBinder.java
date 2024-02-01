@@ -18,14 +18,17 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ArithmeticFunctionBinder;
+import org.apache.doris.nereids.rules.analysis.SlotBinder;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -39,17 +42,33 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
@@ -58,6 +77,7 @@ import java.util.stream.Collectors;
  * function binder
  */
 public class FunctionBinder extends AbstractExpressionRewriteRule {
+
     public static final FunctionBinder INSTANCE = new FunctionBinder();
 
     @Override
@@ -66,7 +86,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         expr.checkLegalityBeforeTypeCoercion();
         // this cannot be removed, because some function already construct in parser.
         if (expr instanceof ImplicitCastInputTypes) {
-            List<AbstractDataType> expectedInputTypes = ((ImplicitCastInputTypes) expr).expectedInputTypes();
+            List<DataType> expectedInputTypes = ((ImplicitCastInputTypes) expr).expectedInputTypes();
             if (!expectedInputTypes.isEmpty()) {
                 return TypeCoercionUtils.implicitCastInputTypes(expr, expectedInputTypes);
             }
@@ -77,15 +97,59 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     /* ********************************************************************************************
      * bind function
      * ******************************************************************************************** */
+    private void checkBoundLambda(Expression lambdaFunction, List<String> argumentNames) {
+        lambdaFunction.foreachUp(e -> {
+            if (e instanceof UnboundSlot) {
+                UnboundSlot unboundSlot = (UnboundSlot) e;
+                throw new AnalysisException("Unknown lambda slot '"
+                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
+                        + " in lambda arguments" + argumentNames);
+            }
+        });
+    }
+
+    private UnboundFunction bindHighOrderFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
+        int childrenSize = unboundFunction.children().size();
+        List<Expression> subChildren = new ArrayList<>();
+        for (int i = 1; i < childrenSize; i++) {
+            subChildren.add(unboundFunction.child(i).accept(this, context));
+        }
+
+        // bindLambdaFunction
+        Lambda lambda = (Lambda) unboundFunction.children().get(0);
+        Expression lambdaFunction = lambda.getLambdaFunction();
+        List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(subChildren);
+
+        // 1.bindSlot
+        List<Slot> boundedSlots = arrayItemReferences.stream()
+                .map(ArrayItemReference::toSlot)
+                .collect(ImmutableList.toImmutableList());
+        lambdaFunction = new SlotBinder(new Scope(boundedSlots), context.cascadesContext,
+                true, false).bind(lambdaFunction);
+        checkBoundLambda(lambdaFunction, lambda.getLambdaArgumentNames());
+
+        // 2.bindFunction
+        lambdaFunction = lambdaFunction.accept(this, context);
+
+        Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
+
+        // We don't add the ArrayExpression in high order function at all
+        return unboundFunction.withChildren(ImmutableList.<Expression>builder()
+                .add(lambdaClosure)
+                .build());
+    }
 
     @Override
     public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
-        unboundFunction = unboundFunction.withChildren(unboundFunction.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList()));
+        if (unboundFunction.isHighOrder()) {
+            unboundFunction = bindHighOrderFunction(unboundFunction, context);
+        } else {
+            unboundFunction = unboundFunction.withChildren(unboundFunction.children().stream()
+                    .map(e -> e.accept(this, context)).collect(Collectors.toList()));
+        }
 
         // bind function
-        FunctionRegistry functionRegistry = context.cascadesContext.getConnectContext().getEnv().getFunctionRegistry();
-        String functionName = unboundFunction.getName();
+        FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
         List<Object> arguments = unboundFunction.isDistinct()
                 ? ImmutableList.builder()
                 .add(unboundFunction.isDistinct())
@@ -93,17 +157,65 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 .build()
                 : (List) unboundFunction.getArguments();
 
-        // we will change arithmetic function like add(), subtract(), bitnot() to the corresponding objects rather than
-        // BoundFunction.
-        ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
-        if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
-            return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
-                    .accept(this, context);
+        if (StringUtils.isEmpty(unboundFunction.getDbName())) {
+            // we will change arithmetic function like add(), subtract(), bitnot()
+            // to the corresponding objects rather than BoundFunction.
+            ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
+            if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
+                return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
+                        .accept(this, context);
+            }
         }
 
-        FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
-        BoundFunction boundFunction = builder.build(functionName, arguments);
+        String functionName = unboundFunction.getName();
+        FunctionBuilder builder = functionRegistry.findFunctionBuilder(
+                unboundFunction.getDbName(), functionName, arguments);
+        if (builder instanceof AliasUdfBuilder) {
+            // we do type coercion in build function in alias function, so it's ok to return directly.
+            return builder.build(functionName, arguments);
+        } else {
+            Expression boundFunction = TypeCoercionUtils
+                    .processBoundFunction((BoundFunction) builder.build(functionName, arguments));
+            if (boundFunction instanceof Count
+                    && context.cascadesContext.getOuterScope().isPresent()
+                    && !context.cascadesContext.getOuterScope().get().getCorrelatedSlots()
+                            .isEmpty()) {
+                // consider sql: SELECT * FROM t1 WHERE t1.a <= (SELECT COUNT(t2.a) FROM t2 WHERE (t1.b = t2.b));
+                // when unnest correlated subquery, we create a left join node.
+                // outer query is left table and subquery is right one
+                // if there is no match, the row from right table is filled with nulls
+                // but COUNT function is always not nullable.
+                // so wrap COUNT with Nvl to ensure it's result is 0 instead of null to get the correct result
+                boundFunction = new Nvl(boundFunction, new BigIntLiteral(0));
+            }
+            return boundFunction;
+        }
+    }
+
+    @Override
+    public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
+        boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
+    }
+
+    @Override
+    public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
+        Expression boundFunction = visitBoundFunction(elementAt, context);
+        if (PushDownToProjectionFunction.validToPushDown(boundFunction)) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable() != null
+                    && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
+                throw new AnalysisException(
+                        "set enable_rewrite_element_at_to_slot=true when using element_at function for variant type");
+            }
+            Slot slot = elementAt.getInputSlots().stream().findFirst().get();
+            if (slot.hasUnbound()) {
+                slot = (Slot) super.visit(slot, context);
+            }
+            // rewrite to slot and bound this slot
+            return ElementAtToSlot.rewriteToSlot(elementAt, (SlotReference) slot);
+        }
+        return boundFunction;
     }
 
     /**
@@ -115,6 +227,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         Expression left = arithmetic.left().accept(this, context);
         Expression right = arithmetic.right().accept(this, context);
 
+        arithmetic = (TimestampArithmetic) arithmetic.withChildren(left, right);
         // bind function
         String funcOpName;
         if (arithmetic.getFuncName() == null) {
@@ -127,7 +240,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         arithmetic = (TimestampArithmetic) arithmetic.withFuncName(funcOpName.toLowerCase(Locale.ROOT));
 
         // type coercion
-        return TypeCoercionUtils.processTimestampArithmetic(arithmetic, left, right);
+        return TypeCoercionUtils.processTimestampArithmetic(arithmetic);
     }
 
     /* ********************************************************************************************
@@ -138,7 +251,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     public Expression visitBitNot(BitNot bitNot, ExpressionRewriteContext context) {
         Expression child = bitNot.child().accept(this, context);
         // type coercion
-        if (child.getDataType().toCatalogDataType().getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
+        if (!(child.getDataType().isIntegralType() || child.getDataType().isBooleanType())) {
             child = new Cast(child, BigIntType.INSTANCE);
         }
         return bitNot.withChildren(child);
@@ -148,25 +261,26 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     public Expression visitDivide(Divide divide, ExpressionRewriteContext context) {
         Expression left = divide.left().accept(this, context);
         Expression right = divide.right().accept(this, context);
-
+        divide = (Divide) divide.withChildren(left, right);
         // type coercion
-        return TypeCoercionUtils.processDivide(divide, left, right);
+        return TypeCoercionUtils.processDivide(divide);
     }
 
     @Override
     public Expression visitIntegralDivide(IntegralDivide integralDivide, ExpressionRewriteContext context) {
         Expression left = integralDivide.left().accept(this, context);
         Expression right = integralDivide.right().accept(this, context);
-
+        integralDivide = (IntegralDivide) integralDivide.withChildren(left, right);
         // type coercion
-        return TypeCoercionUtils.processIntegralDivide(integralDivide, left, right);
+        return TypeCoercionUtils.processIntegralDivide(integralDivide);
     }
 
     @Override
     public Expression visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, ExpressionRewriteContext context) {
         Expression left = binaryArithmetic.left().accept(this, context);
         Expression right = binaryArithmetic.right().accept(this, context);
-        return TypeCoercionUtils.processBinaryArithmetic(binaryArithmetic, left, right);
+        binaryArithmetic = (BinaryArithmetic) binaryArithmetic.withChildren(left, right);
+        return TypeCoercionUtils.processBinaryArithmetic(binaryArithmetic);
     }
 
     @Override
@@ -180,12 +294,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitNot(Not not, ExpressionRewriteContext context) {
         Expression child = not.child().accept(this, context);
-        if (!child.getDataType().isBooleanType() && !child.getDataType().isNullType()) {
-            throw new AnalysisException(String.format(
-                    "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but "
-                            + "returns type '%s'.",
-                    child.toSql(), not.toSql(), child.getDataType()));
-        }
+        child = TypeCoercionUtils.castIfNotSameType(child, BooleanType.INSTANCE);
         return not.withChildren(child);
     }
 
@@ -193,7 +302,8 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
         Expression left = cp.left().accept(this, context);
         Expression right = cp.right().accept(this, context);
-        return TypeCoercionUtils.processComparisonPredicate(cp, left, right);
+        cp = (ComparisonPredicate) cp.withChildren(left, right);
+        return TypeCoercionUtils.processComparisonPredicate(cp);
     }
 
     @Override
@@ -206,6 +316,13 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     }
 
     @Override
+    public Expression visitWhenClause(WhenClause whenClause, ExpressionRewriteContext context) {
+        return whenClause.withChildren(TypeCoercionUtils.castIfNotSameType(
+                whenClause.getOperand().accept(this, context), BooleanType.INSTANCE),
+                whenClause.getResult().accept(this, context));
+    }
+
+    @Override
     public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
         List<Expression> rewrittenChildren = inPredicate.children().stream()
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
@@ -214,21 +331,11 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     }
 
     @Override
-    public Expression visitBetween(Between between, ExpressionRewriteContext context) {
-        List<Expression> rewrittenChildren = between.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList());
-        Between newBetween = between.withChildren(rewrittenChildren);
-        return TypeCoercionUtils.processBetween(newBetween);
-    }
-
-    @Override
     public Expression visitInSubquery(InSubquery inSubquery, ExpressionRewriteContext context) {
         Expression newCompareExpr = inSubquery.getCompareExpr().accept(this, context);
         Expression newListQuery = inSubquery.getListQuery().accept(this, context);
-        ComparisonPredicate newCpAfterUnNestingSubquery =
-                new EqualTo(newCompareExpr, ((ListQuery) newListQuery).getQueryPlan().getOutput().get(0));
         ComparisonPredicate afterTypeCoercion = (ComparisonPredicate) TypeCoercionUtils.processComparisonPredicate(
-                newCpAfterUnNestingSubquery, newCompareExpr, newListQuery);
+                new EqualTo(newCompareExpr, newListQuery));
         if (newListQuery.getDataType().isBitmapType()) {
             if (!newCompareExpr.getDataType().isBigIntType()) {
                 newCompareExpr = new Cast(newCompareExpr, BigIntType.INSTANCE);
@@ -239,5 +346,44 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         return new InSubquery(newCompareExpr, (ListQuery) afterTypeCoercion.right(),
             inSubquery.getCorrelateSlots(), ((ListQuery) afterTypeCoercion.right()).getTypeCoercionExpr(),
             inSubquery.isNot());
+    }
+
+    @Override
+    public Expression visitMatch(Match match, ExpressionRewriteContext context) {
+        Expression left = match.left().accept(this, context);
+        Expression right = match.right().accept(this, context);
+        // check child type
+        if (!left.getDataType().isStringLikeType()
+                && !(left.getDataType() instanceof ArrayType
+                && ((ArrayType) left.getDataType()).getItemType().isStringLikeType())
+                && !left.getDataType().isVariantType()) {
+            throw new AnalysisException(String.format(
+                    "left operand '%s' part of predicate "
+                            + "'%s' should return type 'STRING', 'ARRAY<STRING> or VARIANT' but "
+                            + "returns type '%s'.",
+                    left.toSql(), match.toSql(), left.getDataType()));
+        }
+
+        if (!right.getDataType().isStringLikeType() && !right.getDataType().isNullType()) {
+            throw new AnalysisException(String.format(
+                    "right operand '%s' part of predicate " + "'%s' should return type 'STRING' but "
+                            + "returns type '%s'.",
+                    right.toSql(), match.toSql(), right.getDataType()));
+        }
+
+        if (left.getDataType().isVariantType()) {
+            left = new Cast(left, right.getDataType());
+        }
+        return match.withChildren(left, right);
+    }
+
+    @Override
+    public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
+        cast = (Cast) super.visitCast(cast, context);
+        // NOTICE: just for compatibility with legacy planner.
+        if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {
+            TypeCoercionUtils.checkCanCastTo(cast.child().getDataType(), cast.getDataType());
+        }
+        return cast;
     }
 }

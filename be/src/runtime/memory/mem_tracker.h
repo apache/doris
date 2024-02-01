@@ -31,10 +31,9 @@
 #include <string>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "runtime/query_statistics.h"
 #include "util/pretty_printer.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -49,12 +48,19 @@ class MemTrackerLimiter;
 class MemTracker {
 public:
     struct Snapshot {
-        std::string type = "";
+        std::string type;
         std::string label;
-        std::string parent_label = "";
+        std::string parent_label;
         int64_t limit = 0;
         int64_t cur_consumption = 0;
         int64_t peak_consumption = 0;
+
+        bool operator<(const Snapshot& rhs) const { return cur_consumption < rhs.cur_consumption; }
+    };
+
+    struct TrackerGroup {
+        std::list<MemTracker*> trackers;
+        std::mutex group_lock;
     };
 
     // A counter that keeps track of the current and peak value seen.
@@ -64,8 +70,8 @@ public:
         MemCounter() : _current_value(0), _peak_value(0) {}
 
         void add(int64_t delta) {
-            _current_value.fetch_add(delta, std::memory_order_relaxed);
-            update_peak();
+            auto value = _current_value.fetch_add(delta, std::memory_order_relaxed) + delta;
+            update_peak(value);
         }
 
         void add_no_update_peak(int64_t delta) {
@@ -73,23 +79,30 @@ public:
         }
 
         bool try_add(int64_t delta, int64_t max) {
-            if (UNLIKELY(_current_value.load(std::memory_order_relaxed) + delta > max))
-                return false;
-            _current_value.fetch_add(delta, std::memory_order_relaxed);
-            update_peak();
+            auto cur_val = _current_value.load(std::memory_order_relaxed);
+            auto new_val = 0;
+            do {
+                new_val = cur_val + delta;
+                if (UNLIKELY(new_val > max)) {
+                    return false;
+                }
+            } while (UNLIKELY(!_current_value.compare_exchange_weak(cur_val, new_val,
+                                                                    std::memory_order_relaxed)));
+            update_peak(new_val);
             return true;
         }
 
+        void sub(int64_t delta) { _current_value.fetch_sub(delta, std::memory_order_relaxed); }
+
         void set(int64_t v) {
             _current_value.store(v, std::memory_order_relaxed);
-            update_peak();
+            update_peak(v);
         }
 
-        void update_peak() {
-            if (_current_value.load(std::memory_order_relaxed) >
-                _peak_value.load(std::memory_order_relaxed)) {
-                _peak_value.store(_current_value.load(std::memory_order_relaxed),
-                                  std::memory_order_relaxed);
+        void update_peak(int64_t value) {
+            auto pre_value = _peak_value.load(std::memory_order_relaxed);
+            while (value > pre_value && !_peak_value.compare_exchange_weak(
+                                                pre_value, value, std::memory_order_relaxed)) {
             }
         }
 
@@ -102,13 +115,11 @@ public:
     };
 
     // Creates and adds the tracker to the mem_tracker_pool.
-    MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent,
-               const std::string& profile_counter_name);
     MemTracker(const std::string& label, MemTrackerLimiter* parent = nullptr);
     // For MemTrackerLimiter
     MemTracker() { _parent_group_num = -1; }
 
-    ~MemTracker();
+    virtual ~MemTracker();
 
     static std::string print_bytes(int64_t bytes) {
         return bytes >= 0 ? PrettyPrinter::print(bytes, TUnit::BYTES)
@@ -124,30 +135,34 @@ public:
     int64_t peak_consumption() const { return _consumption->peak_value(); }
 
     void consume(int64_t bytes) {
-        if (bytes == 0) return;
+        if (UNLIKELY(bytes == 0)) {
+            return;
+        }
         _consumption->add(bytes);
+        if (_query_statistics) {
+            _query_statistics->set_max_peak_memory_bytes(_consumption->peak_value());
+            _query_statistics->set_current_used_memory_bytes(_consumption->current_value());
+        }
     }
+
     void consume_no_update_peak(int64_t bytes) { // need extreme fast
         _consumption->add_no_update_peak(bytes);
     }
-    void release(int64_t bytes) { consume(-bytes); }
+
+    void release(int64_t bytes) { _consumption->sub(bytes); }
+
     void set_consumption(int64_t bytes) { _consumption->set(bytes); }
 
-    void refresh_profile_counter() {
-        if (_profile_counter) {
-            _profile_counter->set(_consumption->current_value());
-        }
-    }
-    static void refresh_all_tracker_profile();
+    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
 
 public:
-    Snapshot make_snapshot() const;
+    virtual Snapshot make_snapshot() const;
     // Specify group_num from mem_tracker_pool to generate snapshot.
     static void make_group_snapshot(std::vector<Snapshot>* snapshots, int64_t group_num,
                                     std::string parent_label);
     static std::string log_usage(MemTracker::Snapshot snapshot);
 
-    std::string debug_string() {
+    virtual std::string debug_string() {
         std::stringstream msg;
         msg << "label: " << _label << "; "
             << "consumption: " << consumption() << "; "
@@ -161,16 +176,19 @@ protected:
     // label used in the make snapshot, not guaranteed unique.
     std::string _label;
 
-    std::shared_ptr<MemCounter> _consumption;
-    std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> _profile_counter;
+    std::shared_ptr<MemCounter> _consumption = nullptr;
 
     // Tracker is located in group num in mem_tracker_pool
     int64_t _parent_group_num = 0;
     // Use _parent_label to correlate with parent limiter tracker.
     std::string _parent_label = "-";
 
+    static std::vector<TrackerGroup> mem_tracker_pool;
+
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

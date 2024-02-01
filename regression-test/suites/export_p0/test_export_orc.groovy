@@ -22,6 +22,11 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_export_orc", "p0") {
+    // open nereids
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_fallback_to_original_planner=false """
+
+
     // check whether the FE config 'enable_outfile_to_local' is true
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
@@ -88,6 +93,8 @@ suite("test_export_orc", "p0") {
     sql """ INSERT INTO ${table_export_name} VALUES
             ${sb.toString()}
         """
+    def insert_res = sql "show last insert;"
+    logger.info("insert result: " + insert_res.toString())
     qt_select_export1 """ SELECT * FROM ${table_export_name} t ORDER BY user_id; """
 
 
@@ -194,6 +201,8 @@ suite("test_export_orc", "p0") {
                 assertEquals(0, json.NumberFilteredRows)
             }
         }
+
+        sql """ sync; """
 
         qt_select_load1 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
     

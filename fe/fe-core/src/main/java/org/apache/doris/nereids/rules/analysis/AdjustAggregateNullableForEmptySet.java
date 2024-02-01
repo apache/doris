@@ -22,6 +22,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -31,6 +33,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * adjust aggregate nullable when: group expr list is empty and function is NullableAggregateFunction,
@@ -71,10 +74,23 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
         }
 
         @Override
+        public Expression visitWindow(WindowExpression windowExpression, Boolean alwaysNullable) {
+            return windowExpression.withPartitionKeysOrderKeys(
+                    windowExpression.getPartitionKeys().stream()
+                            .map(k -> k.accept(INSTANCE, alwaysNullable))
+                            .collect(Collectors.toList()),
+                    windowExpression.getOrderKeys().stream()
+                            .map(k -> (OrderExpression) k.withChildren(k.children().stream()
+                                    .map(c -> c.accept(INSTANCE, alwaysNullable))
+                                    .collect(Collectors.toList())))
+                            .collect(Collectors.toList())
+            );
+        }
+
+        @Override
         public Expression visitNullableAggregateFunction(NullableAggregateFunction nullableAggregateFunction,
                 Boolean alwaysNullable) {
-            return nullableAggregateFunction.isDistinct() ? nullableAggregateFunction
-                    : nullableAggregateFunction.withAlwaysNullable(alwaysNullable);
+            return nullableAggregateFunction.withAlwaysNullable(alwaysNullable);
         }
     }
 }

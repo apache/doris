@@ -22,6 +22,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.MysqlConnectProcessor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -55,6 +56,9 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             // connection has been established, so need to call context.cleanup()
             // if exception happens.
             ConnectContext context = new ConnectContext(connection);
+            if (context.getSessionVariable().getQueryTimeoutS() <= 0) {
+                LOG.warn("Connection query timeout is invalid: {}", context.getSessionVariable().getQueryTimeoutS());
+            }
             context.setEnv(Env.getCurrentEnv());
             connectScheduler.submit(context);
 
@@ -77,11 +81,15 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         throw new AfterConnectedException("Reach limit of connections");
                     }
                     context.setStartTime();
-                    context.setUserQueryTimeout(
-                            context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser()));
+                    int userQueryTimeout = context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser());
+                    if (userQueryTimeout <= 0) {
+                        LOG.warn("Connection set query timeout to {}",
+                                    context.getSessionVariable().getQueryTimeoutS());
+                    }
+                    context.setUserQueryTimeout(userQueryTimeout);
                     context.setUserInsertTimeout(
                             context.getEnv().getAuth().getInsertTimeout(context.getQualifiedUser()));
-                    ConnectProcessor processor = new ConnectProcessor(context);
+                    ConnectProcessor processor = new MysqlConnectProcessor(context);
                     context.startAcceptQuery(processor);
                 } catch (AfterConnectedException e) {
                     // do not need to print log for this kind of exception.

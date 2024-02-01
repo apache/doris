@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+@Deprecated
 public class LoadJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(LoadJob.class);
 
@@ -584,12 +585,6 @@ public class LoadJob implements Writable {
 
     public DeleteInfo getDeleteInfo() {
         return deleteInfo;
-    }
-
-    public long getDeleteJobTimeout() {
-        // timeout is between 30 seconds to 5 min
-        long timeout = Math.max(idToTabletLoadInfo.size() * Config.tablet_delete_timeout_second * 1000L, 30000L);
-        return Math.min(timeout, Config.load_straggler_wait_second * 1000L);
     }
 
     @Override

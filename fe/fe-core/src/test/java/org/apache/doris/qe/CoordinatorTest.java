@@ -64,8 +64,6 @@ import java.util.Map;
 import java.util.Set;
 
 public class CoordinatorTest extends Coordinator {
-
-
     @Mocked
     static Env env;
     @Mocked
@@ -768,7 +766,7 @@ public class CoordinatorTest extends Coordinator {
         olapScanNode.setFragment(fragment);
         List<TScanRangeLocations> locations = new ArrayList<>();
         locations.add(tScanRangeLocations);
-        Deencapsulation.setField(olapScanNode, "result", locations);
+        Deencapsulation.setField(olapScanNode, "scanRangeLocations", locations);
 
         //scanNode2
         PlanFragmentId planFragmentId2 = new PlanFragmentId(2);
@@ -783,7 +781,7 @@ public class CoordinatorTest extends Coordinator {
         olapScanNode2.setFragment(fragment2);
         List<TScanRangeLocations> locations2 = new ArrayList<>();
         locations2.add(tScanRangeLocations);
-        Deencapsulation.setField(olapScanNode2, "result", locations2);
+        Deencapsulation.setField(olapScanNode2, "scanRangeLocations", locations2);
 
         //scanNode3
         PlanFragmentId planFragmentId3 = new PlanFragmentId(3);
@@ -798,7 +796,7 @@ public class CoordinatorTest extends Coordinator {
         olapScanNode3.setFragment(fragment3);
         List<TScanRangeLocations> locations3 = new ArrayList<>();
         locations3.add(tScanRangeLocations);
-        Deencapsulation.setField(olapScanNode3, "result", locations3);
+        Deencapsulation.setField(olapScanNode3, "scanRangeLocations", locations3);
 
         //scan nodes
         List<ScanNode> scanNodes = new ArrayList<>();

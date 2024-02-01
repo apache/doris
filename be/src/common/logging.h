@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 // GLOG defines this based on the system but doesn't check if it's already
 // been defined.  undef it first to avoid warnings.
 // glog MUST be included before gflags.  Instead of including them,
@@ -29,26 +31,26 @@
 
 // Define VLOG levels.  We want display per-row info less than per-file which
 // is less than per-query.  For now per-connection is the same as per-query.
-#define VLOG_CONNECTION VLOG(1)
-#define VLOG_RPC VLOG(8)
-#define VLOG_QUERY VLOG(1)
-#define VLOG_FILE VLOG(2)
-#define VLOG_ROW VLOG(10)
-#define VLOG_PROGRESS VLOG(2)
-#define VLOG_TRACE VLOG(10)
-#define VLOG_DEBUG VLOG(7)
-#define VLOG_NOTICE VLOG(3)
-#define VLOG_CRITICAL VLOG(1)
+#define VLOG_CONNECTION VLOG(101)
+#define VLOG_RPC VLOG(108)
+#define VLOG_QUERY VLOG(101)
+#define VLOG_FILE VLOG(102)
+#define VLOG_ROW VLOG(110)
+#define VLOG_PROGRESS VLOG(102)
+#define VLOG_TRACE VLOG(110)
+#define VLOG_DEBUG VLOG(107)
+#define VLOG_NOTICE VLOG(103)
+#define VLOG_CRITICAL VLOG(101)
 
-#define VLOG_CONNECTION_IS_ON VLOG_IS_ON(1)
-#define VLOG_RPC_IS_ON VLOG_IS_ON(8)
-#define VLOG_QUERY_IS_ON VLOG_IS_ON(1)
-#define VLOG_FILE_IS_ON VLOG_IS_ON(2)
-#define VLOG_ROW_IS_ON VLOG_IS_ON(10)
-#define VLOG_TRACE_IS_ON VLOG_IS_ON(10)
-#define VLOG_DEBUG_IS_ON VLOG_IS_ON(7)
-#define VLOG_NOTICE_IS_ON VLOG_IS_ON(3)
-#define VLOG_CRITICAL_IS_ON VLOG_IS_ON(1)
+#define VLOG_CONNECTION_IS_ON VLOG_IS_ON(101)
+#define VLOG_RPC_IS_ON VLOG_IS_ON(108)
+#define VLOG_QUERY_IS_ON VLOG_IS_ON(101)
+#define VLOG_FILE_IS_ON VLOG_IS_ON(102)
+#define VLOG_ROW_IS_ON VLOG_IS_ON(110)
+#define VLOG_TRACE_IS_ON VLOG_IS_ON(110)
+#define VLOG_DEBUG_IS_ON VLOG_IS_ON(107)
+#define VLOG_NOTICE_IS_ON VLOG_IS_ON(103)
+#define VLOG_CRITICAL_IS_ON VLOG_IS_ON(101)
 
 /// Define a wrapper around DCHECK for strongly typed enums that print a useful error
 /// message on failure.
@@ -70,43 +72,47 @@ bool init_glog(const char* basename);
 // flushed. May only be called once.
 void shutdown_logging();
 
-/// Wrap a glog stream and tag on the log. usage:
-///   LOG_INFO("here is an info for a {} query", query_type).tag("query_id", queryId);
-#define LOG_INFO(...) doris::TaggableLogger(LOG(INFO), ##__VA_ARGS__)
-#define LOG_WARNING(...) doris::TaggableLogger(LOG(WARNING), ##__VA_ARGS__)
-#define LOG_ERROR(...) doris::TaggableLogger(LOG(ERROR), ##__VA_ARGS__)
-#define LOG_FATAL(...) doris::TaggableLogger(LOG(FATAL), ##__VA_ARGS__)
+void update_logging(const std::string& name, const std::string& value);
 
 class TaggableLogger {
 public:
+    TaggableLogger(const char* file, int line, google::LogSeverity severity)
+            : _msg(file, line, severity) {}
+
     template <typename... Args>
-    TaggableLogger(std::ostream& stream, std::string_view fmt, Args&&... args) : _stream(stream) {
+    TaggableLogger& operator()(const std::string_view& fmt, Args&&... args) {
         if constexpr (sizeof...(args) == 0) {
-            _stream << fmt;
+            _msg.stream() << fmt;
         } else {
-            _stream << fmt::format(fmt, std::forward<Args>(args)...);
+            _msg.stream() << fmt::format(fmt, std::forward<Args&&>(args)...);
         }
+        return *this;
     }
 
     template <typename V>
-    TaggableLogger& tag(std::string_view key, const V& value) {
-        _stream << '|' << key << '=';
+    TaggableLogger& tag(std::string_view key, V&& value) {
+        _msg.stream() << '|' << key << '=';
         if constexpr (std::is_same_v<V, TUniqueId> || std::is_same_v<V, PUniqueId>) {
-            _stream << print_id(value);
+            _msg.stream() << print_id(value);
         } else {
-            _stream << value;
+            _msg.stream() << value;
         }
         return *this;
     }
 
     template <typename E>
-    TaggableLogger& error(const E& error) {
-        _stream << "|error=" << error;
+    TaggableLogger& error(E&& error) {
+        _msg.stream() << "|error=" << error;
         return *this;
     }
 
 private:
-    std::ostream& _stream;
+    google::LogMessage _msg;
 };
+
+#define LOG_INFO TaggableLogger(__FILE__, __LINE__, google::GLOG_INFO)
+#define LOG_WARNING TaggableLogger(__FILE__, __LINE__, google::GLOG_WARNING)
+#define LOG_ERROR TaggableLogger(__FILE__, __LINE__, google::GLOG_ERROR)
+#define LOG_FATAL TaggableLogger(__FILE__, __LINE__, google::GLOG_FATAL)
 
 } // namespace doris

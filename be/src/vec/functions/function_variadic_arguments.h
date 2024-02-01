@@ -20,7 +20,6 @@
 
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/bit_cast.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
@@ -37,7 +36,6 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionVariadicArgumentsBase>(); }
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         DataTypePtr res;
@@ -52,7 +50,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ToDataType to_type;
         auto column = to_type.create_column();
         column->reserve(input_rows_count);

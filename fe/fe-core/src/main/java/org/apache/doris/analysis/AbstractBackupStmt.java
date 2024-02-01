@@ -141,4 +141,12 @@ public class AbstractBackupStmt extends DdlStmt {
     public long getTimeoutMs() {
         return timeoutMs;
     }
+
+    public void setProperty(String key, String value) {
+        properties.put(key, value);
+    }
+
+    public void removeProperty(String key) {
+        properties.remove(key);
+    }
 }

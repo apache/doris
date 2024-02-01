@@ -21,12 +21,14 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.fs.remote.BrokerFileSystem;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.ql.io.SymlinkTextInputFormat;
 import org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat;
@@ -42,8 +44,9 @@ import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -126,7 +129,6 @@ public final class HiveUtil {
     }
 
     private static Type convertHiveTypeToiveDoris(TypeInfo hiveTypeInfo) {
-
         switch (hiveTypeInfo.getCategory()) {
             case PRIMITIVE: {
                 PrimitiveTypeInfo primitiveTypeInfo = (PrimitiveTypeInfo) hiveTypeInfo;
@@ -182,32 +184,25 @@ public final class HiveUtil {
         }
     }
 
-    public static boolean isSplittable(InputFormat<?, ?> inputFormat, FileSystem fileSystem, Path path) {
-        // ORC uses a custom InputFormat but is always splittable
-        if (inputFormat.getClass().getSimpleName().equals("OrcInputFormat")) {
-            return true;
+    public static boolean isSplittable(RemoteFileSystem remoteFileSystem, String inputFormat,
+            String location, JobConf jobConf) throws UserException {
+        if (remoteFileSystem instanceof BrokerFileSystem) {
+            return ((BrokerFileSystem) remoteFileSystem).isSplittable(location, inputFormat);
         }
 
-        // use reflection to get isSplittable method on FileInputFormat
-        Method method = null;
-        for (Class<?> clazz = inputFormat.getClass(); clazz != null; clazz = clazz.getSuperclass()) {
-            try {
-                method = clazz.getDeclaredMethod("isSplitable", FileSystem.class, Path.class);
-                break;
-            } catch (NoSuchMethodException ignored) {
-                LOG.warn("Class {} doesn't contain isSplitable method.", clazz);
-            }
-        }
+        // All supported hive input format are splittable
+        return HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(inputFormat);
+    }
 
-        if (method == null) {
-            return false;
-        }
+    public static String getHivePartitionValue(String part) {
+        String[] kv = part.split("=");
+        Preconditions.checkState(kv.length == 2, String.format("Malformed partition name %s", part));
         try {
-            method.setAccessible(true);
-            return (boolean) method.invoke(inputFormat, fileSystem, path);
-        } catch (InvocationTargetException | IllegalAccessException e) {
+            // hive partition value maybe contains special characters like '=' and '/'
+            return URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name());
+        } catch (UnsupportedEncodingException e) {
+            // It should not be here
             throw new RuntimeException(e);
         }
     }
-
 }

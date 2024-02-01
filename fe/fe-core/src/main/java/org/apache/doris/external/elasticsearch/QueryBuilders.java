@@ -209,11 +209,8 @@ public final class QueryBuilders {
         //    }');
         // The first child k1 compatible with expr syntax
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
-        if ("esquery".equals(functionCallExpr.getFnName().getFunction())) {
-            String stringValue = functionCallExpr.getChild(1).getStringValue();
-            return new QueryBuilders.EsQueryBuilder(stringValue);
-        }
-        return null;
+        String stringValue = functionCallExpr.getChild(1).getStringValue();
+        return new QueryBuilders.EsQueryBuilder(stringValue);
     }
 
     /**
@@ -223,6 +220,11 @@ public final class QueryBuilders {
             BuilderOptions builderOptions) {
         if (expr == null) {
             return null;
+        }
+        // esquery functionCallExpr will be rewritten to castExpr in where clause rewriter,
+        // so we get the functionCallExpr here.
+        if (expr instanceof CastExpr) {
+            return toEsDsl(expr.getChild(0), notPushDownList, fieldsContext, builderOptions);
         }
         // CompoundPredicate, `between` also converted to CompoundPredicate.
         if (expr instanceof CompoundPredicate) {
@@ -271,7 +273,14 @@ public final class QueryBuilders {
             return parseInPredicate(expr, column, needDateCompat);
         }
         if (expr instanceof FunctionCallExpr) {
-            return parseFunctionCallExpr(expr);
+            FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
+            // current only esquery functionCallExpr can be push down to ES
+            if (!"esquery".equals(functionCallExpr.getFnName().getFunction())) {
+                notPushDownList.add(expr);
+                return null;
+            } else {
+                return parseFunctionCallExpr(expr);
+            }
         }
         return null;
     }

@@ -17,21 +17,18 @@
 
 package org.apache.doris.httpv2.controller;
 
-import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
-import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -71,8 +68,7 @@ public class BaseController {
             UserIdentity currentUser = checkPassword(authInfo);
 
             if (checkAuth) {
-                checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-                        Privilege.NODE_PRIV), CompoundPredicate.Operator.OR));
+                checkGlobalAuth(currentUser, PrivPredicate.ADMIN);
             }
 
             SessionValue value = new SessionValue();
@@ -85,7 +81,6 @@ public class BaseController {
             ctx.setRemoteIP(authInfo.remoteIp);
             ctx.setCurrentUserIdentity(currentUser);
             ctx.setEnv(Env.getCurrentEnv());
-            ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setThreadLocalInfo();
             LOG.debug("check auth without cookie success for user: {}, thread: {}",
                     currentUser, Thread.currentThread().getId());
@@ -103,6 +98,11 @@ public class BaseController {
     protected void addSession(HttpServletRequest request, HttpServletResponse response, SessionValue value) {
         String key = UUID.randomUUID().toString();
         Cookie cookie = new Cookie(PALO_SESSION_ID, key);
+        if (Config.enable_https) {
+            cookie.setSecure(true);
+        } else {
+            cookie.setSecure(false);
+        }
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
         cookie.setPath("/");
         cookie.setHttpOnly(true);
@@ -125,8 +125,7 @@ public class BaseController {
         }
 
         if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(sessionValue.currentUser,
-                PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-                        Privilege.NODE_PRIV), CompoundPredicate.Operator.OR))) {
+                PrivPredicate.ADMIN)) {
             // need to check auth and check auth failed
             return null;
         }
@@ -138,7 +137,6 @@ public class BaseController {
         ctx.setRemoteIP(request.getRemoteHost());
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setThreadLocalInfo();
         LOG.debug("check cookie success for user: {}, thread: {}",
                 sessionValue.currentUser, Thread.currentThread().getId());
@@ -146,7 +144,6 @@ public class BaseController {
         authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
         authInfo.remoteIp = request.getRemoteHost();
         authInfo.password = sessionValue.password;
-        authInfo.cluster = SystemInfoService.DEFAULT_CLUSTER;
         return authInfo;
     }
 
@@ -170,6 +167,12 @@ public class BaseController {
             if (cookie.getName() != null && cookie.getName().equals(cookieName)) {
                 cookie.setMaxAge(age);
                 cookie.setPath("/");
+                cookie.setHttpOnly(true);
+                if (Config.enable_https) {
+                    cookie.setSecure(true);
+                } else {
+                    cookie.setSecure(false);
+                }
                 response.addCookie(cookie);
             }
         }
@@ -185,7 +188,7 @@ public class BaseController {
         public String toString() {
             StringBuilder sb = new StringBuilder();
             sb.append("user: ").append(fullUserName).append(", remote ip: ").append(remoteIp);
-            sb.append(", password: ").append(password).append(", cluster: ").append(cluster);
+            sb.append(", password: ").append("********").append(", cluster: ").append(cluster);
             return sb.toString();
         }
     }
@@ -244,7 +247,7 @@ public class BaseController {
         if (Strings.isNullOrEmpty(encodedAuthString)) {
             return false;
         }
-        String[] parts = encodedAuthString.split(" ");
+        String[] parts = encodedAuthString.split("\\s+");
         if (parts.length != 2) {
             return false;
         }
@@ -264,12 +267,9 @@ public class BaseController {
             authInfo.fullUserName = authString.substring(0, index);
             final String[] elements = authInfo.fullUserName.split("@");
             if (elements != null && elements.length < 2) {
-                authInfo.fullUserName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER,
-                        authInfo.fullUserName);
-                authInfo.cluster = SystemInfoService.DEFAULT_CLUSTER;
+                authInfo.fullUserName = ClusterNamespace.getNameFromFullName(authInfo.fullUserName);
             } else if (elements != null && elements.length == 2) {
-                authInfo.fullUserName = ClusterNamespace.getFullName(elements[1], elements[0]);
-                authInfo.cluster = elements[1];
+                authInfo.fullUserName = ClusterNamespace.getNameFromFullName(elements[0]);
             }
             authInfo.password = authString.substring(index + 1);
             authInfo.remoteIp = request.getRemoteAddr();
@@ -298,9 +298,11 @@ public class BaseController {
     protected String getCurrentFrontendURL() {
         if (Config.enable_https) {
             // this could be the result of redirection.
-            return "https://" + FrontendOptions.getLocalHostAddress() + ":" + Config.https_port;
+            return "https://" + NetUtils
+                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.https_port);
         } else {
-            return "http://" + FrontendOptions.getLocalHostAddress() + ":" + Config.http_port;
+            return "http://" + NetUtils
+                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.http_port);
         }
     }
 }

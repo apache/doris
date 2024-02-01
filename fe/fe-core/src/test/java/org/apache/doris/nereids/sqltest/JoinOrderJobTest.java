@@ -17,8 +17,18 @@
 
 package org.apache.doris.nereids.sqltest;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.HyperGraphBuilder;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import com.google.common.collect.Sets;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class JoinOrderJobTest extends SqlTestBase {
@@ -83,5 +93,70 @@ public class JoinOrderJobTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .dpHypOptimize();
+    }
+
+    @Test
+    protected void testConstantJoin() {
+        String sql = "select count(*) \n"
+                + "from \n"
+                + "T1 \n"
+                + " join (\n"
+                + "select * , now() as t from T2 \n"
+                + ") subTable on T1.id = t; \n";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .dpHypOptimize();
+    }
+
+    @Test
+    protected void testCountJoin() {
+        String sql = "select count(*) \n"
+                + "from \n"
+                + "T1, \n"
+                + "(\n"
+                + "select sum(T2.score + T3.score) as score from T2 join T3 on T2.id = T3.id"
+                + ") subTable, \n"
+                + "( \n"
+                + "select sum(T4.id*2) as id from T4"
+                + ") doubleT4 \n"
+                + "where \n"
+                + "T1.id = doubleT4.id and \n"
+                + "T1.score = subTable.score;\n";
+        Memo memo = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getCascadesContext()
+                .getMemo();
+        Assertions.assertEquals(memo.countMaxContinuousJoin(), 2);
+    }
+
+    @Test
+    protected void test64TableJoin() {
+        HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
+        Plan plan = hyperGraphBuilder
+                .randomBuildPlanWith(65, 65);
+        plan = new LogicalProject(plan.getOutput(), plan);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        Assertions.assertEquals(cascadesContext.getMemo().countMaxContinuousJoin(), 64);
+        hyperGraphBuilder.initStats(cascadesContext);
+        PlanChecker.from(cascadesContext)
+                .optimize()
+                .getBestPlanTree();
+    }
+
+    @Disabled
+    @Test
+    void test64CliqueJoin() {
+        HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN));
+        Plan plan = hyperGraphBuilder
+                .randomBuildPlanWith(64, 64 * 63 / 2);
+        plan = new LogicalProject(plan.getOutput(), plan);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        hyperGraphBuilder.initStats(cascadesContext);
+        PlanChecker.from(cascadesContext)
+                .rewrite()
+                .dpHypOptimize()
+                .getBestPlanTree();
     }
 }

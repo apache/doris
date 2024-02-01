@@ -50,6 +50,10 @@ public class ImportColumnDesc {
         return columnName;
     }
 
+    public void setColumnName(String columnName) {
+        this.columnName = columnName;
+    }
+
     public Expr getExpr() {
         return expr;
     }

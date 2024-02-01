@@ -142,39 +142,125 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 >
 >"strict_mode" = "true"
 
-3. Example of importing data in Json format
+[3. Example of importing data in Json format](#Example_of_importing_data_in_Json_format)
 
-   Routine Load only supports the following two types of json formats
+  The json format imported by Routine Load only supports the following two types:
 
-   The first one has only one record and is a json object.
+- Only one record and it is a json object:
 
-```json
-{"category":"a9jadhx","author":"test","price":895}
+When using **single table import** (that is, specifying the table name through ON TABLE_NAME), the json data format is as follows.
+  ```
+  {"category":"a9jadhx","author":"test","price":895}
+  ```
+When using **dynamic/multi-table import**  (i.e. not specifying a specific table name), the JSON data format is as follows.
+
+  ```
+  table_name|{"category":"a9jadhx","author":"test","price":895}
+  ```
+
+
+Assuming we need to import data into two tables, `user_address` and `user_info`, the message format is as follows.
+
+eg: user_address data format
+
+```
+    user_address|{"user_id":128787321878,"address":"朝阳区朝阳大厦XXX号","timestamp":1589191587}
+```
+eg: user_info data format
+```
+    user_info|{"user_id":128787321878,"name":"张三","age":18,"timestamp":1589191587}
 ```
 
-The second one is a json array, which can contain multiple records
+- The second type is a JSON array that can contain multiple records.
 
-```json
-[
-    {   
-        "category":"11",
-        "author":"4avc",
-        "price":895,
-        "timestamp":1589191587
-    },
-    {
-        "category":"22",
-        "author":"2avc",
-        "price":895,
-        "timestamp":1589191487
-    },
-    {
-        "category":"33",
-        "author":"3avc",
-        "price":342,
-        "timestamp":1589191387
-    }
-]
+When using **single table import** (that is, specifying the table name through ON TABLE_NAME), the json data format is as follows.
+
+   ```json
+   [
+       {   
+           "category":"11",
+           "author":"4avc",
+           "price":895,
+           "timestamp":1589191587
+       },
+       {
+           "category":"22",
+           "author":"2avc",
+           "price":895,
+           "timestamp":1589191487
+       },
+       {
+           "category":"33",
+           "author":"3avc",
+           "price":342,
+           "timestamp":1589191387
+       }
+   ]
+   ```
+When using **dynamic/multi-table import**  (i.e. not specifying a specific table name), the JSON data format is as follows.
+
+```
+   table_name|[
+       {
+           "user_id":128787321878,
+           "address":"Los Angeles, CA, USA",
+           "timestamp":1589191587
+       },
+       {
+           "user_id":128787321878,
+           "address":"Los Angeles, CA, USA",
+           "timestamp":1589191587
+       },
+       {
+           "user_id":128787321878,
+           "address":"Los Angeles, CA, USA",
+           "timestamp":1589191587
+       }
+   ]
+```
+Similarly, taking the tables `user_address` and `user_info` as examples, the message format would be as follows.
+
+eg: user_address data format
+```
+     user_address|[
+       {   
+           "category":"11",
+           "author":"4avc",
+           "price":895,
+           "timestamp":1589191587
+       },
+       {
+           "category":"22",
+           "author":"2avc",
+           "price":895,
+           "timestamp":1589191487
+       },
+       {
+           "category":"33",
+           "author":"3avc",
+           "price":342,
+           "timestamp":1589191387
+       }
+     ]
+```
+eg: user_info data format
+```
+        user_info|[
+         {
+             "user_id":128787321878,
+             "address":"Los Angeles, CA, USA",
+             "timestamp":1589191587
+         },
+         {
+             "user_id":128787321878,
+             "address":"Los Angeles, CA, USA",
+             "timestamp":1589191587
+         },
+         {
+             "user_id":128787321878,
+             "address":"Los Angeles, CA, USA",
+             "timestamp":1589191587
+         }
 ```
 
 Create the Doris data table to be imported
@@ -323,6 +409,64 @@ FROM KAFKA
 >[https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md](https://github.com/edenhill/librdkafka/blob/master/ CONFIGURATION.md)
 >
 >
+
+**Access Alibaba Cloud Message Queue Kafka Cluster((Access Point Type is SSL))**
+
+```sql
+#Upload certificate file address, address：https://github.com/AliwareMQ/aliware-kafka-demos/blob/master/kafka-cpp-demo/vpc-ssl/only-4096-ca-cert
+CREATE FILE "ca.pem" PROPERTIES("url" = "http://xxx/only-4096-ca-cert", "catalog" = "kafka");
+
+# create routine load job
+CREATE ROUTINE LOAD test.test_job on test_tbl
+PROPERTIES
+(
+    "desired_concurrent_number"="1",
+    "format" = "json"
+)
+FROM KAFKA
+(
+    "kafka_broker_list"= "xxx.alikafka.aliyuncs.com:9093",
+    "kafka_topic" = "test",
+    "property.group.id" = "test_group",
+    "property.client.id" = "test_group",
+    "property.security.protocol"="ssl",
+    "property.ssl.ca.location"="FILE:ca.pem",
+    "property.security.protocol"="sasl_ssl",
+    "property.sasl.mechanism"="PLAIN",
+    "property.sasl.username"="xxx",
+    "property.sasl.password"="xxx"
+);
+```
+
+
+
+**Access the PLAIN certified Kafka cluster**
+
+To access a Kafka cluster with PLAIN authentication enabled, you need to add the following configuration：
+
+   - property.security.protocol=SASL_PLAINTEXT : Use SASL plaintext
+   - property.sasl.mechanism=PLAIN : Set the SASL authentication mode to PLAIN
+   - property.sasl.username=admin : Set the SASL user name
+   - property.sasl.password=admin : Set the SASL password
+
+1. Create a routine import job
+
+    ```sql
+    CREATE ROUTINE LOAD db1.job1 on tbl1
+    PROPERTIES (
+    "desired_concurrent_number"="1",
+     )
+    FROM KAFKA
+    (
+        "kafka_broker_list" = "broker1:9092,broker2:9092",
+        "kafka_topic" = "my_topic",
+        "property.security.protocol"="SASL_PLAINTEXT",
+        "property.sasl.mechanism"="PLAIN",
+        "property.sasl.username"="admin",
+        "property.sasl.password"="admin"
+    );
+    
+    ```
 
 <version since="1.2">
 

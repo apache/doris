@@ -48,6 +48,7 @@ public:
 
     [[noreturn]] Field operator[](size_t) const override {
         LOG(FATAL) << "Cannot get value from " << get_name();
+        __builtin_unreachable();
     }
 
     void get(size_t, Field&) const override {
@@ -61,6 +62,8 @@ public:
     StringRef get_data_at(size_t) const override { return {}; }
 
     void insert_data(const char*, size_t) override { ++s; }
+
+    void clear() override {};
 
     StringRef serialize_value_into_arena(size_t /*n*/, Arena& arena,
                                          char const*& begin) const override {
@@ -78,8 +81,8 @@ public:
         s += length;
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         s += (indices_end - indices_begin);
     }
 
@@ -113,6 +116,10 @@ public:
         return clone_dummy(offsets.back());
     }
 
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
+        LOG(FATAL) << "Not implemented";
+    }
+
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         if (s != selector.size()) {
             LOG(FATAL) << "Size of selector doesn't match size of column.";
@@ -141,15 +148,7 @@ public:
         for (size_t i = 0; i < selector.size(); ++i) res->insert_from(*this, selector[i]);
     }
 
-    void get_extremes(Field&, Field&) const override {}
-
     void addSize(size_t delta) { s += delta; }
-
-    bool is_dummy() const override { return true; }
-
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "IColumnDummy get_data_type not implemeted";
-    }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column dummy";

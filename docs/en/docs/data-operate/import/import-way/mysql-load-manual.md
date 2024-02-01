@@ -1,6 +1,6 @@
 ---
 {
-    "title": "MySql load",
+    "title": "MySql Load",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Mysql load
+# Mysql Load
 <version since="dev">
 
 This is an stand syntax of MySql [LOAD DATA](https://dev.mysql.com/doc/refman/8.0/en/load-data.html) for user to load local file.
@@ -125,7 +125,7 @@ Records: 1 Deleted: 0 Skipped: 0 Warnings: 0
 ### Error result
 If mysql load process goes wrong, it will show the error in the client as below:
 ```text
-ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]too many filtered rows with load id b612907c-ccf4-4ac2-82fe-107ece655f0f
+ERROR 1105 (HY000): errCode = 2, detailMessage = [DATA_QUALITY_ERROR]too many filtered rows with load id b612907c-ccf4-4ac2-82fe-107ece655f0f
 ```
 
 If you meets this error, you can extract the `loadId` and use it in the `show load warnings` command to get more detail message.

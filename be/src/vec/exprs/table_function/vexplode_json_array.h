@@ -40,7 +40,7 @@ class Block;
 
 namespace doris::vectorized {
 
-enum ExplodeJsonArrayType { INT = 0, DOUBLE, STRING };
+enum ExplodeJsonArrayType { INT = 0, DOUBLE, STRING, JSON };
 
 struct ParsedData {
     static std::string true_value;
@@ -56,32 +56,12 @@ struct ParsedData {
     std::vector<bool> _string_nulls;
     char tmp_buf[128] = {0};
 
-    void reset(ExplodeJsonArrayType type) {
-        switch (type) {
-        case ExplodeJsonArrayType::INT:
-            _data.clear();
-            _backup_int.clear();
-            break;
-        case ExplodeJsonArrayType::DOUBLE:
-            _data.clear();
-            _backup_double.clear();
-            break;
-        case ExplodeJsonArrayType::STRING:
-            _data_string.clear();
-            _backup_string.clear();
-            _string_nulls.clear();
-            break;
-        default:
-            CHECK(false) << type;
-            break;
-        }
-    }
-
     void* get_value(ExplodeJsonArrayType type, int64_t offset, bool real = false) {
         switch (type) {
         case ExplodeJsonArrayType::INT:
         case ExplodeJsonArrayType::DOUBLE:
             return _data[offset];
+        case ExplodeJsonArrayType::JSON:
         case ExplodeJsonArrayType::STRING:
             return _string_nulls[offset] ? nullptr
                    : real                ? reinterpret_cast<void*>(_backup_string[offset].data())
@@ -92,7 +72,8 @@ struct ParsedData {
     }
 
     int64 get_value_length(ExplodeJsonArrayType type, int64_t offset) {
-        if (type == ExplodeJsonArrayType::STRING && !_string_nulls[offset]) {
+        if ((type == ExplodeJsonArrayType::STRING || type == ExplodeJsonArrayType::JSON) &&
+            !_string_nulls[offset]) {
             return _backup_string[offset].size();
         }
         return 0;
@@ -108,9 +89,9 @@ public:
     VExplodeJsonArrayTableFunction(ExplodeJsonArrayType type);
     ~VExplodeJsonArrayTableFunction() override = default;
 
-    Status process_init(Block* block) override;
-    Status process_row(size_t row_idx) override;
-    Status process_close() override;
+    Status process_init(Block* block, RuntimeState* state) override;
+    void process_row(size_t row_idx) override;
+    void process_close() override;
     void get_value(MutableColumnPtr& column) override;
 
 private:

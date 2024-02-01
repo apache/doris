@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -65,22 +66,25 @@ public class ModifyBackendTest {
     @Test
     public void testModifyBackendTag() throws Exception {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        List<Backend> backends = infoService.getAllBackends();
         Assert.assertEquals(1, backends.size());
-        String beHostPort = backends.get(0).getIp() + ":" + backends.get(0).getHeartbeatPort();
+        String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
 
         // modify backend tag
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('tag.location' = 'zone1')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
-        backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        backends = infoService.getAllBackends();
         Assert.assertEquals(1, backends.size());
 
         // create table
         String createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n"
                 + "buckets 3 properties(\n" + "\"replication_num\" = \"1\"\n" + ");";
         CreateTableStmt createStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 1 backend(s) for policy:",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        + "Create failed replications:\n"
+                        + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt));
 
         createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n" + "buckets 3 properties(\n"
@@ -100,9 +104,9 @@ public class ModifyBackendTest {
                 + ");";
         CreateTableStmt createStmt3 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         //partition create failed, because there is no BE with "default" tag
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 3 backend(s) for policy",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "replication num should be less than the number of available backends. replication num is 3, available backend num is 1",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt3));
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
 
         createStr = "create table test.tbl4(\n" + "k1 date, k2 int\n" + ") partition by range(k1)()\n"
                 + "distributed by hash(k1)\n" + "buckets 3 properties(\n"
@@ -132,23 +136,27 @@ public class ModifyBackendTest {
         Assert.assertEquals("tag.location.default: 3", tblProperties.get("default.replication_allocation"));
 
         // modify default replica
-        String alterStr = "alter table test.tbl4 set ('default.replication_allocation' = 'tag.location.zonex:1')";
+        String alterStr = "alter table test.tbl4 set ('default.replication_allocation' = 'tag.location.zone1:1')";
         AlterTableStmt alterStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStr, connectContext);
         ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Env.getCurrentEnv(), alterStmt));
         defaultAlloc = tbl.getDefaultReplicaAllocation();
         ReplicaAllocation expectedAlloc = new ReplicaAllocation();
-        expectedAlloc.put(Tag.create(Tag.TYPE_LOCATION, "zonex"), (short) 1);
+        expectedAlloc.put(Tag.create(Tag.TYPE_LOCATION, "zone1"), (short) 1);
         Assert.assertEquals(expectedAlloc, defaultAlloc);
         tblProperties = tableProperty.getProperties();
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
 
         // modify partition replica with wrong zone
+        // it will fail because of we check tag location during the analysis process, so we check AnalysisException
         String partName = tbl.getPartitionNames().stream().findFirst().get();
-        alterStr = "alter table test.tbl4 modify partition " + partName
+        String wrongAlterStr = "alter table test.tbl4 modify partition " + partName
                 + " set ('replication_allocation' = 'tag.location.zonex:1')";
-        AlterTableStmt alterStmt2 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStr, connectContext);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find enough host with tag",
-                () -> DdlExecutor.execute(Env.getCurrentEnv(), alterStmt2));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = "
+                        + "errCode = 2, detailMessage = Failed to find enough backend, "
+                        + "please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        + "Create failed replications:\n"
+                        + "replication tag: {\"location\" : \"zonex\"}, replication num: 1, storage medium: null",
+                () -> UtFrameUtils.parseAndAnalyzeStmt(wrongAlterStr, connectContext));
         tblProperties = tableProperty.getProperties();
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
 
@@ -163,13 +171,13 @@ public class ModifyBackendTest {
     @Test
     public void testModifyBackendAvailableProperty() throws Exception {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
-        String beHostPort = backends.get(0).getIp() + ":" + backends.get(0).getHeartbeatPort();
+        List<Backend> backends = infoService.getAllBackends();
+        String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
         // modify backend available property
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('disable_query' = 'true', 'disable_load' = 'true')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
-        Backend backend = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER).get(0);
+        Backend backend = infoService.getAllBackends().get(0);
         Assert.assertFalse(backend.isQueryAvailable());
         Assert.assertFalse(backend.isLoadAvailable());
 

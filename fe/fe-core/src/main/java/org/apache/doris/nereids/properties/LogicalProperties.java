@@ -38,15 +38,15 @@ import java.util.Set;
  */
 public class LogicalProperties {
     protected final Supplier<List<Slot>> outputSupplier;
-    protected final Supplier<List<Slot>> nonUserVisibleOutputSupplier;
     protected final Supplier<List<Id>> outputExprIdsSupplier;
     protected final Supplier<Set<Slot>> outputSetSupplier;
     protected final Supplier<Map<Slot, Slot>> outputMapSupplier;
     protected final Supplier<Set<ExprId>> outputExprIdSetSupplier;
+    protected final Supplier<FunctionalDependencies> fdSupplier;
     private Integer hashCode = null;
 
-    public LogicalProperties(Supplier<List<Slot>> outputSupplier) {
-        this(outputSupplier, ImmutableList::of);
+    public LogicalProperties(Supplier<List<Slot>> outputSupplier, Supplier<FunctionalDependencies> fdSupplier) {
+        this(outputSupplier, fdSupplier, ImmutableList::of);
     }
 
     /**
@@ -55,12 +55,10 @@ public class LogicalProperties {
      * @param outputSupplier provide the output. Supplier can lazy compute output without
      *                       throw exception for which children have UnboundRelation
      */
-    public LogicalProperties(Supplier<List<Slot>> outputSupplier, Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
+    public LogicalProperties(Supplier<List<Slot>> outputSupplier,
+            Supplier<FunctionalDependencies> fdSupplier, Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
-        );
-        this.nonUserVisibleOutputSupplier = Suppliers.memoize(
-                Objects.requireNonNull(nonUserVisibleOutputSupplier, "nonUserVisibleOutputSupplier can not be null")
         );
         this.outputExprIdsSupplier = Suppliers.memoize(
                 () -> this.outputSupplier.get().stream().map(NamedExpression::getExprId).map(Id.class::cast)
@@ -77,14 +75,13 @@ public class LogicalProperties {
                         .map(NamedExpression::getExprId)
                         .collect(ImmutableSet.toImmutableSet())
         );
+        this.fdSupplier = Suppliers.memoize(
+                Objects.requireNonNull(fdSupplier, "FunctionalDependencies can not be null")
+        );
     }
 
     public List<Slot> getOutput() {
         return outputSupplier.get();
-    }
-
-    public List<Slot> getNonUserVisibleOutput() {
-        return nonUserVisibleOutputSupplier.get();
     }
 
     public Set<Slot> getOutputSet() {
@@ -99,12 +96,24 @@ public class LogicalProperties {
         return outputExprIdSetSupplier.get();
     }
 
+    public FunctionalDependencies getFunctionalDependencies() {
+        return fdSupplier.get();
+    }
+
     public List<Id> getOutputExprIds() {
         return outputExprIdsSupplier.get();
     }
 
-    public LogicalProperties withOutput(List<Slot> output) {
-        return new LogicalProperties(Suppliers.ofInstance(output), nonUserVisibleOutputSupplier);
+    @Override
+    public String toString() {
+        return "LogicalProperties{"
+                + "\noutputSupplier=" + outputSupplier.get()
+                + "\noutputExprIdsSupplier=" + outputExprIdsSupplier.get()
+                + "\noutputSetSupplier=" + outputSetSupplier.get()
+                + "\noutputMapSupplier=" + outputMapSupplier.get()
+                + "\noutputExprIdSetSupplier=" + outputExprIdSetSupplier.get()
+                + "\nhashCode=" + hashCode
+                + '}';
     }
 
     @Override

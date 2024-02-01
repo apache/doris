@@ -79,18 +79,17 @@ template <typename T>
 void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                      size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+        memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
         keys[i].size += sizeof(T);
     }
 }
 
 template <typename T>
 void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                                   const uint8_t* null_map,
-                                                   size_t max_row_byte_size) const {
+                                                   const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+            memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
             keys[i].size += sizeof(T);
         }
     }
@@ -122,8 +121,9 @@ template <typename T>
 UInt64 ColumnDecimal<T>::get64(size_t n) const {
     if constexpr (sizeof(T) > sizeof(UInt64)) {
         LOG(FATAL) << "Method get64 is not supported for " << get_family_name();
+    } else {
+        return static_cast<typename T::NativeType>(data[n]);
     }
-    return static_cast<typename T::NativeType>(data[n]);
 }
 
 template <typename T>
@@ -138,31 +138,65 @@ void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                                             const uint8_t* __restrict null_data) const {
+    if (null_data == nullptr) {
+        for (size_t i = start; i < end; i++) {
+            if constexpr (!IsDecimalV2<T>) {
+                hash = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hash);
+            } else {
+                decimalv2_do_crc(i, hash);
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; i++) {
+            if (null_data[i] == 0) {
+                if constexpr (!IsDecimalV2<T>) {
+                    hash = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hash);
+                } else {
+                    decimalv2_do_crc(i, hash);
+                }
+            }
+        }
+    }
+}
+
+template <typename T>
+void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type,
+                                              uint32_t rows, uint32_t offset,
                                               const uint8_t* __restrict null_data) const {
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if constexpr (!IsDecimalV2<T>) {
         DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
     } else {
-        DCHECK(type == TYPE_DECIMALV2);
-        auto decimalv2_do_crc = [&](size_t i) {
-            const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
-            int64_t int_val = dec_val.int_value();
-            int32_t frac_val = dec_val.frac_value();
-            hashes[i] = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hashes[i]);
-            hashes[i] = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hashes[i]);
-        };
-
         if (null_data == nullptr) {
             for (size_t i = 0; i < s; i++) {
-                decimalv2_do_crc(i);
+                decimalv2_do_crc(i, hashes[i]);
             }
         } else {
             for (size_t i = 0; i < s; i++) {
-                if (null_data[i] == 0) decimalv2_do_crc(i);
+                if (null_data[i] == 0) decimalv2_do_crc(i, hashes[i]);
             }
+        }
+    }
+}
+
+template <typename T>
+void ColumnDecimal<T>::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                                const uint8_t* __restrict null_data) const {
+    if (null_data) {
+        for (size_t i = start; i < end; i++) {
+            if (null_data[i] == 0) {
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                                                  sizeof(T), hash);
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; i++) {
+            hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]), sizeof(T),
+                                              hash);
         }
     }
 }
@@ -221,9 +255,6 @@ ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t lim
 template <typename T>
 MutableColumnPtr ColumnDecimal<T>::clone_resized(size_t size) const {
     auto res = this->create(0, scale);
-    if (this->is_decimalv2_type()) {
-        res->set_decimalv2_type();
-    }
 
     if (size > 0) {
         auto& new_col = assert_cast<Self&>(*res);
@@ -253,11 +284,11 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
     size_t old_size = data.size();
     data.resize(old_size + num);
 
-    if (this->is_decimalv2_type()) {
+    if constexpr (IsDecimalV2<T>) {
         DecimalV2Value* target = (DecimalV2Value*)(data.data() + old_size);
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
-            int64_t int_value = *(int64_t*)(cur_ptr);
+            int64_t int_value = unaligned_load<int64_t>(cur_ptr);
             int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
             target[i].from_olap_decimal(int_value, frac_value);
         }
@@ -407,41 +438,15 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                                 size_t begin, int count_sz) const {
-    size_t size = count_sz < 0 ? data.size() : count_sz;
-    if (0 == size) return;
-
+void ColumnDecimal<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
+                                 IColumn& column) const {
     auto& res = reinterpret_cast<ColumnDecimal<T>&>(column);
     typename Self::Container& res_data = res.get_data();
-    res_data.reserve(target_size);
+    res_data.resize(target_size);
 
-    size_t end = size + begin;
-    for (size_t i = begin; i < end; ++i) {
-        res_data.add_num_element_without_reserve(data[i], counts[i]);
+    for (size_t i = 0; i < target_size; ++i) {
+        res_data[i] = data[indexs[i]];
     }
-}
-
-template <typename T>
-void ColumnDecimal<T>::get_extremes(Field& min, Field& max) const {
-    if (data.size() == 0) {
-        min = NearestFieldType<T>(0, scale);
-        max = NearestFieldType<T>(0, scale);
-        return;
-    }
-
-    T cur_min = data[0];
-    T cur_max = data[0];
-
-    for (const T& x : data) {
-        if (x < cur_min)
-            cur_min = x;
-        else if (x > cur_max)
-            cur_max = x;
-    }
-
-    min = NearestFieldType<T>(cur_min, scale);
-    max = NearestFieldType<T>(cur_max, scale);
 }
 
 template <typename T>
@@ -489,13 +494,20 @@ Decimal64 ColumnDecimal<Decimal64>::get_scale_multiplier() const {
 }
 
 template <>
-Decimal128 ColumnDecimal<Decimal128>::get_scale_multiplier() const {
+Decimal128V2 ColumnDecimal<Decimal128V2>::get_scale_multiplier() const {
     return common::exp10_i128(scale);
 }
 
 template <>
-Decimal128I ColumnDecimal<Decimal128I>::get_scale_multiplier() const {
+Decimal128V3 ColumnDecimal<Decimal128V3>::get_scale_multiplier() const {
     return common::exp10_i128(scale);
+}
+
+// duplicate with
+// Decimal256 DataTypeDecimal<Decimal256>::get_scale_multiplier(UInt32 scale) {
+template <>
+Decimal256 ColumnDecimal<Decimal256>::get_scale_multiplier() const {
+    return Decimal256(common::exp10_i256(scale));
 }
 
 template <typename T>
@@ -503,8 +515,21 @@ ColumnPtr ColumnDecimal<T>::index(const IColumn& indexes, size_t limit) const {
     return select_index_impl(*this, indexes, limit);
 }
 
+template <typename T>
+void ColumnDecimal<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
+    auto s = size();
+    size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
+    if (0 == null_count) {
+        return;
+    }
+    for (size_t i = 0; i < s; ++i) {
+        data[i] = null_map[i] ? T() : data[i];
+    }
+}
+
 template class ColumnDecimal<Decimal32>;
 template class ColumnDecimal<Decimal64>;
-template class ColumnDecimal<Decimal128>;
-template class ColumnDecimal<Decimal128I>;
+template class ColumnDecimal<Decimal128V2>;
+template class ColumnDecimal<Decimal128V3>;
+template class ColumnDecimal<Decimal256>;
 } // namespace doris::vectorized

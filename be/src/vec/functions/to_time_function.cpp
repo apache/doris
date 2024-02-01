@@ -69,6 +69,8 @@ using FunctionDateTimeV2Minute =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMinuteImpl<UInt64>>;
 using FunctionDateTimeV2Second =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<UInt64>>;
+using FunctionDateTimeV2MicroSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMicroSecondImpl<UInt64>>;
 using FunctionDateTimeV2ToDays =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<UInt64>>;
 using FunctionDateTimeV2ToDate =
@@ -78,42 +80,6 @@ using FunctionDateTimeV2Date = FunctionDateOrDateTimeToSomething<DataTypeDateV2,
 using FunctionTimeStamp = FunctionDateOrDateTimeToSomething<DataTypeDateTime, TimeStampImpl<Int64>>;
 using FunctionTimeStampV2 =
         FunctionDateOrDateTimeToSomething<DataTypeDateTimeV2, TimeStampImpl<UInt64>>;
-
-/// @TEMPORARY: for be_exec_version=2
-using FunctionYearOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearImpl<Int64>>;
-using FunctionYearV2Old = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearImpl<UInt32>>;
-using FunctionQuarterOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<Int64>>;
-using FunctionQuarterV2Old =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<UInt32>>;
-using FunctionMonthOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<Int64>>;
-using FunctionMonthV2Old = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<UInt32>>;
-using FunctionWeekOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<Int64>>;
-using FunctionWeekV2Old =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<UInt32>>;
-using FunctionDayOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<Int64>>;
-using FunctionDayV2Old = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<UInt32>>;
-using FunctionHourOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl<Int64>>;
-using FunctionHourV2Old = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl<UInt32>>;
-using FunctionMinuteOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMinuteImpl<Int64>>;
-using FunctionMinuteV2Old = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMinuteImpl<UInt32>>;
-using FunctionSecondOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToSecondImpl<Int64>>;
-using FunctionSecondV2Old = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToSecondImpl<UInt32>>;
-using FunctionDateTimeV2YearOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearImpl<UInt64>>;
-using FunctionDateTimeV2QuarterOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<UInt64>>;
-using FunctionDateTimeV2MonthOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<UInt64>>;
-using FunctionDateTimeV2WeekOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<UInt64>>;
-using FunctionDateTimeV2DayOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<UInt64>>;
-using FunctionDateTimeV2HourOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl<UInt64>>;
-using FunctionDateTimeV2MinuteOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMinuteImpl<UInt64>>;
-using FunctionDateTimeV2SecondOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToSecondImpl<UInt64>>;
 
 void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSecond>();
@@ -140,6 +106,7 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToDaysV2>();
     factory.register_function<FunctionToDateV2>();
     factory.register_function<FunctionDateV2>();
+    factory.register_function<FunctionDateTimeV2MicroSecond>();
     factory.register_function<FunctionDateTimeV2Second>();
     factory.register_function<FunctionDateTimeV2Minute>();
     factory.register_function<FunctionDateTimeV2Hour>();
@@ -153,32 +120,6 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeV2Date>();
     factory.register_alias("date", "datev2");
     factory.register_alias("to_date", "to_datev2");
-
-    /// @TEMPORARY: for be_exec_version=2
-    factory.register_alternative_function<FunctionYearOld>();
-    factory.register_alternative_function<FunctionQuarterOld>();
-    factory.register_alternative_function<FunctionMonthOld>();
-    factory.register_alternative_function<FunctionDayOld>();
-    factory.register_alternative_function<FunctionWeekOld>();
-    factory.register_alternative_function<FunctionHourOld>();
-    factory.register_alternative_function<FunctionMinuteOld>();
-    factory.register_alternative_function<FunctionSecondOld>();
-    factory.register_alternative_function<FunctionYearV2Old>();
-    factory.register_alternative_function<FunctionQuarterV2Old>();
-    factory.register_alternative_function<FunctionMonthV2Old>();
-    factory.register_alternative_function<FunctionWeekV2Old>();
-    factory.register_alternative_function<FunctionDayV2Old>();
-    factory.register_alternative_function<FunctionHourV2Old>();
-    factory.register_alternative_function<FunctionMinuteV2Old>();
-    factory.register_alternative_function<FunctionSecondV2Old>();
-    factory.register_alternative_function<FunctionDateTimeV2YearOld>();
-    factory.register_alternative_function<FunctionDateTimeV2QuarterOld>();
-    factory.register_alternative_function<FunctionDateTimeV2MonthOld>();
-    factory.register_alternative_function<FunctionDateTimeV2WeekOld>();
-    factory.register_alternative_function<FunctionDateTimeV2DayOld>();
-    factory.register_alternative_function<FunctionDateTimeV2HourOld>();
-    factory.register_alternative_function<FunctionDateTimeV2MinuteOld>();
-    factory.register_alternative_function<FunctionDateTimeV2SecondOld>();
 }
 
 } // namespace doris::vectorized

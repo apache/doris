@@ -17,12 +17,13 @@
 
 #pragma once
 
+#include <fmt/core.h>
 #include <gen_cpp/Opcodes_types.h>
+#include <glog/logging.h>
 #include <math.h>
 
 #include "common/logging.h"
 #include "olap/olap_tuple.h"
-#include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
 
 namespace doris {
@@ -49,6 +50,15 @@ public:
     bool end_include;
     OlapTuple begin_scan_range;
     OlapTuple end_scan_range;
+
+    std::string debug_string() const {
+        fmt::memory_buffer buf;
+        DCHECK_EQ(begin_scan_range.size(), end_scan_range.size());
+        for (int i = 0; i < begin_scan_range.size(); i++) {
+            fmt::format_to(buf, "({}, {})\n", begin_scan_range[i], end_scan_range[i]);
+        }
+        return fmt::to_string(buf);
+    }
 };
 
 static char encoding_table[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
@@ -159,6 +169,8 @@ enum class MatchType {
     MATCH_ELEMENT_GT = 5,
     MATCH_ELEMENT_LE = 6,
     MATCH_ELEMENT_GE = 7,
+    MATCH_PHRASE_PREFIX = 8,
+    MATCH_REGEXP = 9,
 };
 
 inline MatchType to_match_type(TExprOpcode::type type) {
@@ -171,6 +183,12 @@ inline MatchType to_match_type(TExprOpcode::type type) {
         break;
     case TExprOpcode::type::MATCH_PHRASE:
         return MatchType::MATCH_PHRASE;
+        break;
+    case TExprOpcode::type::MATCH_PHRASE_PREFIX:
+        return MatchType::MATCH_PHRASE_PREFIX;
+        break;
+    case TExprOpcode::type::MATCH_REGEXP:
+        return MatchType::MATCH_REGEXP;
         break;
     case TExprOpcode::type::MATCH_ELEMENT_EQ:
         return MatchType::MATCH_ELEMENT_EQ;
@@ -201,6 +219,10 @@ inline MatchType to_match_type(const std::string& condition_op) {
         return MatchType::MATCH_ALL;
     } else if (condition_op.compare("match_phrase") == 0) {
         return MatchType::MATCH_PHRASE;
+    } else if (condition_op.compare("match_phrase_prefix") == 0) {
+        return MatchType::MATCH_PHRASE_PREFIX;
+    } else if (condition_op.compare("match_regexp") == 0) {
+        return MatchType::MATCH_REGEXP;
     } else if (condition_op.compare("match_element_eq") == 0) {
         return MatchType::MATCH_ELEMENT_EQ;
     } else if (condition_op.compare("match_element_lt") == 0) {
@@ -218,6 +240,8 @@ inline MatchType to_match_type(const std::string& condition_op) {
 inline bool is_match_condition(const std::string& op) {
     if (0 == strcasecmp(op.c_str(), "match_any") || 0 == strcasecmp(op.c_str(), "match_all") ||
         0 == strcasecmp(op.c_str(), "match_phrase") ||
+        0 == strcasecmp(op.c_str(), "match_phrase_prefix") ||
+        0 == strcasecmp(op.c_str(), "match_regexp") ||
         0 == strcasecmp(op.c_str(), "match_element_eq") ||
         0 == strcasecmp(op.c_str(), "match_element_lt") ||
         0 == strcasecmp(op.c_str(), "match_element_gt") ||
@@ -230,7 +254,8 @@ inline bool is_match_condition(const std::string& op) {
 
 inline bool is_match_operator(const TExprOpcode::type& op_type) {
     return TExprOpcode::MATCH_ANY == op_type || TExprOpcode::MATCH_ALL == op_type ||
-           TExprOpcode::MATCH_PHRASE == op_type || TExprOpcode::MATCH_ELEMENT_EQ == op_type ||
+           TExprOpcode::MATCH_PHRASE == op_type || TExprOpcode::MATCH_PHRASE_PREFIX == op_type ||
+           TExprOpcode::MATCH_REGEXP == op_type || TExprOpcode::MATCH_ELEMENT_EQ == op_type ||
            TExprOpcode::MATCH_ELEMENT_LT == op_type || TExprOpcode::MATCH_ELEMENT_GT == op_type ||
            TExprOpcode::MATCH_ELEMENT_LE == op_type || TExprOpcode::MATCH_ELEMENT_GE == op_type;
 }

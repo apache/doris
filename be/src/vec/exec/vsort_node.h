@@ -86,7 +86,8 @@ private:
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 
-    RuntimeProfile::Counter* _sort_blocks_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _sort_blocks_memory_usage = nullptr;
 
     bool _use_topn_opt = false;
     // topn top value
@@ -95,6 +96,10 @@ private:
     bool _reuse_mem;
 
     std::unique_ptr<Sorter> _sorter;
+
+    RuntimeProfile::Counter* _child_get_next_timer = nullptr;
+    RuntimeProfile::Counter* _sink_timer = nullptr;
+    RuntimeProfile::Counter* _get_next_timer = nullptr;
 
     static constexpr size_t ACCUMULATED_PARTIAL_SORT_THRESHOLD = 256;
 };

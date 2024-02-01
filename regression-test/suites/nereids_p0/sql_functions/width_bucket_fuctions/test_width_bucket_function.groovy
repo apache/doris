@@ -22,7 +22,7 @@ suite("test_width_bucket_function") {
     qt_sql "select width_bucket(null, 2, 3, 2)"
     qt_sql "select width_bucket(6, 2, 6, 4)"
     qt_sql "select width_bucket(3, 2, 6, 4)"
-    qt_sql "select width_bucket(29000.0, 20000, 60000, 4)"
+    qt_sql "select width_bucket(29000, 20000, 60000, 4)"
     qt_sql "select width_bucket(date('2022-11-18'), date('2022-11-17'), date('2022-11-19'), 2)"
     
     def tableName1 = "tbl_test_width_bucket_function_not_null"

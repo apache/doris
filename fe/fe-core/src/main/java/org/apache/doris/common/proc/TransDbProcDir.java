@@ -19,15 +19,10 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 
 public class TransDbProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -43,20 +38,9 @@ public class TransDbProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        GlobalTransactionMgr transactionMgr = Env.getCurrentGlobalTransactionMgr();
-        List<List<Comparable>> infos = transactionMgr.getDbInfo();
-        // order by dbId, asc
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);
-        Collections.sort(infos, comparator);
-        for (List<Comparable> info : infos) {
-            List<String> row = new ArrayList<String>(info.size());
-            for (Comparable comparable : info) {
-                row.add(comparable.toString());
-            }
-            result.addRow(row);
-        }
+        GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
+        result.addRows(transactionMgr.getDbInfo());
         return result;
-
     }
 
     @Override

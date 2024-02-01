@@ -31,7 +31,7 @@ class THeartbeatResult;
 class TMasterInfo;
 
 const uint32_t HEARTBEAT_INTERVAL = 10;
-class StorageEngine;
+class BaseStorageEngine;
 class ThriftServer;
 
 class HeartbeatServer : public HeartbeatServiceIf {
@@ -53,19 +53,19 @@ public:
 private:
     Status _heartbeat(const TMasterInfo& master_info);
 
-    StorageEngine* _olap_engine;
+    BaseStorageEngine& _engine;
     int64_t _be_epoch;
 
     // mutex to protect master_info and _epoch
     std::mutex _hb_mtx;
     // Not owned. Point to the ExecEnv::_master_info
-    TMasterInfo* _master_info;
+    TMasterInfo* _master_info = nullptr;
     int64_t _fe_epoch;
 
     DISALLOW_COPY_AND_ASSIGN(HeartbeatServer);
 }; // class HeartBeatServer
 
 Status create_heartbeat_server(ExecEnv* exec_env, uint32_t heartbeat_server_port,
-                               ThriftServer** heart_beat_server, uint32_t worker_thread_num,
-                               TMasterInfo* local_master_info);
+                               std::unique_ptr<ThriftServer>* heart_beat_server,
+                               uint32_t worker_thread_num, TMasterInfo* local_master_info);
 } // namespace doris

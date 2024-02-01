@@ -21,9 +21,6 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.AliasGenerator;
-import org.apache.doris.nereids.StatementContext;
-
-import com.google.common.base.Preconditions;
 
 /**
  * Generate the table name required in the rewrite process.
@@ -31,9 +28,7 @@ import com.google.common.base.Preconditions;
 public class ColumnAliasGenerator extends AliasGenerator {
     private static final String DEFAULT_COL_ALIAS_PREFIX = "$c$";
 
-    public ColumnAliasGenerator(StatementContext statementContext) {
-        Preconditions.checkNotNull(statementContext);
+    public ColumnAliasGenerator() {
         aliasPrefix = DEFAULT_COL_ALIAS_PREFIX;
-        usedAliases.addAll(statementContext.getColumnNames());
     }
 }

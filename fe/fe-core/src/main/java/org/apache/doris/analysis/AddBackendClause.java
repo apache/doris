@@ -22,44 +22,27 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.resource.Tag;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import lombok.Getter;
 
 import java.util.List;
 import java.util.Map;
 
 public class AddBackendClause extends BackendClause {
-    // be in free state is not owned by any cluster
-    protected boolean isFree;
-    // cluster that backend will be added to
-    protected String destCluster;
     protected Map<String, String> properties = Maps.newHashMap();
+    @Getter
     private Map<String, String> tagMap;
 
     public AddBackendClause(List<String> hostPorts) {
         super(hostPorts);
-        this.isFree = true;
-        this.destCluster = "";
     }
 
-    public AddBackendClause(List<String> hostPorts, boolean isFree, Map<String, String> properties) {
+    public AddBackendClause(List<String> hostPorts, Map<String, String> properties) {
         super(hostPorts);
-        this.isFree = isFree;
-        this.destCluster = "";
         this.properties = properties;
         if (this.properties == null) {
             this.properties = Maps.newHashMap();
         }
-    }
-
-    public AddBackendClause(List<String> hostPorts, String destCluster) {
-        super(hostPorts);
-        this.isFree = false;
-        this.destCluster = destCluster;
-    }
-
-    public Map<String, String> getTagMap() {
-        return tagMap;
     }
 
     @Override
@@ -83,30 +66,13 @@ public class AddBackendClause extends BackendClause {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ADD ");
-        if (isFree) {
-            sb.append("FREE ");
-        }
         sb.append("BACKEND ");
-
-        if (!Strings.isNullOrEmpty(destCluster)) {
-            sb.append("to").append(destCluster);
-        }
-
-        for (int i = 0; i < hostPorts.size(); i++) {
-            sb.append("\"").append(hostPorts.get(i)).append("\"");
-            if (i != hostPorts.size() - 1) {
+        for (int i = 0; i < params.size(); i++) {
+            sb.append("\"").append(params.get(i)).append("\"");
+            if (i != params.size() - 1) {
                 sb.append(", ");
             }
         }
         return sb.toString();
     }
-
-    public boolean isFree() {
-        return this.isFree;
-    }
-
-    public String getDestCluster() {
-        return destCluster;
-    }
-
 }

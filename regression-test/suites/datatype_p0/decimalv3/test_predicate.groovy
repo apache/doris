@@ -39,9 +39,17 @@ suite("test_predicate") {
             (1.2,1.2,1.3),
             (1.5,1.2,1.3)
     """
+    sql "sync"
     qt_select1 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(2,1))"
 
     qt_select2 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ 1 FROM ${table1} WHERE CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(2,1));"
     qt_select3 "SELECT * FROM ${table1} WHERE k1 != 1.1 ORDER BY k1"
+
+    // decimal256
+    sql "set enable_nereids_planner = true;"
+    sql "set enable_decimal256 = true;"
+    qt_select4 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(76,1))"
+    qt_select5 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ 1 FROM ${table1} WHERE CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(76,1));"
+    qt_select6 "SELECT * FROM ${table1} WHERE k1 != cast(1.1 as decimalv3(76, 1)) ORDER BY k1"
     sql "drop table if exists ${table1}"
 }

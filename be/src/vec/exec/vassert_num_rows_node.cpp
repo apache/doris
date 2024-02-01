@@ -19,7 +19,6 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include <functional>
 #include <map>
@@ -29,9 +28,8 @@
 #include <vector>
 
 #include "runtime/runtime_state.h"
-#include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 class DescriptorTbl;
@@ -53,7 +51,6 @@ VAssertNumRowsNode::VAssertNumRowsNode(ObjectPool* pool, const TPlanNode& tnode,
 }
 
 Status VAssertNumRowsNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAssertNumRowsNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     // ISSUE-3435
@@ -104,21 +101,18 @@ Status VAssertNumRowsNode::pull(doris::RuntimeState* state, vectorized::Block* b
                                  to_string_lambda(_assertion), _desired_num_rows, _subquery_string);
     }
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     return Status::OK();
 }
 
 Status VAssertNumRowsNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
-                                 "VAssertNumRowsNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR_AND_CHECK_SPAN(
-            child(0)->get_next_after_projects(
-                    state, block, eos,
-                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                      ExecNode::get_next,
-                              _children[0], std::placeholders::_1, std::placeholders::_2,
-                              std::placeholders::_3)),
-            child(0)->get_next_span(), *eos);
+    RETURN_IF_ERROR(child(0)->get_next_after_projects(
+            state, block, eos,
+            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                              ExecNode::get_next,
+                      _children[0], std::placeholders::_1, std::placeholders::_2,
+                      std::placeholders::_3)));
 
     return pull(state, block, eos);
 }

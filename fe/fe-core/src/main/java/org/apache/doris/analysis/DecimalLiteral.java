@@ -21,8 +21,10 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDecimalLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -40,7 +42,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
 
-public class DecimalLiteral extends LiteralExpr {
+public class DecimalLiteral extends NumericLiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DecimalLiteral.class);
     private BigDecimal value;
 
@@ -48,7 +50,7 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     public DecimalLiteral(BigDecimal value) {
-        this(value, false);
+        this(value, Config.enable_decimal_conversion);
     }
 
     public DecimalLiteral(BigDecimal value, boolean isDecimalV3) {
@@ -81,7 +83,7 @@ public class DecimalLiteral extends LiteralExpr {
             throw new AnalysisException("Invalid floating-point literal: " + value, e);
         }
         if (scale >= 0) {
-            v = v.setScale(scale, RoundingMode.DOWN);
+            v = v.setScale(scale, RoundingMode.HALF_UP);
         }
         init(v);
         analysisDone();
@@ -125,6 +127,19 @@ public class DecimalLiteral extends LiteralExpr {
         this.value = value;
         int precision = getBigDecimalPrecision(this.value);
         int scale = getBigDecimalScale(this.value);
+        int maxPrecision =
+                SessionVariable.getEnableDecimal256() ? ScalarType.MAX_DECIMAL256_PRECISION
+                        : ScalarType.MAX_DECIMAL128_PRECISION;
+        int integerPart = precision - scale;
+        if (precision > maxPrecision) {
+            BigDecimal stripedValue = value.stripTrailingZeros();
+            int stripedPrecision = getBigDecimalPrecision(stripedValue);
+            if (stripedPrecision <= maxPrecision) {
+                this.value = stripedValue.setScale(maxPrecision - integerPart);
+                precision = getBigDecimalPrecision(this.value);
+                scale = getBigDecimalScale(this.value);
+            }
+        }
         if (enforceV3) {
             type = ScalarType.createDecimalV3Type(precision, scale);
         } else {
@@ -212,6 +227,7 @@ public class DecimalLiteral extends LiteralExpr {
                 buffer.putLong(value.unscaledValue().longValue());
                 break;
             case DECIMAL128:
+            case DECIMAL256:
                 LargeIntLiteral tmp = new LargeIntLiteral(value.unscaledValue());
                 return tmp.getHashValue(type);
             default:
@@ -242,6 +258,11 @@ public class DecimalLiteral extends LiteralExpr {
                         + " and " + expr.toSqlImpl());
             }
         }
+    }
+
+    @Override
+    public String getStringValueInFe() {
+        return value.toPlainString();
     }
 
     @Override
@@ -285,8 +306,10 @@ public class DecimalLiteral extends LiteralExpr {
     @Override
     protected void compactForLiteral(Type type) throws AnalysisException {
         if (type.isDecimalV3()) {
-            this.type = ScalarType.createDecimalV3Type(Math.max(this.value.precision(), type.getPrecision()),
-                    Math.max(this.value.scale(), ((ScalarType) type).decimalScale()));
+            int scale = Math.max(this.value.scale(), ((ScalarType) type).decimalScale());
+            int integerPart = Math.max(this.value.precision() - this.value.scale(),
+                    type.getPrecision() - ((ScalarType) type).decimalScale());
+            this.type = ScalarType.createDecimalV3Type(integerPart + scale, scale);
         }
     }
 
@@ -330,14 +353,6 @@ public class DecimalLiteral extends LiteralExpr {
         return fracPart.intValue();
     }
 
-    public void roundCeiling() {
-        roundCeiling(0);
-    }
-
-    public void roundFloor() {
-        roundFloor(0);
-    }
-
     public void roundCeiling(int newScale) {
         value = value.setScale(newScale, RoundingMode.CEILING);
         type = ScalarType.createDecimalType(((ScalarType) type)
@@ -379,6 +394,13 @@ public class DecimalLiteral extends LiteralExpr {
             return new LargeIntLiteral(value.toBigInteger().toString());
         }
         return super.uncheckedCastTo(targetType);
+    }
+
+    public Expr castToDecimalV3ByDivde(Type targetType) {
+        // onlye use in DecimalLiteral divide DecimalV3
+        CastExpr expr = new CastExpr(targetType, this);
+        expr.setNotFold(true);
+        return expr;
     }
 
     @Override

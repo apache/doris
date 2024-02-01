@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -30,17 +31,22 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_filter").add("array_exists").add("array_sortby")
-            .add("array_first_index").build();
+            .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
+            .build();
     // The functions in this set are all normal array functions when implemented initially.
     // and then wants add lambda expr as the input param, so we rewrite it to contains an array_map lambda function
     // rather than reimplementing a lambda function, this will be reused the implementation of normal array function
     public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby").add("array_first_index").build();
+            String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby")
+            .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
+            .add("element_at")
+            .build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
 
@@ -54,6 +60,11 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
     public LambdaFunctionCallExpr(LambdaFunctionCallExpr other) {
         super(other);
+    }
+
+    // nereids high order function call expr constructor without finalize/analyze
+    public LambdaFunctionCallExpr(Function function, FunctionParams functionParams) {
+        super(function, functionParams, null, false, functionParams.exprs());
     }
 
     @Override
@@ -97,16 +108,17 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                 this.setChild(0, lastChild);
             }
 
-            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             Expr lambda = this.children.get(0);
-            if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+            if (!(lambda instanceof LambdaFunctionExpr)) {
+                throw new AnalysisException("array_map must use lambda as first input params, now is"
+                        + lambda.debugString());
             }
-            fn.setReturnType(ArrayType.create(lambda.getChild(0).getType(), true));
+            fn = new Function(fnName, Arrays.asList(argTypes), ArrayType.create(lambda.getChild(0).getType(), true),
+                    true, true, NullableMode.CUSTOM);
         } else if (fnName.getFunction().equalsIgnoreCase("array_exists")
-                || fnName.getFunction().equalsIgnoreCase("array_first_index")) {
+                || fnName.getFunction().equalsIgnoreCase("array_first_index")
+                || fnName.getFunction().equalsIgnoreCase("array_last_index")
+                || fnName.getFunction().equalsIgnoreCase("array_count")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 1) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have at least one param");
             }
@@ -135,10 +147,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
             fn = getBuiltinFunction(fnName.getFunction(), newArgTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
-            }
         } else if (fnName.getFunction().equalsIgnoreCase("array_filter")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() != 2) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have two params");
@@ -167,11 +175,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
-            }
-            fn.setReturnType(getChild(0).getType());
         } else if (fnName.getFunction().equalsIgnoreCase("array_sortby")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 2) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
@@ -199,18 +202,62 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+        } else if (fnName.getFunction().equalsIgnoreCase("array_last")) {
+            // array_last(lambda,array)--->array_last(array,lambda)--->element_at(array_filter,-1)
+            if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
+                List<Expr> params = new ArrayList<>();
+                for (int i = 0; i <= childSize - 1; ++i) {
+                    params.add(getChild(i));
+                }
+                LambdaFunctionCallExpr arrayFilterFunc = new LambdaFunctionCallExpr("array_filter", params);
+                arrayFilterFunc.analyzeImpl(analyzer);
+                IntLiteral indexParam = new IntLiteral(-1, Type.INT);
+
+                argTypes = new Type[2];
+                argTypes[0] = getChild(0).getType();
+                argTypes[1] = indexParam.getType();
+                this.children.clear();
+                this.children.add(arrayFilterFunc);
+                this.children.add(indexParam);
             }
-            fn.setReturnType(getChild(0).getType());
+            fnName = new FunctionName(null, "element_at");
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("array_first")) {
+            // array_last(lambda,array)--->array_first(array,lambda)--->element_at(array_filter,1)
+            if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
+                List<Expr> params = new ArrayList<>();
+                for (int i = 0; i <= childSize - 1; ++i) {
+                    params.add(getChild(i));
+                }
+                LambdaFunctionCallExpr arrayFilterFunc = new LambdaFunctionCallExpr("array_filter", params);
+                arrayFilterFunc.analyzeImpl(analyzer);
+                IntLiteral indexParam = new IntLiteral(1, Type.INT);
+
+                argTypes = new Type[2];
+                argTypes[0] = getChild(0).getType();
+                argTypes[1] = indexParam.getType();
+                this.children.clear();
+                this.children.add(arrayFilterFunc);
+                this.children.add(indexParam);
+            }
+            fnName = new FunctionName(null, "element_at");
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         }
-        LOG.info("fn string: " + fn.signatureString() + ". return type: " + fn.getReturnType());
         if (fn == null) {
             LOG.warn("fn {} not exists", this.toSqlImpl());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
+        LOG.debug("fn string: " + fn.signatureString() + ". return type: " + fn.getReturnType());
         this.type = fn.getReturnType();
+        if (this.type.isArrayType() && ((ArrayType) this.type).getItemType().isDecimalV3()
+                && getChild(0).getType().isArrayType()
+                && ((ArrayType) getChild(0).getType()).getItemType().isDecimalV3()) {
+            this.type = new ArrayType(((ArrayType) getChild(0).getType()).getItemType());
+        } else if (this.type.isDecimalV3()
+                && getChild(0).getType().isArrayType()
+                && ((ArrayType) getChild(0).getType()).getItemType().isDecimalV3()) {
+            this.type = ((ArrayType) getChild(0).getType()).getItemType();
+        }
     }
 
     @Override
@@ -221,5 +268,49 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
         } else {
             msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
         }
+    }
+
+    @Override
+    public String toSqlImpl() {
+        StringBuilder sb = new StringBuilder();
+
+        String fnName = getFnName().getFunction();
+        if (fn != null) {
+            // `array_last` will be replaced with `element_at` function after analysis.
+            // At this moment, using the name `array_last` would generate invalid SQL.
+            fnName = fn.getFunctionName().getFunction();
+        }
+        sb.append(fnName);
+        sb.append("(");
+        int childSize = children.size();
+        Expr lastExpr = getChild(childSize - 1);
+        // eg: select array_map(x->x>10, k1) from table,
+        // but we need analyze each param, so change the function like this in parser
+        // array_map(x->x>10, k1) ---> array_map(k1, x->x>10),
+        // so maybe the lambda expr is the end position. and need this check.
+        boolean lastIsLambdaExpr = (lastExpr instanceof LambdaFunctionExpr);
+        if (lastIsLambdaExpr) {
+            sb.append(lastExpr.toSql());
+            sb.append(", ");
+        }
+        for (int i = 0; i < childSize - 1; ++i) {
+            sb.append(getChild(i).toSql());
+            if (i != childSize - 2) {
+                sb.append(", ");
+            }
+        }
+        // and some functions is only implement as a normal array function;
+        // but also want use as lambda function, select array_sortby(x->x,['b','a','c']);
+        // so we convert to: array_sortby(array('b', 'a', 'c'), array_map(x -> `x`, array('b', 'a', 'c')))
+        if (!lastIsLambdaExpr) {
+            if (childSize > 1) {
+                // some functions don't have lambda expr, so don't need to add ","
+                // such as array_exists(array_map(x->x>3, [1,2,3,6,34,3,11]))
+                sb.append(", ");
+            }
+            sb.append(lastExpr.toSql());
+        }
+        sb.append(")");
+        return sb.toString();
     }
 }

@@ -24,8 +24,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Joiner;
 import lombok.Getter;
-import org.apache.parquet.Strings;
 
 import java.util.List;
 
@@ -53,7 +53,7 @@ public class DropSqlBlockRuleStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP SQL_BLOCK_RULE ").append(Strings.join(ruleNames, ","));
+        sb.append("DROP SQL_BLOCK_RULE ").append(Joiner.on(",").join(ruleNames));
         return sb.toString();
     }
 }

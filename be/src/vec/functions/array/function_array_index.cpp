@@ -21,20 +21,14 @@
 
 namespace doris::vectorized {
 
-struct NameArrayContains {
-    static constexpr auto name = "array_contains";
-};
-struct NameArrayPosition {
-    static constexpr auto name = "array_position";
-};
-struct NameCountEqual {
-    static constexpr auto name = "countequal";
-};
-
 void register_function_array_index(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayIndex<ArrayContainsAction, NameArrayContains>>();
-    factory.register_function<FunctionArrayIndex<ArrayPositionAction, NameArrayPosition>>();
-    factory.register_function<FunctionArrayIndex<ArrayCountEqual, NameCountEqual>>();
+    factory.register_function<FunctionArrayIndex<ArrayContainsAction>>();
+    factory.register_function<FunctionArrayIndex<ArrayPositionAction>>();
+    factory.register_function<FunctionArrayIndex<ArrayCountEqual>>();
+
+    factory.register_alternative_function<FunctionArrayIndex<ArrayContainsAction, true>>();
+    factory.register_alternative_function<FunctionArrayIndex<ArrayPositionAction, true>>();
+    factory.register_alternative_function<FunctionArrayIndex<ArrayCountEqual, true>>();
 }
 
 } // namespace doris::vectorized

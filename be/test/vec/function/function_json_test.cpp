@@ -40,7 +40,7 @@ TEST(FunctionJsonTEST, GetJsonDoubleTest) {
             {{VARCHAR("{\"k1.key\":{\"k2\":[1.1, 2.2]}}"), VARCHAR("$.\"k1.key\".k2[0]")},
              DOUBLE(1.1)}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonTEST, GetJsonIntTest) {
@@ -52,7 +52,7 @@ TEST(FunctionJsonTEST, GetJsonIntTest) {
              INT(2)},
             {{VARCHAR("{\"k1.key\":{\"k2\":[1, 2]}}"), VARCHAR("$.\"k1.key\".k2[0]")}, INT(1)}};
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonTEST, GetJsonBigIntTest) {
@@ -65,7 +65,7 @@ TEST(FunctionJsonTEST, GetJsonBigIntTest) {
              Int64(2)},
             {{VARCHAR("{\"k1.key\":{\"k2\":[1, 2]}}"), VARCHAR("$.\"k1.key\".k2[0]")}, Int64(1)}};
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonTEST, GetJsonStringTest) {
@@ -82,7 +82,7 @@ TEST(FunctionJsonTEST, GetJsonStringTest) {
               VARCHAR("$.k1")},
              VARCHAR("[\"v1\",\"v3\",\"v4\"]")}};
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 } // namespace doris::vectorized

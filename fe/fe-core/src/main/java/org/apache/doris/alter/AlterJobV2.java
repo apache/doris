@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -86,8 +87,17 @@ public abstract class AlterJobV2 implements Writable {
     protected long finishedTimeMs = -1;
     @SerializedName(value = "timeoutMs")
     protected long timeoutMs = -1;
+    @SerializedName(value = "rawSql")
+    protected String rawSql;
 
-    public AlterJobV2(long jobId, JobType jobType, long dbId, long tableId, String tableName, long timeoutMs) {
+    // The job will wait all transactions before this txn id finished, then send the schema_change/rollup tasks.
+    @SerializedName(value = "watershedTxnId")
+    protected long watershedTxnId = -1;
+
+
+    public AlterJobV2(String rawSql, long jobId, JobType jobType, long dbId, long tableId, String tableName,
+                      long timeoutMs) {
+        this.rawSql = rawSql;
         this.jobId = jobId;
         this.type = jobType;
         this.dbId = dbId;
@@ -131,6 +141,10 @@ public abstract class AlterJobV2 implements Writable {
         return tableName;
     }
 
+    public long getWatershedTxnId() {
+        return watershedTxnId;
+    }
+
     public boolean isTimeout() {
         return System.currentTimeMillis() - createTimeMs > timeoutMs;
     }
@@ -151,6 +165,23 @@ public abstract class AlterJobV2 implements Writable {
         this.finishedTimeMs = finishedTimeMs;
     }
 
+    public String getRawSql() {
+        return rawSql;
+    }
+
+    // /api/debug_point/add/{name}?value=100
+    private void stateWait(final String name) {
+        long waitTimeMs = DebugPointUtil.getDebugParamOrDefault(name, 0);
+        if (waitTimeMs > 0) {
+            try {
+                LOG.info("debug point {} wait {} ms", name, waitTimeMs);
+                Thread.sleep(waitTimeMs);
+            } catch (InterruptedException e) {
+                LOG.warn(name, e);
+            }
+        }
+    }
+
     /**
      * The keyword 'synchronized' only protects 2 methods:
      * run() and cancel()
@@ -167,21 +198,30 @@ public abstract class AlterJobV2 implements Writable {
             return;
         }
 
+        // /api/debug_point/add/FE.STOP_ALTER_JOB_RUN
+        if (DebugPointUtil.isEnable("FE.STOP_ALTER_JOB_RUN")) {
+            LOG.info("debug point FE.STOP_ALTER_JOB_RUN, schema change schedule stopped");
+            return;
+        }
+
         try {
             switch (jobState) {
                 case PENDING:
+                    stateWait("FE.ALTER_JOB_V2_PENDING");
                     runPendingJob();
                     break;
                 case WAITING_TXN:
+                    stateWait("FE.ALTER_JOB_V2_WAITING_TXN");
                     runWaitingTxnJob();
                     break;
                 case RUNNING:
+                    stateWait("FE.ALTER_JOB_V2_RUNNING");
                     runRunningJob();
                     break;
                 default:
                     break;
             }
-        } catch (AlterCancelException e) {
+        } catch (Exception e) {
             cancelImpl(e.getMessage());
         }
     }
@@ -205,7 +245,7 @@ public abstract class AlterJobV2 implements Writable {
         tbl.writeLockOrAlterCancelException();
         try {
             boolean isStable = tbl.isStable(Env.getCurrentSystemInfo(),
-                    Env.getCurrentEnv().getTabletScheduler(), db.getClusterName());
+                    Env.getCurrentEnv().getTabletScheduler());
 
             if (!isStable) {
                 errMsg = "table is unstable";
@@ -224,7 +264,7 @@ public abstract class AlterJobV2 implements Writable {
         }
     }
 
-    protected abstract void runPendingJob() throws AlterCancelException;
+    protected abstract void runPendingJob() throws Exception;
 
     protected abstract void runWaitingTxnJob() throws AlterCancelException;
 
@@ -239,5 +279,9 @@ public abstract class AlterJobV2 implements Writable {
     public static AlterJobV2 read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, AlterJobV2.class);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 }

@@ -50,6 +50,9 @@ namespace doris::vectorized {
 template <typename T>
 struct AggregateFunctionAvgWeightedData {
     void add(const T& data_val, double weight_val) {
+#ifdef __clang__
+#pragma clang fp reassociate(on)
+#endif
         if constexpr (IsDecimalV2<T>) {
             DecimalV2Value value = binary_cast<Int128, DecimalV2Value>(data_val);
             data_sum = data_sum + (double(value) * weight_val);
@@ -70,6 +73,9 @@ struct AggregateFunctionAvgWeightedData {
     }
 
     void merge(const AggregateFunctionAvgWeightedData& rhs) {
+#ifdef __clang__
+#pragma clang fp reassociate(on)
+#endif
         data_sum = data_sum + rhs.data_sum;
         weight_sum = weight_sum + rhs.weight_sum;
     }

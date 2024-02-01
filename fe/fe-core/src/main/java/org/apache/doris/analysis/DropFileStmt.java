@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -70,11 +69,6 @@ public class DropFileStmt extends DdlStmt {
 
         if (dbName == null) {
             dbName = analyzer.getDefaultDb();
-        } else {
-            if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
-            }
-            dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
         }
 
         if (Strings.isNullOrEmpty(dbName)) {

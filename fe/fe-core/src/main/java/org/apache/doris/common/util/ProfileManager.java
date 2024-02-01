@@ -21,10 +21,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
+import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 
 import com.google.common.base.Strings;
@@ -34,8 +35,6 @@ import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -58,56 +57,18 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 public class ProfileManager {
     private static final Logger LOG = LogManager.getLogger(ProfileManager.class);
     private static volatile ProfileManager INSTANCE = null;
-    // private static final int ARRAY_SIZE = 100;
-    // private static final int TOTAL_LEN = 1000 * ARRAY_SIZE ;
-    // just use for load profile and export profile
-    public static final String JOB_ID = "Job ID";
-    public static final String QUERY_ID = "Query ID";
-    public static final String START_TIME = "Start Time";
-    public static final String END_TIME = "End Time";
-    public static final String TOTAL_TIME = "Total";
-    public static final String QUERY_TYPE = "Query Type";
-    public static final String QUERY_STATE = "Query State";
-    public static final String DORIS_VERSION = "Doris Version";
-    public static final String USER = "User";
-    public static final String DEFAULT_DB = "Default Db";
-    public static final String SQL_STATEMENT = "Sql Statement";
-    public static final String IS_CACHED = "Is Cached";
-
-    public static final String TOTAL_INSTANCES_NUM = "Total Instances Num";
-
-    public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
-
-    public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
-
-    public static final String TRACE_ID = "Trace ID";
-    public static final String ANALYSIS_TIME = "Analysis Time";
-    public static final String FETCH_RESULT_TIME = "Fetch Result Time";
-    public static final String PLAN_TIME = "Plan Time";
-    public static final String SCHEDULE_TIME = "Schedule Time";
-    public static final String WRITE_RESULT_TIME = "Write Result Time";
-    public static final String WAIT_FETCH_RESULT_TIME = "Wait and Fetch Result Time";
 
     public enum ProfileType {
         QUERY,
         LOAD,
     }
 
-    public static final List<String> PROFILE_HEADERS = Collections.unmodifiableList(
-            Arrays.asList(JOB_ID, QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
-                    START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, TRACE_ID));
-    public static final List<String> EXECUTION_HEADERS = Collections.unmodifiableList(
-            Arrays.asList(ANALYSIS_TIME, PLAN_TIME, SCHEDULE_TIME, FETCH_RESULT_TIME,
-              WRITE_RESULT_TIME, WAIT_FETCH_RESULT_TIME));
-
     public static class ProfileElement {
-        public ProfileElement(RuntimeProfile profile) {
+        public ProfileElement(Profile profile) {
             this.profile = profile;
         }
 
-        private final RuntimeProfile profile;
-        // cache the result of getProfileContent method
-        private volatile String profileContent;
+        private final Profile profile;
         public Map<String, String> infoStrings = Maps.newHashMap();
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
@@ -116,12 +77,14 @@ public class ProfileManager {
 
         // lazy load profileContent because sometimes profileContent is very large
         public String getProfileContent() {
-            if (profileContent != null) {
-                return profileContent;
-            }
-            // no need to lock because the possibility of concurrent read is very low
-            profileContent = profile.toString();
-            return profileContent;
+            // Not cache the profile content because it may change during insert
+            // into select statement, we need use this to check process.
+            // And also, cache the content will double usage of the memory in FE.
+            return profile.getProfileByLevel();
+        }
+
+        public String getProfileBrief() {
+            return profile.getProfileBrief();
         }
 
         public double getError() {
@@ -161,21 +124,10 @@ public class ProfileManager {
         queryIdToProfileMap = new ConcurrentHashMap<>();
     }
 
-    public ProfileElement createElement(RuntimeProfile profile) {
+    public ProfileElement createElement(Profile profile) {
         ProfileElement element = new ProfileElement(profile);
-        RuntimeProfile summaryProfile = profile.getChildList().get(0).first;
-        for (String header : PROFILE_HEADERS) {
-            element.infoStrings.put(header, summaryProfile.getInfoString(header));
-        }
-        List<Pair<RuntimeProfile, Boolean>> childList = summaryProfile.getChildList();
-        if (!childList.isEmpty()) {
-            RuntimeProfile executionProfile = childList.get(0).first;
-            for (String header : EXECUTION_HEADERS) {
-                element.infoStrings.put(header, executionProfile.getInfoString(header));
-            }
-        }
-
-        MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile);
+        element.infoStrings.putAll(profile.getSummaryProfile().getAsInfoStings());
+        MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile.getRootProfile());
         try {
             builder.build();
         } catch (Exception e) {
@@ -187,14 +139,14 @@ public class ProfileManager {
         return element;
     }
 
-    public void pushProfile(RuntimeProfile profile) {
+    public void pushProfile(Profile profile) {
         if (profile == null) {
             return;
         }
 
         ProfileElement element = createElement(profile);
         // 'insert into' does have job_id, put all profiles key with query_id
-        String key = element.infoStrings.get(ProfileManager.QUERY_ID);
+        String key = element.infoStrings.get(SummaryProfile.PROFILE_ID);
         // check when push in, which can ensure every element in the list has QUERY_ID column,
         // so there is no need to check when remove element from list.
         if (Strings.isNullOrEmpty(key)) {
@@ -235,15 +187,12 @@ public class ProfileManager {
                     continue;
                 }
                 Map<String, String> infoStrings = profileElement.infoStrings;
-                if (type != null && !infoStrings.get(QUERY_TYPE).equalsIgnoreCase(type.name())) {
+                if (type != null && !infoStrings.get(SummaryProfile.TASK_TYPE).equalsIgnoreCase(type.name())) {
                     continue;
                 }
 
                 List<String> row = Lists.newArrayList();
-                for (String str : PROFILE_HEADERS) {
-                    row.add(infoStrings.get(str));
-                }
-                for (String str : EXECUTION_HEADERS) {
+                for (String str : SummaryProfile.SUMMARY_KEYS) {
                     row.add(infoStrings.get(str));
                 }
                 result.add(row);
@@ -267,6 +216,19 @@ public class ProfileManager {
         }
     }
 
+    public String getProfileBrief(String queryID) {
+        readLock.lock();
+        try {
+            ProfileElement element = queryIdToProfileMap.get(queryID);
+            if (element == null) {
+                return null;
+            }
+            return element.getProfileBrief();
+        } finally {
+            readLock.unlock();
+        }
+    }
+
     public ProfileElement findProfileElementObject(String queryId) {
         return queryIdToProfileMap.get(queryId);
     }
@@ -285,7 +247,7 @@ public class ProfileManager {
             if (element == null) {
                 throw new AuthenticationException("query with id " + queryId + " not found");
             }
-            if (!element.infoStrings.get(USER).equals(user)) {
+            if (!element.infoStrings.get(SummaryProfile.USER).equals(user)) {
                 throw new AuthenticationException("Access deny to view query with id: " + queryId);
             }
         } finally {
@@ -377,7 +339,7 @@ public class ProfileManager {
         readLock.lock();
         try {
             for (Map.Entry<String, ProfileElement> entry : queryIdToProfileMap.entrySet()) {
-                if (entry.getValue().infoStrings.getOrDefault(TRACE_ID, "").equals(traceId)) {
+                if (entry.getValue().infoStrings.getOrDefault(SummaryProfile.TRACE_ID, "").equals(traceId)) {
                     return entry.getKey();
                 }
             }

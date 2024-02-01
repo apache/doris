@@ -22,14 +22,6 @@ suite ("sub_query_diff_old_optimize") {
     """
 
     sql """
-        SET enable_bucket_shuffle_join=false
-    """
-
-    sql """
-        SET disable_colocate_plan=true
-    """
-
-    sql """
         DROP TABLE IF EXISTS `sub_query_diff_old_optimize_subquery1`
     """
 
@@ -43,6 +35,10 @@ suite ("sub_query_diff_old_optimize") {
 
     sql """
         DROP TABLE IF EXISTS `sub_query_diff_old_optimize_subquery4`
+    """
+
+    sql """
+        DROP TABLE IF EXISTS `sub_query_diff_old_optimize_subquery5`
     """
 
     sql """
@@ -78,6 +74,14 @@ suite ("sub_query_diff_old_optimize") {
     """
 
     sql """
+        create table if not exists sub_query_diff_old_optimize_subquery5
+        (tm varchar(20))
+        duplicate key(tm)
+        distributed by hash(tm) buckets 1
+        properties('replication_num' = '1')
+    """
+
+    sql """
         insert into sub_query_diff_old_optimize_subquery1 values (1,2), (1,3), (2,4), (2,5), (3,3), (3,4), (20,2), (22,3), (24,4)
     """
 
@@ -94,27 +98,31 @@ suite ("sub_query_diff_old_optimize") {
         insert into sub_query_diff_old_optimize_subquery4 values (5,4), (5,2), (8,3), (5,4), (6,7), (8,9)
     """
 
+    sql """
+        insert into sub_query_diff_old_optimize_subquery5 values ('a')
+    """
+
     sql "SET enable_fallback_to_original_planner=false"
 
     test {
         sql """
             select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 < (select sum(sub_query_diff_old_optimize_subquery3.k3) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 < sub_query_diff_old_optimize_subquery1.k2) order by k1, k2
         """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: scalar subquery's correlatedPredicates's operator must be EQ"
+        exception "java.sql.SQLException: errCode = 2, detailMessage = scalar subquery's correlatedPredicates's operator must be EQ"
     }
 
     test {
         sql """
             select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 != (select sum(sub_query_diff_old_optimize_subquery3.k3) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 != sub_query_diff_old_optimize_subquery1.k2) order by k1, k2
         """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: scalar subquery's correlatedPredicates's operator must be EQ"
+        exception "java.sql.SQLException: errCode = 2, detailMessage = scalar subquery's correlatedPredicates's operator must be EQ"
     }
 
     test {
         sql """
             select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 = (select sum(sub_query_diff_old_optimize_subquery3.k3) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 > sub_query_diff_old_optimize_subquery1.k2) order by k1, k2
         """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: scalar subquery's correlatedPredicates's operator must be EQ"
+        exception "java.sql.SQLException: errCode = 2, detailMessage = scalar subquery's correlatedPredicates's operator must be EQ"
     }
 
     test {
@@ -123,12 +131,12 @@ suite ("sub_query_diff_old_optimize") {
                 where k1 = (select sum(k1) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery1.k1 != sub_query_diff_old_optimize_subquery3.v1 and sub_query_diff_old_optimize_subquery3.v2 = 2)
                 order by k1, k2
         """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: scalar subquery's correlatedPredicates's operator must be EQ"
+        exception "java.sql.SQLException: errCode = 2, detailMessage = scalar subquery's correlatedPredicates's operator must be EQ"
     }
 
     //----------with subquery alias----------
     //----------remove temporarily-----------
-    /*qt_alias_scalar """
+    qt_alias_scalar """
         select * from sub_query_diff_old_optimize_subquery1
             where sub_query_diff_old_optimize_subquery1.k1 < (select max(aa) from
                 (select k1 as aa from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery1.k2 = sub_query_diff_old_optimize_subquery3.v2) sub_query_diff_old_optimize_subquery3) order by k1, k2
@@ -156,7 +164,11 @@ suite ("sub_query_diff_old_optimize") {
         select * from sub_query_diff_old_optimize_subquery1
             where not exists (select aa from
                 (select k1 as aa from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery1.k2 = sub_query_diff_old_optimize_subquery3.v2) sub_query_diff_old_optimize_subquery3) order by k1, k2
-    """*/
+    """
+
+    qt_alias_issue30264 """
+        with cte1 as (select * from sub_query_diff_old_optimize_subquery5) select tm from cte1 group by tm having tm > (select 'Apple');
+    """
 
     //----------subquery with limit----------
     order_qt_exists_subquery_with_limit """
@@ -167,7 +179,7 @@ suite ("sub_query_diff_old_optimize") {
         sql """
             select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 not in (select sub_query_diff_old_optimize_subquery3.k3 from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 = sub_query_diff_old_optimize_subquery1.k2 limit 1);
         """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: Unsupported correlated subquery with a LIMIT clause LogicalLimit ( limit=1, offset=0 )"
+        exception "Unsupported correlated subquery with a LIMIT clause LogicalLimit ( limit=1, offset=0, phase=ORIGIN )"
 
     }
 
@@ -181,15 +193,7 @@ suite ("sub_query_diff_old_optimize") {
         sql """
             SELECT DISTINCT k1 FROM sub_query_diff_old_optimize_subquery1 i1 WHERE ((SELECT count(*) FROM sub_query_diff_old_optimize_subquery1 WHERE ((k1 = i1.k1) AND (k2 = 2)) or ((k2 = i1.k1) AND (k2 = 1)) )  > 0);
         """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: scalar subquery's correlatedPredicates's operator must be EQ"
-
-    }
-
-    test {
-        sql """
-            SELECT * FROM sub_query_diff_old_optimize_subquery1 WHERE (k1 IN (SELECT k1 FROM sub_query_diff_old_optimize_subquery3) OR k1 < 10) != true;
-        """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: Not support binaryOperator children at least one is in or exists subquery"
+        exception "scalar subquery's correlatedPredicates's operator must be EQ"
 
     }
 }

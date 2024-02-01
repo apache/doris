@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testAggQuqeryOnAggMV5") {
+    sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """

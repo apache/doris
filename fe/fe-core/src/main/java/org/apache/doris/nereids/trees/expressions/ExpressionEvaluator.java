@@ -19,13 +19,22 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.functions.ExecutableFunctions;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.functions.executable.ExecutableFunctions;
+import org.apache.doris.nereids.trees.expressions.functions.executable.NumericArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 
 import java.lang.reflect.InvocationTargetException;
@@ -38,6 +47,7 @@ import java.util.List;
  * An expression evaluator that evaluates the value of an expression.
  */
 public enum ExpressionEvaluator {
+
     INSTANCE;
 
     private ImmutableMultimap<String, FunctionInvoker> functions;
@@ -51,12 +61,13 @@ public enum ExpressionEvaluator {
      */
     public Expression eval(Expression expression) {
 
-        if (!expression.isConstant() || expression instanceof AggregateFunction) {
+        if (!(expression.isConstant() || expression.foldable()) || expression instanceof AggregateFunction) {
             return expression;
         }
 
         String fnName = null;
         DataType[] args = null;
+        DataType ret = expression.getDataType();
         if (expression instanceof BinaryArithmetic) {
             BinaryArithmetic arithmetic = (BinaryArithmetic) expression;
             fnName = arithmetic.getLegacyOperator().getName();
@@ -65,12 +76,16 @@ public enum ExpressionEvaluator {
             TimestampArithmetic arithmetic = (TimestampArithmetic) expression;
             fnName = arithmetic.getFuncName();
             args = new DataType[]{arithmetic.left().getDataType(), arithmetic.right().getDataType()};
+        } else if (expression instanceof BoundFunction) {
+            BoundFunction function = ((BoundFunction) expression);
+            fnName = function.getName();
+            args = function.children().stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new);
         }
 
         if ((Env.getCurrentEnv().isNullResultWithOneNullParamFunction(fnName))) {
             for (Expression e : expression.children()) {
                 if (e instanceof NullLiteral) {
-                    return Literal.of(null);
+                    return new NullLiteral(ret);
                 }
             }
         }
@@ -93,9 +108,6 @@ public enum ExpressionEvaluator {
 
     private FunctionInvoker getFunction(FunctionSignature signature) {
         Collection<FunctionInvoker> functionInvokers = functions.get(signature.getName());
-        if (functionInvokers == null) {
-            return null;
-        }
         for (FunctionInvoker candidate : functionInvokers) {
             DataType[] candidateTypes = candidate.getSignature().getArgTypes();
             DataType[] expectedTypes = signature.getArgTypes();
@@ -121,17 +133,26 @@ public enum ExpressionEvaluator {
         if (functions != null) {
             return;
         }
-        ImmutableMultimap.Builder<String, FunctionInvoker> mapBuilder =
-                new ImmutableMultimap.Builder<String, FunctionInvoker>();
-        Class clazz = ExecutableFunctions.class;
-        for (Method method : clazz.getDeclaredMethods()) {
-            ExecFunctionList annotationList = method.getAnnotation(ExecFunctionList.class);
-            if (annotationList != null) {
-                for (ExecFunction f : annotationList.value()) {
-                    registerFEFunction(mapBuilder, method, f);
+        ImmutableMultimap.Builder<String, FunctionInvoker> mapBuilder = new ImmutableMultimap.Builder<>();
+        List<Class<?>> classes = ImmutableList.of(
+                DateTimeAcquire.class,
+                DateTimeExtractAndTransform.class,
+                ExecutableFunctions.class,
+                DateLiteral.class,
+                DateTimeArithmetic.class,
+                NumericArithmetic.class,
+                TimeRoundSeries.class
+        );
+        for (Class<?> cls : classes) {
+            for (Method method : cls.getDeclaredMethods()) {
+                ExecFunctionList annotationList = method.getAnnotation(ExecFunctionList.class);
+                if (annotationList != null) {
+                    for (ExecFunction f : annotationList.value()) {
+                        registerFEFunction(mapBuilder, method, f);
+                    }
                 }
+                registerFEFunction(mapBuilder, method, method.getAnnotation(ExecFunction.class));
             }
-            registerFEFunction(mapBuilder, method, method.getAnnotation(ExecFunction.class));
         }
         this.functions = mapBuilder.build();
     }
@@ -143,14 +164,10 @@ public enum ExpressionEvaluator {
             DataType returnType = DataType.convertFromString(annotation.returnType());
             List<DataType> argTypes = new ArrayList<>();
             for (String type : annotation.argTypes()) {
-                if (type.equalsIgnoreCase("DECIMALV3")) {
-                    argTypes.add(DecimalV3Type.WILDCARD);
-                } else {
-                    argTypes.add(DataType.convertFromString(type));
-                }
+                argTypes.add(TypeCoercionUtils.replaceDecimalV3WithWildcard(DataType.convertFromString(type)));
             }
             FunctionSignature signature = new FunctionSignature(name,
-                    argTypes.toArray(new DataType[argTypes.size()]), returnType);
+                    argTypes.toArray(new DataType[0]), returnType);
             mapBuilder.put(name, new FunctionInvoker(method, signature));
         }
     }

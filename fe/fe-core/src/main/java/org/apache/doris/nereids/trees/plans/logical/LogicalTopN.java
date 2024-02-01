@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -34,6 +36,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Logical top-N plan.
@@ -64,14 +67,17 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         return child().getOutput();
     }
 
+    @Override
     public List<OrderKey> getOrderKeys() {
         return orderKeys;
     }
 
+    @Override
     public long getOffset() {
         return offset;
     }
 
+    @Override
     public long getLimit() {
         return limit;
     }
@@ -93,7 +99,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalTopN that = (LogicalTopN) o;
+        LogicalTopN<?> that = (LogicalTopN<?>) o;
         return this.offset == that.offset && this.limit == that.limit && Objects.equals(this.orderKeys, that.orderKeys);
     }
 
@@ -104,7 +110,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalTopN((LogicalTopN<Plan>) this, context);
+        return visitor.visitLogicalTopN(this, context);
     }
 
     @Override
@@ -119,9 +125,17 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
                 Optional.empty(), Optional.of(getLogicalProperties()), child());
     }
 
+    public LogicalTopN<Plan> withLimitChild(long limit, long offset, Plan child) {
+        Preconditions.checkArgument(children.size() == 1,
+                "LogicalTopN should have 1 child, but input is %s", children.size());
+        return new LogicalTopN<>(orderKeys, limit, offset,
+                Optional.empty(), Optional.of(getLogicalProperties()), child);
+    }
+
     @Override
     public LogicalTopN<Plan> withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(children.size() == 1,
+                "LogicalTopN should have 1 child, but input is %s", children.size());
         return new LogicalTopN<>(orderKeys, limit, offset, children.get(0));
     }
 
@@ -132,7 +146,22 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     @Override
-    public LogicalTopN<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalTopN<>(orderKeys, limit, offset, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, logicalProperties, children.get(0));
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies fd = child(0).getLogicalProperties().getFunctionalDependencies();
+        if (getLimit() == 1) {
+            Builder builder = new Builder();
+            List<Slot> output = outputSupplier.get();
+            output.forEach(builder::addUniformSlot);
+            output.forEach(builder::addUniqueSlot);
+            fd = builder.build();
+        }
+        return fd;
     }
 }

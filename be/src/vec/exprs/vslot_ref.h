@@ -36,19 +36,16 @@ class VSlotRef final : public VExpr {
     ENABLE_FACTORY_CREATOR(VSlotRef);
 
 public:
-    VSlotRef(const doris::TExprNode& node);
+    VSlotRef(const TExprNode& node);
     VSlotRef(const SlotDescriptor* desc);
-    virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id) override;
-    virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context) override;
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(VSlotRef::create_unique(*this).release());
-    }
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
 
-    virtual const std::string& expr_name() const override;
-    virtual std::string debug_string() const override;
-    virtual bool is_constant() const override { return false; }
+    const std::string& expr_name() const override;
+    std::string debug_string() const override;
+    bool is_constant() const override { return false; }
 
     int column_id() const { return _column_id; }
 
@@ -57,7 +54,7 @@ public:
 private:
     int _slot_id;
     int _column_id;
-    const std::string* _column_name;
+    const std::string* _column_name = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

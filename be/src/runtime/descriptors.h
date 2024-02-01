@@ -32,10 +32,10 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
 
@@ -90,7 +90,6 @@ public:
     int col_pos() const { return _col_pos; }
     // Returns the field index in the generated llvm struct for this slot's tuple
     int field_idx() const { return _field_idx; }
-    const NullIndicatorOffset& null_indicator_offset() const { return _null_indicator_offset; }
     bool is_materialized() const { return _is_materialized; }
     bool is_nullable() const { return _null_indicator_offset.bit_mask != 0; }
 
@@ -109,6 +108,12 @@ public:
 
     bool is_key() const { return _is_key; }
     bool need_materialize() const { return _need_materialize; }
+    const std::vector<std::string>& column_paths() const { return _column_paths; };
+
+    bool is_auto_increment() const { return _is_auto_increment; }
+
+    const std::string& col_default_value() const { return _col_default_value; }
+    PrimitiveType col_type() const { return _col_type; }
 
 private:
     friend class DescriptorTbl;
@@ -128,6 +133,7 @@ private:
     const std::string _col_name_lower_case;
 
     const int32_t _col_unique_id;
+    const PrimitiveType _col_type;
 
     // the idx of the slot in the tuple descriptor (0-based).
     // this is provided by the FE
@@ -142,6 +148,10 @@ private:
 
     const bool _is_key;
     const bool _need_materialize;
+    const std::vector<std::string> _column_paths;
+
+    const bool _is_auto_increment;
+    const std::string _col_default_value;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
@@ -162,11 +172,13 @@ public:
         return slot_desc->col_pos() < _num_clustering_cols;
     }
 
+    ::doris::TTableType::type table_type() const { return _table_type; }
     const std::string& name() const { return _name; }
     const std::string& database() const { return _database; }
     int32_t table_id() const { return _table_id; }
 
 private:
+    ::doris::TTableType::type _table_type;
     std::string _name;
     std::string _database;
     int32_t _table_id;
@@ -216,6 +228,27 @@ public:
     std::string debug_string() const override;
 
 private:
+};
+
+class MaxComputeTableDescriptor : public TableDescriptor {
+public:
+    MaxComputeTableDescriptor(const TTableDescriptor& tdesc);
+    ~MaxComputeTableDescriptor() override;
+    std::string debug_string() const override;
+    const std::string region() const { return _region; }
+    const std::string project() const { return _project; }
+    const std::string table() const { return _table; }
+    const std::string access_key() const { return _access_key; }
+    const std::string secret_key() const { return _secret_key; }
+    const std::string public_access() const { return _public_access; }
+
+private:
+    std::string _region;
+    std::string _project;
+    std::string _table;
+    std::string _access_key;
+    std::string _secret_key;
+    std::string _public_access;
 };
 
 class EsTableDescriptor : public TableDescriptor {
@@ -285,6 +318,11 @@ public:
     const std::string& jdbc_table_name() const { return _jdbc_table_name; }
     const std::string& jdbc_user() const { return _jdbc_user; }
     const std::string& jdbc_passwd() const { return _jdbc_passwd; }
+    int32_t jdbc_min_pool_size() const { return _jdbc_min_pool_size; }
+    int32_t jdbc_max_pool_size() const { return _jdbc_max_pool_size; }
+    int32_t jdbc_max_idle_time() const { return _jdbc_max_idle_time; }
+    int32_t jdbc_max_wait_time() const { return _jdbc_max_wait_time; }
+    bool jdbc_keep_alive() const { return _jdbc_keep_alive; }
 
 private:
     std::string _jdbc_resource_name;
@@ -295,6 +333,11 @@ private:
     std::string _jdbc_table_name;
     std::string _jdbc_user;
     std::string _jdbc_passwd;
+    int32_t _jdbc_min_pool_size;
+    int32_t _jdbc_max_pool_size;
+    int32_t _jdbc_max_idle_time;
+    int32_t _jdbc_max_wait_time;
+    bool _jdbc_keep_alive;
 };
 
 class TupleDescriptor {
@@ -332,6 +375,24 @@ public:
         return false;
     }
 
+    bool has_hll_slot() const {
+        for (auto slot : _slots) {
+            if (slot->type().is_hll_type()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool has_bitmap_slot() const {
+        for (auto slot : _slots) {
+            if (slot->type().is_bitmap_type()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     TupleId id() const { return _id; }
 
     std::string debug_string() const;
@@ -346,7 +407,7 @@ private:
     friend class TabletSchema;
 
     const TupleId _id;
-    TableDescriptor* _table_desc;
+    TableDescriptor* _table_desc = nullptr;
     int64_t _byte_size;
     int _num_null_slots;
     int _num_null_bytes;
@@ -494,7 +555,7 @@ public:
 
     std::string debug_string() const;
 
-    int get_column_id(int slot_id) const;
+    int get_column_id(int slot_id, bool force_materialize_slot = false) const;
 
 private:
     // Initializes tupleIdxMap during c'tor using the _tuple_desc_map.

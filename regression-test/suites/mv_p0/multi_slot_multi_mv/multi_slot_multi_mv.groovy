@@ -16,6 +16,7 @@
 // under the License.
 
 suite ("multi_slot_multi_mv") {
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """

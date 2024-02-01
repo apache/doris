@@ -33,7 +33,7 @@ namespace doris {
 class Tablet;
 struct Version;
 
-const static std::string CUMULATIVE_SIZE_BASED_POLICY = "SIZE_BASED";
+inline constexpr std::string_view CUMULATIVE_SIZE_BASED_POLICY = "size_based";
 
 /// This class CumulativeCompactionPolicy is the base class of cumulative compaction policy.
 /// It defines the policy to do cumulative compaction. It has different derived classes, which implements
@@ -71,7 +71,8 @@ public:
                                    const int64_t max_compaction_score,
                                    const int64_t min_compaction_score,
                                    std::vector<RowsetSharedPtr>* input_rowsets,
-                                   Version* last_delete_version, size_t* compaction_score) = 0;
+                                   Version* last_delete_version, size_t* compaction_score,
+                                   bool allow_delete = false) = 0;
 
     /// Update tablet's cumulative point after cumulative compaction finished. This function is pure virtual function.
     /// Each derived has its own update policy which depends on its concrete algorithm. When the cumulative point moves
@@ -96,7 +97,7 @@ public:
                                             int64_t* cumulative_point) = 0;
 
     /// Fetch cumulative policy name
-    virtual std::string name() = 0;
+    virtual std::string_view name() = 0;
 };
 
 /// SizeBased cumulative compaction policy implementation. SizeBased policy which derives CumulativeCompactionPolicy is a optimized
@@ -113,6 +114,7 @@ public:
             int64_t promotion_size = config::compaction_promotion_size_mbytes * 1024 * 1024,
             double promotion_ratio = config::compaction_promotion_ratio,
             int64_t promotion_min_size = config::compaction_promotion_min_size_mbytes * 1024 * 1024,
+            int64_t promotion_version_count = config::compaction_promotion_version_count,
             int64_t compaction_min_size = config::compaction_min_size_mbytes * 1024 * 1024);
 
     /// Destructor function of SizeBasedCumulativeCompactionPolicy.
@@ -133,7 +135,8 @@ public:
     int pick_input_rowsets(Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
                            const int64_t max_compaction_score, const int64_t min_compaction_score,
                            std::vector<RowsetSharedPtr>* input_rowsets,
-                           Version* last_delete_version, size_t* compaction_score) override;
+                           Version* last_delete_version, size_t* compaction_score,
+                           bool allow_delete = false) override;
 
     /// SizeBased cumulative compaction policy implements update cumulative point function.
     /// Its main policy is judging the output rowset size whether satisfied the promotion size.
@@ -146,7 +149,7 @@ public:
     /// Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
     uint32_t calc_cumulative_compaction_score(Tablet* tablet) override;
 
-    std::string name() override { return CUMULATIVE_SIZE_BASED_POLICY; }
+    std::string_view name() override { return CUMULATIVE_SIZE_BASED_POLICY; }
 
 private:
     /// calculate promotion size using current base rowset meta size and promotion configs
@@ -167,6 +170,8 @@ private:
     double _promotion_ratio;
     /// cumulative compaction promotion min size, unit is byte.
     int64_t _promotion_min_size;
+    // cululative compaction promotion version count, only works for unique key MoW table
+    int64_t _promotion_version_count;
     /// lower bound size to do compaction compaction.
     int64_t _compaction_min_size;
 };
@@ -176,7 +181,8 @@ class CumulativeCompactionPolicyFactory {
 public:
     /// Static factory function. It can product different policy according to the `policy` parameter and use tablet ptr
     /// to construct the policy. Now it can product size based and num based policies.
-    static std::shared_ptr<CumulativeCompactionPolicy> create_cumulative_compaction_policy();
+    static std::shared_ptr<CumulativeCompactionPolicy> create_cumulative_compaction_policy(
+            const std::string_view& compaction_policy);
 };
 
 } // namespace doris

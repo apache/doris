@@ -16,7 +16,6 @@
 // under the License.
 
 #pragma once
-#include <stdint.h>
 
 #include <memory>
 #include <vector>
@@ -48,31 +47,38 @@ class SegcompactionWorker {
     friend class BetaRowsetWriter;
 
 public:
-    SegcompactionWorker(BetaRowsetWriter* writer) { _writer = writer; }
+    explicit SegcompactionWorker(BetaRowsetWriter* writer);
 
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
     io::FileWriterPtr& get_file_writer() { return _file_writer; }
 
+    // set the cancel flag, tasks already started will not be cancelled.
+    bool cancel();
+
 private:
     Status _create_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end);
+            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end);
     Status _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
                                      TabletSharedPtr tablet, std::shared_ptr<Schema> schema,
                                      OlapReaderStatistics* stat,
                                      vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
                                      std::vector<uint32_t>& return_columns,
                                      std::unique_ptr<vectorized::VerticalBlockReader>* reader);
-    std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint64_t begin,
-                                                                            uint64_t end);
+    std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint32_t begin,
+                                                                            uint32_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);
     Status _check_correctness(OlapReaderStatistics& reader_stat, Merger::Statistics& merger_stat,
-                              uint64_t begin, uint64_t end);
+                              uint32_t begin, uint32_t end);
     Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
 
 private:
     //TODO(zhengyu): current impl depends heavily on the access to feilds of BetaRowsetWriter
-    BetaRowsetWriter* _writer;
+    // Currently cloud storage engine doesn't need segcompaction
+    BetaRowsetWriter* _writer = nullptr;
     io::FileWriterPtr _file_writer;
+
+    // the state is not mutable when 1)actual compaction operation started or 2) cancelled
+    std::atomic<bool> _is_compacting_state_mutable = true;
 };
 } // namespace doris

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -53,7 +54,7 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         // and default class name should be year.
         PlanChecker.from(connectContext)
                 .analyze("select year('2021-01-01')")
-                .matchesFromRoot(
+                .matches(
                         logicalOneRowRelation().when(r -> {
                             Year year = (Year) r.getProjects().get(0).child(0);
                             Assertions.assertEquals("2021-01-01",
@@ -70,7 +71,7 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         // 2. substr
         PlanChecker.from(connectContext)
                 .analyze("select substring('abc', 1, 2), substr(substring('abcdefg', 4, 3), 1, 2)")
-                .matchesFromRoot(
+                .matches(
                         logicalOneRowRelation().when(r -> {
                             Substring firstSubstring = (Substring) r.getProjects().get(0).child(0);
                             Assertions.assertEquals("abc", ((Literal) firstSubstring.getSource()).getValue());
@@ -93,7 +94,7 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         // 2. substring(string, position, length)
         PlanChecker.from(connectContext)
                 .analyze("select substr('abc', 1), substring('def', 2, 3)")
-                .matchesFromRoot(
+                .matches(
                         logicalOneRowRelation().when(r -> {
                             Substring firstSubstring = (Substring) r.getProjects().get(0).child(0);
                             Assertions.assertEquals("abc", ((Literal) firstSubstring.getSource()).getValue());
@@ -110,17 +111,17 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    public void testAddFunction() {
+    public void testAddFunction() throws Exception {
         FunctionRegistry functionRegistry = new FunctionRegistry() {
             @Override
             protected void afterRegisterBuiltinFunctions(Map<String, List<FunctionBuilder>> name2builders) {
-                name2builders.put("foo", FunctionBuilder.resolve(ExtendFunction.class));
+                name2builders.put("foo", BuiltinFunctionBuilder.resolve(ExtendFunction.class));
             }
         };
 
         ImmutableList<Expression> arguments = ImmutableList.of(Literal.of(1));
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder("foo", arguments);
-        BoundFunction function = functionBuilder.build("foo", arguments);
+        Expression function = functionBuilder.build("foo", arguments);
         Assertions.assertEquals(function.getClass(), ExtendFunction.class);
         Assertions.assertEquals(arguments, function.getArguments());
     }
@@ -130,7 +131,7 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         FunctionRegistry functionRegistry = new FunctionRegistry() {
             @Override
             protected void afterRegisterBuiltinFunctions(Map<String, List<FunctionBuilder>> name2builders) {
-                name2builders.put("abc", FunctionBuilder.resolve(AmbiguousFunction.class));
+                name2builders.put("abc", BuiltinFunctionBuilder.resolve(AmbiguousFunction.class));
             }
         };
 

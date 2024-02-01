@@ -26,6 +26,7 @@
 #include "common/logging.h"
 #include "runtime/define_primitive_type.h"
 #include "util/slice.h"
+#include "util/string_util.h"
 
 namespace doris::vectorized {
 
@@ -62,6 +63,32 @@ static int num_children_node(const tparquet::SchemaElement& schema) {
     return schema.__isset.num_children ? schema.num_children : 0;
 }
 
+/**
+ * `repeated_parent_def_level` is the definition level of the first ancestor node whose repetition_type equals REPEATED.
+ * Empty array/map values are not stored in doris columns, so have to use `repeated_parent_def_level` to skip the
+ * empty or null values in ancestor node.
+ *
+ * For instance, considering an array of strings with 3 rows like the following:
+ * null, [], [a, b, c]
+ * We can store four elements in data column: null, a, b, c
+ * and the offsets column is: 1, 1, 4
+ * and the null map is: 1, 0, 0
+ * For the i-th row in array column: range from `offsets[i - 1]` until `offsets[i]` represents the elements in this row,
+ * so we can't store empty array/map values in doris data column.
+ * As a comparison, spark does not require `repeated_parent_def_level`,
+ * because the spark column stores empty array/map values , and use anther length column to indicate empty values.
+ * Please reference: https://github.com/apache/spark/blob/master/sql/core/src/main/java/org/apache/spark/sql/execution/datasources/parquet/ParquetColumnVector.java
+ *
+ * Furthermore, we can also avoid store null array/map values in doris data column.
+ * The same three rows as above, We can only store three elements in data column: a, b, c
+ * and the offsets column is: 0, 0, 3
+ * and the null map is: 1, 0, 0
+ *
+ * Inherit the repetition and definition level from parent node, if the parent node is repeated,
+ * we should set repeated_parent_def_level = definition_level, otherwise as repeated_parent_def_level.
+ * @param parent parent node
+ * @param repeated_parent_def_level the first ancestor node whose repetition_type equals REPEATED
+ */
 static void set_child_node_level(FieldSchema* parent, int16_t repeated_parent_def_level) {
     for (auto& child : parent->children) {
         child.repetition_level = parent->repetition_level;
@@ -140,9 +167,7 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
         auto child = &node_field->children[0];
         parse_physical_field(t_schema, false, child);
 
-        std::string lower_case_name;
-        transform(t_schema.name.begin(), t_schema.name.end(), lower_case_name.begin(), ::tolower);
-        node_field->name = lower_case_name;
+        node_field->name = to_lower(t_schema.name);
         node_field->type.type = TYPE_ARRAY;
         node_field->type.add_sub_type(child->type);
         node_field->is_nullable = false;
@@ -160,9 +185,7 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
 
 void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physical_schema,
                                            bool is_nullable, FieldSchema* physical_field) {
-    std::string lower_case_name = physical_schema.name;
-    transform(lower_case_name.begin(), lower_case_name.end(), lower_case_name.begin(), ::tolower);
-    physical_field->name = lower_case_name;
+    physical_field->name = to_lower(physical_schema.name);
     physical_field->parquet_schema = physical_schema;
     physical_field->is_nullable = is_nullable;
     physical_field->physical_type = physical_schema.type;
@@ -213,6 +236,72 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
     return type;
 }
 
+// Copy from org.apache.iceberg.avro.AvroSchemaUtil#validAvroName
+static bool is_valid_avro_name(const std::string& name) {
+    int length = name.length();
+    char first = name[0];
+    if (!isalpha(first) && first != '_') {
+        return false;
+    }
+
+    for (int i = 1; i < length; i++) {
+        char character = name[i];
+        if (!isalpha(character) && !isdigit(character) && character != '_') {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Copy from org.apache.iceberg.avro.AvroSchemaUtil#sanitize
+static void sanitize_avro_name(std::ostringstream& buf, char character) {
+    if (isdigit(character)) {
+        buf << '_' << character;
+    } else {
+        std::stringstream ss;
+        ss << std::hex << (int)character;
+        std::string hex_str = ss.str();
+        buf << "_x" << doris::to_lower(hex_str);
+    }
+}
+
+// Copy from org.apache.iceberg.avro.AvroSchemaUtil#sanitize
+static std::string sanitize_avro_name(const std::string& name) {
+    std::ostringstream buf;
+    int length = name.length();
+    char first = name[0];
+    if (!isalpha(first) && first != '_') {
+        sanitize_avro_name(buf, first);
+    } else {
+        buf << first;
+    }
+
+    for (int i = 1; i < length; i++) {
+        char character = name[i];
+        if (!isalpha(character) && !isdigit(character) && character != '_') {
+            sanitize_avro_name(buf, character);
+        } else {
+            buf << character;
+        }
+    }
+    return buf.str();
+}
+
+void FieldDescriptor::iceberg_sanitize(const std::vector<std::string>& read_columns) {
+    for (const std::string& col : read_columns) {
+        if (!is_valid_avro_name(col)) {
+            std::string sanitize_name = sanitize_avro_name(col);
+            auto it = _name_to_field.find(sanitize_name);
+            if (it != _name_to_field.end()) {
+                FieldSchema* schema = const_cast<FieldSchema*>(it->second);
+                schema->name = col;
+                _name_to_field.emplace(col, schema);
+                _name_to_field.erase(sanitize_name);
+            }
+        }
+    }
+}
+
 TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logicalType) {
     TypeDescriptor type;
     if (logicalType.__isset.STRING) {
@@ -237,9 +326,21 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
             }
         }
     } else if (logicalType.__isset.TIME) {
-        type = TypeDescriptor(TYPE_TIMEV2);
+        type = TypeDescriptor(TYPE_TIME);
     } else if (logicalType.__isset.TIMESTAMP) {
         type = TypeDescriptor(TYPE_DATETIMEV2);
+        const auto& time_unit = logicalType.TIMESTAMP.unit;
+        if (time_unit.__isset.MILLIS) {
+            type.scale = 3;
+        } else if (time_unit.__isset.MICROS) {
+            type.scale = 6;
+        } else if (time_unit.__isset.NANOS) {
+            // will lose precision
+            type.scale = 6;
+        } else {
+            // default precision
+            type.scale = 6;
+        }
     } else {
         type = TypeDescriptor(INVALID_TYPE);
     }
@@ -266,9 +367,12 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(
         type = TypeDescriptor(TYPE_TIMEV2);
         break;
     case tparquet::ConvertedType::type::TIMESTAMP_MILLIS:
-        [[fallthrough]];
+        type = TypeDescriptor(TYPE_DATETIMEV2);
+        type.scale = 3;
+        break;
     case tparquet::ConvertedType::type::TIMESTAMP_MICROS:
         type = TypeDescriptor(TYPE_DATETIMEV2);
+        type.scale = 6;
         break;
     case tparquet::ConvertedType::type::INT_8:
         type = TypeDescriptor(TYPE_TINYINT);
@@ -335,7 +439,7 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
         // produce a non-null list<struct>
         RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, struct_field));
 
-        group_field->name = group_schema.name;
+        group_field->name = to_lower(group_schema.name);
         group_field->type.type = TYPE_ARRAY;
         group_field->type.add_sub_type(struct_field->type);
         group_field->is_nullable = false;
@@ -403,7 +507,7 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
         _next_schema_pos = curr_pos + 2;
     }
 
-    list_field->name = first_level.name;
+    list_field->name = to_lower(first_level.name);
     list_field->type.type = TYPE_ARRAY;
     list_field->type.add_sub_type(list_field->children[0].type);
     list_field->is_nullable = is_optional;
@@ -439,7 +543,7 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     }
     auto& map_key = t_schemas[curr_pos + 2];
     if (!is_required_node(map_key)) {
-        return Status::InvalidArgument("the third level(map key) in map group must be required");
+        LOG(WARNING) << "Filed " << map_schema.name << " is map type, but with nullable key column";
     }
 
     if (map_key_value.num_children == 1) {
@@ -460,12 +564,13 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     map_field->definition_level++;
 
     map_field->children.resize(1);
-    set_child_node_level(map_field, map_field->repeated_parent_def_level);
+    // map is a repeated node, we should set the `repeated_parent_def_level` of its children as `definition_level`
+    set_child_node_level(map_field, map_field->definition_level);
     auto map_kv_field = &map_field->children[0];
     // produce MAP<STRUCT<KEY, VALUE>>
     RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos + 1, map_kv_field));
 
-    map_field->name = map_schema.name;
+    map_field->name = to_lower(map_schema.name);
     map_field->type.type = TYPE_MAP;
     map_field->type.add_sub_type(map_kv_field->type.children[0]);
     map_field->type.add_sub_type(map_kv_field->type.children[1]);
@@ -489,12 +594,12 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     for (int i = 0; i < num_children; ++i) {
         RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, &struct_field->children[i]));
     }
-    struct_field->name = struct_schema.name;
+    struct_field->name = to_lower(struct_schema.name);
     struct_field->is_nullable = is_optional;
     struct_field->type.type = TYPE_STRUCT;
     for (int i = 0; i < num_children; ++i) {
         struct_field->type.add_sub_type(struct_field->children[i].type,
-                                        struct_field->children[0].name);
+                                        struct_field->children[i].name);
     }
     return Status::OK();
 }

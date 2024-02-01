@@ -65,6 +65,7 @@ public:
 
     CompressionTypePB get_compression() const { return _meta.compression(); }
     uint64_t get_memory_size() const { return _mem_size; }
+    void set_is_pk_index(bool is_pk) { _is_pk_index = is_pk; }
 
 private:
     Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader);
@@ -91,6 +92,7 @@ private:
     const EncodingInfo* _encoding_info = nullptr;
     const KeyCoder* _value_key_coder = nullptr;
     uint64_t _mem_size = 0;
+    bool _is_pk_index = false;
 };
 
 class IndexedColumnIterator {
@@ -101,7 +103,7 @@ public:
               _value_iter(&reader->_value_index_reader) {}
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
-    // Return NotFound if provided seek point is past the end.
+    // Return Status::Error<ENTRY_NOT_FOUND> if provided seek point is past the end.
     // Return NotSupported for column without ordinal index.
     Status seek_to_ordinal(ordinal_t idx);
 
@@ -112,7 +114,7 @@ public:
     // Sets *exact_match to indicate whether the seek found the exact
     // key requested.
     //
-    // Return NotFound if the given key is greater than all keys in this column.
+    // Return Status::Error<ENTRY_NOT_FOUND> if the given key is greater than all keys in this column.
     // Return NotSupported for column without value index.
     Status seek_at_or_after(const void* key, bool* exact_match);
     Status seek_at_or_after(const std::string* key, bool* exact_match) {
@@ -132,7 +134,7 @@ public:
 private:
     Status _read_data_page(const PagePointer& pp);
 
-    const IndexedColumnReader* _reader;
+    const IndexedColumnReader* _reader = nullptr;
     // iterator for ordinal index page
     IndexPageIterator _ordinal_iter;
     // iterator for value index page

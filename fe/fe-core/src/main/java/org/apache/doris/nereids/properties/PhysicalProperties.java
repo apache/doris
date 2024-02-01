@@ -34,9 +34,17 @@ public class PhysicalProperties {
 
     public static PhysicalProperties ANY = new PhysicalProperties();
 
+    public static PhysicalProperties STORAGE_ANY = new PhysicalProperties(DistributionSpecStorageAny.INSTANCE);
+
+    public static PhysicalProperties EXECUTION_ANY = new PhysicalProperties(DistributionSpecExecutionAny.INSTANCE);
+
     public static PhysicalProperties REPLICATED = new PhysicalProperties(DistributionSpecReplicated.INSTANCE);
 
     public static PhysicalProperties GATHER = new PhysicalProperties(DistributionSpecGather.INSTANCE);
+
+    public static PhysicalProperties STORAGE_GATHER = new PhysicalProperties(DistributionSpecStorageGather.INSTANCE);
+
+    public static PhysicalProperties MUST_SHUFFLE = new PhysicalProperties(DistributionSpecMustShuffle.INSTANCE);
 
     private final OrderSpec orderSpec;
 
@@ -64,9 +72,13 @@ public class PhysicalProperties {
         this.orderSpec = orderSpec;
     }
 
+    /**
+     * create hash info from orderedShuffledColumns, ignore non slot reference expression.
+     */
     public static PhysicalProperties createHash(
             Collection<? extends Expression> orderedShuffledColumns, ShuffleType shuffleType) {
         List<ExprId> partitionedSlots = orderedShuffledColumns.stream()
+                .filter(SlotReference.class::isInstance)
                 .map(SlotReference.class::cast)
                 .map(SlotReference::getExprId)
                 .collect(Collectors.toList());
@@ -96,6 +108,10 @@ public class PhysicalProperties {
 
     public DistributionSpec getDistributionSpec() {
         return distributionSpec;
+    }
+
+    public boolean isDistributionOnlyProperties() {
+        return orderSpec.getOrderKeys().isEmpty();
     }
 
     @Override

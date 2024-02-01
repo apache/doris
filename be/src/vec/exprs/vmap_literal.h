@@ -25,7 +25,6 @@ class RuntimeState;
 class TExprNode;
 
 namespace vectorized {
-class VExprContext;
 
 class VMapLiteral : public VLiteral {
     ENABLE_FACTORY_CREATOR(VMapLiteral);

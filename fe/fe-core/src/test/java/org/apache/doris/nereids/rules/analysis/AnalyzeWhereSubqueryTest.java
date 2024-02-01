@@ -26,15 +26,15 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
-import org.apache.doris.nereids.rules.rewrite.logical.ExistsApplyToJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
-import org.apache.doris.nereids.rules.rewrite.logical.PullUpCorrelatedFilterUnderApplyAggregateProject;
-import org.apache.doris.nereids.rules.rewrite.logical.PullUpProjectUnderApply;
-import org.apache.doris.nereids.rules.rewrite.logical.ScalarApplyToJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyAggregateFilter;
-import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyFilter;
-import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyProjectFilter;
+import org.apache.doris.nereids.rules.rewrite.ExistsApplyToJoin;
+import org.apache.doris.nereids.rules.rewrite.InApplyToJoin;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.PullUpCorrelatedFilterUnderApplyAggregateProject;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
+import org.apache.doris.nereids.rules.rewrite.ScalarApplyToJoin;
+import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyAggregateFilter;
+import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyFilter;
+import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyProjectFilter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -93,7 +93,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
 
         createTables(
                 "create table test.t6\n"
@@ -156,21 +156,23 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                 .matchesNotCheck(
                         logicalApply(
                                 any(),
-                                logicalAggregate(
-                                        logicalFilter()
-                                ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
-                                        new Alias(new ExprId(7),
-                                                (new Sum(
-                                                        new SlotReference(new ExprId(4), "k3",
-                                                                BigIntType.INSTANCE, true,
-                                                                ImmutableList.of(
-                                                                        "default_cluster:test",
-                                                                        "t7")))).withAlwaysNullable(
-                                                                                true),
-                                                "sum(k3)"))))
+                                logicalProject(
+                                    logicalAggregate(
+                                            logicalProject()
+                                    ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
+                                            new Alias(new ExprId(7),
+                                                    (new Sum(
+                                                            new SlotReference(new ExprId(4), "k3",
+                                                                    BigIntType.INSTANCE, true,
+                                                                    ImmutableList.of(
+                                                                            "test",
+                                                                            "t7")))).withAlwaysNullable(
+                                                                                    true),
+                                                    "sum(k3)"))))
+                                )
                         ).when(FieldChecker.check("correlationSlot", ImmutableList.of(
                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t6"))
+                                        ImmutableList.of("test", "t6"))
                         )))
                 );
     }
@@ -180,6 +182,10 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         // after aggFilter rule
         PlanChecker.from(connectContext)
                 .analyze(sql2)
+                .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
+                .applyTopDown(new MergeProjects())
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
                 .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
                 .matchesNotCheck(
                         logicalApply(
@@ -187,24 +193,24 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                 logicalAggregate().when(FieldChecker.check("outputExpressions", ImmutableList.of(
                                                 new Alias(new ExprId(7), (new Sum(
                                                         new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("default_cluster:test", "t7")))).withAlwaysNullable(true),
+                                                                ImmutableList.of("test", "t7")))).withAlwaysNullable(true),
                                                         "sum(k3)"),
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t7"))
+                                                        ImmutableList.of("test", "t7"))
                                         )))
                                         .when(FieldChecker.check("groupByExpressions", ImmutableList.of(
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t7"))
+                                                        ImmutableList.of("test", "t7"))
                                         )))
                         ).when(FieldChecker.check("correlationSlot", ImmutableList.of(
                                         new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t6"))
+                                                ImmutableList.of("test", "t6"))
                                 )))
                                 .when(FieldChecker.check("correlationFilter", Optional.of(
                                         new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t7")),
+                                                ImmutableList.of("test", "t7")),
                                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t6"))
+                                                        ImmutableList.of("test", "t6"))
                                         ))))
                 );
     }
@@ -214,24 +220,23 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         // after Scalar CorrelatedJoin to join
         PlanChecker.from(connectContext)
                 .analyze(sql2)
+                .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
+                .applyTopDown(new MergeProjects())
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
                 .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
                 .applyBottomUp(new ScalarApplyToJoin())
                 .matchesNotCheck(
                         logicalJoin(
                                 any(),
                                 logicalAggregate()
-                        ).when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
+                        ).when(FieldChecker.check("joinType", JoinType.LEFT_OUTER_JOIN))
                                 .when(FieldChecker.check("otherJoinConjuncts",
                                         ImmutableList.of(new EqualTo(
-                                                new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t6")),
-                                                new SlotReference(new ExprId(7), "sum(k3)", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of())
-                                        ), new EqualTo(
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t7")),
+                                                        ImmutableList.of("test", "t7")),
                                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t6"))))))
+                                                        ImmutableList.of("test", "t6"))))))
                 );
     }
 
@@ -245,11 +250,11 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                 any(),
                                 logicalProject().when(FieldChecker.check("projects", ImmutableList.of(
                                         new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t7"))))
+                                                ImmutableList.of("test", "t7"))))
                                 )
                         ).when(FieldChecker.check("correlationSlot", ImmutableList.of(
                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t6")))))
+                                        ImmutableList.of("test", "t6")))))
                 );
     }
 
@@ -263,17 +268,17 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                 any(),
                                 logicalProject().when(FieldChecker.check("projects", ImmutableList.of(
                                         new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t7")),
+                                                ImmutableList.of("test", "t7")),
                                         new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t7")))))
+                                                ImmutableList.of("test", "t7")))))
                         ).when(FieldChecker.check("correlationFilter", Optional.of(
                                 new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t7")),
+                                        ImmutableList.of("test", "t7")),
                                         new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t6"))))))
+                                                ImmutableList.of("test", "t6"))))))
                                 .when(FieldChecker.check("correlationSlot", ImmutableList.of(
                                         new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t6")))))
+                                                ImmutableList.of("test", "t6")))))
                 );
     }
 
@@ -287,13 +292,13 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                         logicalJoin().when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
                                 .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
                                         new EqualTo(new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t6")),
+                                                ImmutableList.of("test", "t6")),
                                                 new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, false,
-                                                        ImmutableList.of("default_cluster:test", "t7"))),
+                                                        ImmutableList.of("test", "t7"))),
                                         new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t7")),
+                                                ImmutableList.of("test", "t7")),
                                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t6")))
+                                                        ImmutableList.of("test", "t6")))
                                 )))
                 );
     }
@@ -308,11 +313,11 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                 any(),
                                 logicalProject().when(FieldChecker.check("projects", ImmutableList.of(
                                         new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t7"))))
+                                                ImmutableList.of("test", "t7"))))
                                 )
                         ).when(FieldChecker.check("correlationSlot", ImmutableList.of(
                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t6")))))
+                                        ImmutableList.of("test", "t6")))))
                 );
     }
 
@@ -326,12 +331,12 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                 logicalApply().when(FieldChecker.check("correlationFilter", Optional.empty()))
                                         .when(FieldChecker.check("correlationSlot", ImmutableList.of(
                                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t6")))))
+                                                        ImmutableList.of("test", "t6")))))
                         ).when(FieldChecker.check("projects", ImmutableList.of(
                                 new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t6")),
+                                        ImmutableList.of("test", "t6")),
                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t6")))))
+                                        ImmutableList.of("test", "t6")))))
                 );
     }
 
@@ -344,9 +349,9 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                 .matches(
                         logicalApply().when(FieldChecker.check("correlationFilter", Optional.of(
                                 new EqualTo(new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t6")),
+                                        ImmutableList.of("test", "t6")),
                                         new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t7"))))))
+                                                ImmutableList.of("test", "t7"))))))
                 );
     }
 
@@ -361,9 +366,9 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                         logicalJoin().when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
                                 .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
                                         new EqualTo(new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t6")),
+                                                ImmutableList.of("test", "t6")),
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t7")))
+                                                        ImmutableList.of("test", "t7")))
                                 )))
                 );
     }
@@ -374,37 +379,43 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(sql10)
                 .matchesFromRoot(
-                    logicalProject(
-                        logicalFilter(
-                            logicalProject(
-                                logicalApply(
-                                    any(),
-                                    logicalAggregate(
-                                        logicalSubQueryAlias(
-                                            logicalProject(
-                                                logicalFilter()
-                                            ).when(p -> p.getProjects().equals(ImmutableList.of(
-                                                new Alias(new ExprId(7), new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE,
-                                                        true,
-                                                        ImmutableList.of("default_cluster:test", "t7")), "aa")
+                    logicalResultSink(
+                        logicalProject(
+                            logicalFilter(
+                                logicalProject(
+                                    logicalApply(
+                                        any(),
+                                        logicalProject(
+                                            logicalAggregate(
+                                                logicalProject(
+                                                    logicalSubQueryAlias(
+                                                        logicalProject(
+                                                            logicalFilter()
+                                                        ).when(p -> p.getProjects().equals(ImmutableList.of(
+                                                            new Alias(new ExprId(7), new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE,
+                                                                    true,
+                                                                    ImmutableList.of("test", "t7")), "aa")
+                                                        )))
+                                                    )
+                                                    .when(a -> a.getAlias().equals("t2"))
+                                                    .when(a -> a.getOutput().equals(ImmutableList.of(
+                                                            new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
+                                                                    true, ImmutableList.of("t2"))
+                                                    )))
+                                                )
+                                            ).when(agg -> agg.getOutputExpressions().equals(ImmutableList.of(
+                                                new Alias(new ExprId(8),
+                                                        (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
+                                                                true,
+                                                                ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)")
                                             )))
+                                            .when(agg -> agg.getGroupByExpressions().equals(ImmutableList.of()))
                                         )
-                                        .when(a -> a.getAlias().equals("t2"))
-                                        .when(a -> a.getOutput().equals(ImmutableList.of(
-                                                new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
-                                                        true, ImmutableList.of("t2"))
-                                        )))
-                                    ).when(agg -> agg.getOutputExpressions().equals(ImmutableList.of(
-                                        new Alias(new ExprId(8),
-                                                (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
-                                                        true,
-                                                        ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)")
-                                    )))
-                                    .when(agg -> agg.getGroupByExpressions().equals(ImmutableList.of()))
+                                    )
+                                    .when(apply -> apply.getCorrelationSlot().equals(ImmutableList.of(
+                                            new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
+                                                    ImmutableList.of("test", "t6")))))
                                 )
-                                .when(apply -> apply.getCorrelationSlot().equals(ImmutableList.of(
-                                        new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t6")))))
                             )
                         )
                     )
@@ -417,6 +428,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                 .analyze(sql10)
                 .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
                 .applyTopDown(new MergeProjects())
+                .applyBottomUp(new PullUpProjectUnderApply())
                 .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
                 .matchesNotCheck(
                         logicalApply(
@@ -425,17 +437,17 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                         logicalFilter(
                                                 logicalProject().when(FieldChecker.check("projects", ImmutableList.of(
                                                         new Alias(new ExprId(7), new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("default_cluster:test", "t7")), "aa"),
+                                                                ImmutableList.of("test", "t7")), "aa"),
                                                         new SlotReference(new ExprId(2), "k1", BigIntType.INSTANCE, false,
-                                                                ImmutableList.of("default_cluster:test", "t7")),
+                                                                ImmutableList.of("test", "t7")),
                                                         new SlotReference(new ExprId(3), "k2", new VarcharType(128), true,
-                                                                ImmutableList.of("default_cluster:test", "t7")),
+                                                                ImmutableList.of("test", "t7")),
                                                         new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("default_cluster:test", "t7")),
+                                                                ImmutableList.of("test", "t7")),
                                                         new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("default_cluster:test", "t7")),
+                                                                ImmutableList.of("test", "t7")),
                                                         new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("default_cluster:test", "t7"))
+                                                                ImmutableList.of("test", "t7"))
                                                 )))
                                         )
                                 )
@@ -449,6 +461,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                 .analyze(sql10)
                 .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
                 .applyTopDown(new MergeProjects())
+                .applyBottomUp(new PullUpProjectUnderApply())
                 .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
                 .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
                 .matchesNotCheck(
@@ -460,10 +473,10 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                         new Alias(new ExprId(8), (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)"),
                                         new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t7")))))
+                                                ImmutableList.of("test", "t7")))))
                                         .when(FieldChecker.check("groupByExpressions", ImmutableList.of(
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t7"))
+                                                        ImmutableList.of("test", "t7"))
                                         )))
                         )
                 );
@@ -471,30 +484,27 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
 
     @Test
     public void testSql10AfterScalarToJoin() {
-        PlanChecker.from(connectContext)
-                .analyze(sql10)
-                .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
-                .applyTopDown(new MergeProjects())
-                .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
-                .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
-                .applyBottomUp(new ScalarApplyToJoin())
+        PlanChecker.from(connectContext).analyze(sql10).rewrite()
                 .matchesNotCheck(
-                            leftSemiLogicalJoin(
-                                    any(),
-                                    logicalAggregate(
-                                            logicalProject()
-                                    )
-                            )
-                            .when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(
-                                    new LessThan(new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
-                                            ImmutableList.of("default_cluster:test", "t6")),
-                                            new SlotReference(new ExprId(8), "max(aa)", BigIntType.INSTANCE, true,
-                                                    ImmutableList.of())),
-                                    new EqualTo(new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                            ImmutableList.of("default_cluster:test", "t6")),
-                                            new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                    ImmutableList.of("default_cluster:test", "t7")))
-                            )))
-                );
+                        innerLogicalJoin(any(), logicalAggregate(logicalProject())).when(j -> j
+                                .getOtherJoinConjuncts().equals(ImmutableList
+                                        .of(new LessThan(
+                                                new SlotReference(new ExprId(0), "k1",
+                                                        BigIntType.INSTANCE, true,
+                                                        ImmutableList.of("test",
+                                                                "t6")),
+                                                new SlotReference(
+                                                        new ExprId(8), "max(aa)",
+                                                        BigIntType.INSTANCE, true,
+                                                        ImmutableList.of()))))
+                                && j.getHashJoinConjuncts()
+                                        .equals(ImmutableList.of(new EqualTo(
+                                                new SlotReference(new ExprId(1), "k2",
+                                                        BigIntType.INSTANCE, true,
+                                                        ImmutableList.of("test",
+                                                                "t6")),
+                                                new SlotReference(new ExprId(6), "v2",
+                                                        BigIntType.INSTANCE, true, ImmutableList.of(
+                                                                "test", "t7")))))));
     }
 }

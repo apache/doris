@@ -18,8 +18,9 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.datasource.CatalogProperty;
-import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
+import org.apache.doris.datasource.iceberg.rest.DorisIcebergRestResolvedIO;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.S3Properties;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.Constants;
@@ -31,8 +32,9 @@ import java.util.Map;
 
 public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
-    public  IcebergRestExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name);
+    public IcebergRestExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) {
+        super(catalogId, name, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
@@ -43,8 +45,12 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
         Map<String, String> restProperties = new HashMap<>();
         String restUri = catalogProperty.getProperties().getOrDefault(CatalogProperties.URI, "");
         restProperties.put(CatalogProperties.URI, restUri);
-        RESTCatalog restCatalog = new RESTCatalog();
+        restProperties.put(CatalogProperties.FILE_IO_IMPL, DorisIcebergRestResolvedIO.class.getName());
+        restProperties.putAll(catalogProperty.getProperties());
+
         Configuration conf = replaceS3Properties(getConfiguration());
+
+        RESTCatalog restCatalog = new RESTCatalog();
         restCatalog.setConf(conf);
         restCatalog.initialize(icebergCatalogType, restProperties);
         catalog = restCatalog;
@@ -52,9 +58,8 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
     private Configuration replaceS3Properties(Configuration conf) {
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        String credentials = catalogProperties
-                .getOrDefault(Constants.AWS_CREDENTIALS_PROVIDER, DataLakeAWSCredentialsProvider.class.getName());
-        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, credentials);
+        String defaultProviderList = String.join(",", S3Properties.AWS_CREDENTIALS_PROVIDERS);
+        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, defaultProviderList);
         String usePahStyle = catalogProperties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "true");
         // Set path style
         conf.set(PropertyConverter.USE_PATH_STYLE, usePahStyle);

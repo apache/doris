@@ -1398,7 +1398,7 @@ public class GenerateFunction {
                     + "        Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(\n"
                     + "                getArgumentType(1).toCatalogDataType(),\n"
                     + "                getArgumentType(2).toCatalogDataType(),\n"
-                    + "                true);\n"
+                    + "                true, false);\n"
                     + "        return DataType.fromCatalogType(assignmentCompatibleType);\n"
                     + "    });\n"
                     + "\n";
@@ -1409,7 +1409,7 @@ public class GenerateFunction {
             return "    @Override\n"
                     + "    public FunctionSignature computeSignature(FunctionSignature signature) {\n"
                     + "        DataType widerType = this.widerType.get();\n"
-                    + "        List<AbstractDataType> newArgumentsTypes = new ImmutableList.Builder<AbstractDataType>()\n"
+                    + "        List<DataType> newArgumentsTypes = new ImmutableList.Builder<DataType>()\n"
                     + "                .add(signature.argumentsTypes.get(0))\n"
                     + "                .add(widerType)\n"
                     + "                .add(widerType)\n"

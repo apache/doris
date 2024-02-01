@@ -21,19 +21,21 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.MergeProjectPostProcessor;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
@@ -73,10 +75,10 @@ public class MergeProjectPostProcessTest {
         t1Output.add(a);
         t1Output.add(b);
         t1Output.add(c);
-        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
-        PhysicalOlapScan scan = new PhysicalOlapScan(ObjectId.createGenerator().getNextId(), t1, qualifier, 0L,
-                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
-                Optional.empty(), t1Properties);
+        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output, () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
+        PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1, qualifier, 0L,
+                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(), ImmutableList.of(),
+                Optional.empty(), t1Properties, Optional.empty());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
         PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);

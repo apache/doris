@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 
@@ -62,7 +63,13 @@ public abstract class AesCryptoFunction extends CryptoFunction {
         super(name, arguments);
     }
 
+    /** getDefaultBlockEncryptionMode */
     public static StringLiteral getDefaultBlockEncryptionMode() {
-        return CryptoFunction.getDefaultBlockEncryptionMode("AES_128_ECB");
+        StringLiteral encryptionMode = CryptoFunction.getDefaultBlockEncryptionMode("AES_128_ECB");
+        if (!AES_MODES.contains(encryptionMode.getValue())) {
+            throw new AnalysisException(
+                    "session variable block_encryption_mode is invalid with aes");
+        }
+        return encryptionMode;
     }
 }

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Stream load",
+    "title": "Stream Load",
     "language": "zh-CN"
 }
 ---
@@ -30,6 +30,18 @@ Stream load 是一个同步的导入方式，用户通过发送 HTTP 协议发�
 
 Stream load 主要适用于导入本地文件，或通过程序导入数据流中的数据。
 
+:::tip
+相比于直接使用 `curl` 的单并发导入，更推荐使用 **专用导入工具 Doris-Streamloader** 该工具是一款用于将数据导入 Doris 数据库的专用客户端工具，可以提供 **多并发导入** 的功能，降低大数据量导入的耗时。拥有以下功能：
+
+- 并发导入，实现 Stream Load 的多并发导入。可以通过 `workers` 值设置并发数。
+- 多文件导入，一次导入可以同时导入多个文件及目录，支持设置通配符以及会自动递归获取文件夹下的所有文件。
+- 断点续传，在导入过程中可能出现部分失败的情况，支持在失败点处进行继续传输。
+- 自动重传，在导入出现失败的情况后，无需手动重传，工具会自动重传默认的次数，如果仍然不成功，打印出手动重传的命令。
+
+
+点击 [Doris-Streamloader 文档](../docs/ecosystem/doris-streamloader)了解使用方法与实践详情。
+:::
+
 ## 基本原理
 
 下图展示了 Stream load 的主要流程，省略了一些导入细节。
@@ -41,7 +53,7 @@ Stream load 主要适用于导入本地文件，或通过程序导入数据流�
                          |      |
                          |   +--v-----------+
                          |   | FE           |
-5. Return result to user |   +--+-----------+
+4. Return result to user |   +--+-----------+
                          |      |
                          |      | 2. Redirect to BE
                          |      |
@@ -154,8 +166,11 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
 - format
 
-  指定导入数据格式，支持csv、json，默认是csv
-  <version since="1.2"> format </version> 1.2 支持csv_with_names(支持csv文件行首过滤)、csv_with_names_and_types(支持csv文件前两行过滤)、parquet、orc
+  指定导入数据格式，支持 `csv`、 `json` 和 `arrow` ，默认是 `csv`。
+
+  <version since="1.2"> 支持 `csv_with_names` (csv文件行首过滤)、`csv_with_names_and_types`(csv文件前两行过滤)、`parquet`、`orc`。</version>
+
+  <version since="2.1.0"> 支持 `arrow`格式。</version>
 
   ```text
   列顺序变换例子：原始数据有三列(src_c1,src_c2,src_c3), 目前doris表也有三列（dst_c1,dst_c2,dst_c3）
@@ -185,17 +200,21 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
   2. 对于导入的某列由函数变换生成时，strict mode 对其不产生影响。
   3. 对于导入的某列类型包含范围限制的，如果原始数据能正常通过类型转换，但无法通过范围限制的，strict mode 对其也不产生影响。例如：如果类型是 decimal(1,0), 原始数据为 10，则属于可以通过类型转换但不在列声明的范围内。这种数据 strict 对其不产生影响。
 
-- merge_type 数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理
+- merge_type
+
+  数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理
 
 - two_phase_commit
 
   Stream load 导入可以开启两阶段事务提交模式：在Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为`PRECOMMITTED`，用户手动触发commit操作之后，数据才可见。
 
-- enable_profile
-  <version since="1.2.4">
-  </version>
+- enclose
+  
+  包围符。当csv数据字段中含有行分隔符或列分隔符时，为防止意外截断，可指定单字节字符作为包围符起到保护作用。例如列分隔符为","，包围符为"'"，数据为"a,'b,c'",则"b,c"会被解析为一个字段。
 
-  当 `enable_profile` 为 true 时，Stream Load profile将会打印到日志中。否则不会打印。
+- escape
+
+  转义符。用于转义在csv字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。
 
   示例：
 
@@ -224,6 +243,7 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
   2. 对事务触发commit操作
   注意1) 请求发往fe或be均可
   注意2) commit 的时候可以省略 url 中的 `{table}`
+  使用事务id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -231,9 +251,18 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
       "msg": "transaction [18036] commit successfully."
   }
   ```
+  使用label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] commit successfully."
+  }
+  ```
   3. 对事务触发abort操作
   注意1) 请求发往fe或be均可
   注意2) abort 的时候可以省略 url 中的 `{table}`
+  使用事务id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -241,7 +270,68 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
       "msg": "transaction [18037] abort successfully."
   }
   ```
+  使用label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] abort successfully."
+  }
+  ```
+- enable_profile
 
+  <version since="1.2.7">当 `enable_profile` 为 true 时，Stream Load profile 将会被打印到 be.INFO 日志中。</version>
+
+- memtable_on_sink_node
+
+  <version since="2.1.0">
+  是否在数据导入中启用 MemTable 前移，默认为 false
+  </version>
+
+  在 DataSink 节点上构建 MemTable，并通过 brpc streaming 发送 segment 到其他 BE。
+  该方法减少了多副本之间的重复工作，并且节省了数据序列化和反序列化的时间。
+
+- partial_columns
+
+  <version since="2.0">
+
+  是否启用部分列更新，布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。
+  
+  eg: `curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://127.0.0.1:48037/api/db1/user_profile/_stream_load`
+
+  </version>
+
+### 使用SQL表达Stream Load的参数
+
+可以在Header中添加一个`sql`的参数，去替代之前参数中的`column_separator`、`line_delimiter`、`where`、`columns`等参数，方便使用。
+
+```
+curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -XPUT http://fe_host:http_port/api/_http_stream
+
+
+# -- load_sql
+# insert into db.table (col, ...) select stream_col, ... from http_stream("property1"="value1");
+
+# http_stream
+# (
+#     "column_separator" = ",",
+#     "format" = "CSV",
+#     ...
+# )
+```
+
+示例：
+
+```
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream(\"format\" = \"CSV\", \"column_separator\" = \",\" ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
+```
+
+#### 相关参数
+
+1. label: 用户可以通过指定Label的方式来导入数据
+```
+curl -v --location-trusted -u root: -H "sql: insert into test.t1(c1, c2) WITH LABEL label1 select c1,c2 from http_stream(\"format\" = \"CSV\", \"column_separator\" = \",\")" -T example.csv http://127.0.0.1:8030/api/_http_stream
+```
 
 ### 返回结果
 
@@ -396,6 +486,22 @@ timeout = 1000s 等于 10G / 10M/s
   ```shell
   curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8030/api/bj_sales/store_sales/_stream_load
   ```
+
+### 使用代码调用 StreamLoad
+
+你可以使用任意代码发起 http 请求进行 Stream Load，在发起 http 请求前，需要设置几个必要的 Header：
+
+```http
+Content-Type: text/plain; charset=UTF-8
+Expect: 100-continue
+Authorization: Basic <base64编码后的用户名密码>
+```
+
+其中，`<base64编码后的用户名密码>`是指 Doris 的`username`+`:`+`password`拼接成的字符串进行 base64 编码后得到的值。
+
+另外，需要注意的是，如果你直接对 FE 发起 http 请求，由于 Doris 会重定向到 BE，在这个过程中，某些框架会把`Authorization`这个 http Header 移除掉，这个时候需要你进行手动处理。
+
+Doris 提供了 [Java](https://github.com/apache/doris/tree/master/samples/stream_load/java)、[Go](https://github.com/apache/doris/tree/master/samples/stream_load/go)、[Python](https://github.com/apache/doris/tree/master/samples/stream_load/python) 三种语言的 StreamLoad Example 供参考。
 
 ## 常见问题
 

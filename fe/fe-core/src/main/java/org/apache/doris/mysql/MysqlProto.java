@@ -19,7 +19,6 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -30,7 +29,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -76,44 +74,17 @@ public class MysqlProto {
             return null;
         }
 
-        // check cluster, user name may contains cluster name or cluster id.
-        // eg:
-        // user_name@cluster_name
-        String clusterName = "";
-        String[] strList = tmpUser.split("@", 2);
-        if (strList.length > 1) {
-            tmpUser = strList[0];
-            clusterName = strList[1];
-            try {
-                // if cluster does not exist and it is not a valid cluster id, authenticate failed
-                if (Env.getCurrentEnv().getCluster(clusterName) == null
-                        && Integer.valueOf(strList[1]) != context.getEnv().getClusterId()) {
-                    ErrorReport.report(ErrorCode.ERR_UNKNOWN_CLUSTER_ID, strList[1]);
-                    return null;
-                }
-            } catch (Throwable e) {
-                ErrorReport.report(ErrorCode.ERR_UNKNOWN_CLUSTER_ID, strList[1]);
-                return null;
-            }
-        }
-        if (Strings.isNullOrEmpty(clusterName)) {
-            clusterName = SystemInfoService.DEFAULT_CLUSTER;
-        }
-        context.setCluster(clusterName);
-
-        // check resource group level. user name may contains resource group level.
+        // check workload group level. user name may contains workload group level.
         // eg:
         // ...@user_name#HIGH
-        // set resource group if it is valid, or just ignore it
-        strList = tmpUser.split("#", 2);
+        // set workload group if it is valid, or just ignore it
+        String[] strList = tmpUser.split("#", 2);
         if (strList.length > 1) {
             tmpUser = strList[0];
         }
 
-        LOG.debug("parse cluster: {}", clusterName);
-        String qualifiedUser = ClusterNamespace.getFullName(clusterName, tmpUser);
-        context.setQualifiedUser(qualifiedUser);
-        return qualifiedUser;
+        context.setQualifiedUser(tmpUser);
+        return tmpUser;
     }
 
     // send response packet(OK/EOF/ERR).
@@ -216,12 +187,6 @@ public class MysqlProto {
                 channel.setSslMode(true);
                 LOG.debug("switch to ssl mode.");
                 handshakeResponse = channel.fetchOnePacket();
-                capability = new MysqlCapability(MysqlProto.readLowestInt4(handshakeResponse));
-                if (!capability.isClientUseSsl()) {
-                    ErrorReport.report(ErrorCode.ERR_NONSSL_HANDSHAKE_RESPONSE);
-                    sendResponsePacket(context);
-                    return false;
-                }
             } else {
                 handshakeResponse = clientRequestPacket;
             }
@@ -232,6 +197,9 @@ public class MysqlProto {
         if (handshakeResponse == null) {
             // receive response failed.
             return false;
+        }
+        if (capability.isDeprecatedEOF()) {
+            context.getMysqlChannel().setClientDeprecatedEOF();
         }
         MysqlAuthPacket authPacket = new MysqlAuthPacket();
         if (!authPacket.readFrom(handshakeResponse)) {
@@ -346,7 +314,7 @@ public class MysqlProto {
                 context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + db);
                 return false;
             }
-            String dbFullName = ClusterNamespace.getFullName(context.getClusterName(), dbName);
+            String dbFullName = dbName;
 
             // check catalog and db exists
             if (catalogName != null) {

@@ -31,7 +31,7 @@ class UnusedClass {
 private:
     static_assert(sizeof(StringRef) == 16);
     static_assert(offsetof(StringRef, size) == 8);
-    static_assert(sizeof(doris::vectorized::VecDateTimeValue) == 8);
+    static_assert(sizeof(doris::VecDateTimeValue) == 8);
 };
 
 } // namespace doris

@@ -20,6 +20,8 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "io/fs/file_system.h"
+#include "olap/olap_define.h"
+#include "olap/partial_update_info.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 
@@ -29,46 +31,42 @@ class RowsetWriterContextBuilder;
 using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextBuilder>;
 class DataDir;
 class Tablet;
+class FileWriterCreator;
+class SegmentCollector;
 namespace vectorized::schema_util {
 class LocalSchemaChangeRecorder;
 }
 
 struct RowsetWriterContext {
-    RowsetWriterContext()
-            : tablet_id(0),
-              tablet_schema_hash(0),
-              partition_id(0),
-              rowset_type(BETA_ROWSET),
-              rowset_state(PREPARED),
-              version(Version(0, 0)),
-              txn_id(0),
-              tablet_uid(0, 0),
-              segments_overlap(OVERLAP_UNKNOWN) {
+    RowsetWriterContext() : schema_lock(new std::mutex) {
         load_id.set_hi(0);
         load_id.set_lo(0);
     }
 
     RowsetId rowset_id;
-    int64_t tablet_id;
-    int64_t tablet_schema_hash;
-    int64_t partition_id;
-    RowsetTypePB rowset_type;
+    int64_t tablet_id {0};
+    int64_t tablet_schema_hash {0};
+    int64_t index_id {0};
+    int64_t partition_id {0};
+    RowsetTypePB rowset_type {BETA_ROWSET};
     io::FileSystemSPtr fs;
     std::string rowset_dir;
     TabletSchemaSPtr tablet_schema;
+    TabletSchemaSPtr original_tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
-    RowsetStatePB rowset_state;
+    RowsetStatePB rowset_state {PREPARED};
     // properties for non-pending rowset
-    Version version;
+    Version version {0, 0};
 
     // properties for pending rowset
-    int64_t txn_id;
+    int64_t txn_id {0};
+    int64_t txn_expiration {0}; // For cloud mode
     PUniqueId load_id;
-    TabletUid tablet_uid;
+    TabletUid tablet_uid {0, 0};
     // indicate whether the data among segments is overlapping.
     // default is OVERLAP_UNKNOWN.
-    SegmentsOverlapPB segments_overlap;
+    SegmentsOverlapPB segments_overlap {OVERLAP_UNKNOWN};
     // segment file use uint32 to represent row number, therefore the maximum is UINT32_MAX.
     // the default is set to INT32_MAX to avoid overflow issue when casting from uint32_t to int.
     // test cases can change this value to control flush timing
@@ -79,16 +77,31 @@ struct RowsetWriterContext {
     // (because it hard to refactor, and RowsetConvertor will be deprecated in future)
     DataDir* data_dir = nullptr;
 
-    int64_t newest_write_timestamp;
+    int64_t newest_write_timestamp = -1;
     bool enable_unique_key_merge_on_write = false;
     std::set<int32_t> skip_inverted_index;
-    // If it is directly write from load procedure, else
-    // it could be compaction or schema change etc..
-    bool is_direct_write = false;
-    std::shared_ptr<Tablet> tablet = nullptr;
-    // for tracing local schema change record
-    std::shared_ptr<vectorized::schema_util::LocalSchemaChangeRecorder> schema_change_recorder =
-            nullptr;
+    DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
+    BaseTabletSPtr tablet = nullptr;
+
+    std::shared_ptr<MowContext> mow_context;
+    std::shared_ptr<FileWriterCreator> file_writer_creator;
+    std::shared_ptr<SegmentCollector> segment_collector;
+
+    /// begin file cache opts
+    bool write_file_cache = false;
+    bool is_hot_data = false;
+    int64_t file_cache_ttl_sec = 0;
+    /// end file cache opts
+
+    // segcompaction for this RowsetWriter, disable it for some transient writers
+    bool enable_segcompaction = true;
+
+    std::shared_ptr<PartialUpdateInfo> partial_update_info;
+
+    bool is_transient_rowset_writer = false;
+    // In semi-structure senario tablet_schema will be updated concurrently,
+    // this lock need to be held when update.Use shared_ptr to avoid delete copy contructor
+    std::shared_ptr<std::mutex> schema_lock;
 };
 
 } // namespace doris

@@ -33,19 +33,22 @@ class Block;
 } // namespace vectorized
 
 // for vertical compaction
-class VerticalBetaRowsetWriter : public BetaRowsetWriter {
+// TODO(plat1ko): Inherited from template type `T`, `T` is `BetaRowsetWriter` or `CloudBetaRowsetWriter`
+class VerticalBetaRowsetWriter final : public BetaRowsetWriter {
 public:
-    VerticalBetaRowsetWriter() : BetaRowsetWriter() {}
-    ~VerticalBetaRowsetWriter();
+    VerticalBetaRowsetWriter(StorageEngine& engine);
+    ~VerticalBetaRowsetWriter() override;
 
     Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
-                       bool is_key, uint32_t max_rows_per_segment);
+                       bool is_key, uint32_t max_rows_per_segment) override;
 
     // flush last segment's column
-    Status flush_columns(bool is_key);
+    Status flush_columns(bool is_key) override;
 
     // flush when all column finished, flush column footer
-    Status final_flush();
+    Status final_flush() override;
+
+    int64_t num_rows() const override { return _total_key_group_rows; }
 
 private:
     // only key group will create segment writer
@@ -58,6 +61,7 @@ private:
 private:
     std::vector<std::unique_ptr<segment_v2::SegmentWriter>> _segment_writers;
     size_t _cur_writer_idx = 0;
+    size_t _total_key_group_rows = 0;
 };
 
 } // namespace doris

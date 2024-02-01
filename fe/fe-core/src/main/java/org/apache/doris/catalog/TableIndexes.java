@@ -63,6 +63,16 @@ public class TableIndexes implements Writable {
         return indexes;
     }
 
+    public List<Long> getIndexIds() {
+        List<Long> indexIds = Lists.newArrayList();
+        if (indexes != null) {
+            for (Index index : indexes) {
+                indexIds.add(index.getIndexId());
+            }
+        }
+        return indexIds;
+    }
+
     public List<Index> getCopiedIndexes() {
         if (indexes == null || indexes.size() == 0) {
             return Lists.newArrayList();

@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.BrokerHbResponse;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
@@ -30,8 +31,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class FsBroker implements Writable, Comparable<FsBroker> {
-    @SerializedName(value = "ip")
-    public String ip;
+    @SerializedName(value = "host", alternate = {"ip"})
+    public String host;
     @SerializedName(value = "port")
     public int port;
     // msg for ping result
@@ -46,8 +47,8 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
     public FsBroker() {
     }
 
-    public FsBroker(String ip, int port) {
-        this.ip = ip;
+    public FsBroker(String host, int port) {
+        this.host = host;
         this.port = port;
     }
 
@@ -90,19 +91,19 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
         FsBroker other = (FsBroker) o;
 
         return port == other.port
-                && ip.equals(other.ip);
+                && host.equals(other.host);
     }
 
     @Override
     public int hashCode() {
-        int result = ip.hashCode();
+        int result = host.hashCode();
         result = 31 * result + port;
         return result;
     }
 
     @Override
     public int compareTo(FsBroker o) {
-        int ret = ip.compareTo(o.ip);
+        int ret = host.compareTo(o.host);
         if (ret != 0) {
             return ret;
         }
@@ -117,13 +118,13 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
 
     @Deprecated
     private void readFields(DataInput in) throws IOException {
-        ip = Text.readString(in);
+        host = Text.readString(in);
         port = in.readInt();
     }
 
     @Override
     public String toString() {
-        return ip + ":" + port;
+        return NetUtils.getHostPortInAccessibleFormat(host, port);
     }
 
     public static FsBroker readIn(DataInput in) throws IOException {

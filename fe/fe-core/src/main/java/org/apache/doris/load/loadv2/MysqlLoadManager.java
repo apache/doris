@@ -19,12 +19,14 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
@@ -40,6 +42,7 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.EvictingQueue;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -60,6 +63,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -69,7 +73,7 @@ import java.util.concurrent.TimeUnit;
 public class MysqlLoadManager {
     private static final Logger LOG = LogManager.getLogger(MysqlLoadManager.class);
 
-    private final ThreadPoolExecutor mysqlLoadPool;
+    private  ThreadPoolExecutor mysqlLoadPool;
     private final TokenManager tokenManager;
 
     private static class MySqlLoadContext {
@@ -134,23 +138,32 @@ public class MysqlLoadManager {
     }
 
     private final Map<String, MySqlLoadContext> loadContextMap = new ConcurrentHashMap<>();
-    private final EvictingQueue<MySqlLoadFailRecord> failedRecords;
-    private ScheduledExecutorService periodScheduler = Executors.newScheduledThreadPool(1);
+    private  EvictingQueue<MySqlLoadFailRecord> failedRecords;
+    private ScheduledExecutorService periodScheduler;
 
     public MysqlLoadManager(TokenManager tokenManager) {
+        this.tokenManager = tokenManager;
+    }
+
+    public void start() {
+        this.periodScheduler = Executors.newScheduledThreadPool(1,
+                new CustomThreadFactory("mysql-load-fail-record-cleaner"));
         int poolSize = Config.mysql_load_thread_pool;
         // MySqlLoad pool can accept 4 + 4 * 5 = 24  requests by default.
-        this.mysqlLoadPool = ThreadPoolManager.newDaemonFixedThreadPool(poolSize, poolSize * 5, "Mysql Load", true);
-        this.tokenManager = tokenManager;
+        this.mysqlLoadPool = ThreadPoolManager.newDaemonFixedThreadPool(poolSize, poolSize * 5,
+                "Mysql Load", true);
         this.failedRecords = EvictingQueue.create(Config.mysql_load_in_memory_record);
         this.periodScheduler.scheduleAtFixedRate(this::cleanFailedRecords, 1, 24, TimeUnit.HOURS);
     }
 
     public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt, String loadId)
             throws IOException, UserException {
+        return executeMySqlLoadJobFromStmt(context, stmt.getDataDescriptions().get(0), loadId);
+    }
+
+    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, DataDescription dataDesc, String loadId)
+            throws IOException, UserException {
         LoadJobRowResult loadResult = new LoadJobRowResult();
-        // Mysql data load only have one data desc
-        DataDescription dataDesc = stmt.getDataDescriptions().get(0);
         List<String> filePaths = dataDesc.getFilePaths();
         String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
         String table = dataDesc.getTableName();
@@ -167,7 +180,7 @@ public class MysqlLoadManager {
         boolean clientLocal = dataDesc.isClientLocal();
         MySqlLoadContext loadContext = new MySqlLoadContext();
         loadContextMap.put(loadId, loadContext);
-        LOG.info("execute MySqlLoadJob for id: {}.", loadId);
+        LOG.info("Executing mysql load with id: {}.", loadId);
         try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
             for (String file : filePaths) {
                 InputStreamEntity entity = getInputStreamEntity(context, clientLocal, file, loadId);
@@ -177,8 +190,11 @@ public class MysqlLoadManager {
                     String body = EntityUtils.toString(response.getEntity());
                     JsonObject result = JsonParser.parseString(body).getAsJsonObject();
                     if (!result.get("Status").getAsString().equalsIgnoreCase("Success")) {
-                        failedRecords.offer(new MySqlLoadFailRecord(loadId, result.get("ErrorURL").getAsString()));
-                        LOG.warn("Execute mysql data load failed with request: {} and response: {}", request, body);
+                        String errorUrl = Optional.ofNullable(result.get("ErrorURL"))
+                                .map(JsonElement::getAsString).orElse("");
+                        failedRecords.offer(new MySqlLoadFailRecord(loadId, errorUrl));
+                        LOG.warn("Execute mysql load failed with request: {} and response: {}, job id: {}",
+                                request, body, loadId);
                         throw new LoadException(result.get("Message").getAsString() + " with load id " + loadId);
                     }
                     loadResult.incRecords(result.get("NumberLoadedRows").getAsLong());
@@ -186,10 +202,10 @@ public class MysqlLoadManager {
                 }
             }
         } catch (Throwable t) {
-            LOG.warn("Execute mysql load {} failed", loadId, t);
+            LOG.warn("Execute mysql load {} failed, msg: {}", loadId, t);
             // drain the data from client conn util empty packet received, otherwise the connection will be reset
             if (clientLocal && loadContextMap.containsKey(loadId) && !loadContextMap.get(loadId).isFinished()) {
-                LOG.warn("not drained yet, try reading left data from client connection for load {}.", loadId);
+                LOG.warn("Not drained yet, try reading left data from client connection for load {}.", loadId);
                 ByteBuffer buffer = context.getMysqlChannel().fetchOnePacket();
                 // MySql client will send an empty packet when eof
                 while (buffer != null && buffer.limit() != 0) {
@@ -204,9 +220,15 @@ public class MysqlLoadManager {
                 throw t;
             }
         } finally {
+            LOG.info("Mysql load job {} finished, loaded records: {}", loadId, loadResult.getRecords());
             loadContextMap.remove(loadId);
         }
         return loadResult;
+    }
+
+    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, InsertStmt insertStmt, String loadId)
+            throws UserException, IOException {
+        return executeMySqlLoadJobFromStmt(context, (DataDescription) insertStmt.getDataDescList().get(0), loadId);
     }
 
     public void cancelMySqlLoad(String loadId) {
@@ -359,6 +381,18 @@ public class MysqlLoadManager {
                 String trimQuotes = props.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES);
                 httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES, trimQuotes);
             }
+
+            // enclose
+            if (props.containsKey(LoadStmt.KEY_ENCLOSE)) {
+                String enclose = props.get(LoadStmt.KEY_ENCLOSE);
+                httpPut.addHeader(LoadStmt.KEY_ENCLOSE, enclose);
+            }
+
+            //escape
+            if (props.containsKey(LoadStmt.KEY_ESCAPE)) {
+                String escape = props.get(LoadStmt.KEY_ESCAPE);
+                httpPut.addHeader(LoadStmt.KEY_ESCAPE, escape);
+            }
         }
 
         // skip_lines
@@ -409,7 +443,7 @@ public class MysqlLoadManager {
         }
         StringBuilder sb = new StringBuilder();
         sb.append("http://");
-        sb.append(backend.getIp());
+        sb.append(backend.getHost());
         sb.append(":");
         sb.append(backend.getHttpPort());
         sb.append("/api/");

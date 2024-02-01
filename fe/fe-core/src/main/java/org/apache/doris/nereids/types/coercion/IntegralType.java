@@ -33,12 +33,16 @@ public class IntegralType extends NumericType {
     }
 
     @Override
-    public boolean acceptsType(AbstractDataType other) {
+    public boolean acceptsType(DataType other) {
         return other instanceof IntegralType;
     }
 
     @Override
     public String simpleString() {
         return "integral";
+    }
+
+    public boolean widerThan(IntegralType other) {
+        return this.width() > other.width();
     }
 }

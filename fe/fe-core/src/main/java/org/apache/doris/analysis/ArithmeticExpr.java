@@ -28,8 +28,10 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -104,151 +106,90 @@ public class ArithmeticExpr extends Expr {
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t : Type.getNumericTypes()) {
-            NullableMode mode = t.isDecimalV3() ? NullableMode.CUSTOM : NullableMode.DEPEND_ON_ARGUMENT;
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.MULTIPLY.getName(), Lists.newArrayList(t, t), t, mode));
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.ADD.getName(), Lists.newArrayList(t, t), t, mode));
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.SUBTRACT.getName(), Lists.newArrayList(t, t), t, mode));
-        }
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
-                Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE),
-                Type.MAX_DECIMALV2_TYPE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL32),
-                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL64),
-                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL128),
-                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL64),
-                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL32),
-                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL128),
-                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL128),
-                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL32),
-                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL64),
-                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
-
-        // MOD(), FACTORIAL(), BITAND(), BITOR(), BITXOR(), and BITNOT() are registered as
-        // builtins, see palo_functions.py
-        for (Type t : Type.getIntegerTypes()) {
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.INT_DIVIDE.getName(), Lists.newArrayList(t, t),
-                    t, Function.NullableMode.ALWAYS_NULLABLE));
-        }
-
         // init vec build function
         for (int i = 0; i < Type.getNumericTypes().size(); i++) {
             Type t1 = Type.getNumericTypes().get(i);
             for (int j = 0; j < Type.getNumericTypes().size(); j++) {
                 Type t2 = Type.getNumericTypes().get(j);
 
-                Type retType = Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false));
+                // For old planner, set enableDecimal256 to false to keep the original behaviour
+                Type retType = Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false, false));
                 NullableMode mode = retType.isDecimalV3() ? NullableMode.CUSTOM : NullableMode.DEPEND_ON_ARGUMENT;
-                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.MULTIPLY.getName(), Lists.newArrayList(t1, t2), retType, mode));
-                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.ADD.getName(), Lists.newArrayList(t1, t2), retType, mode));
-                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.SUBTRACT.getName(), Lists.newArrayList(t1, t2), retType, mode));
             }
         }
 
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
                 Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE),
                 Type.MAX_DECIMALV2_TYPE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL32),
                 Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL64),
                 Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL128),
                 Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL64),
                 Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL128),
                 Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL128),
                 Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL32),
                 Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL64),
                 Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL32),
                 Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
 
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.FLOAT, Type.FLOAT),
                 Type.FLOAT, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
                 Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE),
                 Type.MAX_DECIMALV2_TYPE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL32),
                 Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL64),
                 Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL128),
                 Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
@@ -258,13 +199,14 @@ public class ArithmeticExpr extends Expr {
             for (int j = 0; j < Type.getIntegerTypes().size(); j++) {
                 Type t2 = Type.getIntegerTypes().get(j);
 
-                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                // For old planner, set enableDecimal256 to false to keep the original behaviour
+                functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.INT_DIVIDE.getName(), Lists.newArrayList(t1, t2),
-                        Type.getAssignmentCompatibleType(t1, t2, false),
+                        Type.getAssignmentCompatibleType(t1, t2, false, false),
                         Function.NullableMode.ALWAYS_NULLABLE));
-                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.MOD.getName(), Lists.newArrayList(t1, t2),
-                        Type.getAssignmentCompatibleType(t1, t2, false),
+                        Type.getAssignmentCompatibleType(t1, t2, false, false),
                         Function.NullableMode.ALWAYS_NULLABLE));
             }
         }
@@ -322,7 +264,7 @@ public class ArithmeticExpr extends Expr {
         if (children.size() == 1) {
             return op.toString() + " " + getChild(0).toSql();
         } else {
-            return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+            return "(" + getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql() + ")";
         }
     }
 
@@ -374,6 +316,8 @@ public class ArithmeticExpr extends Expr {
             return Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {
             return pt1 == PrimitiveType.DECIMALV2 && pt2 == PrimitiveType.DECIMALV2
+                    || (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value)
                     ? Type.MAX_DECIMALV2_TYPE : Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMAL32 || pt2 == PrimitiveType.DECIMAL32) {
             return pt1 == PrimitiveType.DECIMAL32 && pt2 == PrimitiveType.DECIMAL32 ? Type.DECIMAL32 : Type.DOUBLE;
@@ -460,7 +404,7 @@ public class ArithmeticExpr extends Expr {
                     t1 = Type.TINYINT;
                     t2 = Type.TINYINT;
                 }
-                commonType = Type.getAssignmentCompatibleType(t1, t2, false);
+                commonType = Type.getAssignmentCompatibleType(t1, t2, false, SessionVariable.getEnableDecimal256());
                 if (commonType.getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
                     commonType = Type.BIGINT;
                 }
@@ -539,8 +483,8 @@ public class ArithmeticExpr extends Expr {
                     scale = t1Scale + t2Scale;
                     precision = t1Precision + t2Precision;
                 } else if (op == Operator.DIVIDE) {
-                    precision = t1TargetType.getPrecision() + t2Scale;
-                    scale = t1Scale;
+                    precision = t1TargetType.getPrecision() + t2Scale + Config.div_precision_increment;
+                    scale = t1Scale + Config.div_precision_increment;
                 } else if (op == Operator.ADD || op == Operator.SUBTRACT) {
                     // target type: DECIMALV3(max(widthOfIntPart1, widthOfIntPart2) + max(scale1, scale2) + 1,
                     // max(scale1, scale2))
@@ -566,16 +510,33 @@ public class ArithmeticExpr extends Expr {
                     if (((ScalarType) type).getScalarScale() != ((ScalarType) children.get(1).type).getScalarScale()) {
                         castChild(type, 1);
                     }
-                } else if (op == Operator.DIVIDE && (t2Scale != 0) && t1TargetType.isDecimalV3()) {
-                    int targetScale = t1Scale + t2Scale;
-                    if (precision < targetScale) {
+                } else if (op == Operator.DIVIDE && (t1TargetType.isDecimalV3())) {
+                    int leftPrecision = t1Precision + t2Scale + Config.div_precision_increment;
+                    int leftScale = t1Scale + t2Scale + Config.div_precision_increment;
+                    if (leftPrecision < leftScale || leftPrecision > ScalarType.MAX_DECIMAL128_PRECISION) {
                         type = castBinaryOp(Type.DOUBLE);
                         break;
                     }
-                    castChild(ScalarType.createDecimalV3Type(precision, targetScale), 0);
+                    Expr child = getChild(0);
+                    if (child instanceof DecimalLiteral) {
+                        DecimalLiteral literalChild = (DecimalLiteral) child;
+                        Expr newChild = literalChild
+                                .castToDecimalV3ByDivde(ScalarType.createDecimalV3Type(leftPrecision, leftScale));
+                        setChild(0, newChild);
+                    } else {
+                        castChild(ScalarType.createDecimalV3Type(leftPrecision, leftScale), 0);
+                    }
                 } else if (op == Operator.MOD) {
-                    castChild(type, 0);
-                    castChild(type, 1);
+                    // TODO use max int part + max scale of two operands as result type
+                    // because BE require the result and operands types are the exact the same decimalv3 type
+                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale;
+                    if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                        type = castBinaryOp(Type.DOUBLE);
+                    } else {
+                        type = ScalarType.createDecimalV3Type(precision, scale);
+                        castChild(type, 0);
+                        castChild(type, 1);
+                    }
                 }
                 break;
             case INT_DIVIDE:
@@ -596,124 +557,59 @@ public class ArithmeticExpr extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (VectorizedUtil.isVectorized()) {
-            for (Expr child : children) {
-                if (child instanceof DecimalLiteral && child.getType().isDecimalV3()) {
-                    ((DecimalLiteral) child).tryToReduceType();
-                }
-            }
-            // bitnot is the only unary op, deal with it here
-            if (op == Operator.BITNOT) {
-                Type t = getChild(0).getType();
-                if (t.getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
-                    type = Type.BIGINT;
-                    castChild(type, 0);
-                } else {
-                    type = t;
-                }
-                fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
-                if (fn == null) {
-                    Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
-                }
-                return;
-            }
-            analyzeSubqueryInChildren();
-            // if children has subquery, it will be rewritten and reanalyzed in the future.
-            if (contains(Subquery.class)) {
-                return;
-            }
-
-            Type t1 = getChild(0).getType();
-            Type t2 = getChild(1).getType();
-
-            // Support null operation
-            if (t1.isNull() || t2.isNull()) {
-                castBinaryOp(t1.isNull() ? t2 : t1);
-                t1 = getChild(0).getType();
-                t2 = getChild(1).getType();
-            }
-
-            // dispose the case t1 and t2 is not numeric type
-            if (!t1.isNumericType()) {
-                castChild(t1.getNumResultType(), 0);
-                t1 = t1.getNumResultType();
-            }
-            if (!t2.isNumericType()) {
-                castChild(t2.getNumResultType(), 1);
-                t2 = t2.getNumResultType();
-            }
-
-            if (t1.isDecimalV3() || t2.isDecimalV3()) {
-                analyzeDecimalV3Op(t1, t2);
-            } else {
-                analyzeNoneDecimalOp(t1, t2);
-            }
-            fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
-            if (fn == null) {
-                Preconditions.checkState(false, String.format(
-                        "No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));
-            }
-            if (!fn.getReturnType().isDecimalV3()) {
-                type = fn.getReturnType();
-            }
-        } else {
-            // bitnot is the only unary op, deal with it here
-            if (op == Operator.BITNOT) {
+        // bitnot is the only unary op, deal with it here
+        if (op == Operator.BITNOT) {
+            Type t = getChild(0).getType();
+            if (t.getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
                 type = Type.BIGINT;
-                if (getChild(0).getType().getPrimitiveType() != PrimitiveType.BIGINT) {
-                    castChild(type, 0);
-                }
-                fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
-                if (fn == null) {
-                    Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
-                }
-                return;
+                castChild(type, 0);
+            } else {
+                type = t;
             }
-            analyzeSubqueryInChildren();
-            // if children has subquery, it will be rewritten and reanalyzed in the future.
-            if (contains(Subquery.class)) {
-                return;
-            }
-            Type t1 = getChild(0).getType().getNumResultType();
-            Type t2 = getChild(1).getType().getNumResultType();
-            // Find result type of this operator
-            Type commonType = Type.INVALID;
-            String fnName = op.getName();
-            switch (op) {
-                case MULTIPLY:
-                case ADD:
-                case SUBTRACT:
-                case MOD:
-                    // numeric ops must be promoted to highest-resolution type
-                    // (otherwise we can't guarantee that a <op> b won't overflow/underflow)
-                    commonType = findCommonType(t1, t2);
-                    break;
-                case DIVIDE:
-                    commonType = findCommonType(t1, t2);
-                    if (commonType.getPrimitiveType() == PrimitiveType.BIGINT
-                            || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
-                        commonType = Type.DOUBLE;
-                    }
-                    break;
-                case INT_DIVIDE:
-                case BITAND:
-                case BITOR:
-                case BITXOR:
-                    // Must be bigint
-                    commonType = Type.BIGINT;
-                    break;
-                default:
-                    // the programmer forgot to deal with a case
-                    Preconditions.checkState(false,
-                            "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
-                    break;
-            }
-            type = castBinaryOp(commonType);
-            fn = getBuiltinFunction(fnName, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
+            fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
             if (fn == null) {
-                Preconditions.checkState(false, String.format(
-                        "No match for '%s' with operand types %s and %s", toSql(), t1, t2));
+                Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
             }
+            return;
+        }
+        analyzeSubqueryInChildren();
+        // if children has subquery, it will be rewritten and reanalyzed in the future.
+        if (contains(Subquery.class)) {
+            return;
+        }
+
+        Type t1 = getChild(0).getType();
+        Type t2 = getChild(1).getType();
+
+        // Support null operation
+        if (t1.isNull() || t2.isNull()) {
+            castBinaryOp(t1.isNull() ? t2 : t1);
+            t1 = getChild(0).getType();
+            t2 = getChild(1).getType();
+        }
+
+        // dispose the case t1 and t2 is not numeric type
+        if (!t1.isNumericType()) {
+            castChild(t1.getNumResultType(), 0);
+            t1 = t1.getNumResultType();
+        }
+        if (!t2.isNumericType()) {
+            castChild(t2.getNumResultType(), 1);
+            t2 = t2.getNumResultType();
+        }
+
+        if (t1.isDecimalV3() || t2.isDecimalV3()) {
+            analyzeDecimalV3Op(t1, t2);
+        } else {
+            analyzeNoneDecimalOp(t1, t2);
+        }
+        fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
+        if (fn == null) {
+            Preconditions.checkState(false,
+                    String.format("No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));
+        }
+        if (!fn.getReturnType().isDecimalV3()) {
+            type = fn.getReturnType();
         }
     }
 

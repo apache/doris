@@ -55,7 +55,7 @@ struct RetentionState {
     static constexpr size_t MAX_EVENTS = 32;
     uint8_t events[MAX_EVENTS] = {0};
 
-    RetentionState() {}
+    RetentionState() = default;
 
     void reset() {
         for (int64_t i = 0; i < MAX_EVENTS; i++) {
@@ -94,7 +94,7 @@ struct RetentionState {
     }
 
     void insert_result_into(IColumn& to, size_t events_size, const uint8_t* events) const {
-        auto& data_to = static_cast<ColumnUInt8&>(to).get_data();
+        auto& data_to = assert_cast<ColumnUInt8&>(to).get_data();
 
         ColumnArray::Offset64 current_offset = data_to.size();
         data_to.resize(current_offset + events_size);

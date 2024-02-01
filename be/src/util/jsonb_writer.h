@@ -45,6 +45,8 @@
 
 namespace doris {
 
+using int128_t = __int128;
+
 template <class OS_TYPE>
 class JsonbWriterT {
 public:
@@ -234,10 +236,11 @@ public:
         return 0;
     }
 
-    uint32_t writeInt128(__int128_t v) {
+    uint32_t writeInt128(int128_t v) {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->put((JsonbTypeUnder)JsonbType::T_Int128);
-            os_->write((char*)&v, sizeof(__int128_t));
+            os_->write((char*)&v, sizeof(int128_t));
             kvState_ = WS_Value;
             return sizeof(JsonbInt128Val);
         }
@@ -540,7 +543,7 @@ private:
     };
 
 private:
-    OS_TYPE* os_;
+    OS_TYPE* os_ = nullptr;
     bool alloc_;
     bool hasHdr_;
     WriteState kvState_; // key or value state

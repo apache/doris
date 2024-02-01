@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Joiner.MapJoiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 
 import java.util.Map;
 
@@ -64,6 +65,27 @@ public class SinglePartitionDesc implements AllPartitionDesc {
         this.storagePolicy = "";
     }
 
+    /**
+     * for Nereids
+     */
+    public SinglePartitionDesc(boolean ifNotExists, String partName,
+            PartitionKeyDesc partitionKeyDesc, ReplicaAllocation replicaAlloc,
+            Map<String, String> properties, DataProperty partitionDataProperty, boolean isInMemory,
+            TTabletType tabletType, Long versionInfo, String storagePolicy, boolean isMutable) {
+        this.isAnalyzed = true;
+        this.ifNotExists = ifNotExists;
+        this.partName = partName;
+        this.partitionKeyDesc = partitionKeyDesc;
+        this.properties = properties;
+        this.partitionDataProperty = partitionDataProperty;
+        this.replicaAlloc = replicaAlloc;
+        this.isInMemory = isInMemory;
+        this.tabletType = tabletType;
+        this.versionInfo = versionInfo;
+        this.storagePolicy = storagePolicy;
+        this.isMutable = isMutable;
+    }
+
     public boolean isSetIfNotExists() {
         return ifNotExists;
     }
@@ -82,6 +104,10 @@ public class SinglePartitionDesc implements AllPartitionDesc {
 
     public ReplicaAllocation getReplicaAlloc() {
         return replicaAlloc;
+    }
+
+    public void setReplicaAlloc(ReplicaAllocation replicaAlloc) {
+        this.replicaAlloc = replicaAlloc;
     }
 
     public boolean isInMemory() {
@@ -126,9 +152,16 @@ public class SinglePartitionDesc implements AllPartitionDesc {
 
         partitionKeyDesc.analyze(partColNum);
 
+        Map<String, String> mergedMap = Maps.newHashMap();
+        // Should putAll `otherProperties` before `this.properties`,
+        // because the priority of partition is higher than table
         if (otherProperties != null) {
-            this.properties = otherProperties;
+            mergedMap.putAll(otherProperties);
         }
+        if (this.properties != null) {
+            mergedMap.putAll(this.properties);
+        }
+        this.properties = mergedMap;
 
         // analyze data property
         partitionDataProperty = PropertyAnalyzer.analyzeDataProperty(properties,
@@ -170,6 +203,10 @@ public class SinglePartitionDesc implements AllPartitionDesc {
 
     public boolean isAnalyzed() {
         return this.isAnalyzed;
+    }
+
+    public void setAnalyzed(boolean analyzed) {
+        isAnalyzed = analyzed;
     }
 
     public String getStoragePolicy() {

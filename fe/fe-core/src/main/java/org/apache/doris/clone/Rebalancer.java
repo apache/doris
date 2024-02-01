@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -29,6 +30,8 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -48,24 +51,41 @@ import java.util.Map;
  * 2. If you want to make sure the move is succeed, you can assume that it's succeed when getToDeleteReplicaId called.
  */
 public abstract class Rebalancer {
+    private static final Logger LOG = LogManager.getLogger(Rebalancer.class);
     // When Rebalancer init, the statisticMap is usually empty. So it's no need to be an arg.
     // Only use updateLoadStatistic() to load stats.
-    protected Table<String, Tag, ClusterLoadStatistic> statisticMap = HashBasedTable.create();
+    protected Map<Tag, LoadStatisticForTag> statisticMap = Maps.newHashMap();
+    protected Map<Long, PathSlot> backendsWorkingSlots;
     protected TabletInvertedIndex invertedIndex;
     protected SystemInfoService infoService;
     // be id -> end time of prio
     protected Map<Long, Long> prioBackends = Maps.newConcurrentMap();
 
-    public Rebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
+    // tag -> (medium, timestamp)
+    private Table<Tag, TStorageMedium, Long> lastPickTimeTable = HashBasedTable.create();
+
+    // for ut
+    public Table<Tag, TStorageMedium, Long> getLastPickTimeTable() {
+        return lastPickTimeTable;
+    }
+
+    public Rebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
+            Map<Long, PathSlot> backendsWorkingSlots) {
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
+        this.backendsWorkingSlots = backendsWorkingSlots;
     }
 
     public List<TabletSchedCtx> selectAlternativeTablets() {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
-        for (Table.Cell<String, Tag, ClusterLoadStatistic> entry : statisticMap.cellSet()) {
+        for (Map.Entry<Tag, LoadStatisticForTag> entry : statisticMap.entrySet()) {
             for (TStorageMedium medium : TStorageMedium.values()) {
-                alternativeTablets.addAll(selectAlternativeTabletsForCluster(entry.getValue(), medium));
+                List<TabletSchedCtx> candidates =
+                        selectAlternativeTabletsForCluster(entry.getValue(), medium);
+                alternativeTablets.addAll(candidates);
+                if (!candidates.isEmpty()) {
+                    lastPickTimeTable.put(entry.getKey(), medium, System.currentTimeMillis());
+                }
             }
         }
         return alternativeTablets;
@@ -74,11 +94,19 @@ public abstract class Rebalancer {
     // The returned TabletSchedCtx should have the tablet id at least. {srcReplica, destBe} can be complete here or
     // later(when createBalanceTask called).
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            ClusterLoadStatistic clusterStat, TStorageMedium medium);
+            LoadStatisticForTag clusterStat, TStorageMedium medium);
 
-    public AgentTask createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
+    // 5mins
+    protected boolean unPickOverLongTime(Tag tag, TStorageMedium medium) {
+        Long lastPickTime = lastPickTimeTable.get(tag, medium);
+        Long now = System.currentTimeMillis();
+        LOG.debug("tag={}, medium={}, lastPickTime={}, now={}", tag, medium, lastPickTime, now);
+        return lastPickTime == null || now - lastPickTime >= Config.be_rebalancer_idle_seconds * 1000L;
+    }
+
+    public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)
             throws SchedException {
-        completeSchedCtx(tabletCtx, backendsWorkingSlots);
+        completeSchedCtx(tabletCtx);
         if (tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.BE_BALANCE) {
             return tabletCtx.createCloneReplicaAndTask();
         } else {
@@ -92,14 +120,17 @@ public abstract class Rebalancer {
     // You should check the moves' validation.
     // 2. If you want to generate {srcReplica, destBe} here, just do it.
     // 3. You should check the path slots of src & dest.
-    protected abstract void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
+    protected abstract void completeSchedCtx(TabletSchedCtx tabletCtx)
             throws SchedException;
 
     public Long getToDeleteReplicaId(TabletSchedCtx tabletCtx) {
         return -1L;
     }
 
-    public void updateLoadStatistic(Table<String, Tag, ClusterLoadStatistic> statisticMap) {
+    public void onTabletFailed(TabletSchedCtx tabletCtx) {
+    }
+
+    public void updateLoadStatistic(Map<Tag, LoadStatisticForTag> statisticMap) {
         this.statisticMap = statisticMap;
     }
 

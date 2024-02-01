@@ -1,9 +1,9 @@
 # ignore file with wildcard anywhere
+*.swo
 *.swp
 *.pyc
 *.class
 *.iml
-*.swp
 *.jar
 *.log
 *.so.tmp
@@ -14,13 +14,14 @@ core.*
 .DS_Store
 .classpath
 nohup.out
-custom_env.sh
-custom_env_mac.sh
+/custom_env.sh
+/custom_env_mac.sh
 derby.log
 dependency-reduced-pom.xml
 yarn.lock
 ut_dir
 package-lock.json
+__pycache__
 
 # ignore all sub `/bin` and `/build` directory
 **/build/
@@ -34,7 +35,10 @@ package-lock.json
 .cache
 .settings/
 **/.idea/
+!.idea/vcs.xml
+!.idea/icon.svg
 **/.vscode/
+**/.fleet/
 
 # docs
 docs/contents/
@@ -42,10 +46,16 @@ docs/.temp
 
 # output, thirdparty, extension
 output/
+output.bak/
 rpc_data/
 metastore_db/
 thirdparty/src*
 thirdparty/installed*
+thirdparty/doris-thirdparty*.tar.xz
+
+docker/thirdparties/docker-compose/mysql/data
+docker/thirdparties/docker-compose/hive/scripts/tpch1.db/
+docker/thirdparties/docker-compose/hive/scripts/paimon1
 
 fe_plugins/output
 fe_plugins/**/.factorypath
@@ -59,6 +69,7 @@ regression-test/realdata/*
 regression-test/cacheData/*
 regression-test/conf/regression-conf-custom.groovy
 regression-test/framework/bin/*
+regression-test/framework/src/main/groovy/org/apache/doris/thrift
 regression-test/certificate.p12
 
 samples/doris-demo/remote-udf-python-demo/*_pb2.py
@@ -74,7 +85,8 @@ fe/fe-core/gen/
 fe/fe-core/src/main/resources/static/
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/gen/
-fe/fe-core/src/main/java/org/apache/doris/thrift
+fe/fe-common/src/main/java/org/apache/doris/thrift
+fe/fe-common/src/main/java/org/apache/parquet
 fe/fe-core/src/main/java/org/apache/parquet
 
 # BE
@@ -87,6 +99,12 @@ be/tags
 be/test/olap/test_data/tablet_meta_test.hdr
 be/.devcontainer/
 be/src/apache-orc/
+zoneinfo/
+
+# Cloud
+cloud/build*/
+cloud/cmake-build*/
+cloud/ut_build*/
 
 ## tools
 tools/ssb-tools/ssb-data/
@@ -96,7 +114,13 @@ tools/**/TPC-H_Tools_v*/
 tools/**/tpc-h_v*.docx
 tools/**/tpc-h_v*.pdf
 tools/**/tpch-data/
+tools/tpch-tools/bin/result
 tools/single-node-cluster/fe*
+tools/tpcds-tools/TPC-DS_Tools_*.zip
+tools/tpcds-tools/bin/DSGen-software*
+tools/tpcds-tools/bin/tpcds-data/
+tools/tpcds-tools/bin/result
+tools/**/result.csv
 
 # be-ut
 data_test
@@ -105,3 +129,6 @@ lru_cache_test
 /conf/log4j2-spring.xml
 /fe/fe-core/src/test/resources/real-help-resource.zip
 /ui/dist
+
+# other
+compile_commands.json

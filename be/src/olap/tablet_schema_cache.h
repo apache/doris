@@ -17,74 +17,35 @@
 
 #pragma once
 
-#include <gen_cpp/olap_file.pb.h>
-
-#include <memory>
-#include <mutex>
-#include <unordered_map>
-
-#include "olap/tablet_schema.h"
-#include "util/doris_metrics.h"
+#include "olap/tablet_fwd.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/lru_cache_policy.h"
 
 namespace doris {
 
-class TabletSchemaCache {
+class TabletSchemaCache : public LRUCachePolicy {
 public:
-    static void create_global_schema_cache() {
-        DCHECK(_s_instance == nullptr);
-        static TabletSchemaCache instance;
-        _s_instance = &instance;
-        std::thread t(&TabletSchemaCache::_recycle, _s_instance);
-        t.detach();
+    TabletSchemaCache(size_t capacity)
+            : LRUCachePolicy(CachePolicy::CacheType::TABLET_SCHEMA_CACHE, capacity,
+                             LRUCacheType::NUMBER, config::tablet_schema_cache_recycle_interval) {}
+
+    static TabletSchemaCache* create_global_schema_cache(size_t capacity) {
+        auto* res = new TabletSchemaCache(capacity);
+        return res;
     }
 
-    static TabletSchemaCache* instance() { return _s_instance; }
-
-    TabletSchemaSPtr insert(const std::string& key) {
-        DCHECK(_s_instance != nullptr);
-        std::lock_guard guard(_mtx);
-        auto iter = _cache.find(key);
-        if (iter == _cache.end()) {
-            TabletSchemaSPtr tablet_schema_ptr = std::make_shared<TabletSchema>();
-            TabletSchemaPB pb;
-            pb.ParseFromString(key);
-            tablet_schema_ptr->init_from_pb(pb);
-            _cache[key] = tablet_schema_ptr;
-            DorisMetrics::instance()->tablet_schema_cache_count->increment(1);
-            DorisMetrics::instance()->tablet_schema_cache_memory_bytes->increment(
-                    tablet_schema_ptr->mem_size());
-            return tablet_schema_ptr;
-        }
-        return iter->second;
+    static TabletSchemaCache* instance() {
+        return ExecEnv::GetInstance()->get_tablet_schema_cache();
     }
+
+    std::pair<Cache::Handle*, TabletSchemaSPtr> insert(const std::string& key);
+
+    void release(Cache::Handle*);
 
 private:
-    /**
-     * @brief recycle when TabletSchemaSPtr use_count equals 1.
-     */
-    void _recycle() {
-        int64_t tablet_schema_cache_recycle_interval = 86400; // s, one day
-        for (;;) {
-            std::this_thread::sleep_for(std::chrono::seconds(tablet_schema_cache_recycle_interval));
-            std::lock_guard guard(_mtx);
-            LOG(INFO) << "Tablet Schema Cache Capacity " << _cache.size();
-            for (auto iter = _cache.begin(), last = _cache.end(); iter != last;) {
-                if (iter->second.unique()) {
-                    DorisMetrics::instance()->tablet_schema_cache_memory_bytes->increment(
-                            -iter->second->mem_size());
-                    DorisMetrics::instance()->tablet_schema_cache_count->increment(-1);
-                    iter = _cache.erase(iter);
-                } else {
-                    ++iter;
-                }
-            }
-        }
-    }
-
-private:
-    static inline TabletSchemaCache* _s_instance = nullptr;
-    std::mutex _mtx;
-    std::unordered_map<std::string, TabletSchemaSPtr> _cache;
+    struct CacheValue : public LRUCacheValueBase {
+        TabletSchemaSPtr tablet_schema;
+    };
 };
 
 } // namespace doris

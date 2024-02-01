@@ -37,12 +37,17 @@ namespace io {
  */
 class FileCacheFactory {
 public:
-    static FileCacheFactory& instance();
+    static FileCacheFactory* instance();
 
-    Status create_file_cache(const std::string& cache_base_path,
-                             const FileCacheSettings& file_cache_settings);
+    void create_file_cache(const std::string& cache_base_path,
+                           const FileCacheSettings& file_cache_settings, Status* status);
+
+    size_t try_release();
+
+    size_t try_release(const std::string& base_path);
 
     CloudFileCachePtr get_by_path(const IFileCache::Key& key);
+    CloudFileCachePtr get_by_path(const std::string& cache_base_path);
     std::vector<IFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
             const TUniqueId& query_id);
     FileCacheFactory() = default;
@@ -50,7 +55,10 @@ public:
     FileCacheFactory(const FileCacheFactory&) = delete;
 
 private:
+    // to protect following containers
+    std::mutex _cache_mutex;
     std::vector<std::unique_ptr<IFileCache>> _caches;
+    std::unordered_map<std::string, CloudFileCachePtr> _path_to_cache;
 };
 
 } // namespace io

@@ -385,7 +385,7 @@ public class DppScheduler {
         }
 
         // check input size limit
-        int inputSizeLimitGB = Config.load_input_size_limit_gb;
+        int inputSizeLimitGB = 0;
         if (inputSizeLimitGB != 0) {
             if (totalSizeB > inputSizeLimitGB * GB) {
                 String failMsg = "Input file size[" + (float) totalSizeB / GB + "GB]"
@@ -552,7 +552,7 @@ public class DppScheduler {
         return String.format(ETL_OUTPUT_PATH, fsDefaultName, outputPath, dbId, loadLabel, etlOutputDir);
     }
 
-    private class InputSizeInvalidException extends LoadException {
+    private static class InputSizeInvalidException extends LoadException {
         public InputSizeInvalidException(String msg) {
             super(msg);
         }

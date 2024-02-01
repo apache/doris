@@ -64,6 +64,7 @@ public class EsResource extends Resource {
     public static final String LIKE_PUSH_DOWN = "like_push_down";
     public static final String QUERY_DSL = "query_dsl";
 
+    public static final String INCLUDE_HIDDEN_INDEX = "include_hidden_index";
     public static final String DOC_VALUE_SCAN_DEFAULT_VALUE = "true";
     public static final String KEYWORD_SNIFF_DEFAULT_VALUE = "true";
     public static final String HTTP_SSL_ENABLED_DEFAULT_VALUE = "false";
@@ -71,6 +72,8 @@ public class EsResource extends Resource {
     public static final String MAPPING_ES_ID_DEFAULT_VALUE = "false";
 
     public static final String LIKE_PUSH_DOWN_DEFAULT_VALUE = "true";
+
+    public static final String INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE = "false";
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
@@ -133,6 +136,9 @@ public class EsResource extends Resource {
         }
         if (properties.containsKey(EsResource.LIKE_PUSH_DOWN)) {
             EsUtil.getBoolean(properties, EsResource.LIKE_PUSH_DOWN);
+        }
+        if (properties.containsKey(EsResource.INCLUDE_HIDDEN_INDEX)) {
+            EsUtil.getBoolean(properties, EsResource.INCLUDE_HIDDEN_INDEX);
         }
     }
 

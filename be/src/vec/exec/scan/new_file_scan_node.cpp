@@ -40,6 +40,7 @@ NewFileScanNode::NewFileScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : VScanNode(pool, tnode, descs) {
     _output_tuple_id = tnode.file_scan_node.tuple_id;
+    _table_name = tnode.file_scan_node.__isset.table_name ? tnode.file_scan_node.table_name : "";
 }
 
 Status NewFileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -49,11 +50,23 @@ Status NewFileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status NewFileScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VScanNode::prepare(state));
+    if (state->get_query_ctx() != nullptr &&
+        state->get_query_ctx()->file_scan_range_params_map.count(id()) > 0) {
+        TFileScanRangeParams& params = state->get_query_ctx()->file_scan_range_params_map[id()];
+        _output_tuple_id = params.dest_tuple_id;
+    }
     return Status::OK();
 }
 
-void NewFileScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
-    int max_scanners = config::doris_scanner_thread_pool_thread_num;
+void NewFileScanNode::set_scan_ranges(RuntimeState* state,
+                                      const std::vector<TScanRangeParams>& scan_ranges) {
+    int max_scanners =
+            config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
+    max_scanners = max_scanners == 0 ? 1 : max_scanners;
+    // For select * from table limit 10; should just use one thread.
+    if (should_run_serial()) {
+        max_scanners = 1;
+    }
     if (scan_ranges.size() <= max_scanners) {
         _scan_ranges = scan_ranges;
     } else {
@@ -74,9 +87,10 @@ void NewFileScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
         _scan_ranges.shrink_to_fit();
         LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to " << _scan_ranges.size();
     }
-    if (scan_ranges.size() > 0) {
-        _input_tuple_id =
-                scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params.src_tuple_id;
+    if (scan_ranges.size() > 0 &&
+        scan_ranges[0].scan_range.ext_scan_range.file_scan_range.__isset.params) {
+        // for compatibility.
+        // in new implement, the tuple id is set in prepare phase
         _output_tuple_id =
                 scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params.dest_tuple_id;
     }
@@ -111,12 +125,15 @@ Status NewFileScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 VFileScanner::create_unique(_state, this, _limit_per_scanner,
                                             scan_range.scan_range.ext_scan_range.file_scan_range,
                                             runtime_profile(), _kv_cache.get());
-        RETURN_IF_ERROR(scanner->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range,
-                                         &_colname_to_slot_id));
+        RETURN_IF_ERROR(
+                scanner->prepare(_conjuncts, &_colname_to_value_range, &_colname_to_slot_id));
         scanners->push_back(std::move(scanner));
     }
-
     return Status::OK();
+}
+
+std::string NewFileScanNode::get_name() {
+    return fmt::format("VFILE_SCAN_NODE({0})", _table_name);
 }
 
 }; // namespace doris::vectorized

@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -31,6 +32,7 @@
 #include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "runtime/thread_context.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 
@@ -43,6 +45,8 @@ namespace doris {
 //
 // To compare two rows whose schemas are different, but they are from the same origin
 // we store all column schema maybe accessed here. And default access through column id
+class Schema;
+using SchemaSPtr = std::shared_ptr<const Schema>;
 class Schema {
 public:
     Schema(TabletSchemaSPtr tablet_schema) {
@@ -139,7 +143,8 @@ public:
 
     static vectorized::IColumn::MutablePtr get_column_by_field(const Field& field);
 
-    static vectorized::IColumn::MutablePtr get_predicate_column_ptr(const Field& field,
+    static vectorized::IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type,
+                                                                    bool is_nullable,
                                                                     const ReaderType reader_type);
 
     const std::vector<Field*>& columns() const { return _cols; }
@@ -172,6 +177,10 @@ public:
     bool has_sequence_col() const { return _has_sequence_col; }
     int32_t rowid_col_idx() const { return _rowid_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
+    // Don't use.
+    // TODO: memory size of Schema cannot be accurately tracked.
+    // In some places, temporarily use num_columns() as Schema size.
+    int64_t mem_size() const { return _mem_size; }
 
 private:
     void _init(const std::vector<TabletColumn>& cols, const std::vector<ColumnId>& col_ids,
@@ -198,6 +207,7 @@ private:
     bool _has_sequence_col = false;
     int32_t _rowid_col_idx = -1;
     int32_t _version_col_idx = -1;
+    int64_t _mem_size = 0;
 };
 
 } // namespace doris

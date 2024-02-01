@@ -95,8 +95,12 @@ public abstract class DistributionInfo implements Writable {
         type = DistributionInfoType.valueOf(Text.readString(in));
     }
 
-    public String toSql() {
+    public String toSql(boolean forSync) {
         return "";
+    }
+
+    public String toSql() {
+        return toSql(false);
     }
 
     @Override

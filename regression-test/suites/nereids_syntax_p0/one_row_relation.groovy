@@ -31,4 +31,9 @@ suite("one_row_relation") {
         )a"""
         result([[100, "abc", "ab", "de", null]])
     }
+
+    qt_string1 """ select 'A''B', 'A''''B', 'A\\'\\'B', ''; """
+    qt_string2 """ select "A""B", "A\\"\\"B", "";  """
+    qt_string3 """ select 'A""B', 'A\\"\\"B';  """
+    qt_string4 """ select "A''B", "A\\'\\'B";  """
 }

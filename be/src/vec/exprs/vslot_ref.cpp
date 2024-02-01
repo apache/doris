@@ -27,6 +27,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 namespace vectorized {
@@ -50,6 +51,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     DCHECK_EQ(_children.size(), 0);
     if (_slot_id == -1) {
+        _prepare_finished = true;
         return Status::OK();
     }
     const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
@@ -59,18 +61,28 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
                 state->desc_tbl().debug_string());
     }
     _column_name = &slot_desc->col_name();
-    if (!slot_desc->need_materialize()) {
+    if (!context->force_materialize_slot() && !slot_desc->need_materialize()) {
         // slot should be ignored manually
         _column_id = -1;
+        _prepare_finished = true;
         return Status::OK();
     }
-    _column_id = desc.get_column_id(_slot_id);
+    _column_id = desc.get_column_id(_slot_id, context->force_materialize_slot());
     if (_column_id < 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "VSlotRef {} have invalid slot id: {}, desc: {}, slot_desc: {}, desc_tbl: {}",
                 *_column_name, _slot_id, desc.debug_string(), slot_desc->debug_string(),
                 state->desc_tbl().debug_string());
     }
+    _prepare_finished = true;
+    return Status::OK();
+}
+
+Status VSlotRef::open(RuntimeState* state, VExprContext* context,
+                      FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
+    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    _open_finished = true;
     return Status::OK();
 }
 

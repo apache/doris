@@ -26,7 +26,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -87,6 +86,8 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected final TupleId tupleId;
 
+    private boolean isColocate = false;
+
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, StatisticalType statisticalType) {
         super(id, tupleId.asList(), planNodeName, statisticalType);
         this.setOpResultExprs = Lists.newArrayList();
@@ -123,6 +124,10 @@ public abstract class SetOperationNode extends PlanNode {
 
     public void addResultExprLists(List<Expr> exprs) {
         resultExprLists.add(exprs);
+    }
+
+    public void setColocate(boolean colocate) {
+        this.isColocate = colocate;
     }
 
     /**
@@ -305,7 +310,7 @@ public abstract class SetOperationNode extends PlanNode {
 
         for (int i = 0; i < setOpResultExprs.size(); ++i) {
             if (!setOpTupleDescriptor.getSlots().get(i).isMaterialized()) {
-                if (VectorizedUtil.isVectorized() && childTupleDescriptor.getSlots().get(i).isMaterialized()) {
+                if (childTupleDescriptor.getSlots().get(i).isMaterialized()) {
                     return false;
                 }
                 continue;
@@ -316,21 +321,14 @@ public abstract class SetOperationNode extends PlanNode {
             if (childSlotRef == null) {
                 return false;
             }
-            if (VectorizedUtil.isVectorized()) {
-                // On vectorized engine, we have more chance to do passthrough.
-                if (childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
-                    return false;
-                }
-                if (childSlotRef.isNullable() != setOpSlotRef.isNullable()) {
-                    return false;
-                }
-                if (childSlotRef.getDesc().getType() != setOpSlotRef.getDesc().getType()) {
-                    return false;
-                }
-            } else {
-                if (!childSlotRef.getDesc().layoutEquals(setOpSlotRef.getDesc())) {
-                    return false;
-                }
+            if (childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
+                return false;
+            }
+            if (childSlotRef.isNullable() != setOpSlotRef.isNullable()) {
+                return false;
+            }
+            if (childSlotRef.getDesc().getType() != setOpSlotRef.getDesc().getType()) {
+                return false;
             }
         }
         return true;
@@ -403,11 +401,13 @@ public abstract class SetOperationNode extends PlanNode {
             case INTERSECT_NODE:
                 msg.intersect_node = new TIntersectNode(
                         tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
+                msg.intersect_node.setIsColocate(isColocate);
                 msg.node_type = TPlanNodeType.INTERSECT_NODE;
                 break;
             case EXCEPT_NODE:
                 msg.except_node = new TExceptNode(
                         tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
+                msg.except_node.setIsColocate(isColocate);
                 msg.node_type = TPlanNodeType.EXCEPT_NODE;
                 break;
             default:

@@ -30,6 +30,8 @@ enum TUnit {
   TIME_NS,
   DOUBLE_VALUE,
   // No units at all, may not be a numerical quantity
+  // It is used as a label now, so do not treat it as 
+  // a real counter.
   NONE,
   TIME_MS,
   TIME_S

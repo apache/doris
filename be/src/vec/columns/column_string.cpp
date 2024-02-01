@@ -35,6 +35,23 @@
 
 namespace doris::vectorized {
 
+void ColumnString::sanity_check() const {
+    auto count = offsets.size();
+    if (chars.size() != offsets[count - 1]) {
+        LOG(FATAL) << "row count: " << count << ", chars.size(): " << chars.size() << ", offset["
+                   << count - 1 << "]: " << offsets[count - 1];
+    }
+    if (offsets[-1] != 0) {
+        LOG(FATAL) << "wrong offsets[-1]: " << offsets[-1];
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (offsets[i] < offsets[i - 1]) {
+            LOG(FATAL) << "row count: " << count << ", offsets[" << i << "]: " << offsets[i]
+                       << ", offsets[" << i - 1 << "]: " << offsets[i - 1];
+        }
+    }
+}
+
 MutableColumnPtr ColumnString::clone_resized(size_t to_size) const {
     auto res = ColumnString::create();
     if (to_size == 0) {
@@ -107,20 +124,43 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
     }
 }
 
-void ColumnString::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                       const int* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnString::insert_default();
-        } else {
-            ColumnString::insert_from(src, *x);
-        }
+void ColumnString::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                       const uint32_t* indices_end) {
+    const auto& src_str = assert_cast<const ColumnString&>(src);
+    const auto* src_offset_data = src_str.offsets.data();
+
+    auto old_char_size = chars.size();
+    size_t total_chars_size = old_char_size;
+
+    auto dst_offsets_pos = offsets.size();
+    offsets.resize(offsets.size() + indices_end - indices_begin);
+    auto* dst_offsets_data = offsets.data();
+
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
+        total_chars_size += src_offset_data[*x] - src_offset_data[int(*x) - 1];
+        dst_offsets_data[dst_offsets_pos++] = total_chars_size;
+    }
+    check_chars_length(total_chars_size, offsets.size());
+
+    chars.resize(total_chars_size);
+
+    const auto* src_data_ptr = src_str.chars.data();
+    auto* dst_data_ptr = chars.data();
+
+    size_t dst_chars_pos = old_char_size;
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
+        const size_t size_to_append = src_offset_data[*x] - src_offset_data[int(*x) - 1];
+        const size_t offset = src_offset_data[int(*x) - 1];
+        memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
+                                                 src_data_ptr + offset, size_to_append);
+        dst_chars_pos += size_to_append;
     }
 }
 
-void ColumnString::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::PrimitiveType type,
+void ColumnString::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if (null_data == nullptr) {
@@ -161,6 +201,19 @@ size_t ColumnString::filter(const Filter& filter) {
     }
 
     return filter_arrays_impl<UInt8, Offset>(chars, offsets, filter);
+}
+
+Status ColumnString::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    auto* col = static_cast<ColumnString*>(col_ptr);
+    Chars& res_chars = col->chars;
+    Offsets& res_offsets = col->offsets;
+    Filter filter;
+    filter.resize_fill(offsets.size(), 0);
+    for (size_t i = 0; i < sel_size; i++) {
+        filter[sel[i]] = 1;
+    }
+    filter_arrays_impl<UInt8, Offset>(chars, offsets, res_chars, res_offsets, filter, sel_size);
+    return Status::OK();
 }
 
 ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
@@ -260,22 +313,21 @@ void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
         uint32_t string_size(size_at(i));
 
         auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-        memcpy(ptr, &string_size, sizeof(string_size));
+        memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
         memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
         keys[i].size += sizeof(string_size) + string_size;
     }
 }
 
 void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                               const uint8_t* null_map,
-                                               size_t max_row_byte_size) const {
+                                               const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
             uint32_t offset(offset_at(i));
             uint32_t string_size(size_at(i));
 
             auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-            memcpy(ptr, &string_size, sizeof(string_size));
+            memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
             memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
             keys[i].size += sizeof(string_size) + string_size;
         }
@@ -420,39 +472,29 @@ ColumnPtr ColumnString::replicate(const Offsets& replicate_offsets) const {
     return res;
 }
 
-void ColumnString::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                             size_t begin, int count_sz) const {
-    size_t col_size = count_sz < 0 ? size() : count_sz;
-    if (0 == col_size) {
-        return;
-    }
-
+void ColumnString::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
     auto& res = reinterpret_cast<ColumnString&>(column);
 
     Chars& res_chars = res.chars;
     Offsets& res_offsets = res.offsets;
-    res_chars.reserve(chars.size() / col_size * target_size);
-    res_offsets.reserve(target_size);
 
-    size_t base = begin > 0 ? offsets[begin - 1] : 0;
-    Offset prev_string_offset = 0 + base;
-    Offset current_new_offset = 0;
+    size_t byte_size = 0;
+    res_offsets.resize(target_size);
+    for (size_t i = 0; i < target_size; ++i) {
+        long row_idx = indexs[i];
+        auto str_size = offsets[row_idx] - offsets[row_idx - 1];
+        res_offsets[i] = res_offsets[i - 1] + str_size;
+        byte_size += str_size;
+    }
 
-    size_t end = begin + col_size;
-    for (size_t i = begin; i < end; ++i) {
-        size_t size_to_replicate = counts[i];
-        size_t string_size = offsets[i] - prev_string_offset;
-
-        for (size_t j = 0; j < size_to_replicate; ++j) {
-            current_new_offset += string_size;
-            res_offsets.push_back(current_new_offset);
-
-            res_chars.resize(res_chars.size() + string_size);
-            memcpy_small_allow_read_write_overflow15(&res_chars[res_chars.size() - string_size],
-                                                     &chars[prev_string_offset], string_size);
-        }
-
-        prev_string_offset = offsets[i];
+    res_chars.resize(byte_size);
+    auto* __restrict dest = res.chars.data();
+    auto* __restrict src = chars.data();
+    for (size_t i = 0; i < target_size; ++i) {
+        long row_idx = indexs[i];
+        auto str_size = offsets[row_idx] - offsets[row_idx - 1];
+        memcpy_small_allow_read_write_overflow15(dest + res_offsets[i - 1],
+                                                 src + offsets[row_idx - 1], str_size);
     }
 
     check_chars_length(res_chars.size(), res_offsets.size());
@@ -472,42 +514,10 @@ void ColumnString::resize(size_t n) {
     }
 }
 
-void ColumnString::get_extremes(Field& min, Field& max) const {
-    min = String();
-    max = String();
-
-    size_t col_size = size();
-
-    if (col_size == 0) {
-        return;
-    }
-
-    size_t min_idx = 0;
-    size_t max_idx = 0;
-
-    less<true> less_op(*this);
-
-    for (size_t i = 1; i < col_size; ++i) {
-        if (less_op(i, min_idx)) {
-            min_idx = i;
-        } else if (less_op(max_idx, i)) {
-            max_idx = i;
-        }
-    }
-
-    get(min_idx, min);
-    get(max_idx, max);
-}
-
 void ColumnString::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                IColumn::Permutation& perms, EqualRange& range,
                                bool last_column) const {
     sorter->sort_column(static_cast<const ColumnString&>(*this), flags, perms, range, last_column);
-}
-
-void ColumnString::protect() {
-    get_chars().protect();
-    get_offsets().protect();
 }
 
 void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,

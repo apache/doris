@@ -49,7 +49,7 @@ public class ColocateTableTest {
 
     private static ConnectContext connectContext;
     private static String dbName = "testDb";
-    private static String fullDbName = "default_cluster:" + dbName;
+    private static String fullDbName = "" + dbName;
     private static String tableName1 = "t1";
     private static String tableName2 = "t2";
     private static String groupName = "group1";
@@ -252,7 +252,8 @@ public class ColocateTableTest {
                 + ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have same replication allocation: tag.location.default: 1");
+        expectedEx.expectMessage("Colocate tables must have same replication allocation: { tag.location.default: 2 }"
+                + " should be { tag.location.default: 1 }");
         createTable("create table " + dbName + "." + tableName2 + " (\n"
                 + " `k1` int NULL COMMENT \"\",\n"
                 + " `k2` varchar(10) NULL COMMENT \"\"\n"
@@ -310,7 +311,7 @@ public class ColocateTableTest {
                 + ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables distribution columns must have the same data type: k2 should be INT");
+        expectedEx.expectMessage("Colocate tables distribution columns must have the same data type: k2(VARCHAR(10)) should be INT");
         createTable("create table " + dbName + "." + tableName2 + " (\n"
                 + " `k1` int NULL COMMENT \"\",\n"
                 + " `k2` varchar(10) NULL COMMENT \"\"\n"

@@ -31,6 +31,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
+import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -41,6 +42,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -102,7 +104,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private ArrayList<Expr> outputExprs;
 
     // created in finalize() or set in setSink()
-    private DataSink sink;
+    protected DataSink sink;
 
     // data source(or sender) of specific partition in the fragment;
     // an UNPARTITIONED fragment is executed on only a single node
@@ -122,7 +124,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // specification of how the output of this fragment is partitioned (i.e., how
     // it's sent to its destination);
     // if the output is UNPARTITIONED, it is being broadcast
-    private DataPartition outputPartition;
+    protected DataPartition outputPartition;
 
     // Whether query statistics is sent with every batch. In order to get the query
     // statistics correctly when query contains limit, it is necessary to send query
@@ -142,10 +144,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // The runtime filter id that is expected to be used
     private Set<RuntimeFilterId> targetRuntimeFilterIds;
 
+    private int bucketNum;
+
     // has colocate plan node
     private boolean hasColocatePlanNode = false;
 
-    private boolean isRightChildOfBroadcastHashJoin = false;
+    private boolean hasNullAwareLeftAntiJoin = false;
+
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -165,6 +171,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition, DataPartition partitionForThrift) {
         this(id, root, partition);
         this.dataPartitionForThrift = partitionForThrift;
+    }
+
+    public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition,
+            Set<RuntimeFilterId> builderRuntimeFilterIds, Set<RuntimeFilterId> targetRuntimeFilterIds) {
+        this(id, root, partition);
+        this.builderRuntimeFilterIds = new HashSet<>(builderRuntimeFilterIds);
+        this.targetRuntimeFilterIds = new HashSet<>(targetRuntimeFilterIds);
     }
 
     /**
@@ -229,6 +242,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.hasColocatePlanNode = hasColocatePlanNode;
     }
 
+    public void setResultSinkType(TResultSinkType resultSinkType) {
+        this.resultSinkType = resultSinkType;
+    }
+
     public boolean hasColocatePlanNode() {
         return hasColocatePlanNode;
     }
@@ -248,7 +265,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             Preconditions.checkState(sink == null);
             // we're streaming to an exchange node
             DataStreamSink streamSink = new DataStreamSink(destNode.getId());
-            streamSink.setPartition(outputPartition);
+            streamSink.setOutputPartition(outputPartition);
             streamSink.setFragment(this);
             sink = streamSink;
         } else {
@@ -264,7 +281,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             } else {
                 // add ResultSink
                 // we're streaming to an result sink
-                sink = new ResultSink(planRoot.getId());
+                sink = new ResultSink(planRoot.getId(), resultSinkType);
             }
         }
     }
@@ -313,6 +330,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");
+        str.append("  HAS_COLO_PLAN_NODE: " + hasColocatePlanNode + "\n");
+        str.append("\n");
         if (sink != null) {
             str.append(sink.getExplainString("  ", explainLevel) + "\n");
         }
@@ -320,6 +339,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             str.append(planRoot.getExplainString("  ", "  ", explainLevel));
         }
         return str.toString();
+    }
+
+    public void getExplainStringMap(Map<Integer, String> planNodeMap) {
+        org.apache.doris.thrift.TExplainLevel explainLevel = org.apache.doris.thrift.TExplainLevel.NORMAL;
+        if (planRoot != null) {
+            planRoot.getExplainStringMap(explainLevel, planNodeMap);
+        }
     }
 
     /**
@@ -427,14 +453,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return transferQueryStatisticsWithEveryBatch;
     }
 
-    public boolean isRightChildOfBroadcastHashJoin() {
-        return isRightChildOfBroadcastHashJoin;
-    }
-
-    public void setRightChildOfBroadcastHashJoin(boolean value) {
-        isRightChildOfBroadcastHashJoin = value;
-    }
-
     public int getFragmentSequenceNum() {
         if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
             return fragmentSequenceNum;
@@ -445,5 +463,21 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public void setFragmentSequenceNum(int seq) {
         fragmentSequenceNum = seq;
+    }
+
+    public int getBucketNum() {
+        return bucketNum;
+    }
+
+    public void setBucketNum(int bucketNum) {
+        this.bucketNum = bucketNum;
+    }
+
+    public boolean isHasNullAwareLeftAntiJoin() {
+        return hasNullAwareLeftAntiJoin;
+    }
+
+    public void setHasNullAwareLeftAntiJoin(boolean hasNullAwareLeftAntiJoin) {
+        this.hasNullAwareLeftAntiJoin = hasNullAwareLeftAntiJoin;
     }
 }

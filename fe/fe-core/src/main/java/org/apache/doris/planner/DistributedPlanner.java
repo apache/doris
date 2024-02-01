@@ -124,7 +124,7 @@ public class DistributedPlanner {
         boolean needRepartition = false;
         boolean needMerge = false;
         if (isFragmentPartitioned(inputFragment)) {
-            if (targetTable.isPartitioned()) {
+            if (targetTable.isPartitionDistributed()) {
                 if (stmt.getDataPartition().getType() == TPartitionType.RANDOM) {
                     return inputFragment;
                 }
@@ -137,7 +137,7 @@ public class DistributedPlanner {
                 needMerge = true;
             }
         } else {
-            if (targetTable.isPartitioned()) {
+            if (targetTable.isPartitionDistributed()) {
                 if (isRepart != null && isRepart) {
                     needRepartition = true;
                 } else {
@@ -278,12 +278,8 @@ public class DistributedPlanner {
      * TODO: hbase scans are range-partitioned on the row key
      */
     private PlanFragment createScanFragment(PlanNode node) throws UserException {
-        if (node instanceof MysqlScanNode || node instanceof OdbcScanNode || node instanceof JdbcScanNode) {
+        if (node instanceof MysqlScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
-        } else if (node instanceof SchemaScanNode) {
-            return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
-        } else if (node instanceof DataGenScanNode) {
-            return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
         } else if (node instanceof OlapScanNode) {
             // olap scan node
             OlapScanNode olapScanNode = (OlapScanNode) node;
@@ -385,7 +381,7 @@ public class DistributedPlanner {
             node.setChild(0, leftChildFragment.getPlanRoot());
             connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
             leftChildFragment.setPlanRoot(node);
-            rightChildFragment.setRightChildOfBroadcastHashJoin(true);
+            ((ExchangeNode) node.getChild(1)).setRightChildOfBroadcastHashJoin(true);
             return leftChildFragment;
         } else {
             node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
@@ -931,12 +927,9 @@ public class DistributedPlanner {
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
-            if (canColocateAgg(node.getAggInfo(), childFragment.getDataPartition())
-                    || childFragment.getPlanRoot().shouldColoAgg(node.getAggInfo())) {
-                childFragment.getPlanRoot().setShouldColoScan();
+            if (canColocateAgg(node.getAggInfo(), childFragment.getDataPartition())) {
                 childFragment.addPlanRoot(node);
-                // pipeline here should use shared scan to improve performance
-                childFragment.setHasColocatePlanNode(!ConnectContext.get().getSessionVariable().enablePipelineEngine());
+                childFragment.setHasColocatePlanNode(true);
                 return childFragment;
             } else {
                 return createMergeAggregationFragment(node, childFragment);
@@ -1307,6 +1300,7 @@ public class DistributedPlanner {
             exchNode.setLimit(limit);
         }
         exchNode.setMergeInfo(node.getSortInfo());
+        node.setMergeByExchange();
         exchNode.setOffset(offset);
 
         // Child nodes should not process the offset. If there is a limit,

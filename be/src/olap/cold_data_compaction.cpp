@@ -26,7 +26,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "olap/compaction.h"
@@ -35,6 +34,7 @@
 #include "olap/tablet_meta.h"
 #include "runtime/thread_context.h"
 #include "util/thread.h"
+#include "util/trace.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -47,7 +47,7 @@ ColdDataCompaction::~ColdDataCompaction() = default;
 
 Status ColdDataCompaction::prepare_compact() {
     if (UNLIKELY(!_tablet->init_succeeded())) {
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>("_tablet init failed");
     }
     return pick_rowsets_to_compact();
 }
@@ -61,8 +61,8 @@ Status ColdDataCompaction::execute_compact_impl() {
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t permits = get_compaction_permits();
     std::shared_lock cooldown_conf_rlock(_tablet->get_cooldown_conf_lock());
-    if (_tablet->cooldown_conf_unlocked().first != _tablet->replica_id()) {
-        return Status::Aborted("this replica is not cooldown replica");
+    if (_tablet->cooldown_conf_unlocked().cooldown_replica_id != _tablet->replica_id()) {
+        return Status::Aborted<false>("this replica is not cooldown replica");
     }
     RETURN_IF_ERROR(do_compaction(permits));
     _state = CompactionState::SUCCESS;
@@ -83,13 +83,13 @@ Status ColdDataCompaction::modify_rowsets(const Merger::Statistics* stats) {
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
     {
         std::lock_guard wlock(_tablet->get_header_lock());
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         // Merged cooldowned rowsets MUST NOT be managed by version graph, they will be reclaimed by `remove_unused_remote_files`.
         _tablet->delete_rowsets(_input_rowsets, false);
         _tablet->add_rowsets({_output_rowset});
         // TODO(plat1ko): process primary key
         _tablet->tablet_meta()->set_cooldown_meta_id(cooldown_meta_id);
     }
-    Tablet::erase_pending_remote_rowset(_output_rowset->rowset_id().to_string());
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();

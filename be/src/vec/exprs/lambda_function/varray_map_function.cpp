@@ -60,8 +60,8 @@ public:
     std::string get_name() const override { return name; }
 
     doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id, DataTypePtr result_type,
-                          const std::vector<VExpr*>& children) override {
+                          int* result_column_id, const DataTypePtr& result_type,
+                          const VExprSPtrs& children) override {
         ///* array_map(lambda,arg1,arg2,.....) *///
 
         //1. child[1:end]->execute(src_block)
@@ -81,7 +81,8 @@ public:
         // offset column
         MutableColumnPtr array_column_offset;
         int nested_array_column_rows = 0;
-        const ColumnArray::Offsets64* array_offsets = nullptr;
+        ColumnPtr first_array_offsets = nullptr;
+
         //2. get the result column from executed expr, and the needed is nested column of array
         Block lambda_block;
         for (int i = 0; i < arguments.size(); ++i) {
@@ -113,18 +114,21 @@ public:
 
             if (i == 0) {
                 nested_array_column_rows = col_array.get_data_ptr()->size();
-                array_offsets = &col_array.get_offsets();
+                first_array_offsets = col_array.get_offsets_ptr();
                 auto& off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
                         col_array.get_offsets_column());
                 array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
             } else {
                 // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
                 // c_array1: [0,1,2,3,4,5,6,7,8,9]
+                auto& array_offsets =
+                        assert_cast<const ColumnArray::ColumnOffsets&>(*first_array_offsets)
+                                .get_data();
                 if (nested_array_column_rows != col_array.get_data_ptr()->size() ||
-                    (array_offsets->size() > 0 &&
-                     memcmp(array_offsets->data(), col_array.get_offsets().data(),
-                            sizeof((*array_offsets)[0]) * array_offsets->size()) != 0)) {
-                    return Status::InternalError(
+                    (array_offsets.size() > 0 &&
+                     memcmp(array_offsets.data(), col_array.get_offsets().data(),
+                            sizeof(array_offsets[0]) * array_offsets.size()) != 0)) {
+                    return Status::InvalidArgument(
                             "in array map function, the input column size "
                             "are "
                             "not equal completely, nested column data rows 1st size is {}, {}th "
@@ -149,21 +153,35 @@ public:
 
         //4. get the result column after execution, reassemble it into a new array column, and return.
         ColumnWithTypeAndName result_arr;
-        if (res_type->is_nullable()) {
-            result_arr = {ColumnNullable::create(
-                                  ColumnArray::create(res_col, std::move(array_column_offset)),
-                                  std::move(outside_null_map)),
-                          result_type, res_name};
-
+        if (result_type->is_nullable()) {
+            if (res_type->is_nullable()) {
+                result_arr = {ColumnNullable::create(
+                                      ColumnArray::create(res_col, std::move(array_column_offset)),
+                                      std::move(outside_null_map)),
+                              result_type, res_name};
+            } else {
+                // deal with eg: select array_map(x -> x is null, [null, 1, 2]);
+                // need to create the nested column null map for column array
+                auto nested_null_map = ColumnUInt8::create(res_col->size(), 0);
+                result_arr = {
+                        ColumnNullable::create(
+                                ColumnArray::create(
+                                        ColumnNullable::create(res_col, std::move(nested_null_map)),
+                                        std::move(array_column_offset)),
+                                std::move(outside_null_map)),
+                        result_type, res_name};
+            }
         } else {
-            // need to create the nested column null map for column array
-            auto nested_null_map = ColumnUInt8::create(res_col->size(), 0);
-            result_arr = {ColumnNullable::create(
-                                  ColumnArray::create(ColumnNullable::create(
-                                                              res_col, std::move(nested_null_map)),
-                                                      std::move(array_column_offset)),
-                                  std::move(outside_null_map)),
-                          result_type, res_name};
+            if (res_type->is_nullable()) {
+                result_arr = {ColumnArray::create(res_col, std::move(array_column_offset)),
+                              result_type, res_name};
+            } else {
+                auto nested_null_map = ColumnUInt8::create(res_col->size(), 0);
+                result_arr = {ColumnArray::create(
+                                      ColumnNullable::create(res_col, std::move(nested_null_map)),
+                                      std::move(array_column_offset)),
+                              result_type, res_name};
+            }
         }
         block->insert(std::move(result_arr));
         *result_column_id = block->columns() - 1;

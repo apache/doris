@@ -21,6 +21,7 @@ import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.fs.remote.S3FileSystem;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -94,6 +95,31 @@ public class RepositoryMgr extends Daemon implements Writable {
 
     public Repository getRepo(long repoId) {
         return repoIdMap.get(repoId);
+    }
+
+    public Status alterRepo(Repository newRepo, boolean isReplay) {
+        lock.lock();
+        try {
+            Repository repo = repoNameMap.get(newRepo.getName());
+            if (repo != null) {
+                if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
+                    repoNameMap.put(repo.getName(), newRepo);
+                    repoIdMap.put(repo.getId(), newRepo);
+
+                    if (!isReplay) {
+                        // log
+                        Env.getCurrentEnv().getEditLog().logAlterRepository(newRepo);
+                    }
+                    LOG.info("successfully alter repo {}, isReplay {}", newRepo.getName(), isReplay);
+                    return Status.OK;
+                } else {
+                    return new Status(ErrCode.COMMON_ERROR, "Only support alter s3 repository");
+                }
+            }
+            return new Status(ErrCode.NOT_FOUND, "repository does not exist");
+        } finally {
+            lock.unlock();
+        }
     }
 
     public Status removeRepo(String repoName, boolean isReplay) {

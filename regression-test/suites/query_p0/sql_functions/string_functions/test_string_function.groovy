@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_string_function") {
+suite("test_string_function", "arrow_flight_sql") {
     sql "set batch_size = 4096;"
 
     qt_sql "select elt(0, \"hello\", \"doris\");"
@@ -69,10 +69,12 @@ suite("test_string_function") {
     qt_sql "select unhex('41');"
     qt_sql "select unhex('4142');"
 
-    qt_sql "select instr(\"abc\", \"b\");"
-    qt_sql "select instr(\"abc\", \"d\");"
-    qt_sql "select instr(\"abc\", null);"
-    qt_sql "select instr(null, \"a\");"
+    qt_sql_instr "select instr(\"abc\", \"b\");"
+    qt_sql_instr "select instr(\"abc\", \"d\");"
+    qt_sql_instr "select instr(\"abc\", null);"
+    qt_sql_instr "select instr(null, \"a\");"
+    qt_sql_instr "SELECT instr('foobar', '');"
+    qt_sql_instr "SELECT instr('上海天津北京杭州', '北京');"
 
     qt_sql "SELECT lcase(\"AbC123\");"
     qt_sql "SELECT lower(\"AbC123\");"
@@ -84,8 +86,10 @@ suite("test_string_function") {
 
     qt_sql "select length(\"abc\");"
 
-    qt_sql "SELECT LOCATE('bar', 'foobarbar');"
-    qt_sql "SELECT LOCATE('xbar', 'foobar');"
+    qt_sql_locate "SELECT LOCATE('bar', 'foobarbar');"
+    qt_sql_locate "SELECT LOCATE('xbar', 'foobar');"
+    qt_sql_locate "SELECT LOCATE('', 'foobar');"
+    qt_sql_locate "SELECT LOCATE('北京', '上海天津北京杭州');"
 
     qt_sql "SELECT lpad(\"hi\", 5, \"xy\");"
     qt_sql "SELECT lpad(\"hi\", 1, \"xy\");"
@@ -136,13 +140,92 @@ suite("test_string_function") {
     qt_sql "select starts_with(\"hello world\",\"world\");"
     qt_sql "select starts_with(\"hello world\",null);"
 
-    qt_sql "select strleft(\"Hello doris\",5);"
-    qt_sql "select strright(\"Hello doris\",5);"
+    qt_sql "select strleft(NULL, 1);"
+    qt_sql "select strleft(\"good morning\", NULL);"
+    qt_sql "select left(NULL, 1);"
+    qt_sql "select left(\"good morning\", NULL);"
+    qt_sql "select strleft(\"Hello doris\", 5);"
+    qt_sql "select left(\"Hello doris\", 5)"
+    qt_sql "select strright(NULL, 1);"
+    qt_sql "select strright(\"good morning\", NULL);"
+    qt_sql "select right(NULL, 1);"
+    qt_sql "select right(\"good morning\", NULL);"
+    qt_sql "select strright(\"Hello doris\", 5);"
+    qt_sql "select right(\"Hello doris\", 5);"
+    qt_sql "select strleft(\"good morning\", 120);"
+    qt_sql "select strleft(\"good morning\", -5);"
+    qt_sql "select strright(\"Hello doris\", 120);"
+    qt_sql "select strright(\"Hello doris\", -5);"
+    qt_sql "select left(\"good morning\", 120);"
+    qt_sql "select left(\"good morning\", -5);"
+    qt_sql "select right(\"Hello doris\", 120);"
+    qt_sql "select right(\"Hello doris\", -6);"
+
+    sql """ drop table if exists left_right_test; """
+    sql """ create table left_right_test (
+        id INT NULL,
+        name VARCHAR(16) NULL
+    )
+    UNIQUE KEY(id)
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_num"="1");
+    """
+    sql """
+        insert into left_right_test values
+        (1, "Isaac Newton"),
+        (2, "Albert Einstein"),
+        (3, "Marie Curie"),
+        (4, "Charles Darwin"),
+        (5, "Stephen Hawking");
+    """
+
+    qt_select_null_str """
+    select
+    id,
+    strleft(name, 5),
+    strright(name, 5),
+    left(name, 6),
+    right(name, 6)
+    from left_right_test
+    order by id;
+    """
+
+    sql """ drop table if exists left_right_test; """
+    sql """ create table left_right_test (
+        id INT,
+        name VARCHAR(16)
+    )
+    UNIQUE KEY(id)
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_num"="1");
+    """
+    sql """
+        insert into left_right_test values
+        (1, "Isaac Newton"),
+        (2, "Albert Einstein"),
+        (3, "Marie Curie"),
+        (4, "Charles Darwin"),
+        (5, "Stephen Hawking");
+    """
+
+    qt_select_not_null_str """
+    select
+    id,
+    strleft(name, 5),
+    strright(name, 5),
+    left(name, 6),
+    right(name, 6)
+    from left_right_test
+    order by id;
+    """
 
     qt_sql "select substring('abc1', 2);"
     qt_sql "select substring('abc1', -2);"
     qt_sql "select substring('abc1', 5);"
     qt_sql "select substring('abc1def', 2, 2);"
+    qt_sql "select substring('abcdef',3,-1);"
+    qt_sql "select substring('abcdef',-3,-1);"
+    qt_sql "select substring('abcdef',10,1);"
 
     sql """ drop table if exists test_string_function; """
     sql """ create table test_string_function (
@@ -180,6 +263,8 @@ suite("test_string_function") {
     qt_sql "select substr('a',-1,1);"
     qt_sql "select substr('a',-2,1);"
     qt_sql "select substr('a',-3,1);"
+    qt_sql "select substr('abcdef',3,-1);"
+    qt_sql "select substr('abcdef',-3,-1);"
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
@@ -276,5 +361,7 @@ suite("test_string_function") {
     qt_sql_func_char6 """ select char(k1) from test_function_char order by k1; """
     qt_sql_func_char7 """ select char(k1, k2, k3, k4) from test_function_char order by k1, k2, k3, k4; """
     qt_sql_func_char8 """ select char(k1, k2, k3, k4, 65) from test_function_char order by k1, k2, k3, k4; """
+    qt_sql_func_char9 """ select char(0) = ' '; """
+    qt_sql_func_char10 """ select char(0) = '\0'; """
 
 }

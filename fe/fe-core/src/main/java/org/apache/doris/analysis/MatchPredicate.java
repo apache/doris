@@ -19,19 +19,25 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
+import org.apache.doris.thrift.TMatchPredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -44,6 +50,8 @@ public class MatchPredicate extends Predicate {
         MATCH_ANY("MATCH_ANY", "match_any", TExprOpcode.MATCH_ANY),
         MATCH_ALL("MATCH_ALL", "match_all", TExprOpcode.MATCH_ALL),
         MATCH_PHRASE("MATCH_PHRASE", "match_phrase", TExprOpcode.MATCH_PHRASE),
+        MATCH_PHRASE_PREFIX("MATCH_PHRASE_PREFIX", "match_phrase_prefix", TExprOpcode.MATCH_PHRASE_PREFIX),
+        MATCH_REGEXP("MATCH_REGEXP", "match_regexp", TExprOpcode.MATCH_REGEXP),
         MATCH_ELEMENT_EQ("MATCH_ELEMENT_EQ", "match_element_eq", TExprOpcode.MATCH_ELEMENT_EQ),
         MATCH_ELEMENT_LT("MATCH_ELEMENT_LT", "match_element_lt", TExprOpcode.MATCH_ELEMENT_LT),
         MATCH_ELEMENT_GT("MATCH_ELEMENT_GT", "match_element_gt", TExprOpcode.MATCH_ELEMENT_GT),
@@ -141,10 +149,33 @@ public class MatchPredicate extends Predicate {
                     symbolNotUsed,
                     Lists.<Type>newArrayList(new ArrayType(t), t),
                     Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_PHRASE_PREFIX.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(t, t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_PHRASE_PREFIX.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(new ArrayType(t), t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_REGEXP.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(t, t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_REGEXP.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(new ArrayType(t), t),
+                    Type.BOOLEAN));
         }
     }
 
     private final Operator op;
+    private String invertedIndexParser;
+    private String invertedIndexParserMode;
+    private Map<String, String> invertedIndexCharFilter;
 
     public MatchPredicate(Operator op, Expr e1, Expr e2) {
         super();
@@ -155,6 +186,8 @@ public class MatchPredicate extends Predicate {
         children.add(e2);
         // TODO: Calculate selectivity
         selectivity = Expr.DEFAULT_SELECTIVITY;
+        invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
+        invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
     }
 
     public Boolean isMatchElement(Operator op) {
@@ -168,6 +201,29 @@ public class MatchPredicate extends Predicate {
     protected MatchPredicate(MatchPredicate other) {
         super(other);
         op = other.op;
+        invertedIndexParser = other.invertedIndexParser;
+        invertedIndexParserMode = other.invertedIndexParserMode;
+        invertedIndexCharFilter = other.invertedIndexCharFilter;
+    }
+
+    /**
+     * use for Nereids ONLY
+     */
+    public MatchPredicate(Operator op, Expr e1, Expr e2, Type retType,
+            NullableMode nullableMode, String invertedIndexParser, String invertedIndexParserMode,
+            Map<String, String> invertedIndexCharFilter) {
+        this(op, e1, e2);
+        if (invertedIndexParser != null) {
+            this.invertedIndexParser = invertedIndexParser;
+        }
+        if (invertedIndexParserMode != null) {
+            this.invertedIndexParserMode = invertedIndexParserMode;
+        }
+        if (invertedIndexParserMode != null) {
+            this.invertedIndexCharFilter = invertedIndexCharFilter;
+        }
+        fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
+                false, true, nullableMode);
     }
 
     @Override
@@ -196,6 +252,8 @@ public class MatchPredicate extends Predicate {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.MATCH_PRED;
         msg.setOpcode(op.getOpcode());
+        msg.match_predicate = new TMatchPredicate(invertedIndexParser, invertedIndexParserMode);
+        msg.match_predicate.setCharFilterMap(invertedIndexCharFilter);
     }
 
     @Override
@@ -213,9 +271,10 @@ public class MatchPredicate extends Predicate {
             throw new AnalysisException("right operand of " + op.toString() + " must be of type STRING: " + toSql());
         }
 
-        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isArrayType()) {
+        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isArrayType()
+                    && !getChild(0).getType().isVariantType()) {
             throw new AnalysisException(
-                    "left operand of " + op.toString() + " must be of type STRING or ARRAY: " + toSql());
+                    "left operand of " + op.toString() + " must be of type STRING, ARRAY or VARIANT: " + toSql());
         }
 
         fn = getBuiltinFunction(op.toString(),
@@ -234,6 +293,32 @@ public class MatchPredicate extends Predicate {
                 setChild(1, e2.castTo(itemType));
             } catch (NumberFormatException nfe) {
                 throw new AnalysisException("Invalid number format literal: " + e2.getStringValue());
+            }
+        }
+
+        // CAST variant to right expr type
+        if (e1.type.isVariantType()) {
+            setChild(0, e1.castTo(e2.getType()));
+        }
+
+        if (e1 instanceof SlotRef) {
+            SlotRef slotRef = (SlotRef) e1;
+            SlotDescriptor slotDesc = slotRef.getDesc();
+            if (slotDesc != null && slotDesc.isScanSlot()) {
+                TupleDescriptor slotParent = slotDesc.getParent();
+                OlapTable olapTbl = (OlapTable) slotParent.getTable();
+                List<Index> indexes = olapTbl.getIndexes();
+                for (Index index : indexes) {
+                    if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                        List<String> columns = index.getColumns();
+                        if (slotRef.getColumnName().equals(columns.get(0))) {
+                            invertedIndexParser = index.getInvertedIndexParser();
+                            invertedIndexParserMode = index.getInvertedIndexParserMode();
+                            invertedIndexCharFilter = index.getInvertedIndexCharFilter();
+                            break;
+                        }
+                    }
+                }
             }
         }
     }

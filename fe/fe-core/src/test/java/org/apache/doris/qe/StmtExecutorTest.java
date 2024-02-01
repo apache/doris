@@ -33,12 +33,12 @@ import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.planner.OriginalPlanner;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TQueryOptions;
@@ -152,7 +152,7 @@ public class StmtExecutorTest {
 
                 ctx.getDatabase();
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 ctx.getSessionVariable();
                 minTimes = 0;
@@ -214,13 +214,6 @@ public class StmtExecutorTest {
                 // mock coordinator
                 coordinator.exec();
                 minTimes = 0;
-
-                coordinator.endProfile();
-                minTimes = 0;
-
-                coordinator.getQueryProfile();
-                minTimes = 0;
-                result = new RuntimeProfile();
 
                 coordinator.getNext();
                 minTimes = 0;
@@ -388,6 +381,10 @@ public class StmtExecutorTest {
                 killCtx.kill(true);
                 minTimes = 0;
 
+                killCtx.getConnectType();
+                minTimes = 0;
+                result = ConnectType.MYSQL;
+
                 ConnectContext.get();
                 minTimes = 0;
                 result = ctx;
@@ -444,6 +441,10 @@ public class StmtExecutorTest {
 
                 killCtx.kill(true);
                 minTimes = 0;
+
+                killCtx.getConnectType();
+                minTimes = 0;
+                result = ConnectType.MYSQL;
 
                 ConnectContext.get();
                 minTimes = 0;
@@ -679,15 +680,11 @@ public class StmtExecutorTest {
 
                 useStmt.getDatabase();
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 useStmt.getRedirectStatus();
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
-
-                useStmt.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
 
                 Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
                 parser.parse();
@@ -717,10 +714,6 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
 
-                useStmt.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
-
                 Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
                 parser.parse();
                 minTimes = 0;
@@ -743,15 +736,11 @@ public class StmtExecutorTest {
 
                 useStmt.getDatabase();
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 useStmt.getRedirectStatus();
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
-
-                useStmt.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
 
                 useStmt.getCatalogName();
                 minTimes = 0;
@@ -784,10 +773,6 @@ public class StmtExecutorTest {
                 useStmt.getRedirectStatus();
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
-
-                useStmt.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
 
                 useStmt.getCatalogName();
                 minTimes = 0;

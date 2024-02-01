@@ -19,13 +19,14 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.DataGenTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionTask;
 import org.apache.doris.thrift.TDataGenScanNode;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -41,32 +42,25 @@ import java.util.List;
 /**
  * This scan node is used for data source generated from memory.
  */
-public class DataGenScanNode extends ScanNode {
+public class DataGenScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(DataGenScanNode.class.getName());
 
-    private List<TScanRangeLocations> shardScanRanges;
     private DataGenTableValuedFunction tvf;
     private boolean isFinalized = false;
 
     public DataGenScanNode(PlanNodeId id, TupleDescriptor desc, DataGenTableValuedFunction tvf) {
-        super(id, desc, "DataGenScanNode", StatisticalType.TABLE_VALUED_FUNCTION_NODE);
+        super(id, desc, "DataGenScanNode", StatisticalType.TABLE_VALUED_FUNCTION_NODE, false);
         this.tvf = tvf;
     }
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        computeStats(analyzer);
-    }
-
-    @Override
-    public int getNumInstances() {
-        return shardScanRanges.size();
     }
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        return shardScanRanges;
+        return scanRangeLocations;
     }
 
     @Override
@@ -74,12 +68,7 @@ public class DataGenScanNode extends ScanNode {
         if (isFinalized) {
             return;
         }
-        try {
-            shardScanRanges = getShardLocations();
-        } catch (AnalysisException e) {
-            throw new UserException(e.getMessage());
-        }
-
+        createScanRangeLocations();
         isFinalized = true;
     }
 
@@ -92,28 +81,25 @@ public class DataGenScanNode extends ScanNode {
         msg.data_gen_scan_node = dataGenScanNode;
     }
 
-    private List<TScanRangeLocations> getShardLocations() throws AnalysisException {
-        List<TScanRangeLocations> result = Lists.newArrayList();
+    @Override
+    protected void createScanRangeLocations() throws UserException {
+        scanRangeLocations = Lists.newArrayList();
         for (TableValuedFunctionTask task : tvf.getTasks()) {
             TScanRangeLocations locations = new TScanRangeLocations();
             TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(task.getBackend().getId());
-            location.setServer(new TNetworkAddress(task.getBackend().getIp(), task.getBackend().getBePort()));
+            location.setServer(new TNetworkAddress(task.getBackend().getHost(), task.getBackend().getBePort()));
             locations.addToLocations(location);
             locations.setScanRange(task.getExecParams());
-            result.add(locations);
+            scanRangeLocations.add(locations);
         }
-        return result;
     }
 
     @Override
     public void finalizeForNereids() {
-        if (shardScanRanges != null) {
-            return;
-        }
         try {
-            shardScanRanges = getShardLocations();
-        } catch (AnalysisException e) {
+            createScanRangeLocations();
+        } catch (UserException e) {
             throw new NereidsException("Can not compute shard locations for DataGenScanNode: " + e.getMessage(), e);
         }
     }
@@ -121,5 +107,34 @@ public class DataGenScanNode extends ScanNode {
     @Override
     public boolean needToCheckColumnPriv() {
         return false;
+    }
+
+    // Currently DataGenScanNode is only used by DataGenTableValuedFunction, which is
+    // inherited by NumbersTableValuedFunction.
+    // NumbersTableValuedFunction is not a complete implementation for now, since its
+    // function signature do not support us to split total numbers, so it can not be executed
+    // by multi-processes or multi-threads. So we assign instance number to 1.
+    @Override
+    public int getNumInstances() {
+        return 1;
+    }
+
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return "";
+        }
+
+        StringBuilder output = new StringBuilder();
+
+        if (!conjuncts.isEmpty()) {
+            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+        }
+
+        output.append(prefix).append("table value function: ").append(tvf.getDataGenFunctionName()).append("\n");
+
+
+
+        return output.toString();
     }
 }

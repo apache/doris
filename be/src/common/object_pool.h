@@ -50,7 +50,12 @@ public:
 
     void clear() {
         std::lock_guard<SpinLock> l(_lock);
-        for (Element& elem : _objects) elem.delete_fn(elem.obj);
+        // reverse delete object to make sure the obj can
+        // safe access the member object construt early by
+        // object pool
+        for (auto obj = _objects.rbegin(); obj != _objects.rend(); obj++) {
+            obj->delete_fn(obj->obj);
+        }
         _objects.clear();
     }
 
@@ -73,7 +78,7 @@ private:
 
     /// For each object, a pointer to the object and a function that deletes it.
     struct Element {
-        void* obj;
+        void* obj = nullptr;
         DeleteFn delete_fn;
     };
 

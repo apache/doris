@@ -40,13 +40,14 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     switch (node.type) {
     case TTypeNodeType::SCALAR: {
         DCHECK(node.__isset.scalar_type);
-        const TScalarType scalar_type = node.scalar_type;
+        const TScalarType& scalar_type = node.scalar_type;
         type = thrift_to_type(scalar_type.type);
         if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL) {
             DCHECK(scalar_type.__isset.len);
             len = scalar_type.len;
         } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
-                   type == TYPE_DECIMAL128I || type == TYPE_DATETIMEV2) {
+                   type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256 || type == TYPE_DATETIMEV2 ||
+                   type == TYPE_TIMEV2) {
             DCHECK(scalar_type.__isset.precision);
             DCHECK(scalar_type.__isset.scale);
             precision = scalar_type.precision;
@@ -63,10 +64,15 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     case TTypeNodeType::ARRAY: {
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 1);
-        DCHECK_EQ(node.contains_nulls.size(), 1);
         type = TYPE_ARRAY;
         contains_nulls.reserve(1);
-        contains_nulls.push_back(node.contains_nulls[0]);
+        // here should compatible with fe 1.2, because use contains_null in contains_nulls
+        if (node.__isset.contains_nulls) {
+            DCHECK_EQ(node.contains_nulls.size(), 1);
+            contains_nulls.push_back(node.contains_nulls[0]);
+        } else {
+            contains_nulls.push_back(node.contains_null);
+        }
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
         break;
@@ -85,13 +91,6 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
             field_names.push_back(node.struct_fields[i].name);
             contains_nulls.push_back(node.struct_fields[i].contains_null);
         }
-        break;
-    }
-    case TTypeNodeType::VARIANT: {
-        DCHECK(!node.__isset.scalar_type);
-        // variant column must be the last column
-        DCHECK_EQ(*idx, types.size() - 1);
-        type = TYPE_VARIANT;
         break;
     }
     case TTypeNodeType::MAP: {
@@ -153,7 +152,7 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
             // DCHECK_NE(len, -1);
             scalar_type.__set_len(len);
         } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
-                   type == TYPE_DECIMAL128I || type == TYPE_DATETIMEV2) {
+                   type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256 || type == TYPE_DATETIMEV2) {
             DCHECK_NE(precision, -1);
             DCHECK_NE(scale, -1);
             scalar_type.__set_precision(precision);
@@ -170,7 +169,7 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
     if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_STRING) {
         scalar_type->set_len(len);
     } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
-               type == TYPE_DECIMAL128I || type == TYPE_DATETIMEV2) {
+               type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256 || type == TYPE_DATETIMEV2) {
         DCHECK_NE(precision, -1);
         DCHECK_NE(scale, -1);
         scalar_type->set_precision(precision);
@@ -194,6 +193,9 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         }
     } else if (type == TYPE_MAP) {
         node->set_type(TTypeNodeType::MAP);
+        DCHECK_EQ(2, contains_nulls.size());
+        node->add_contains_nulls(contains_nulls[0]);
+        node->add_contains_nulls(contains_nulls[1]);
         for (const TypeDescriptor& child : children) {
             child.to_protobuf(ptype);
         }
@@ -217,7 +219,7 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
             DCHECK(scalar_type.has_len());
             len = scalar_type.len();
         } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
-                   type == TYPE_DECIMAL128I || type == TYPE_DATETIMEV2) {
+                   type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256 || type == TYPE_DATETIMEV2) {
             DCHECK(scalar_type.has_precision());
             DCHECK(scalar_type.has_scale());
             precision = scalar_type.precision();
@@ -247,6 +249,10 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         children.push_back(TypeDescriptor(types, idx));
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
+        if (node.contains_nulls_size() > 1) {
+            contains_nulls.push_back(node.contains_nulls(0));
+            contains_nulls.push_back(node.contains_nulls(1));
+        }
         break;
     }
     case TTypeNodeType::STRUCT: {
@@ -301,6 +307,9 @@ std::string TypeDescriptor::debug_string() const {
         return ss.str();
     case TYPE_DECIMAL128I:
         ss << "DECIMAL128(" << precision << ", " << scale << ")";
+        return ss.str();
+    case TYPE_DECIMAL256:
+        ss << "DECIMAL256(" << precision << ", " << scale << ")";
         return ss.str();
     case TYPE_ARRAY: {
         ss << "ARRAY<" << children[0].debug_string() << ">";

@@ -106,28 +106,39 @@ CREATE DATABASE example_db;
 > 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入 'HELP CREATE'，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
 >
 > ```sql
-> mysql> HELP CREATE;
-> Many help items for your request exist.
-> To make a more specific request, please type 'help <item>',
-> where <item> is one of the following
-> topics:
->    CREATE CLUSTER
->    CREATE DATABASE
->    CREATE ENCRYPTKEY
->    CREATE FILE
->    CREATE FUNCTION
->    CREATE INDEX
->    CREATE MATERIALIZED VIEW
->    CREATE REPOSITORY
->    CREATE RESOURCE
->    CREATE ROLE
->    CREATE SYNC JOB
->    CREATE TABLE
->    CREATE USER
->    CREATE VIEW
->    ROUTINE LOAD
->    SHOW CREATE FUNCTION
->    SHOW CREATE ROUTINE LOAD
+>mysql> HELP CREATE;
+>Many help items for your request exist.
+>To make a more specific request, please type 'help <item>',
+>where <item> is one of the following
+>topics:
+>   CREATE CATALOG
+>   CREATE DATABASE
+>   CREATE ENCRYPTKEY
+>   CREATE EXTERNAL TABLE
+>   CREATE FILE
+>   CREATE FUNCTION
+>   CREATE INDEX
+>   CREATE MATERIALIZED VIEW
+>   CREATE POLICY
+>   CREATE REPOSITORY
+>   CREATE RESOURCE
+>   CREATE ROLE
+>   CREATE ROUTINE LOAD
+>   CREATE SQL BLOCK RULE
+>   CREATE SYNC JOB
+>   CREATE TABLE
+>   CREATE TABLE AS SELECT
+>   CREATE TABLE LIKE
+>   CREATE USER
+>   CREATE VIEW
+>   CREATE WORKLOAD GROUP
+>   SHOW CREATE CATALOG
+>   SHOW CREATE DATABASE
+>   SHOW CREATE FUNCTION
+>   SHOW CREATE LOAD
+>   SHOW CREATE REPOSITORY
+>   SHOW CREATE ROUTINE LOAD
+>   SHOW CREATE TABLE
 > ```
 
 数据库创建完成之后，可以通过 [SHOW DATABASES](../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES.md) 查看数据库信息。

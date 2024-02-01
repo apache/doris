@@ -18,7 +18,6 @@
 #pragma once
 
 #include "udf/udf.h"
-#include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
@@ -35,8 +34,6 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     bool use_default_implementation_for_nulls() const override { return true; }
 
     bool is_variadic() const override { return true; }
@@ -48,7 +45,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
         block.replace_by_position(result, Impl::execute(block, arguments, input_rows_count));
         return Status::OK();

@@ -25,7 +25,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -188,9 +187,8 @@ DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
             }
         }
 
-        if (!(is_native_number(arg_type) ||
-              (Impl::special_implementation_for_nulls() &&
-               (arg_type->only_null() || is_native_number(remove_nullable(arg_type)))))) {
+        if (!(is_native_number(arg_type) || (Impl::special_implementation_for_nulls() &&
+                                             is_native_number(remove_nullable(arg_type))))) {
             LOG(FATAL) << fmt::format("Illegal type ({}) of {} argument of function {}",
                                       arg_type->get_name(), i + 1, get_name());
         }
@@ -204,7 +202,7 @@ template <typename Impl, typename Name>
 Status FunctionAnyArityLogical<Impl, Name>::execute_impl(FunctionContext* context, Block& block,
                                                          const ColumnNumbers& arguments,
                                                          size_t result_index,
-                                                         size_t input_rows_count) {
+                                                         size_t input_rows_count) const {
     ColumnRawPtrs args_in;
     for (const auto arg_index : arguments)
         args_in.push_back(block.get_by_position(arg_index).column.get());
@@ -260,7 +258,7 @@ bool functionUnaryExecuteType(Block& block, const ColumnNumbers& arguments, size
 template <template <typename> class Impl, typename Name>
 Status FunctionUnaryLogical<Impl, Name>::execute_impl(FunctionContext* context, Block& block,
                                                       const ColumnNumbers& arguments, size_t result,
-                                                      size_t /*input_rows_count*/) {
+                                                      size_t /*input_rows_count*/) const {
     if (!functionUnaryExecuteType<Impl, UInt8>(block, arguments, result)) {
         LOG(FATAL) << fmt::format("Illegal column {} of argument of function {}",
                                   block.get_by_position(arguments[0]).column->get_name(),

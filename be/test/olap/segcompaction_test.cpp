@@ -47,7 +47,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* l_engine = nullptr;
+static std::unique_ptr<StorageEngine> l_engine;
 static const std::string lTestDir = "./data_test/data/segcompaction_test";
 
 class SegCompactionTest : public testing::Test {
@@ -66,9 +66,10 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
 
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
@@ -79,7 +80,6 @@ public:
         EXPECT_TRUE(s.ok()) << s.to_string();
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(l_engine);
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(lTestDir).ok());
 
@@ -87,11 +87,7 @@ public:
     }
 
     void TearDown() {
-        if (l_engine != nullptr) {
-            l_engine->stop();
-            delete l_engine;
-            l_engine = nullptr;
-        }
+        l_engine.reset();
         config::enable_segcompaction = false;
     }
 
@@ -187,19 +183,21 @@ protected:
         rowset_writer_context->version.second = 10;
 
 #if 0
+        RuntimeProfile profile("CreateTablet");
         TCreateTabletReq req;
         req.table_id =
         req.tablet_id =
         req.tablet_scheme =
         req.partition_id =
-        l_engine->create_tablet(req);
+        l_engine->create_tablet(req, &profile);
         rowset_writer_context->tablet = l_engine->tablet_manager()->get_tablet(TTabletId tablet_id);
 #endif
         std::shared_ptr<DataDir> data_dir = std::make_shared<DataDir>(lTestDir);
         TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
         tablet_meta->_tablet_id = 1;
+        tablet_meta->set_partition_id(10000);
         tablet_meta->_schema = tablet_schema;
-        auto tablet = std::make_shared<Tablet>(tablet_meta, data_dir.get(), "test_str");
+        auto tablet = std::make_shared<Tablet>(*l_engine, tablet_meta, data_dir.get(), "test_str");
         char* tmp_str = (char*)malloc(20);
         strncpy(tmp_str, "test_tablet_name", 20);
 
@@ -231,9 +229,9 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
     RowsetSharedPtr rowset;
     const int num_segments = 15;
     const uint32_t rows_per_segment = 4096;
-    config::segcompaction_small_threshold = 6000; // set threshold above
-                                                  // rows_per_segment
-    config::segcompaction_threshold_segment_num = 10;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
+    config::segcompaction_batch_size = 10;
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
@@ -267,7 +265,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             sleep(1);
         }
 
-        rowset = rowset_writer->build();
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         ls.push_back("10047_0.dat");
         ls.push_back("10047_1.dat");
@@ -321,7 +319,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
                 }
                 output_block->clear();
             }
-            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
             EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
             size_t total_num_rows = 0;
@@ -340,8 +338,8 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
     create_tablet_schema(tablet_schema, DUP_KEYS);
 
     RowsetSharedPtr rowset;
-    config::segcompaction_small_threshold = 6000; // set threshold above
-                                                  // rows_per_segment
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
@@ -463,7 +461,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             sleep(1);
         }
 
-        rowset = rowset_writer->build();
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         // ooooOOoOooooooooO
         ls.push_back("10048_0.dat"); // oooo
@@ -484,8 +482,8 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
     create_tablet_schema(tablet_schema, DUP_KEYS);
 
     RowsetSharedPtr rowset;
-    config::segcompaction_small_threshold = 6000; // set threshold above
-    config::segcompaction_threshold_segment_num = 5;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+    config::segcompaction_batch_size = 5;
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
@@ -589,7 +587,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
             sleep(1);
         }
 
-        rowset = rowset_writer->build();
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         ls.push_back("10049_0.dat"); // O
         ls.push_back("10049_1.dat"); // o
@@ -607,9 +605,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
     create_tablet_schema(tablet_schema, UNIQUE_KEYS);
 
     RowsetSharedPtr rowset;
-    config::segcompaction_small_threshold = 6000; // set threshold above
-                                                  // rows_per_segment
-    config::segcompaction_threshold_segment_num = 3;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
+    config::segcompaction_batch_size = 3;
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
@@ -768,7 +766,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         EXPECT_EQ(Status::OK(), s);
         sleep(1);
 
-        rowset = rowset_writer->build();
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         ls.push_back("10051_0.dat");
         ls.push_back("10051_1.dat");
@@ -820,7 +818,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
                 }
                 output_block->clear();
             }
-            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
             // duplicated keys between segments are counted duplicately
             // so actual read by rowset reader is less or equal to it
             EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
@@ -841,9 +839,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
     create_tablet_schema(tablet_schema, AGG_KEYS);
 
     RowsetSharedPtr rowset;
-    config::segcompaction_small_threshold = 6000; // set threshold above
-                                                  // rows_per_segment
-    config::segcompaction_threshold_segment_num = 3;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
+    config::segcompaction_batch_size = 3;
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
@@ -1002,7 +1000,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         EXPECT_EQ(Status::OK(), s);
         sleep(1);
 
-        rowset = rowset_writer->build();
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         std::vector<std::string> ls;
         ls.push_back("10052_0.dat");
         ls.push_back("10052_1.dat");
@@ -1055,7 +1053,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
                 }
                 output_block->clear();
             }
-            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
             // duplicated keys between segments are counted duplicately
             // so actual read by rowset reader is less or equal to it
             EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);

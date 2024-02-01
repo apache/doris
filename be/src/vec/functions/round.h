@@ -22,11 +22,13 @@
 
 #include "vec/columns/column_const.h"
 #include "vec/columns/columns_number.h"
+#include "vec/functions/function.h"
 #if defined(__SSE4_1__) || defined(__aarch64__)
 #include "util/sse_util.hpp"
 #else
 #include <fenv.h>
 #endif
+#include <algorithm>
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
@@ -110,7 +112,7 @@ struct IntegerRoundingComputation {
             return target_scale > 1 ? x * target_scale : x;
         }
         }
-
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
@@ -122,7 +124,7 @@ struct IntegerRoundingComputation {
         case ScaleMode::Negative:
             return compute_impl(x, scale, target_scale);
         }
-
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
@@ -158,9 +160,8 @@ public:
             NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
             if (out_scale < 0) {
-                size_t target_scale = int_exp10(-out_scale);
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, target_scale);
+                    Op::compute(p_in, scale, p_out, int_exp10(-out_scale));
                     ++p_in;
                     ++p_out;
                 }
@@ -238,6 +239,7 @@ inline float roundWithMode(float x, RoundingMode mode) {
         return truncf(x);
     }
 
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -253,6 +255,7 @@ inline double roundWithMode(double x, RoundingMode mode) {
         return trunc(x);
     }
 
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -416,6 +419,7 @@ public:
         case 10000000000000000000ULL:
             return applyImpl<10000000000000000000ULL>(in, out);
         default:
+            LOG(FATAL) << "__builtin_unreachable";
             __builtin_unreachable();
         }
     }
@@ -460,7 +464,10 @@ struct Dispatcher {
             const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(col_general);
             const auto& vec_src = decimal_col->get_data();
 
-            auto col_res = ColumnDecimal<T>::create(vec_src.size(), scale_arg);
+            UInt32 result_scale =
+                    std::min(static_cast<UInt32>(std::max(scale_arg, static_cast<Int16>(0))),
+                             decimal_col->get_scale());
+            auto col_res = ColumnDecimal<T>::create(vec_src.size(), result_scale);
             auto& vec_res = col_res->get_data();
 
             if (!vec_res.empty()) {
@@ -470,6 +477,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
+            LOG(FATAL) << "__builtin_unreachable";
             __builtin_unreachable();
             return nullptr;
         }
@@ -518,11 +526,10 @@ public:
         return Status::OK();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) override {
+                        size_t result, size_t /*input_rows_count*/) const override {
         const ColumnWithTypeAndName& column = block.get_by_position(arguments[0]);
         Int16 scale_arg = 0;
         if (arguments.size() == 2) {

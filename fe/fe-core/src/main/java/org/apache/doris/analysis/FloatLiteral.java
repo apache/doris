@@ -33,8 +33,9 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.text.NumberFormat;
 
-public class FloatLiteral extends LiteralExpr {
+public class FloatLiteral extends NumericLiteralExpr {
     private double value;
 
     public FloatLiteral() {
@@ -134,12 +135,31 @@ public class FloatLiteral extends LiteralExpr {
         if (type.equals(Type.TIME) || type.equals(Type.TIMEV2)) {
             return timeStrFromFloat(value);
         }
-        return Double.toString(value);
+        NumberFormat nf = NumberFormat.getInstance();
+        nf.setGroupingUsed(false);
+        return nf.format(value);
+    }
+
+    @Override
+    public String getStringValueInFe() {
+        if (type == Type.TIME || type == Type.TIMEV2) {
+            // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
+            // for example '11:22:33' -> 11:22:33
+            String timeStr = getStringValue();
+            return timeStr.substring(1, timeStr.length() - 1);
+        } else {
+            return BigDecimal.valueOf(getValue()).toPlainString();
+        }
     }
 
     @Override
     public String getStringValueForArray() {
-        return "\"" + getStringValue() + "\"";
+        String ret = getStringValue();
+        if (type == Type.TIME || type == Type.TIMEV2) {
+            // here already wrapped in ''
+            ret = ret.substring(1, ret.length() - 1);
+        }
+        return "\"" + ret + "\"";
     }
 
     public static Type getDefaultTimeType(Type type) throws AnalysisException {

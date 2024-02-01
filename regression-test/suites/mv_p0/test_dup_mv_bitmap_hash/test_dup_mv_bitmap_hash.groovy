@@ -24,7 +24,10 @@ suite ("test_dup_mv_bitmap_hash") {
             create table d_table(
                 k1 int null,
                 k2 int null,
-                k3 varchar(100) null
+                k3 varchar(100) null,
+                INDEX auto_idx_k1 (`k1`) USING INVERTED COMMENT 'auto added inverted index for k1',
+                INDEX auto_idx_k2 (`k2`) USING INVERTED COMMENT 'auto added inverted index for k2',
+                INDEX auto_idx_k3 (`k3`) USING INVERTED COMMENT 'auto added inverted index for k3'
             )
             duplicate key (k1)
             distributed BY hash(k1) buckets 3
@@ -43,17 +46,7 @@ suite ("test_dup_mv_bitmap_hash") {
     }
     qt_select_mv "select bitmap_union_count(to_bitmap(k2)) from d_table group by k1 order by k1;"
 
-    result = "null"
-    sql "create materialized view k1g3bm as select k1,bitmap_union(bitmap_hash(k3)) from d_table group by k1;"
-    while (!result.contains("FINISHED")){
-        result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='d_table' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("CANCELLED")){
-            return 
-        }
-        Thread.sleep(1000)
-    }
+    createMV "create materialized view k1g3bm as select k1,bitmap_union(bitmap_hash(k3)) from d_table group by k1;"
 
     sql "insert into d_table select 2,2,'bb';"
     sql "insert into d_table select 3,3,'c';"

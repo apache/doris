@@ -17,22 +17,26 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.InternalCatalog;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class StatisticConstants {
+
     public static final String STATISTIC_TBL_NAME = "column_statistics";
-
     public static final String HISTOGRAM_TBL_NAME = "histogram_statistics";
-
-    public static final String ANALYSIS_JOB_TABLE = "analysis_jobs";
 
     public static final int MAX_NAME_LEN = 64;
 
     public static final int ID_LEN = 4096;
-
-    public static final int STATISTIC_PARALLEL_EXEC_INSTANCE_NUM = 1;
-
-    public static final int STATISTICS_CACHE_VALID_DURATION_IN_HOURS = 24 * 2;
 
     public static final int STATISTICS_CACHE_REFRESH_INTERVAL = 24 * 2;
 
@@ -41,22 +45,10 @@ public class StatisticConstants {
      */
     public static final int STATISTIC_TABLE_BUCKET_COUNT = 7;
 
-    public static final long STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES = 2L * 1024 * 1024 * 1024;
-
     /**
      * Determine the execution interval for 'Statistics Table Cleaner' thread.
      */
     public static final int STATISTIC_CLEAN_INTERVAL_IN_HOURS = 24 * 2;
-
-    /**
-     * The max cached item in `StatisticsCache`.
-     */
-    public static final long STATISTICS_RECORDS_CACHE_SIZE = 100000;
-
-    /**
-     * If analysis job execution time exceeds this time, it would be cancelled.
-     */
-    public static final long STATISTICS_TASKS_TIMEOUT_IN_MS = TimeUnit.MINUTES.toMillis(10);
 
     public static final long PRELOAD_RETRY_TIMES = 5;
 
@@ -69,4 +61,67 @@ public class StatisticConstants {
 
     public static final int HISTOGRAM_MAX_BUCKET_NUM = 128;
 
+    public static final int ANALYZE_MANAGER_INTERVAL_IN_SECS = 60;
+
+    public static List<String> SYSTEM_DBS = new ArrayList<>();
+
+    public static int ANALYZE_TASK_RETRY_TIMES = 5;
+
+    public static final String DB_NAME = FeConstants.INTERNAL_DB_NAME;
+
+    public static final String FULL_QUALIFIED_STATS_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
+            + "." + FeConstants.INTERNAL_DB_NAME + "." + STATISTIC_TBL_NAME;
+
+    public static final int STATISTIC_INTERNAL_TABLE_REPLICA_NUM = 3;
+
+    public static final int RETRY_LOAD_QUEUE_SIZE = 1000;
+
+    public static final int RETRY_LOAD_THREAD_POOL_SIZE = 1;
+
+    public static final int LOAD_RETRY_TIMES = 3;
+
+    public static final String FULL_AUTO_ANALYZE_START_TIME = "00:00:00";
+    public static final String FULL_AUTO_ANALYZE_END_TIME = "23:59:59";
+
+    public static final int INSERT_MERGE_ITEM_COUNT = 200;
+
+    public static final long HUGE_TABLE_DEFAULT_SAMPLE_ROWS = 4194304;
+    public static final long HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = 0;
+
+    public static final long HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(0);
+
+    public static final long EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(24);
+
+    public static final int TABLE_STATS_HEALTH_THRESHOLD = 60;
+
+    public static final int ANALYZE_TIMEOUT_IN_SEC = 43200;
+
+    public static final int TASK_QUEUE_CAP = 10;
+
+    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 100;
+
+    public static final int MSG_LEN_UPPER_BOUND = 1024;
+
+    static {
+        SYSTEM_DBS.add(FeConstants.INTERNAL_DB_NAME);
+        SYSTEM_DBS.add(InfoSchemaDb.DATABASE_NAME);
+        SYSTEM_DBS.add(MysqlDb.DATABASE_NAME);
+    }
+
+    public static boolean isSystemTable(TableIf tableIf) {
+        if (tableIf instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) tableIf;
+            if (StatisticConstants.SYSTEM_DBS.contains(olapTable.getQualifiedDbName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean shouldIgnoreCol(TableIf tableIf, Column c) {
+        if (isSystemTable(tableIf)) {
+            return true;
+        }
+        return !c.isVisible();
+    }
 }

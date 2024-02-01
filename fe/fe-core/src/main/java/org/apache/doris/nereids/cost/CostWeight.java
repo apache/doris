@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.cost;
 
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 
@@ -34,10 +35,8 @@ import com.google.common.base.Preconditions;
  * An example is tpch q15.
  */
 public class CostWeight {
-    static final double CPU_WEIGHT = 1;
-    static final double MEMORY_WEIGHT = 1;
-    static final double NETWORK_WEIGHT = 1.5;
     static final double DELAY = 0.5;
+
     final double cpuWeight;
     final double memoryWeight;
     final double networkWeight;
@@ -68,8 +67,18 @@ public class CostWeight {
     }
 
     public static CostWeight get() {
-        return new CostWeight(CPU_WEIGHT, MEMORY_WEIGHT, NETWORK_WEIGHT,
-                ConnectContext.get().getSessionVariable().getNereidsCboPenaltyFactor());
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        double cpuWeight = sessionVariable.getCboCpuWeight();
+        double memWeight = sessionVariable.getCboMemWeight();
+        double netWeight = sessionVariable.getCboNetWeight();
+        return new CostWeight(cpuWeight, memWeight, netWeight, sessionVariable.getNereidsCboPenaltyFactor());
+    }
+
+    public static CostWeight get(SessionVariable sessionVariable) {
+        double cpuWeight = sessionVariable.getCboCpuWeight();
+        double memWeight = sessionVariable.getCboMemWeight();
+        double netWeight = sessionVariable.getCboNetWeight();
+        return new CostWeight(cpuWeight, memWeight, netWeight, sessionVariable.getNereidsCboPenaltyFactor());
     }
 
     //TODO: add it in session variable

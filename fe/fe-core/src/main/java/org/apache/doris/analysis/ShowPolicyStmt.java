@@ -29,11 +29,12 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * Show policy statement
  * syntax:
- * SHOW ROW POLICY [FOR user]
+ * SHOW ROW POLICY [FOR user｜ROLE role]
  **/
 public class ShowPolicyStmt extends ShowStmt {
 
@@ -43,16 +44,20 @@ public class ShowPolicyStmt extends ShowStmt {
     @Getter
     private final UserIdentity user;
 
-    public ShowPolicyStmt(PolicyTypeEnum type, UserIdentity user) {
+    @Getter
+    private final String roleName;
+
+    public ShowPolicyStmt(PolicyTypeEnum type, UserIdentity user, String roleName) {
         this.type = type;
         this.user = user;
+        this.roleName = roleName;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (user != null) {
-            user.analyze(analyzer.getClusterName());
+            user.analyze();
         }
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
@@ -71,6 +76,9 @@ public class ShowPolicyStmt extends ShowStmt {
             default:
                 if (user != null) {
                     sb.append(" FOR ").append(user);
+                }
+                if (!StringUtils.isEmpty(roleName)) {
+                    sb.append(" FOR ROLE ").append(roleName);
                 }
         }
         return sb.toString();

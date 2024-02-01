@@ -132,17 +132,36 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 
 ```
 
-3. 导入Json格式数据使用示例
+[3. 导入Json格式数据使用示例](#导入Json格式数据使用示例)
 
    Routine Load导入的json格式仅支持以下两种
 
    第一种只有一条记录，且为json对象：
-
+   当使用**单表导入**（即通过 ON TABLE_NAME 指定 表名）时，json 数据格式如下
    ```json
    {"category":"a9jadhx","author":"test","price":895}
    ```
 
-   第二种为json数组，数组中可含多条记录
+当使用**动态/多表导入** Routine Load （即不指定具体的表名）时，json 数据格式如下
+
+  ```
+  table_name|{"category":"a9jadhx","author":"test","price":895}
+  ```
+假设我们需要导入数据到 user_address 以及 user_info 两张表，那么消息格式如下
+
+eg: user_address 表的 json 数据
+    
+```
+    user_address|{"user_id":128787321878,"address":"朝阳区朝阳大厦XXX号","timestamp":1589191587}
+```
+eg: user_info 表的 json 数据
+```
+    user_info|{"user_id":128787321878,"name":"张三","age":18,"timestamp":1589191587}
+```
+
+第二种为json数组，数组中可含多条记录
+
+当使用**单表导入**（即通过 ON TABLE_NAME 指定 表名）时，json 数据格式如下
 
    ```json
    [
@@ -166,9 +185,73 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
        }
    ]
    ```
-   
+当使用**动态/多表导入**（即不指定具体的表名）时，json 数据格式如下
+```
+   table_name|[
+       {
+           "user_id":128787321878,
+           "address":"朝阳区朝阳大厦XXX号",
+           "timestamp":1589191587
+       },
+       {
+           "user_id":128787321878,
+           "address":"朝阳区朝阳大厦XXX号",
+           "timestamp":1589191587
+       },
+       {
+           "user_id":128787321878,
+           "address":"朝阳区朝阳大厦XXX号",
+           "timestamp":1589191587
+       }
+   ]
+```
+同样我们以 `user_address` 以及 `user_info` 两张表为例，那么消息格式如下
+    
+eg: user_address 表的 json 数据
+```
+     user_address|[
+       {   
+           "category":"11",
+           "author":"4avc",
+           "price":895,
+           "timestamp":1589191587
+       },
+       {
+           "category":"22",
+           "author":"2avc",
+           "price":895,
+           "timestamp":1589191487
+       },
+       {
+           "category":"33",
+           "author":"3avc",
+           "price":342,
+           "timestamp":1589191387
+       }
+     ]
+```
+eg: user_info 表的 json 数据
+```
+        user_info|[
+         {
+             "user_id":128787321878,
+             "address":"朝阳区朝阳大厦XXX号",
+             "timestamp":1589191587
+         },
+         {
+             "user_id":128787321878,
+             "address":"朝阳区朝阳大厦XXX号",
+             "timestamp":1589191587
+         },
+         {
+             "user_id":128787321878,
+             "address":"朝阳区朝阳大厦XXX号",
+             "timestamp":1589191587
+         }
+```
+
    创建待导入的Doris数据表
-   
+
    ```sql
    CREATE TABLE `example_tbl` (
       `category` varchar(24) NULL COMMENT "",
@@ -191,9 +274,9 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
        "replication_num" = "1"
    );
    ```
-   
+
    以简单模式导入json数据
-   
+
    ```sql
    CREATE ROUTINE LOAD example_db.test_json_label_1 ON table1
    COLUMNS(category,price,author)
@@ -214,9 +297,9 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
    	"kafka_offsets" = "0,0,0"
     );
    ```
-   
+
    精准导入json格式数据
-   
+
    ```sql
    CREATE ROUTINE LOAD example_db.test1 ON example_tbl
    COLUMNS(category, author, price, timestamp, dt=from_unixtime(timestamp, '%Y%m%d'))
@@ -305,6 +388,62 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 > Doris 通过 Kafka 的 C++ API `librdkafka` 来访问 Kafka 集群。`librdkafka` 所支持的参数可以参阅
 >
 > [https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
+
+**访问阿里云消息队列Kafka集群(接入点类型为SSL)**
+
+```sql
+#上传证书文件地址，地址：https://github.com/AliwareMQ/aliware-kafka-demos/blob/master/kafka-cpp-demo/vpc-ssl/only-4096-ca-cert
+CREATE FILE "ca.pem" PROPERTIES("url" = "http://xxx/only-4096-ca-cert", "catalog" = "kafka");
+
+# 创建任务
+CREATE ROUTINE LOAD test.test_job on test_tbl
+PROPERTIES
+(
+    "desired_concurrent_number"="1",
+    "format" = "json"
+)
+FROM KAFKA
+(
+    "kafka_broker_list"= "xxx.alikafka.aliyuncs.com:9093",
+    "kafka_topic" = "test",
+    "property.group.id" = "test_group",
+    "property.client.id" = "test_group",
+    "property.security.protocol"="ssl",
+    "property.ssl.ca.location"="FILE:ca.pem",
+    "property.security.protocol"="sasl_ssl",
+    "property.sasl.mechanism"="PLAIN",
+    "property.sasl.username"="xxx",
+    "property.sasl.password"="xxx"
+);
+```
+
+**访问 PLAIN 认证的 Kafka 集群**
+
+访问开启 PLAIN 认证的Kafka集群，需要增加以下配置：
+
+   - property.security.protocol=SASL_PLAINTEXT : 使用 SASL plaintext
+   - property.sasl.mechanism=PLAIN : 设置 SASL 的认证方式为 PLAIN
+   - property.sasl.username=admin : 设置 SASL 的用户名
+   - property.sasl.password=admin : 设置 SASL 的密码
+
+1. 创建例行导入作业
+
+    ```sql
+    CREATE ROUTINE LOAD db1.job1 on tbl1
+    PROPERTIES (
+    "desired_concurrent_number"="1",
+     )
+    FROM KAFKA
+    (
+        "kafka_broker_list" = "broker1:9092,broker2:9092",
+        "kafka_topic" = "my_topic",
+        "property.security.protocol"="SASL_PLAINTEXT",
+        "property.sasl.mechanism"="PLAIN",
+        "property.sasl.username"="admin",
+        "property.sasl.password"="admin"
+    );
+    
+    ```
 
 **访问 Kerberos 认证的 Kafka 集群**
 

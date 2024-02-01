@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Star-Schema-Benchmark",
+    "title": "Star Schema Benchmark",
     "language": "en"
 }
 ---
@@ -33,6 +33,8 @@ This document mainly introduces the performance of Doris on the SSB 100G test se
 > Note 1: The standard test set including SSB usually has a large gap with the actual business scenario, and some tests will perform parameter tuning for the test set. Therefore, the test results of the standard test set can only reflect the performance of the database in a specific scenario. It is recommended that users use actual business data for further testing.
 >
 > Note 2: The operations involved in this document are all performed in the Ubuntu Server 20.04 environment, and CentOS 7 as well.
+>
+> Note 3: Doris starting from version 1.2.2, the page cache is turned off by default to reduce memory usage, which has a certain impact on performance. For performance testing, enable the page cache by adding disable_storage_page_cache=false to be.conf.
 
 With 13 queries on the SSB standard test data set, we conducted a comparison test based on Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 versions.
 
@@ -65,7 +67,7 @@ On the SQL test with standard SSB, the overall performance of Apache Doris 1.2.0
 | customer       | 3,000,000      | Customer Information        |
 | part           | 1,400,000      | Parts Information          |
 | supplier       | 200,000        | Supplier Information        |
-| date           | 2,556          | Date                        |
+| dates          | 2,556          | Date                        |
 | lineorder_flat | 600,037,902    | Wide Table after Data Flattening |
 
 ## 4. Test Results
@@ -167,7 +169,7 @@ With the `-s 100` parameter, the resulting dataset size is:
 | customer  | 3,000,000 | 277M | 1           |
 | part      | 1,400,000 | 116M | 1           |
 | supplier  | 200,000   | 17M  | 1           |
-| date      | 2,556             | 228K | 1           |
+| dates     | 2,556     | 228K | 1           |
 
 ### 7.3 Create Table
 
@@ -270,7 +272,7 @@ We use the following command to complete all data import of SSB test set and SSB
 
 > Notes.
 >
-> 1. To get faster import speed, you can add `flush_thread_num_per_store=5` in be.conf and then restart BE. This configuration indicates the number of disk writing threads for each data directory, 2 by default. Larger data can improve write data throughput, but may increase IO Util. (Reference value: 1 mechanical disk, with 2 by default, the IO Util during the import process is about 12%. When it is set to 5, the IO Util is about 26%. If it is an SSD disk, it is almost 0%) .
+> 1. To get faster import speed, you can add `flush_thread_num_per_store=10` in be.conf and then restart BE. This configuration indicates the number of disk writing threads for each data directory, 6 by default. Larger data can improve write data throughput, but may increase IO Util. (Reference value: 1 mechanical disk, with 2 by default, the IO Util during the import process is about 12%. When it is set to 5, the IO Util is about 26%. If it is an SSD disk, it is almost 0%) .
 >
 > 2. The flat table data is imported by 'INSERT INTO ... SELECT ... '.
 
@@ -281,7 +283,7 @@ We use the following command to complete all data import of SSB test set and SSB
 select count(*) from part;
 select count(*) from customer;
 select count(*) from supplier;
-select count(*) from date;
+select count(*) from dates;
 select count(*) from lineorder;
 select count(*) from lineorder_flat;
 ```
@@ -295,7 +297,7 @@ The amount of data should be consistent with the number of rows of generated dat
 | customer       | 3,000,000 | 277 MB      | 138.247 MB                |
 | part           | 1,400,000 | 116 MB      | 12.759 MB                 |
 | supplier       | 200,000   | 17 MB       | 9.143 MB                  |
-| date           | 2,556             | 228 KB      | 34.276 KB                 |
+| dates          | 2,556     | 228 KB      | 34.276 KB                 |
 
 ### 7.6 Query Test
 

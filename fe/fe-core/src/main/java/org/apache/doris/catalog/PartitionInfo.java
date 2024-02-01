@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
@@ -33,12 +34,14 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -53,6 +56,7 @@ import java.util.stream.Collectors;
 public class PartitionInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionInfo.class);
 
+    @SerializedName("Type")
     protected PartitionType type;
     // partition columns for list and range partitions
     protected List<Column> partitionColumns = Lists.newArrayList();
@@ -61,20 +65,27 @@ public class PartitionInfo implements Writable {
     // temp partition id -> partition item
     protected Map<Long, PartitionItem> idToTempItem = Maps.newHashMap();
     // partition id -> data property
+    @SerializedName("IdToDataProperty")
     protected Map<Long, DataProperty> idToDataProperty;
     // partition id -> storage policy
     protected Map<Long, String> idToStoragePolicy;
     // partition id -> replication allocation
+    @SerializedName("IdToReplicaAllocation")
     protected Map<Long, ReplicaAllocation> idToReplicaAllocation;
     // true if the partition has multi partition columns
     protected boolean isMultiColumnPartition = false;
 
+    @SerializedName("IdToInMemory")
     protected Map<Long, Boolean> idToInMemory;
 
     // partition id -> tablet type
     // Note: currently it's only used for testing, it may change/add more meta field later,
     // so we defer adding meta serialization until memory engine feature is more complete.
     protected Map<Long, TTabletType> idToTabletType;
+
+    // the enable automatic partition will hold this, could create partition by expr result
+    protected ArrayList<Expr> partitionExprs;
+    protected boolean isAutoCreatePartitions;
 
     public PartitionInfo() {
         this.type = PartitionType.UNPARTITIONED;
@@ -83,6 +94,7 @@ public class PartitionInfo implements Writable {
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
         this.idToStoragePolicy = new HashMap<>();
+        this.partitionExprs = new ArrayList<>();
     }
 
     public PartitionInfo(PartitionType type) {
@@ -92,6 +104,7 @@ public class PartitionInfo implements Writable {
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
         this.idToStoragePolicy = new HashMap<>();
+        this.partitionExprs = new ArrayList<>();
     }
 
     public PartitionInfo(PartitionType type, List<Column> partitionColumns) {
@@ -116,10 +129,31 @@ public class PartitionInfo implements Writable {
         }
     }
 
+    /**
+     * @return both normal partition and temp partition
+     */
+    public Map<Long, PartitionItem> getAllPartitions() {
+        HashMap all = new HashMap<>();
+        all.putAll(idToTempItem);
+        all.putAll(idToItem);
+        return all;
+    }
+
     public PartitionItem getItem(long partitionId) {
         PartitionItem item = idToItem.get(partitionId);
         if (item == null) {
             item = idToTempItem.get(partitionId);
+        }
+        return item;
+    }
+
+    public PartitionItem getItemOrAnalysisException(long partitionId) throws AnalysisException {
+        PartitionItem item = idToItem.get(partitionId);
+        if (item == null) {
+            item = idToTempItem.get(partitionId);
+        }
+        if (item == null) {
+            throw new AnalysisException("PartitionItem not found: " + partitionId);
         }
         return item;
     }
@@ -210,6 +244,14 @@ public class PartitionInfo implements Writable {
         return null;
     }
 
+    public boolean enableAutomaticPartition() {
+        return isAutoCreatePartitions;
+    }
+
+    public ArrayList<Expr> getPartitionExprs() {
+        return this.partitionExprs;
+    }
+
     public void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
     }
 
@@ -225,12 +267,23 @@ public class PartitionInfo implements Writable {
         idToDataProperty.put(partitionId, newDataProperty);
     }
 
+    public void refreshTableStoragePolicy(String storagePolicy) {
+        idToStoragePolicy.replaceAll((k, v) -> storagePolicy);
+        idToDataProperty.entrySet().forEach(entry -> {
+            entry.getValue().setStoragePolicy(storagePolicy);
+        });
+    }
+
     public String getStoragePolicy(long partitionId) {
         return idToStoragePolicy.getOrDefault(partitionId, "");
     }
 
     public void setStoragePolicy(long partitionId, String storagePolicy) {
         idToStoragePolicy.put(partitionId, storagePolicy);
+    }
+
+    public Map<Long, ReplicaAllocation> getPartitionReplicaAllocations() {
+        return idToReplicaAllocation;
     }
 
     public ReplicaAllocation getReplicaAllocation(long partitionId) {
@@ -313,12 +366,12 @@ public class PartitionInfo implements Writable {
         throw new RuntimeException("Should implement it in derived classes.");
     }
 
-    static List<PartitionValue> toPartitionValue(PartitionKey partitionKey) {
+    public static List<PartitionValue> toPartitionValue(PartitionKey partitionKey) {
         return partitionKey.getKeys().stream().map(expr -> {
             if (expr == MaxLiteral.MAX_VALUE) {
                 return PartitionValue.MAX_VALUE;
             } else if (expr instanceof DateLiteral) {
-                return new PartitionValue(expr.toSql());
+                return new PartitionValue(expr.getStringValue());
             } else {
                 return new PartitionValue(expr.getRealValue().toString());
             }
@@ -352,7 +405,7 @@ public class PartitionInfo implements Writable {
         out.writeInt(idToDataProperty.size());
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
             out.writeLong(entry.getKey());
-            if (entry.getValue().equals(new DataProperty(TStorageMedium.HDD))) {
+            if (entry.getValue().equals(DataProperty.DEFAULT_HDD_DATA_PROPERTY)) {
                 out.writeBoolean(true);
             } else {
                 out.writeBoolean(false);
@@ -362,6 +415,13 @@ public class PartitionInfo implements Writable {
             idToReplicaAllocation.get(entry.getKey()).write(out);
             out.writeBoolean(idToInMemory.get(entry.getKey()));
         }
+        int size = partitionExprs.size();
+        out.writeInt(size);
+        for (int i = 0; i < size; ++i) {
+            Expr e = this.partitionExprs.get(i);
+            Expr.writeTo(e, out);
+        }
+        out.writeBoolean(isAutoCreatePartitions);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -372,7 +432,7 @@ public class PartitionInfo implements Writable {
             long partitionId = in.readLong();
             boolean isDefaultHddDataProperty = in.readBoolean();
             if (isDefaultHddDataProperty) {
-                idToDataProperty.put(partitionId, new DataProperty(TStorageMedium.HDD));
+                idToDataProperty.put(partitionId, new DataProperty(DataProperty.DEFAULT_HDD_DATA_PROPERTY));
             } else {
                 idToDataProperty.put(partitionId, DataProperty.read(in));
             }
@@ -387,6 +447,14 @@ public class PartitionInfo implements Writable {
             }
 
             idToInMemory.put(partitionId, in.readBoolean());
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_125) {
+            int size = in.readInt();
+            for (int i = 0; i < size; ++i) {
+                Expr e = Expr.readIn(in);
+                this.partitionExprs.add(e);
+            }
+            this.isAutoCreatePartitions = in.readBoolean();
         }
     }
 
@@ -426,12 +494,13 @@ public class PartitionInfo implements Writable {
                 && Objects.equals(idToTempItem, that.idToTempItem) && Objects.equals(idToDataProperty,
                 that.idToDataProperty) && Objects.equals(idToStoragePolicy, that.idToStoragePolicy)
                 && Objects.equals(idToReplicaAllocation, that.idToReplicaAllocation) && Objects.equals(
-                idToInMemory, that.idToInMemory) && Objects.equals(idToTabletType, that.idToTabletType);
+                idToInMemory, that.idToInMemory) && Objects.equals(idToTabletType, that.idToTabletType)
+                && Objects.equals(partitionExprs, that.partitionExprs);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(type, partitionColumns, idToItem, idToTempItem, idToDataProperty, idToStoragePolicy,
-                idToReplicaAllocation, isMultiColumnPartition, idToInMemory, idToTabletType);
+                idToReplicaAllocation, isMultiColumnPartition, idToInMemory, idToTabletType, partitionExprs);
     }
 }

@@ -18,11 +18,15 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.MaxComputeExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -32,12 +36,15 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.MaxComputeExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,12 +58,13 @@ public class ShowPartitionsStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsStmt.class);
 
     private static final String FILTER_PARTITION_ID = "PartitionId";
-    private static final String FILTER_PARTITION_NAME = "PartitionName";
+    public static final String FILTER_PARTITION_NAME = "PartitionName";
     private static final String FILTER_STATE = "State";
     private static final String FILTER_BUCKETS = "Buckets";
     private static final String FILTER_REPLICATION_NUM = "ReplicationNum";
     private static final String FILTER_LAST_CONSISTENCY_CHECK_TIME = "LastConsistencyCheckTime";
 
+    private CatalogIf catalog;
     private TableName tableName;
     private Expr whereClause;
     private List<OrderByElement> orderByElements;
@@ -78,6 +86,14 @@ public class ShowPartitionsStmt extends ShowStmt {
             this.filterMap = new HashMap<>();
         }
         this.isTempPartition = isTempPartition;
+    }
+
+    public CatalogIf getCatalog() {
+        return catalog;
+    }
+
+    public TableName getTableName() {
+        return tableName;
     }
 
     public List<OrderByPair> getOrderByPairs() {
@@ -102,15 +118,35 @@ public class ShowPartitionsStmt extends ShowStmt {
         // check access
         String dbName = tableName.getDb();
         String tblName = tableName.getTbl();
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName, tblName,
-                                                                PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), catalog.getName(), dbName,
+                tblName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW PARTITIONS",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
                                                 dbName + ": " + tblName);
         }
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-        Table table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
+
+        DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
+        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP,
+                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
+
+        if (table instanceof HMSExternalTable) {
+            if (((HMSExternalTable) table).isView()) {
+                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
+            }
+            if (CollectionUtils.isEmpty(((HMSExternalTable) table).getPartitionColumns())) {
+                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
+            }
+            return;
+        }
+
+        if (table instanceof MaxComputeExternalTable) {
+            if (((MaxComputeExternalTable) table).getOdpsTable().getPartitions().isEmpty()) {
+                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
+            }
+            return;
+        }
+
         table.readLock();
         try {
             // build proc path
@@ -137,8 +173,17 @@ public class ShowPartitionsStmt extends ShowStmt {
     public void analyzeImpl(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+        catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
+        if (catalog == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FOR_CATALOG);
+        }
+
+        // disallow unsupported catalog
+        if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
+                || catalog instanceof MaxComputeExternalCatalog)) {
+            throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
+                catalog.getType()));
+        }
 
         // analyze where clause if not null
         if (whereClause != null) {
@@ -153,6 +198,11 @@ public class ShowPartitionsStmt extends ShowStmt {
                     throw new AnalysisException("Should order by column");
                 }
                 SlotRef slotRef = (SlotRef) orderByElement.getExpr();
+                if (catalog instanceof HMSExternalCatalog
+                        && !slotRef.getColumnName().equalsIgnoreCase(FILTER_PARTITION_NAME)) {
+                    throw new AnalysisException("External table only support Order By on PartitionName");
+                }
+
                 int index = PartitionsProcDir.analyzeColumn(slotRef.getColumnName());
                 OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
                 orderByPairs.add(orderByPair);
@@ -183,6 +233,10 @@ public class ShowPartitionsStmt extends ShowStmt {
         }
 
         String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName();
+        if (catalog instanceof HMSExternalCatalog && !leftKey.equalsIgnoreCase(FILTER_PARTITION_NAME)) {
+            throw new AnalysisException(String.format("Only %s column supported in where clause for this catalog",
+                FILTER_PARTITION_NAME));
+        }
         if (subExpr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
             if (leftKey.equalsIgnoreCase(FILTER_PARTITION_NAME) || leftKey.equalsIgnoreCase(FILTER_STATE)) {
@@ -222,15 +276,19 @@ public class ShowPartitionsStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
-        ProcResult result = null;
-        try {
-            result = node.fetchResult();
-        } catch (AnalysisException e) {
-            return builder.build();
-        }
+        if (catalog.isInternalCatalog()) {
+            ProcResult result = null;
+            try {
+                result = node.fetchResult();
+            } catch (AnalysisException e) {
+                return builder.build();
+            }
 
-        for (String col : result.getColumnNames()) {
-            builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
+            for (String col : result.getColumnNames()) {
+                builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
+            }
+        } else {
+            builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
         }
         return builder.build();
     }

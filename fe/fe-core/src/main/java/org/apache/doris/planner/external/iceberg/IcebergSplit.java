@@ -17,24 +17,29 @@
 
 package org.apache.doris.planner.external.iceberg;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.planner.external.FileSplit;
 
 import lombok.Data;
 import org.apache.hadoop.fs.Path;
 
 import java.util.List;
+import java.util.Map;
 
 @Data
 public class IcebergSplit extends FileSplit {
-    public IcebergSplit(Path file, long start, long length, long fileLength, String[] hosts) {
-        super(file, start, length, fileLength, hosts, null);
+
+    // File path will be changed if the file is modified, so there's no need to get modification time.
+    public IcebergSplit(Path file, long start, long length, long fileLength, String[] hosts,
+                        Integer formatVersion, Map<String, String> config,
+                        List<String> partitionList) {
+        super(file, start, length, fileLength, hosts, partitionList);
+        this.formatVersion = formatVersion;
+        this.config = config;
     }
 
-    private Analyzer analyzer;
-    private String dataFilePath;
     private Integer formatVersion;
     private List<IcebergDeleteFileFilter> deleteFileFilters;
+    private Map<String, String> config;
 }
 
 

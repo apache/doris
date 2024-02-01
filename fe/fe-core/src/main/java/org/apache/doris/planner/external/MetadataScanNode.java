@@ -21,7 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.MetadataTableValuedFunction;
@@ -32,28 +32,28 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public class MetadataScanNode extends ScanNode {
+public class MetadataScanNode extends ExternalScanNode {
 
-    private MetadataTableValuedFunction tvf;
+    private final MetadataTableValuedFunction tvf;
 
-    private List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
-
-    private final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
+    private final List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
 
     public MetadataScanNode(PlanNodeId id, TupleDescriptor desc, MetadataTableValuedFunction tvf) {
-        super(id, desc, "METADATA_SCAN_NODE", StatisticalType.METADATA_SCAN_NODE);
+        super(id, desc, "METADATA_SCAN_NODE", StatisticalType.METADATA_SCAN_NODE, false);
         this.tvf = tvf;
     }
 
+    // for Nereids
     @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        backendPolicy.init();
+    public void init() throws UserException {
+        super.init();
+        createScanRangeLocations();
     }
 
     @Override
@@ -62,7 +62,26 @@ public class MetadataScanNode extends ScanNode {
         TMetaScanNode metaScanNode = new TMetaScanNode();
         metaScanNode.setTupleId(desc.getId().asInt());
         metaScanNode.setMetadataType(this.tvf.getMetadataType());
+        TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
+        metaScanNode.setCurrentUserIdent(tCurrentUser);
         planNode.setMetaScanNode(metaScanNode);
+    }
+
+    @Override
+    protected void createScanRangeLocations() throws UserException {
+        TScanRange scanRange = new TScanRange();
+        scanRange.setMetaScanRange(tvf.getMetaScanRange());
+        // set location
+        TScanRangeLocation location = new TScanRangeLocation();
+        Backend backend = backendPolicy.getNextBe();
+        location.setBackendId(backend.getId());
+        location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+
+        TScanRangeLocations locations = new TScanRangeLocations();
+        locations.addToLocations(location);
+        locations.setScanRange(scanRange);
+
+        scanRangeLocations.add(locations);
     }
 
     @Override
@@ -72,32 +91,11 @@ public class MetadataScanNode extends ScanNode {
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
-        buildScanRanges();
+        createScanRangeLocations();
     }
 
     @Override
     public boolean needToCheckColumnPriv() {
         return false;
-    }
-
-    private void buildScanRanges() {
-        // todo: split
-        TScanRangeLocations locations = createMetaDataTvfLocations();
-        scanRangeLocations.add(locations);
-    }
-
-    private TScanRangeLocations createMetaDataTvfLocations() {
-        TScanRange scanRange = new TScanRange();
-        scanRange.setMetaScanRange(tvf.getMetaScanRange());
-        // set location
-        TScanRangeLocation location = new TScanRangeLocation();
-        Backend backend = backendPolicy.getNextBe();
-        location.setBackendId(backend.getId());
-        location.setServer(new TNetworkAddress(backend.getIp(), backend.getBePort()));
-
-        TScanRangeLocations result = new TScanRangeLocations();
-        result.addToLocations(location);
-        result.setScanRange(scanRange);
-        return result;
     }
 }

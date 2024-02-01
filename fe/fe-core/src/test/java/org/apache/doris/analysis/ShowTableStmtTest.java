@@ -47,7 +47,7 @@ public class ShowTableStmtTest {
         ShowTableStmt stmt = new ShowTableStmt("", null, false, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW TABLES FROM internal.testDb", stmt.toString());
-        Assert.assertEquals("testCluster:testDb", stmt.getDb());
+        Assert.assertEquals("testDb", stmt.getDb());
         Assert.assertFalse(stmt.isVerbose());
         Assert.assertEquals(1, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Tables_in_testDb", stmt.getMetaData().getColumn(0).getName());
@@ -68,10 +68,17 @@ public class ShowTableStmtTest {
         Assert.assertEquals("Table_type", stmt.getMetaData().getColumn(1).getName());
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testNoDb() throws AnalysisException {
+    @Test
+    public void testNoDb() {
         ShowTableStmt stmt = new ShowTableStmt("", null, false, null);
-        stmt.analyze(AccessTestUtil.fetchEmptyDbAnalyzer());
+        try {
+            stmt.analyze(AccessTestUtil.fetchEmptyDbAnalyzer());
+        } catch (AnalysisException e) {
+            return;
+        } catch (Exception e) {
+            e.printStackTrace();
+            Assert.fail(e.getMessage());
+        }
         Assert.fail("No exception throws");
     }
 }

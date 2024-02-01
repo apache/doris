@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUploadReq;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public class UploadTask extends AgentTask {
@@ -64,8 +65,12 @@ public class UploadTask extends AgentTask {
         return brokerProperties;
     }
 
+    public void updateBrokerProperties(Map<String, String> brokerProperties) {
+        this.brokerProperties = new HashMap<>(brokerProperties);
+    }
+
     public TUploadReq toThrift() {
-        TNetworkAddress address = new TNetworkAddress(broker.ip, broker.port);
+        TNetworkAddress address = new TNetworkAddress(broker.host, broker.port);
         TUploadReq request = new TUploadReq(jobId, srcToDestPath, address);
         request.setBrokerProp(brokerProperties);
         request.setStorageBackend(storageType.toThrift());

@@ -38,6 +38,12 @@
       "test8": {
         "type": "date"
       },
+      "test9": {
+        "type": "long"
+      },
+      "test10": {
+        "type": "date"
+      },
       "c_bool": {
         "type": "boolean"
       },
@@ -93,6 +99,15 @@
           },
           "age": {
             "type": "integer"
+          }
+        }
+      },
+      "message": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
           }
         }
       }

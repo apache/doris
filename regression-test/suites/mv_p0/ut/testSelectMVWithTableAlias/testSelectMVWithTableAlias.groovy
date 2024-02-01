@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testSelectMVWithTableAlias") {
+
     sql """ DROP TABLE IF EXISTS user_tags; """
 
     sql """ create table user_tags (

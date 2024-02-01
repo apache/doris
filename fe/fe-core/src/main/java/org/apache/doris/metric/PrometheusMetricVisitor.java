@@ -46,9 +46,9 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     private static final String JVM_NON_HEAP_SIZE_BYTES = "jvm_non_heap_size_bytes";
     private static final String JVM_YOUNG_SIZE_BYTES = "jvm_young_size_bytes";
     private static final String JVM_OLD_SIZE_BYTES = "jvm_old_size_bytes";
-    private static final String JVM_YOUNG_GC = "jvm_young_gc";
-    private static final String JVM_OLD_GC = "jvm_old_gc";
     private static final String JVM_THREAD = "jvm_thread";
+
+    private static final String JVM_GC = "jvm_gc";
 
     private static final String HELP = "# HELP ";
     private static final String TYPE = "# TYPE ";
@@ -60,11 +60,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void setMetricNumber(int metricNumber) {
-    }
-
-    @Override
-    public void visitJvm(StringBuilder sb, JvmStats jvmStats) {
+    public void visitJvm(JvmStats jvmStats) {
         // heap
         sb.append(Joiner.on(" ").join(HELP, JVM_HEAP_SIZE_BYTES, "jvm heap stat\n"));
         sb.append(Joiner.on(" ").join(TYPE, JVM_HEAP_SIZE_BYTES, "gauge\n"));
@@ -108,22 +104,15 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         }
 
         // gc
-        Iterator<GarbageCollector> gcIter = jvmStats.getGc().iterator();
-        while (gcIter.hasNext()) {
-            GarbageCollector gc = gcIter.next();
-            if (gc.getName().equalsIgnoreCase("young")) {
-                sb.append(Joiner.on(" ").join(HELP, JVM_YOUNG_GC, "jvm young gc stat\n"));
-                sb.append(Joiner.on(" ").join(TYPE, JVM_YOUNG_GC, "gauge\n"));
-                sb.append(JVM_YOUNG_GC).append("{type=\"count\"} ").append(gc.getCollectionCount()).append("\n");
-                sb.append(JVM_YOUNG_GC).append("{type=\"time\"} ")
-                        .append(gc.getCollectionTime().getMillis()).append("\n");
-            } else if (gc.getName().equalsIgnoreCase("old")) {
-                sb.append(Joiner.on(" ").join(HELP, JVM_OLD_GC, "jvm old gc stat\n"));
-                sb.append(Joiner.on(" ").join(TYPE, JVM_OLD_GC, "gauge\n"));
-                sb.append(JVM_OLD_GC).append("{type=\"count\"} ").append(gc.getCollectionCount()).append("\n");
-                sb.append(JVM_OLD_GC).append("{type=\"time\"} ")
-                        .append(gc.getCollectionTime().getMillis()).append("\n");
-            }
+        sb.append(Joiner.on(" ").join(HELP, JVM_GC, "jvm gc stat\n"));
+        sb.append(Joiner.on(" ").join(TYPE, JVM_GC, "gauge\n"));
+        for (GarbageCollector gc : jvmStats.getGc()) {
+            sb.append(JVM_GC).append("{");
+            sb.append("name=\"").append(gc.getName()).append(" Count").append("\", ").append("type=\"count\"} ")
+                    .append(gc.getCollectionCount()).append("\n");
+            sb.append(JVM_GC).append("{");
+            sb.append("name=\"").append(gc.getName()).append(" Time").append("\", ").append("type=\"time\"} ")
+                    .append(gc.getCollectionTime().getMillis()).append("\n");
         }
 
         // threads
@@ -150,7 +139,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visit(StringBuilder sb, String prefix, @SuppressWarnings("rawtypes") Metric metric) {
+    public void visit(String prefix, @SuppressWarnings("rawtypes") Metric metric) {
         // title
         final String fullName = prefix + metric.getName();
         if (!metricNames.contains(fullName)) {
@@ -173,11 +162,10 @@ public class PrometheusMetricVisitor extends MetricVisitor {
 
         // value
         sb.append(" ").append(metric.getValue().toString()).append("\n");
-        return;
     }
 
     @Override
-    public void visitHistogram(StringBuilder sb, String prefix, String name, Histogram histogram) {
+    public void visitHistogram(String prefix, String name, Histogram histogram) {
         // part.part.part.k1=v1.k2=v2
         List<String> names = new ArrayList<>();
         List<String> tags = new ArrayList<>();
@@ -191,8 +179,12 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         }
         final String fullName = prefix + String.join("_", names);
         final String fullTag = String.join(",", tags);
-        sb.append(HELP).append(fullName).append(" ").append("\n");
-        sb.append(TYPE).append(fullName).append(" ").append("summary\n");
+        // we should define metric name only once
+        if (!metricNames.contains(fullName)) {
+            sb.append(HELP).append(fullName).append(" ").append("\n");
+            sb.append(TYPE).append(fullName).append(" ").append("summary\n");
+            metricNames.add(fullName);
+        }
         String delimiter = tags.isEmpty() ? "" : ",";
         Snapshot snapshot = histogram.getSnapshot();
         sb.append(fullName).append("{quantile=\"0.75\"").append(delimiter).append(fullTag).append("} ")
@@ -206,22 +198,21 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         sb.append(fullName).append("{quantile=\"0.999\"").append(delimiter).append(fullTag).append("} ")
             .append(snapshot.get999thPercentile()).append("\n");
         sb.append(fullName).append("_sum {").append(fullTag).append("} ")
-            .append(histogram.getCount() * snapshot.getMean()).append("\n");
+                .append(histogram.getCount() * snapshot.getMean()).append("\n");
         sb.append(fullName).append("_count {").append(fullTag).append("} ")
-            .append(histogram.getCount()).append("\n");
-        return;
+                .append(histogram.getCount()).append("\n");
     }
 
     @Override
-    public void getNodeInfo(StringBuilder sb) {
+    public void getNodeInfo() {
         final String NODE_INFO = "node_info";
         sb.append(Joiner.on(" ").join(TYPE, NODE_INFO, "gauge\n"));
         sb.append(NODE_INFO).append("{type=\"fe_node_num\", state=\"total\"} ")
                 .append(Env.getCurrentEnv().getFrontends(null).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"total\"} ")
-                .append(Env.getCurrentSystemInfo().getBackendIds(false).size()).append("\n");
+                .append(Env.getCurrentSystemInfo().getAllBackendIds(false).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"alive\"} ")
-                .append(Env.getCurrentSystemInfo().getBackendIds(true).size()).append("\n");
+                .append(Env.getCurrentSystemInfo().getAllBackendIds(true).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"decommissioned\"} ")
                 .append(Env.getCurrentSystemInfo().getDecommissionedBackendIds().size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"broker_node_num\", state=\"dead\"} ").append(

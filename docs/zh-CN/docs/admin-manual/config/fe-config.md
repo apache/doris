@@ -8,7 +8,7 @@
 
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -47,9 +47,9 @@ FE 的配置项有两种方式进行查看：
 
 2. 通过命令查看
 
-   FE 启动后，可以在 MySQL 客户端中，通过以下命令查看 FE 的配置项：
+   FE 启动后，可以在 MySQL 客户端中，通过以下命令查看 FE 的配置项，具体语法参照[SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/SHOW-CONFIG.md)：
 
-   `ADMIN SHOW FRONTEND CONFIG;`
+   `SHOW FRONTEND CONFIG;`
 
    结果中各列含义如下：
 
@@ -74,7 +74,7 @@ FE 的配置项有两种方式进行配置：
 
    `ADMIN SET FRONTEND CONFIG ("fe_config_name" = "fe_config_value");`
 
-   不是所有配置项都支持动态配置。可以通过 `ADMIN SHOW FRONTEND CONFIG;` 命令结果中的 `IsMutable` 列查看是否支持动态配置。
+   不是所有配置项都支持动态配置。可以通过 `SHOW FRONTEND CONFIG;` 命令结果中的 `IsMutable` 列查看是否支持动态配置。
 
    如果是修改 `MasterOnly` 的配置项，则该命令会直接转发给 Master FE 并且仅修改 Master FE 中对应的配置项。
 
@@ -92,7 +92,7 @@ FE 的配置项有两种方式进行配置：
 
 1. 修改 `async_pending_load_task_pool_size`
 
-   通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项不能动态配置（`IsMutable` 为 false）。则需要在 `fe.conf` 中添加：
+   通过 `SHOW FRONTEND CONFIG;` 可以查看到该配置项不能动态配置（`IsMutable` 为 false）。则需要在 `fe.conf` 中添加：
 
    `async_pending_load_task_pool_size=20`
 
@@ -100,7 +100,7 @@ FE 的配置项有两种方式进行配置：
 
 2. 修改 `dynamic_partition_enable`
 
-   通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且是 Master FE 独有配置。则首先我们可以连接到任意 FE，执行如下命令修改配置：
+   通过 `SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且是 Master FE 独有配置。则首先我们可以连接到任意 FE，执行如下命令修改配置：
 
    ```text
    ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true");`
@@ -110,14 +110,14 @@ FE 的配置项有两种方式进行配置：
 
    ```text
    set forward_to_master=true;
-   ADMIN SHOW FRONTEND CONFIG;
+   SHOW FRONTEND CONFIG;
    ```
 
    通过以上方式修改后，如果 Master FE 重启或进行了 Master 切换，则配置将失效。可以通过在 `fe.conf` 中直接添加配置项，并重启 FE 后，永久生效该配置项。
 
 3. 修改 `max_distribution_pruner_recursion_depth`
 
-   通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且不是 Master FE 独有配置。
+   通过 `SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且不是 Master FE 独有配置。
 
    同样，我们可以通过动态修改配置的命令修改该配置。因为该配置不是 Master FE 独有配置，所以需要单独连接到不同的 FE，进行动态修改配置的操作，这样才能保证所有 FE 都使用了修改后的配置值
 
@@ -173,7 +173,7 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 元数据会同步写入到多个 Follower FE，这个参数用于控制 Master FE 等待 Follower FE 发送 ack 的超时时间。当写入的数据较大时，可能 ack 时间较长，如果超时，会导致写元数据失败，FE 进程退出。此时可以适当调大这个参数。
 
-### `grpc_threadmgr_threads_nums`
+#### `grpc_threadmgr_threads_nums`
 
 默认值: 4096
 
@@ -181,7 +181,7 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 #### `bdbje_lock_timeout_second`
 
-默认值：1
+默认值：5
 
 bdbje 操作的 lock timeout  如果 FE WARN 日志中有很多 LockTimeoutException，可以尝试增加这个值
 
@@ -231,7 +231,7 @@ Master FE 的 bdbje 同步策略。 如果您只部署一个 Follower FE，请�
 
 是否可以动态配置：true
 
-如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。 
+如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。
 非主 FE 仍将提供读取服务。 当您出于某种原因尝试停止 Master FE 较长时间，但仍希望非 Master FE 可以提供读取服务时，这会很有帮助。
 
 #### `meta_delay_toleration_second`
@@ -376,6 +376,18 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 是否开启单BE的多标签功能
 
+#### `initial_root_password`
+
+设置 root 用户初始化2阶段 SHA-1 加密密码，默认为''，即不设置 root 密码。后续 root 用户的 `set password` 操作会将 root 初始化密码覆盖。
+
+示例：如要配置密码的明文是 `root@123`，可在Doris执行SQL `select password('root@123')` 获取加密密码 `*A00C34073A26B40AB4307650BFB9309D6BFA6999`。
+
+默认值：空字符串
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：true
+
 ### 服务
 
 #### `query_port`
@@ -384,11 +396,17 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 Doris FE 通过 mysql 协议查询连接端口
 
+#### `arrow_flight_sql_port`
+
+默认值：-1
+
+Doris FE 通过 Arrow Flight SQL 协议查询连接端口
+
 #### `frontend_address`
 
 状态:已弃用，不建议使用。
 
-类型:string 
+类型:string
 
 描述:显式配置FE的IP地址，不使用*InetAddress。getByName*获取IP地址。通常在*InetAddress中。getByName*当无法获得预期结果时。只支持IP地址，不支持主机名。
 
@@ -423,21 +441,13 @@ FE https 使能标志位，false 表示支持 http，true 表示同时支持 htt
 
 默认值: true
 
-如果设置为 ture，doris 将与 mysql服务 建立基于 SSL 协议的加密通道。
+如果设置为 true，doris 将与 mysql服务 建立基于 SSL 协议的加密通道。
 
 #### `qe_max_connection`
 
 默认值：1024
 
 每个 FE 的最大连接数
-
-#### `max_connection_scheduler_threads_num`
-
-默认值：4096
-
-查询请求调度器中的最大线程数。
-
-目前的策略是，有请求过来，就为其单独申请一个线程进行服务
 
 #### `check_java_version`
 
@@ -477,7 +487,7 @@ thrift 服务器的 backlog_num 当你扩大这个 backlog_num 时，你应该�
 
 默认值：0
 
-thrift 服务器的连接超时和套接字超时配置 
+thrift 服务器的连接超时和套接字超时配置
 
 thrift_client_timeout_ms 的默认值设置为零以防止读取超时
 
@@ -577,6 +587,16 @@ FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 是否为 Master FE 节点独有的配置项：true
 
+#### `abort_txn_after_lost_heartbeat_time_second`
+
+丢失be心跳后丢弃be事务的时间。默认时间为三百秒，当三百秒fe没有接收到be心跳时，会丢弃该be的所有事务。
+
+默认值：300(秒)
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
 #### `enable_access_file_without_broker`
 
 默认值：false
@@ -613,7 +633,7 @@ FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 #### `remote_fragment_exec_timeout_ms`
 
-默认值：5000  （ms）
+默认值：30000  （ms）
 
 是否可以动态配置：true
 
@@ -629,7 +649,7 @@ FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 默认值：从官方 0.14.0 release 版之后默认是 true，之前默认 false
 
-HTTP Server V2 由 SpringBoot 实现, 并采用前后端分离的架构。只有启用 httpv2，用户才能使用新的前端 UI 界面
+HTTP Server V2 由 SpringBoot 实现, 并采用前后端分离的架构。只有启用 HTTPv2，用户才能使用新的前端 UI 界面
 
 #### `http_api_extra_base_path`
 
@@ -664,46 +684,21 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 #### `jetty_server_max_http_header_size`
 
-默认值：10240  （10K）
+默认值：1048576  （1M）
 
 http header size 配置参数
 
-#### `enable_tracing`
+#### `http_sql_submitter_max_worker_threads`
 
-默认值：false
+默认值：2
 
-是否可以动态配置：false
+http请求处理/api/query中sql任务的最大线程池
 
-是否为 Master FE 节点独有的配置项：false
+#### `http_load_submitter_max_worker_threads`
 
-是否开启链路追踪
+默认值：2
 
-如果启用此配置，您还应该指定 trace_export_url。
-
-#### `trace_exporter`
-
-默认值：zipkin
-
-是否可以动态配置：false
-
-是否为 Master FE 节点独有的配置项：false
-
-当前支持导出的链路追踪：
-    zipkin：直接将trace导出到zipkin，用于快速开启tracing特性。
-    collector：collector可用于接收和处理traces，支持导出到多种第三方系统
-如果启用此配置，您还应该指定 enable_tracing=true 和 trace_export_url。
-
-#### `trace_export_url`
-
-默认值：`http://127.0.0.1:9411/api/v2/spans`
-
-是否可以动态配置：false
-
-是否为 Master FE 节点独有的配置项：false
-
-trace导出到 zipkin: `http://127.0.0.1:9411/api/v2/spans`
-
-trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
+http请求处理/api/upload任务的最大线程池
 
 ### 查询引擎
 
@@ -765,6 +760,16 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 </version>
 
+#### `multi_partition_name_prefix`
+
+默认值：p_
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+使用此参数设置 multi partition 的分区名前缀，仅仅multi partition 生效，不作用于动态分区，默认前缀是“p_”。
+
 #### `partition_in_memory_update_interval_secs`
 
 默认值：300 (s)
@@ -796,8 +801,8 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 用于控制用户表表名大小写是否敏感。
 该配置只能在集群初始化时配置，初始化完成后集群重启和升级时不能修改。
 
-0：表名按指定存储，比较区分大小写。 
-1：表名以小写形式存储，比较不区分大小写。 
+0：表名按指定存储，比较区分大小写。
+1：表名以小写形式存储，比较不区分大小写。
 2：表名按指定存储，但以小写形式进行比较。
 
 #### `table_name_length_limit`
@@ -818,7 +823,7 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 是否为 Master FE 节点独有的配置项：false
 
-如果设置为 true，SQL 查询结果集将被缓存。如果查询中所有表的所有分区最后一次访问版本时间的间隔大于cache_last_version_interval_second，且结果集小于cache_result_max_row_count，则结果集会被缓存，下一条相同的SQL会命中缓存
+如果设置为 true，SQL 查询结果集将被缓存。如果查询中所有表的所有分区最后一次访问版本时间的间隔大于cache_last_version_interval_second，且结果集行数小于cache_result_max_row_count，且数据大小小于cache_result_max_data_size，则结果集会被缓存，下一条相同的SQL会命中缓存
 
 如果设置为 true，FE 会启用 sql 结果缓存，该选项适用于离线数据更新场景
 
@@ -847,9 +852,19 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 设置可以缓存的最大行数，详细的原理可以参考官方文档：操作手册->分区缓存
 
+#### `cache_result_max_data_size`
+
+默认值：31457280
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+设置可以缓存的最大数据大小，单位Bytes
+
 #### `cache_last_version_interval_second`
 
-默认值：900
+默认值：30
 
 是否可以动态配置：true
 
@@ -897,7 +912,7 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 这将限制哈希分布修剪器的最大递归深度。 例如：其中 a  in（5 个元素）和 b in（4 个元素）和 c in（3 个元素）和 d in（2 个元素）。 a/b/c/d 是分布式列，所以递归深度为 5 * 4 * 3 * 2 = 120，大于 100， 因此该分发修剪器将不起作用，只会返回所有 buckets。  增加深度可以支持更多元素的分布修剪，但可能会消耗更多的 CPU
 
-通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且不是 Master FE 独有配置。
+通过 `SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且不是 Master FE 独有配置。
 
 同样，我们可以通过动态修改配置的命令修改该配置。因为该配置不是 Master FE 独有配置，所以需要单独连接到不同的 FE，进行动态修改配置的操作，这样才能保证所有 FE 都使用了修改后的配置值
 
@@ -1004,7 +1019,7 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 该变量为 session variable，session 级别生效。
 
 - 类型：boolean
-- 描述：**仅对于 AGG 模型的表来说**，当变量为 true 时，用户查询时包含 count(distinct c1) 这类聚合函数时，如果 c1 列本身类型为 bitmap，则 count distnct 会改写为 bitmap_union_count(c1)。 当 c1 列本身类型为 hll，则 count distinct 会改写为 hll_union_agg(c1) 如果变量为 false，则不发生任何改写。
+- 描述：**仅对于 AGG 模型的表来说**，当变量为 true 时，用户查询时包含 count(distinct c1) 这类聚合函数时，如果 c1 列本身类型为 bitmap，则 count distinct 会改写为 bitmap_union_count(c1)。 当 c1 列本身类型为 hll，则 count distinct 会改写为 hll_union_agg(c1) 如果变量为 false，则不发生任何改写。
 
 ### 导入与导出
 
@@ -1141,7 +1156,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 #### `max_bytes_per_broker_scanner`
 
-默认值：3 * 1024 * 1024 * 1024L  （3G）
+默认值：`500 * 1024 * 1024 * 1024L`  （500G）
 
 是否可以动态配置：true
 
@@ -1151,7 +1166,7 @@ broker scanner 程序可以在一个 broker 加载作业中处理的最大字节
 
 #### `default_load_parallelism`
 
-默认值：1
+默认值：8
 
 是否可以动态配置：true
 
@@ -1361,6 +1376,16 @@ load 最大超时时间，适用于除 stream load 之外的所有类型的加�
 
 默认 stream load 预提交超时时间
 
+#### `stream_load_default_memtable_on_sink_node`
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+当 HTTP header 没有设置 `memtable_on_sink_node` 的时候，stream load 是否默认打开前移
+
 #### `insert_load_default_timeout_second`
 
 默认值：3600（1小时）
@@ -1471,7 +1496,7 @@ NORMAL 优先级挂起加载作业的并发数。
 
 负载中落后节点的最大等待秒数
    例如：
-      有 3 个副本 A, B, C 
+      有 3 个副本 A, B, C
       load 已经在 t1 时仲裁完成 (A,B) 并且 C 没有完成，
       如果 (current_time-t1)> 300s，那么 doris会将 C 视为故障节点，
       将调用事务管理器提交事务并告诉事务管理器 C 失败。
@@ -1482,7 +1507,7 @@ NORMAL 优先级挂起加载作业的并发数。
 
 #### `label_keep_max_second`
 
-默认值：3 * 24 * 3600  (3天)
+默认值：`3 * 24 * 3600`  (3天)
 
 是否可以动态配置：true
 
@@ -1680,6 +1705,12 @@ sys_log_dir:
 
 日志拆分的大小，每1G拆分一个日志文件
 
+#### `sys_log_enable_compress`
+
+默认值：false
+
+控制是否压缩fe log, 包括fe.log 及 fe.warn.log。如果开启，则使用gzip算法进行压缩。
+
 #### `audit_log_dir`
 
 默认值：DorisFE.DORIS_HOME_DIR + "/log"
@@ -1724,6 +1755,18 @@ HOUR: log前缀是：yyyyMMddHH
 - 10小时  10 小时
 - 60m    60 分钟
 - 120s   120 秒
+
+#### `audit_log_enable_compress`
+
+默认值：false
+
+控制是否压缩 fe.audit.log。如果开启，则使用gzip算法进行压缩。
+
+#### `nereids_trace_log_dir`
+
+默认值：DorisFE.DORIS_HOME_DIR + "/log/nereids_trace"
+
+用于存储 nereids trace 日志的目录
 
 ### 存储
 
@@ -1781,7 +1824,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。 
+在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。
 
 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
 
@@ -1951,6 +1994,16 @@ BE副本数的平衡阈值。
 2. 因为一旦关闭平衡，不稳定的 colocate 表可能无法恢复
 3. 最终查询时无法使用 colocate 计划。
 
+#### `balance_slot_num_per_path`
+
+默认值：1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+balance 时每个路径的默认 slot 数量
+
 #### `disable_tablet_scheduler`
 
 默认值：false
@@ -2043,11 +2096,17 @@ BE副本数的平衡阈值。
 
 数据大小阈值，用来判断副本的数据量是否太大
 
-#### `schedule_slot_num_per_path`
+#### `schedule_slot_num_per_hdd_path`
 
-默认值：2
+默认值：4
 
-tablet 调度程序中每个路径的默认 slot 数量
+对于hdd盘, tablet 调度程序中每个路径的默认 slot 数量
+
+#### `schedule_slot_num_per_ssd_path`
+
+默认值：8
+
+对于ssd盘, tablet 调度程序中每个路径的默认 slot 数量
 
 #### `tablet_repair_delay_factor_second`
 
@@ -2081,7 +2140,7 @@ tablet 状态更新间隔
 
 #### `storage_flood_stage_left_capacity_bytes`
 
-默认值： 1 * 1024 * 1024 * 1024 (1GB)
+默认值： `1 * 1024 * 1024 * 1024` (1GB)
 
 是否可以动态配置：true
 
@@ -2136,7 +2195,7 @@ tablet 状态更新间隔
 
 #### `enable_storage_policy`
 
-是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。该功能仍在开发中，不排除后续后功能修改或重构。仅建议测试环境使用。
+是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。
 
 默认值：false。即不开启
 
@@ -2216,6 +2275,16 @@ tablet 状态更新间隔
 
 与 `tablet_create_timeout_second` 含义相同，但在删除 tablet 时使用
 
+#### `delete_job_max_timeout_second`
+
+默认值: 300(s)
+
+是否可以动态配置: true
+
+是否为 Master FE 节点独有的配置项: true
+
+Delete 操作的最大超时时间，单位是秒
+
 #### `alter_table_timeout_second`
 
 默认值：86400 * 30 （1月）
@@ -2270,7 +2339,7 @@ multi catalog 并发文件扫描线程数
 
 #### `file_scan_node_split_size`
 
-默认值：256 * 1024 * 1024
+默认值：`256 * 1024 * 1024`
 
 是否可以动态配置：true
 
@@ -2278,60 +2347,15 @@ multi catalog 并发文件扫描线程数
 
 multi catalog 并发文件扫描大小
 
-#### `enable_odbc_table`
+#### `enable_odbc_mysql_broker_table`
 
 默认值：false
 
 是否可以动态配置：true
 
-是否为 Master FE 节点独有的配置项：true
-
-是否启用 ODBC 表，默认不启用，在使用的时候需要手动配置启用，该参数可以通过：
-
-`ADMIN SET FRONTEND CONFIG("key"="value") `方式进行设置
-
-**注意：** 这个参数在1.2版本中已经删除，默认启用ODBC外表，并且会在以后的某个版本中删除ODBC外表，推荐使用JDBC外表
-
-#### `disable_iceberg_hudi_table`
-
-默认值：true
-
-是否可以动态配置：true
-
 是否为 Master FE 节点独有的配置项：false
 
-从 1.2 版本开始，我们不再支持创建hudi和iceberg外表。请改用multi catalog功能。
-
-#### `iceberg_table_creation_interval_second`
-
-默认值：10 (s)
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：false
-
-fe 将每隔 iceberg_table_creation_interval_second 创建iceberg table
-
-#### `iceberg_table_creation_strict_mode`
-
-默认值：true
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-如果设置为 true，iceberg 表和 Doris 表的列定义必须一致。
-如果设置为 false，Doris 只创建支持的数据类型的列。
-
-#### `max_iceberg_table_creation_record_size`
-
-内存中可以存储的最近iceberg库表创建记录的默认最大数量
-
-默认值：2000
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
+从 2.1 版本开始，我们不再支持创建 odbc, mysql 和 broker外表。对于 odbc 外表，可以使用 jdbc 外表或者 jdbc catalog 替代。对于 broker 外表，可以使用 table valued function 替代。
 
 #### `max_hive_partition_cache_num`
 
@@ -2408,7 +2432,7 @@ FE 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 #### `dpp_bytes_per_reduce`
 
-默认值：100 * 1024 * 1024L (100M)
+默认值：`100 * 1024 * 1024L` (100M)
 
 #### `dpp_default_cluster`
 
@@ -2539,7 +2563,7 @@ SmallFileMgr 中存储的最大文件数
 
 是否为  Master FE  节点独有的配置项：true
 
-这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常等问题。 
+这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常等问题。
 
 并且每个 BE 每 1 分钟会报告一次 tablet 信息，因此无限制接收报告是不可接受的。
 以后我们会优化 tablet 报告的处理速度
@@ -2555,6 +2579,26 @@ SmallFileMgr 中存储的最大文件数
 是否为 Master FE 节点独有的配置项：true
 
 备份作业的默认超时时间
+
+#### `backup_upload_task_num_per_be`
+
+默认值：3
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+备份过程中，分配给每个be的upload任务最大个数，默认值为3个。
+
+#### `restore_download_task_num_per_be`
+
+默认值：3
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+恢复过程中，分配给每个be的download任务最大个数，默认值为3个。
 
 #### `max_backup_restore_job_num_per_db`
 
@@ -2574,23 +2618,23 @@ SmallFileMgr 中存储的最大文件数
 
 #### `enable_date_conversion`
 
-默认值：false
+默认值：true
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，FE 会自动将 Date/Datetime 转换为 DateV2/DatetimeV2(0)。
+FE 会自动将 Date/Datetime 转换为 DateV2/DatetimeV2(0)。
 
 #### `enable_decimal_conversion`
 
-默认值：false
+默认值：true
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，FE 将自动将 DecimalV2 转换为 DecimalV3。
+FE 将自动将 DecimalV2 转换为 DecimalV3。
 
 #### `proxy_auth_magic_prefix`
 
@@ -2685,3 +2729,46 @@ show data （其他用法：HELP SHOW DATA）
 当设置为 false 时，查询 `information_schema` 中的表时，将不再返回 external catalog 中的表的信息。
 
 这个参数主要用于避免因 external catalog 无法访问、信息过多等原因导致的查询 `information_schema` 超时的问题。
+
+#### `enable_query_hit_stats`
+
+<version since="dev"></version>
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+控制是否启用查询命中率统计。默认为 false。
+
+#### `div_precision_increment`
+<version since="dev"></version>
+
+默认值：4
+
+此变量表示增加与/运算符执行的除法操作结果规模的位数。默认为4。
+
+#### `enable_convert_light_weight_schema_change`
+
+默认值：true
+
+暂时性配置项，开启后会启动后台线程自动将所有的olap表修改为可light schema change，修改结果可通过命令`show convert_light_schema_change [from db]` 来查看，将会展示所有非light schema change表的转换结果
+
+#### `disable_local_deploy_manager_drop_node`
+
+默认值：true
+
+禁止LocalDeployManager删除节点，防止cluster.info文件有误导致节点被删除。
+
+#### `mysqldb_replace_name`
+
+默认值：mysql
+
+Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，请修改这个字段，为 doris 内置的 mysql database 更换一个名字
+
+#### `max_auto_partition_num`
+
+默认值：2000
+
+对于自动分区表，防止用户意外创建大量分区，每个OLAP表允许的分区数量为`max_auto_partition_num`。默认2000。

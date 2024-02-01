@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/Data_types.h>
+#include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
 #include <vector>
@@ -51,11 +52,16 @@ class VMetaScanner : public VScanner {
 
 public:
     VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
-                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile);
+                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
+                 TUserIdentity user_identity);
+
+    VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t tuple_id,
+                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
+                 TUserIdentity user_identity);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
+    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -67,12 +73,28 @@ private:
                                            TFetchSchemaTableDataRequest* request);
     Status _build_backends_metadata_request(const TMetaScanRange& meta_scan_range,
                                             TFetchSchemaTableDataRequest* request);
-    Status _build_resource_groups_metadata_request(const TMetaScanRange& meta_scan_range,
+    Status _build_frontends_metadata_request(const TMetaScanRange& meta_scan_range,
+                                             TFetchSchemaTableDataRequest* request);
+    Status _build_frontends_disks_metadata_request(const TMetaScanRange& meta_scan_range,
                                                    TFetchSchemaTableDataRequest* request);
-
+    Status _build_workload_groups_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                   TFetchSchemaTableDataRequest* request);
+    Status _build_workload_sched_policy_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                         TFetchSchemaTableDataRequest* request);
+    Status _build_catalogs_metadata_request(const TMetaScanRange& meta_scan_range,
+                                            TFetchSchemaTableDataRequest* request);
+    Status _build_materialized_views_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                      TFetchSchemaTableDataRequest* request);
+    Status _build_jobs_metadata_request(const TMetaScanRange& meta_scan_range,
+                                        TFetchSchemaTableDataRequest* request);
+    Status _build_tasks_metadata_request(const TMetaScanRange& meta_scan_range,
+                                         TFetchSchemaTableDataRequest* request);
+    Status _build_queries_metadata_request(const TMetaScanRange& meta_scan_range,
+                                           TFetchSchemaTableDataRequest* request);
     bool _meta_eos;
     TupleId _tuple_id;
-    const TupleDescriptor* _tuple_desc;
+    TUserIdentity _user_identity;
+    const TupleDescriptor* _tuple_desc = nullptr;
     std::vector<TRow> _batch_data;
     const TScanRange& _scan_range;
 };

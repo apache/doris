@@ -18,12 +18,13 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -36,12 +37,12 @@ import java.util.List;
 
 /** count agg function. */
 public class Count extends AggregateFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable, SupportWindowAnalytic {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable, SupportWindowAnalytic, CouldRollUp {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // count(*)
             FunctionSignature.ret(BigIntType.INSTANCE).args(),
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
 
     private final boolean isStar;
@@ -63,6 +64,12 @@ public class Count extends AggregateFunction
         this.isStar = false;
     }
 
+    public boolean isCountStar() {
+        return isStar
+                || children.isEmpty()
+                || (children.size() == 1 && child(0) instanceof Literal);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         // for multiple exprs count must be qualified with distinct
@@ -75,8 +82,9 @@ public class Count extends AggregateFunction
     public void checkLegalityAfterRewrite() {
         // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
         for (Expression argument : getArguments()) {
-            if (argument.getDataType().isOnlyMetricType()) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            if (distinct && (argument.getDataType().isComplexType()
+                    || argument.getDataType().isObjectType() || argument.getDataType().isJsonType())) {
+                throw new AnalysisException("COUNT DISTINCT could not process type " + this.toSql());
             }
         }
     }
@@ -134,5 +142,14 @@ public class Count extends AggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public Function constructRollUp(Expression param, Expression... varParams) {
+        if (this.isDistinct()) {
+            return new BitmapUnionCount(param);
+        } else {
+            return new Sum(param);
+        }
     }
 }

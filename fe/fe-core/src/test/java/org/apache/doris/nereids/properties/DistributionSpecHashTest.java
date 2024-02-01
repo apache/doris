@@ -47,18 +47,18 @@ public class DistributionSpecHashTest {
                 naturalMap
         );
 
-        Map<ExprId, Integer> joinMap = Maps.newHashMap();
-        joinMap.put(new ExprId(1), 0);
-        joinMap.put(new ExprId(4), 0);
-        joinMap.put(new ExprId(3), 1);
-        joinMap.put(new ExprId(5), 1);
+        Map<ExprId, Integer> requireMap = Maps.newHashMap();
+        requireMap.put(new ExprId(1), 0);
+        requireMap.put(new ExprId(4), 0);
+        requireMap.put(new ExprId(3), 1);
+        requireMap.put(new ExprId(5), 1);
         DistributionSpecHash join = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(5)),
-                ShuffleType.JOIN,
+                ShuffleType.REQUIRE,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1), new ExprId(4)), Sets.newHashSet(new ExprId(3), new ExprId(5))),
-                joinMap
+                requireMap
         );
 
         Map<ExprId, Integer> expectedMap = Maps.newHashMap();
@@ -101,7 +101,7 @@ public class DistributionSpecHashTest {
         projects.put(new ExprId(2), new ExprId(5));
         Set<ExprId> obstructions = Sets.newHashSet();
 
-        DistributionSpec after = original.project(projects, obstructions);
+        DistributionSpec after = original.project(projects, obstructions, DistributionSpecAny.INSTANCE);
         Assertions.assertTrue(after instanceof DistributionSpecHash);
         DistributionSpecHash afterHash = (DistributionSpecHash) after;
         Assertions.assertEquals(Lists.newArrayList(new ExprId(0), new ExprId(5)), afterHash.getOrderedShuffledColumns());
@@ -119,41 +119,41 @@ public class DistributionSpecHashTest {
 
         // have obstructions
         obstructions.add(new ExprId(3));
-        after = original.project(projects, obstructions);
+        after = original.project(projects, obstructions, DistributionSpecAny.INSTANCE);
         Assertions.assertTrue(after instanceof DistributionSpecAny);
     }
 
     @Test
     public void testSatisfyAny() {
         DistributionSpec required = DistributionSpecAny.INSTANCE;
-        DistributionSpecHash join = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.JOIN);
-        DistributionSpecHash aggregate = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.AGGREGATE);
-        DistributionSpecHash enforce = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.ENFORCED);
+        DistributionSpecHash require = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.REQUIRE);
+        DistributionSpecHash storageBucketed = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.STORAGE_BUCKETED);
+        DistributionSpecHash executionBucketed = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.EXECUTION_BUCKETED);
         DistributionSpecHash natural = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.NATURAL);
 
-        Assertions.assertTrue(join.satisfy(required));
-        Assertions.assertTrue(aggregate.satisfy(required));
-        Assertions.assertTrue(enforce.satisfy(required));
+        Assertions.assertTrue(require.satisfy(required));
+        Assertions.assertTrue(storageBucketed.satisfy(required));
+        Assertions.assertTrue(executionBucketed.satisfy(required));
         Assertions.assertTrue(natural.satisfy(required));
     }
 
     @Test
     public void testNotSatisfyOther() {
-        DistributionSpecHash join = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.JOIN);
-        DistributionSpecHash aggregate = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.AGGREGATE);
-        DistributionSpecHash enforce = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.ENFORCED);
+        DistributionSpecHash require = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.REQUIRE);
+        DistributionSpecHash storageBucketed = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.STORAGE_BUCKETED);
+        DistributionSpecHash executionBucketed = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.EXECUTION_BUCKETED);
         DistributionSpecHash natural = new DistributionSpecHash(Lists.newArrayList(), ShuffleType.NATURAL);
 
         DistributionSpec gather = DistributionSpecGather.INSTANCE;
-        Assertions.assertFalse(join.satisfy(gather));
-        Assertions.assertFalse(aggregate.satisfy(gather));
-        Assertions.assertFalse(enforce.satisfy(gather));
+        Assertions.assertFalse(require.satisfy(gather));
+        Assertions.assertFalse(storageBucketed.satisfy(gather));
+        Assertions.assertFalse(executionBucketed.satisfy(gather));
         Assertions.assertFalse(natural.satisfy(gather));
 
         DistributionSpec replicated = DistributionSpecReplicated.INSTANCE;
-        Assertions.assertFalse(join.satisfy(replicated));
-        Assertions.assertFalse(aggregate.satisfy(replicated));
-        Assertions.assertFalse(enforce.satisfy(replicated));
+        Assertions.assertFalse(require.satisfy(replicated));
+        Assertions.assertFalse(storageBucketed.satisfy(replicated));
+        Assertions.assertFalse(executionBucketed.satisfy(replicated));
         Assertions.assertFalse(natural.satisfy(replicated));
     }
 
@@ -197,27 +197,27 @@ public class DistributionSpecHashTest {
                 natural3Map
         );
 
-        DistributionSpecHash join = new DistributionSpecHash(
+        DistributionSpecHash require = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.JOIN,
+                ShuffleType.REQUIRE,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
                 natural2Map
         );
 
-        DistributionSpecHash enforce = new DistributionSpecHash(
+        DistributionSpecHash storageBucketed = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.ENFORCED,
+                ShuffleType.STORAGE_BUCKETED,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
                 natural2Map
         );
 
-        DistributionSpecHash aggregate = new DistributionSpecHash(
+        DistributionSpecHash executionBucketed = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.AGGREGATE,
+                ShuffleType.EXECUTION_BUCKETED,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
@@ -231,49 +231,49 @@ public class DistributionSpecHashTest {
         // require slots is not contained by target
         Assertions.assertFalse(natural2.satisfy(natural1));
         // other shuffle type with same order
-        Assertions.assertFalse(join.satisfy(natural2));
-        Assertions.assertFalse(aggregate.satisfy(natural2));
-        Assertions.assertFalse(enforce.satisfy(natural2));
+        Assertions.assertFalse(require.satisfy(natural2));
+        Assertions.assertFalse(executionBucketed.satisfy(natural2));
+        Assertions.assertFalse(storageBucketed.satisfy(natural2));
     }
 
     @Test
-    public void testSatisfyJoinHash() {
-        Map<ExprId, Integer> join1Map = Maps.newHashMap();
-        join1Map.put(new ExprId(0), 0);
-        join1Map.put(new ExprId(1), 0);
-        join1Map.put(new ExprId(2), 1);
-        join1Map.put(new ExprId(3), 1);
-        DistributionSpecHash join1 = new DistributionSpecHash(
+    public void testSatisfyRequiredHash() {
+        Map<ExprId, Integer> require1Map = Maps.newHashMap();
+        require1Map.put(new ExprId(0), 0);
+        require1Map.put(new ExprId(1), 0);
+        require1Map.put(new ExprId(2), 1);
+        require1Map.put(new ExprId(3), 1);
+        DistributionSpecHash require1 = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(0), new ExprId(2)),
-                ShuffleType.JOIN,
+                ShuffleType.REQUIRE,
                 0,
                 Sets.newHashSet(0L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(0), new ExprId(1)), Sets.newHashSet(new ExprId(2), new ExprId(3))),
-                join1Map
+                require1Map
         );
 
-        Map<ExprId, Integer> join2Map = Maps.newHashMap();
-        join2Map.put(new ExprId(1), 0);
-        join2Map.put(new ExprId(2), 1);
-        DistributionSpecHash join2 = new DistributionSpecHash(
+        Map<ExprId, Integer> require2Map = Maps.newHashMap();
+        require2Map.put(new ExprId(1), 0);
+        require2Map.put(new ExprId(2), 1);
+        DistributionSpecHash require2 = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.JOIN,
+                ShuffleType.REQUIRE,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                join2Map
+                require2Map
         );
 
-        Map<ExprId, Integer> join3Map = Maps.newHashMap();
-        join3Map.put(new ExprId(2), 0);
-        join3Map.put(new ExprId(1), 1);
-        DistributionSpecHash join3 = new DistributionSpecHash(
+        Map<ExprId, Integer> require3Map = Maps.newHashMap();
+        require3Map.put(new ExprId(2), 0);
+        require3Map.put(new ExprId(1), 1);
+        DistributionSpecHash require3 = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(2), new ExprId(1)),
-                ShuffleType.JOIN,
+                ShuffleType.REQUIRE,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(2)), Sets.newHashSet(new ExprId(1))),
-                join3Map
+                require3Map
         );
 
         DistributionSpecHash natural = new DistributionSpecHash(
@@ -282,247 +282,71 @@ public class DistributionSpecHashTest {
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                join2Map
+                require2Map
         );
 
-        DistributionSpecHash enforce = new DistributionSpecHash(
+        DistributionSpecHash storageBucketed = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.ENFORCED,
+                ShuffleType.STORAGE_BUCKETED,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                join2Map
+                require2Map
         );
 
-        DistributionSpecHash aggregate = new DistributionSpecHash(
+        DistributionSpecHash executionBucketed = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.AGGREGATE,
+                ShuffleType.EXECUTION_BUCKETED,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                join2Map
+                require2Map
         );
 
         // require is same order
-        Assertions.assertTrue(join1.satisfy(join2));
+        Assertions.assertTrue(require1.satisfy(require2));
         // require contains all sets but order is not same
-        Assertions.assertTrue(join1.satisfy(join3));
+        Assertions.assertTrue(require1.satisfy(require3));
         // require slots is not contained by target
-        Assertions.assertFalse(join3.satisfy(join1));
+        Assertions.assertFalse(require3.satisfy(require1));
         // other shuffle type with same order
-        Assertions.assertTrue(natural.satisfy(join2));
-        Assertions.assertTrue(aggregate.satisfy(join2));
-        Assertions.assertTrue(enforce.satisfy(join2));
+        Assertions.assertTrue(natural.satisfy(require2));
+        Assertions.assertTrue(executionBucketed.satisfy(require2));
+        Assertions.assertTrue(storageBucketed.satisfy(require2));
         // other shuffle type contain all set but order is not same
-        Assertions.assertTrue(natural.satisfy(join3));
-        Assertions.assertTrue(aggregate.satisfy(join3));
-        Assertions.assertFalse(enforce.satisfy(join3));
-    }
-
-    @Test
-    public void testSatisfyAggregateHash() {
-        Map<ExprId, Integer> aggregate1Map = Maps.newHashMap();
-        aggregate1Map.put(new ExprId(0), 0);
-        aggregate1Map.put(new ExprId(1), 0);
-        aggregate1Map.put(new ExprId(2), 1);
-        aggregate1Map.put(new ExprId(3), 1);
-        DistributionSpecHash aggregate1 = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(0), new ExprId(2)),
-                ShuffleType.AGGREGATE,
-                0,
-                Sets.newHashSet(0L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(0), new ExprId(1)), Sets.newHashSet(new ExprId(2), new ExprId(3))),
-                aggregate1Map
-        );
-
-        Map<ExprId, Integer> aggregate2Map = Maps.newHashMap();
-        aggregate2Map.put(new ExprId(1), 0);
-        aggregate2Map.put(new ExprId(2), 1);
-        DistributionSpecHash aggregate2 = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.AGGREGATE,
-                1,
-                Sets.newHashSet(1L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                aggregate2Map
-        );
-
-        Map<ExprId, Integer> aggregate3Map = Maps.newHashMap();
-        aggregate3Map.put(new ExprId(2), 0);
-        aggregate3Map.put(new ExprId(1), 1);
-        DistributionSpecHash aggregate3 = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(2), new ExprId(1)),
-                ShuffleType.AGGREGATE,
-                1,
-                Sets.newHashSet(1L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(2)), Sets.newHashSet(new ExprId(1))),
-                aggregate3Map
-        );
-
-        Map<ExprId, Integer> aggregate4Map = Maps.newHashMap();
-        aggregate4Map.put(new ExprId(2), 0);
-        aggregate4Map.put(new ExprId(3), 1);
-        DistributionSpecHash aggregate4 = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(2), new ExprId(3)),
-                ShuffleType.AGGREGATE,
-                1,
-                Sets.newHashSet(1L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(2)), Sets.newHashSet(new ExprId(3))),
-                aggregate4Map
-        );
-
-        DistributionSpecHash natural = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.NATURAL,
-                1,
-                Sets.newHashSet(1L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                aggregate2Map
-        );
-
-        DistributionSpecHash enforce = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.ENFORCED,
-                1,
-                Sets.newHashSet(1L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                aggregate2Map
-        );
-
-        DistributionSpecHash join = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.JOIN,
-                1,
-                Sets.newHashSet(1L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                aggregate2Map
-        );
-
-        // require is same order
-        Assertions.assertTrue(aggregate1.satisfy(aggregate2));
-        // require contains all sets but order is not same
-        Assertions.assertTrue(aggregate1.satisfy(aggregate3));
-        // require do not contain all set but has the same number slot
-        Assertions.assertFalse(aggregate1.satisfy(aggregate4));
-        // require slots is not contained by target
-        Assertions.assertFalse(aggregate3.satisfy(aggregate1));
-        // other shuffle type with same order
-        Assertions.assertTrue(natural.satisfy(aggregate2));
-        Assertions.assertTrue(join.satisfy(aggregate2));
-        Assertions.assertTrue(enforce.satisfy(aggregate2));
-        // other shuffle type contain all set but order is not same
-        Assertions.assertTrue(natural.satisfy(aggregate3));
-        Assertions.assertTrue(join.satisfy(aggregate3));
-        Assertions.assertTrue(enforce.satisfy(aggregate3));
-    }
-
-    @Test
-    public void testSatisfyEnforceHash() {
-        Map<ExprId, Integer> enforce1Map = Maps.newHashMap();
-        enforce1Map.put(new ExprId(0), 0);
-        enforce1Map.put(new ExprId(1), 0);
-        enforce1Map.put(new ExprId(2), 1);
-        enforce1Map.put(new ExprId(3), 1);
-        DistributionSpecHash enforce1 = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(0), new ExprId(2)),
-                ShuffleType.ENFORCED,
-                0,
-                Sets.newHashSet(0L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(0), new ExprId(1)), Sets.newHashSet(new ExprId(2), new ExprId(3))),
-                enforce1Map
-        );
-
-        Map<ExprId, Integer> enforce2Map = Maps.newHashMap();
-        enforce2Map.put(new ExprId(1), 0);
-        enforce2Map.put(new ExprId(2), 1);
-        DistributionSpecHash enforce2 = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.ENFORCED,
-                1,
-                Sets.newHashSet(1L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                enforce2Map
-        );
-
-        Map<ExprId, Integer> enforce3Map = Maps.newHashMap();
-        enforce3Map.put(new ExprId(2), 0);
-        enforce3Map.put(new ExprId(1), 1);
-        DistributionSpecHash enforce3 = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(2), new ExprId(1)),
-                ShuffleType.ENFORCED,
-                1,
-                Sets.newHashSet(1L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(2)), Sets.newHashSet(new ExprId(1))),
-                enforce3Map
-        );
-
-        DistributionSpecHash join = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.JOIN,
-                1,
-                Sets.newHashSet(1L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                enforce2Map
-        );
-
-        DistributionSpecHash natural = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.NATURAL,
-                1,
-                Sets.newHashSet(1L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                enforce2Map
-        );
-
-        DistributionSpecHash aggregate = new DistributionSpecHash(
-                Lists.newArrayList(new ExprId(1), new ExprId(2)),
-                ShuffleType.AGGREGATE,
-                1,
-                Sets.newHashSet(1L),
-                Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                enforce2Map
-        );
-
-        // require is same order
-        Assertions.assertTrue(enforce1.satisfy(enforce2));
-        // require contains all sets but order is not same
-        Assertions.assertFalse(enforce1.satisfy(enforce3));
-        // require slots is not contained by target
-        Assertions.assertFalse(enforce2.satisfy(enforce1));
-        // other shuffle type with same order
-        Assertions.assertTrue(join.satisfy(enforce2));
-        Assertions.assertTrue(aggregate.satisfy(enforce2));
-        Assertions.assertTrue(natural.satisfy(enforce2));
+        Assertions.assertTrue(natural.satisfy(require3));
+        Assertions.assertTrue(executionBucketed.satisfy(require3));
+        Assertions.assertTrue(storageBucketed.satisfy(require3));
     }
 
     @Test
     public void testHashEqualSatisfyWithDifferentLength() {
-        Map<ExprId, Integer> enforce1Map = Maps.newHashMap();
-        enforce1Map.put(new ExprId(0), 0);
-        enforce1Map.put(new ExprId(1), 1);
-        enforce1Map.put(new ExprId(2), 2);
-        DistributionSpecHash enforce1 = new DistributionSpecHash(
+        Map<ExprId, Integer> bucketed1Map = Maps.newHashMap();
+        bucketed1Map.put(new ExprId(0), 0);
+        bucketed1Map.put(new ExprId(1), 1);
+        bucketed1Map.put(new ExprId(2), 2);
+        DistributionSpecHash bucketed1 = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(0), new ExprId(1), new ExprId(2)),
-                ShuffleType.ENFORCED,
+                ShuffleType.EXECUTION_BUCKETED,
                 0,
                 Sets.newHashSet(0L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(0)), Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
-                enforce1Map
+                bucketed1Map
         );
 
-        Map<ExprId, Integer> enforce2Map = Maps.newHashMap();
-        enforce2Map.put(new ExprId(0), 0);
-        enforce2Map.put(new ExprId(1), 1);
-        DistributionSpecHash enforce2 = new DistributionSpecHash(
+        Map<ExprId, Integer> bucketed2Map = Maps.newHashMap();
+        bucketed2Map.put(new ExprId(0), 0);
+        bucketed2Map.put(new ExprId(1), 1);
+        DistributionSpecHash bucketed2 = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(0), new ExprId(1)),
-                ShuffleType.ENFORCED,
+                ShuffleType.EXECUTION_BUCKETED,
                 1,
                 Sets.newHashSet(1L),
                 Lists.newArrayList(Sets.newHashSet(new ExprId(0)), Sets.newHashSet(new ExprId(1))),
-                enforce2Map
+                bucketed2Map
         );
 
-        Assertions.assertFalse(enforce1.satisfy(enforce2));
-        Assertions.assertFalse(enforce2.satisfy(enforce1));
+        Assertions.assertFalse(bucketed1.satisfy(bucketed2));
+        Assertions.assertFalse(bucketed2.satisfy(bucketed1));
     }
 }

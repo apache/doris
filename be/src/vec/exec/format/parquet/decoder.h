@@ -54,28 +54,6 @@ class ColumnString;
 
 namespace doris::vectorized {
 
-#define FOR_LOGICAL_NUMERIC_TYPES(M)        \
-    M(TypeIndex::Int8, Int8, Int32)         \
-    M(TypeIndex::UInt8, UInt8, Int32)       \
-    M(TypeIndex::Int16, Int16, Int32)       \
-    M(TypeIndex::UInt16, UInt16, Int32)     \
-    M(TypeIndex::Int32, Int32, Int32)       \
-    M(TypeIndex::UInt32, UInt32, Int32)     \
-    M(TypeIndex::Int64, Int64, Int64)       \
-    M(TypeIndex::UInt64, UInt64, Int64)     \
-    M(TypeIndex::Float32, Float32, Float32) \
-    M(TypeIndex::Float64, Float64, Float64)
-
-struct DecodeParams {
-    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
-    static const cctz::time_zone utc0;
-    // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true, we should set the time zone
-    cctz::time_zone* ctz = nullptr;
-    int64_t second_mask = 1;
-    int64_t scale_to_nano_factor = 1;
-    DecimalScaleParams decimal_scale;
-};
-
 class Decoder {
 public:
     Decoder() = default;
@@ -92,11 +70,6 @@ public:
         _data = data;
         _offset = 0;
     }
-
-    void init(FieldSchema* field_schema, cctz::time_zone* ctz);
-
-    template <typename DecimalPrimitiveType>
-    void init_decimal_converter(DataTypePtr& data_type);
 
     // Write the decoded values batch to doris's column
     virtual Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
@@ -125,33 +98,7 @@ protected:
     int32_t _type_length;
     Slice* _data = nullptr;
     uint32_t _offset = 0;
-    FieldSchema* _field_schema = nullptr;
-    std::unique_ptr<DecodeParams> _decode_params = nullptr;
 };
-
-template <typename DecimalPrimitiveType>
-void Decoder::init_decimal_converter(DataTypePtr& data_type) {
-    if (_decode_params == nullptr || _field_schema == nullptr ||
-        _decode_params->decimal_scale.scale_type != DecimalScaleParams::NOT_INIT) {
-        return;
-    }
-    auto scale = _field_schema->parquet_schema.scale;
-    auto* decimal_type = reinterpret_cast<DataTypeDecimal<Decimal<DecimalPrimitiveType>>*>(
-            const_cast<IDataType*>(remove_nullable(data_type).get()));
-    auto dest_scale = decimal_type->get_scale();
-    if (dest_scale > scale) {
-        _decode_params->decimal_scale.scale_type = DecimalScaleParams::SCALE_UP;
-        _decode_params->decimal_scale.scale_factor =
-                DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dest_scale - scale);
-    } else if (dest_scale < scale) {
-        _decode_params->decimal_scale.scale_type = DecimalScaleParams::SCALE_DOWN;
-        _decode_params->decimal_scale.scale_factor =
-                DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dest_scale);
-    } else {
-        _decode_params->decimal_scale.scale_type = DecimalScaleParams::NO_SCALE;
-        _decode_params->decimal_scale.scale_factor = 1;
-    }
-}
 
 class BaseDictDecoder : public Decoder {
 public:
@@ -173,6 +120,7 @@ protected:
      * Decode dictionary-coded values into doris_column, ensure that doris_column is ColumnDictI32 type,
      * and the coded values must be read into _indexes previously.
      */
+    template <bool has_filter>
     Status _decode_dict_values(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector,
                                bool is_dict_filter) {
         DCHECK(doris_column->is_column_dictionary() || is_dict_filter);
@@ -182,7 +130,7 @@ protected:
                 doris_column->is_column_dictionary()
                         ? assert_cast<ColumnDictI32&>(*doris_column).get_data()
                         : assert_cast<ColumnInt32&>(*doris_column).get_data();
-        while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
                 uint32_t* start_index = &_indexes[0];
@@ -213,8 +161,8 @@ protected:
     }
 
     // For dictionary encoding
-    std::unique_ptr<uint8_t[]> _dict = nullptr;
-    std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
+    std::unique_ptr<uint8_t[]> _dict;
+    std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder;
     std::vector<uint32_t> _indexes;
 };
 

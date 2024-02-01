@@ -24,8 +24,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TExprNode;
@@ -136,15 +134,12 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.STRING_LITERAL;
-        msg.string_literal = new TStringLiteral(getUnescapedValue());
-    }
-
-    // FIXME: modify by zhaochun
-    public String getUnescapedValue() {
-        // Unescape string exactly like Hive does. Hive's method assumes
-        // quotes so we add them here to reuse Hive's code.
-        return value;
+        if (value == null) {
+            msg.node_type = TExprNodeType.NULL_LITERAL;
+        } else {
+            msg.string_literal = new TStringLiteral(value);
+            msg.node_type = TExprNodeType.STRING_LITERAL;
+        }
     }
 
     @Override
@@ -170,6 +165,40 @@ public class StringLiteral extends LiteralExpr {
     @Override
     public String getRealValue() {
         return getStringValue();
+    }
+
+    /**
+     * Convert a string literal to a IPv4 literal
+     *
+     * @return new converted literal (not null)
+     * @throws AnalysisException when entire given string cannot be transformed into a date
+     */
+    public LiteralExpr convertToIPv4() throws AnalysisException {
+        LiteralExpr newLiteral;
+        newLiteral = new IPv4Literal(value);
+        try {
+            newLiteral.checkValueValid();
+        } catch (AnalysisException e) {
+            return NullLiteral.create(newLiteral.getType());
+        }
+        return newLiteral;
+    }
+
+    /**
+     * Convert a string literal to a IPv6 literal
+     *
+     * @return new converted literal (not null)
+     * @throws AnalysisException when entire given string cannot be transformed into a date
+     */
+    public LiteralExpr convertToIPv6() throws AnalysisException {
+        LiteralExpr newLiteral;
+        newLiteral = new IPv6Literal(value);
+        try {
+            newLiteral.checkValueValid();
+        } catch (AnalysisException e) {
+            return NullLiteral.create(newLiteral.getType());
+        }
+        return newLiteral;
     }
 
     /**
@@ -202,9 +231,9 @@ public class StringLiteral extends LiteralExpr {
         return newLiteral;
     }
 
-    public boolean canConvertToDateV2(Type targetType) {
+    public boolean canConvertToDateType(Type targetType) {
         try {
-            Preconditions.checkArgument(targetType.isDateV2());
+            Preconditions.checkArgument(targetType.isDateType());
             new DateLiteral(value, targetType);
             return true;
         } catch (AnalysisException e) {
@@ -243,28 +272,38 @@ public class StringLiteral extends LiteralExpr {
                     try {
                         return new FloatLiteral(Double.valueOf(value), targetType);
                     } catch (NumberFormatException e) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_NUMBER, value);
+                        // consistent with CastExpr's getResultValue() method
+                        return new NullLiteral();
                     }
-                    break;
                 case DECIMALV2:
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
-                    DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
-                    res.setType(targetType);
-                    return res;
+                case DECIMAL256:
+                    try {
+                        DecimalLiteral res = new DecimalLiteral(new BigDecimal(value).stripTrailingZeros());
+                        res.setType(targetType);
+                        return res;
+                    } catch (Exception e) {
+                        throw new AnalysisException(
+                                String.format("input value can't parse to decimal, value=%s", value));
+                    }
                 default:
                     break;
             }
         } else if (targetType.isDateType()) {
             // FE only support 'yyyy-MM-dd hh:mm:ss' && 'yyyy-MM-dd' format
             // so if FE unchecked cast fail, we also build CastExpr for BE
-            // BE support other format suck as 'yyyyMMdd'...
+            // BE support other format such as 'yyyyMMdd'...
             try {
                 return convertToDate(targetType);
             } catch (AnalysisException e) {
                 // pass;
             }
+        } else if (targetType.isIPv4()) {
+            return convertToIPv4();
+        } else if (targetType.isIPv6()) {
+            return convertToIPv6();
         } else if (targetType.equals(type)) {
             return this;
         } else if (targetType.isStringType()) {

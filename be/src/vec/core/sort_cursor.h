@@ -47,7 +47,7 @@ public:
 private:
     void _reset() {
         sort_columns.clear();
-        auto columns = block.get_columns();
+        auto columns = block.get_columns_and_convert();
         for (size_t j = 0, size = desc.size(); j < size; ++j) {
             auto& column_desc = desc[j];
             size_t column_number = !column_desc.column_name.empty()
@@ -161,7 +161,7 @@ struct MergeSortCursorImpl {
     MergeSortCursorImpl() = default;
     virtual ~MergeSortCursorImpl() = default;
 
-    MergeSortCursorImpl(const Block& block, const SortDescription& desc_)
+    MergeSortCursorImpl(Block& block, const SortDescription& desc_)
             : desc(desc_), sort_columns_size(desc.size()) {
         reset(block);
     }
@@ -171,13 +171,11 @@ struct MergeSortCursorImpl {
     bool empty() const { return rows == 0; }
 
     /// Set the cursor to the beginning of the new block.
-    void reset(const Block& block) { reset(block.get_columns(), block); }
-
-    /// Set the cursor to the beginning of the new block.
-    void reset(const Columns& columns, const Block& block) {
+    void reset(Block& block) {
         all_columns.clear();
         sort_columns.clear();
 
+        auto columns = block.get_columns_and_convert();
         size_t num_columns = columns.size();
 
         for (size_t j = 0; j < num_columns; ++j) {
@@ -208,7 +206,7 @@ using BlockSupplier = std::function<Status(Block*, bool* eos)>;
 
 struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     BlockSupplierSortCursorImpl(const BlockSupplier& block_supplier,
-                                const std::vector<VExprContext*>& ordering_expr,
+                                const VExprContextSPtrs& ordering_expr,
                                 const std::vector<bool>& is_asc_order,
                                 const std::vector<bool>& nulls_first)
             : _ordering_expr(ordering_expr), _block_supplier(block_supplier) {
@@ -244,6 +242,8 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
             }
             MergeSortCursorImpl::reset(_block);
             return status.ok();
+        } else if (!status.ok()) {
+            throw std::runtime_error(status.msg());
         }
         return false;
     }
@@ -266,7 +266,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         return _block.clone_with_columns(std::move(columns));
     }
 
-    std::vector<VExprContext*> _ordering_expr;
+    VExprContextSPtrs _ordering_expr;
     Block _block;
     BlockSupplier _block_supplier {};
     bool _is_eof = false;
@@ -317,7 +317,7 @@ struct MergeSortCursor {
 
 /// For easy copying.
 struct MergeSortBlockCursor {
-    MergeSortCursorImpl* impl;
+    MergeSortCursorImpl* impl = nullptr;
 
     MergeSortBlockCursor(MergeSortCursorImpl* impl_) : impl(impl_) {}
     MergeSortCursorImpl* operator->() const { return impl; }

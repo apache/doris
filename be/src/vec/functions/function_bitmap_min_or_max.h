@@ -49,10 +49,8 @@ public:
         return make_nullable(std::make_shared<DataTypeInt64>());
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto result_column = ColumnInt64::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
@@ -78,7 +76,7 @@ public:
 
 private:
     void execute_straight(const ColumnBitmap* date_column, ColumnInt64* result_column,
-                          NullMap& result_null_map, size_t input_rows_count) {
+                          NullMap& result_null_map, size_t input_rows_count) const {
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
                 result_column->insert_default();

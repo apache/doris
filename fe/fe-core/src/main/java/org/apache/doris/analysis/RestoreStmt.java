@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -38,6 +39,7 @@ public class RestoreStmt extends AbstractBackupStmt {
     private static final String PROP_META_VERSION = "meta_version";
     private static final String PROP_RESERVE_REPLICA = "reserve_replica";
     private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
+    private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
@@ -45,10 +47,21 @@ public class RestoreStmt extends AbstractBackupStmt {
     private int metaVersion = -1;
     private boolean reserveReplica = false;
     private boolean reserveDynamicPartitionEnable = false;
+    private boolean isLocal = false;
+    private boolean isBeingSynced = false;
+    private byte[] meta = null;
+    private byte[] jobInfo = null;
 
     public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
                        Map<String, String> properties) {
         super(labelName, repoName, restoreTableRefClause, properties);
+    }
+
+    public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
+                       Map<String, String> properties, byte[] meta, byte[] jobInfo) {
+        super(labelName, repoName, restoreTableRefClause, properties);
+        this.meta = meta;
+        this.jobInfo = jobInfo;
     }
 
     public boolean allowLoad() {
@@ -75,8 +88,35 @@ public class RestoreStmt extends AbstractBackupStmt {
         return reserveDynamicPartitionEnable;
     }
 
+    public boolean isLocal() {
+        return isLocal;
+    }
+
+    public byte[] getMeta() {
+        return meta;
+    }
+
+    public byte[] getJobInfo() {
+        return jobInfo;
+    }
+
+    public void setIsBeingSynced() {
+        setProperty(PROP_IS_BEING_SYNCED, "true");
+    }
+
+    public boolean isBeingSynced() {
+        return isBeingSynced;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
+            isLocal = true;
+            if (jobInfo == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "restore from the local repo via SQL call is not supported");
+            }
+        }
         super.analyze(analyzer);
     }
 
@@ -148,8 +188,10 @@ public class RestoreStmt extends AbstractBackupStmt {
             backupTimestamp = copiedProperties.get(PROP_BACKUP_TIMESTAMP);
             copiedProperties.remove(PROP_BACKUP_TIMESTAMP);
         } else {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                    "Missing " + PROP_BACKUP_TIMESTAMP + " property");
+            if (!isLocal) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Missing " + PROP_BACKUP_TIMESTAMP + " property");
+            }
         }
 
         // meta version
@@ -161,6 +203,19 @@ public class RestoreStmt extends AbstractBackupStmt {
                         "Invalid meta version format: " + copiedProperties.get(PROP_META_VERSION));
             }
             copiedProperties.remove(PROP_META_VERSION);
+        }
+
+        // is being synced
+        if (copiedProperties.containsKey(PROP_IS_BEING_SYNCED)) {
+            if (copiedProperties.get(PROP_IS_BEING_SYNCED).equalsIgnoreCase("true")) {
+                isBeingSynced = true;
+            } else if (copiedProperties.get(PROP_IS_BEING_SYNCED).equalsIgnoreCase("false")) {
+                isBeingSynced = false;
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid is being synced value: " + copiedProperties.get(PROP_IS_BEING_SYNCED));
+            }
+            copiedProperties.remove(PROP_IS_BEING_SYNCED);
         }
 
         if (!copiedProperties.isEmpty()) {

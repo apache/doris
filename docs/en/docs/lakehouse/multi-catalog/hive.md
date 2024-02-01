@@ -26,107 +26,83 @@ under the License.
 
 # Hive
 
-Once Doris is connected to Hive Metastore or made compatible with Hive Metastore metadata service, it can access databases and tables in Hive and conduct queries.
+By connecting to Hive Metastore, or a metadata service compatible with Hive Metatore, Doris can automatically obtain Hive database table information and perform data queries.
 
-Besides Hive, many other systems, such as Iceberg and Hudi, use Hive Metastore to keep their metadata. Thus, Doris can also access these systems via Hive Catalog. 
+In addition to Hive, many other systems also use the Hive Metastore to store metadata. So through Hive Catalog, we can not only access Hive, but also access systems that use Hive Metastore as metadata storage. Such as Iceberg, Hudi, etc.
 
-## Usage
+## Terms and Conditions
 
-When connnecting to Hive, Doris:
-
-1. Supports Hive version 1/2/3;
-2. Supports both Managed Table and External Table;
-3. Can identify metadata of Hive, Iceberg, and Hudi stored in Hive Metastore;
-4. Supports Hive tables with data stored in JuiceFS, which can be used the same way as normal Hive tables (put `juicefs-hadoop-x.x.x.jar` in `fe/lib/` and `apache_hdfs_broker/lib/`).
-5. Supports Hive tables with data stored in CHDFS, which can be used the same way as normal Hive tables. Follow below steps to prepare doris environment：
-    1. put chdfs_hadoop_plugin_network-x.x.jar in fe/lib/ and apache_hdfs_broker/lib/
-    2. copy core-site.xml and hdfs-site.xml from hive cluster to fe/conf/ and apache_hdfs_broker/conf
-
-<version since="dev">
-
-6. Supports Hive / Iceberg tables with data stored in GooseFS(GFS), which can be used the same way as normal Hive tables. Follow below steps to prepare doris environment：
-    1. put goosefs-x.x.x-client.jar in fe/lib/ and apache_hdfs_broker/lib/
-    2. add extra properties 'fs.AbstractFileSystem.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.GooseFileSystem'， 'fs.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.FileSystem' when creating catalog
-
-</version>
+1. Need to put core-site.xml, hdfs-site.xml and hive-site.xml in the conf directory of FE and BE. First read the hadoop configuration file in the conf directory, and then read the related to the environment variable `HADOOP_CONF_DIR` configuration file.
+2. hive supports version 1/2/3.
+3. Support Managed Table and External Table and part of Hive View.
+4. Can identify hive, iceberg, hudi metadata stored in Hive Metastore.
 
 ## Create Catalog
 
+### Hive On HDFS
+
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'hadoop.username' = 'hive',
     'dfs.nameservices'='your-nameservice',
     'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
 
- In addition to `type` and  `hive.metastore.uris` , which are required, you can specify other parameters regarding the connection.
+In addition to the two required parameters of `type` and `hive.metastore.uris`, more parameters can be passed to pass the information required for the connection.
 
-> `specified_database_list`:
-> 
-> only synchronize the specified databases, split with ','. Default values is '' will synchronize all databases. db name is case sensitive.
-> 
-	
-For example, to specify HDFS HA:
+If HDFS HA information is provided, the example is as follows:
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'hadoop.username' = 'hive',
     'dfs.nameservices'='your-nameservice',
     'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
 
-To specify HDFS HA and Kerberos authentication information:
+### Hive On VIEWFS
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-    'hive.metastore.sasl.enabled' = 'true',
-    'hive.metastore.kerberos.principal' = 'your-hms-principal',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+    'hadoop.username' = 'hive',
     'dfs.nameservices'='your-nameservice',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
-    'hadoop.security.authentication' = 'kerberos',
-    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
-    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
-    'yarn.resourcemanager.principal' = 'your-rm-principal'
+    'fs.defaultFS' = 'viewfs://your-cluster',
+    'fs.viewfs.mounttable.your-cluster.link./ns1' = 'hdfs://your-nameservice/',
+    'fs.viewfs.mounttable.your-cluster.homedir' = '/ns1'
 );
 ```
 
-Remember `krb5.conf` and `keytab` file should be placed at all `BE` nodes and `FE` nodes. The location of `keytab` file should be equal to the value of `hadoop.kerberos.keytab`.
-As default, `krb5.conf` should be placed at `/etc/krb5.conf`.
+viewfs related parameters can be added to the catalog configuration as above, or added to `conf/core-site.xml`.
 
-Value of `hive.metastore.kerberos.principal` should be same with the same name property used by HMS you are connecting to, which can be found in `hive-site.xml`.
+How viewfs works and parameter configuration, please refer to relevant hadoop documents, for example, https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-hdfs/ViewFs.html
 
-To provide Hadoop KMS encrypted transmission information:
+### Hive On JuiceFS
+
+Data is stored in JuiceFS, examples are as follows:
+
+(Need to put `juicefs-hadoop-x.x.x.jar` under `fe/lib/` and `apache_hdfs_broker/lib/`)
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-    'dfs.encryption.key.provider.uri' = 'kms://http@kms_host:kms_port/kms'
-);
-```
-
-Or to connect to Hive data stored on JuiceFS:
-
-```sql
-CREATE CATALOG hive PROPERTIES (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'hadoop.username' = 'root',
     'fs.jfs.impl' = 'io.juicefs.JuiceFileSystem',
     'fs.AbstractFileSystem.jfs.impl' = 'io.juicefs.JuiceFS',
@@ -134,194 +110,471 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-Or to connect to Glue and data stored on S3:
+### Hive On S3
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.0.0.1:9083",
+    "s3.endpoint" = "s3.us-east-1.amazonaws.com",
+    "s3.region" = "us-east-1",
+    "s3.access_key" = "ak",
+    "s3.secret_key" = "sk"
+    "use_path_style" = "true"
+);
+```
+
+Options:
+
+* s3.connection.maximum: s3 maximum connection number, default 50
+* s3.connection.request.timeout: s3 request timeout, default 3000ms
+* s3.connection.timeout: s3 connection timeout, default 1000ms
+
+### Hive On OSS
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.0.0.1:9083",
+    "oss.endpoint" = "oss.oss-cn-beijing.aliyuncs.com",
+    "oss.access_key" = "ak",
+    "oss.secret_key" = "sk"
+);
+```
+
+### Hive On OBS
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.0.0.1:9083",
+    "obs.endpoint" = "obs.cn-north-4.myhuaweicloud.com",
+    "obs.access_key" = "ak",
+    "obs.secret_key" = "sk"
+);
+```
+
+### Hive On COS
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://172.0.0.1:9083",
+    "cos.endpoint" = "cos.ap-beijing.myqcloud.com",
+    "cos.access_key" = "ak",
+    "cos.secret_key" = "sk"
+);
+```
+
+### Hive With Glue
+
+> When connecting Glue, if it's not on the EC2 environment, need copy the `~/.aws` from the EC2 environment to the current environment. And can also download and configure the [AWS Cli tools](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), which also creates the `.aws` directory under the current user directory.
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.type" = "glue",
-    "aws.region" = "us-east-1",
-    "aws.glue.access-key" = "ak",
-    "aws.glue.secret-key" = "sk",
-    "AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
-    "AWS_REGION" = "us-east-1",
-    "AWS_ACCESS_KEY" = "ak",
-    "AWS_SECRET_KEY" = "sk",
-    "use_path_style" = "true"
+    "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+    "glue.access_key" = "ak",
+    "glue.secret_key" = "sk"
 );
 ```
 
-In Doris 1.2.1 and newer, you can create a Resource that contains all these parameters, and reuse the Resource when creating new Catalogs. Here is an example:
+## Metadata Cache & Refresh
 
-```sql
-# 1. Create Resource
-CREATE RESOURCE hms_resource PROPERTIES (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-    'hadoop.username' = 'hive',
-    'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
-    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
-);
-	
-# 2. Create Catalog and use an existing Resource. The key and value information in the followings will overwrite the corresponding information in the Resource.
-CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
-    'key' = 'value'
-);
+For Hive Catalog, 4 types of metadata are cached in Doris:
+
+1. Table structure: cache table column information, etc.
+2. Partition value: Cache the partition value information of all partitions of a table.
+3. Partition information: Cache the information of each partition, such as partition data format, partition storage location, partition value, etc.
+4. File information: Cache the file information corresponding to each partition, such as file path location, etc.
+
+The above cache information will not be persisted to Doris, so operations such as restarting Doris's FE node, switching masters, etc. may cause the cache to become invalid. After the cache expires, Doris will directly access the Hive MetaStore to obtain information and refill the cache.
+
+Metadata cache can be updated automatically, manually, or configured with TTL (Time-to-Live) according to user needs.
+
+### Default behavior and TTL
+
+By default, the metadata cache expires 10 minutes after it is first accessed. This time is determined by the configuration parameter `external_cache_expire_time_minutes_after_access` in fe.conf. (Note that in versions 2.0.1 and earlier, the default value for this parameter was 1 day).
+
+For example, if the user accesses the metadata of table A for the first time at 10:00, then the metadata will be cached and will automatically expire after 10:10. If the user accesses the same metadata again at 10:11, Doris will directly access the Hive MetaStore to obtain information and refill the cache.
+
+`external_cache_expire_time_minutes_after_access` affects all 4 caches under Catalog.
+
+For the `INSERT INTO OVERWRITE PARTITION` operation commonly used in Hive, you can also timely update the `File Information Cache` by configuring the TTL of the `File Information Cache`:
+
 ```
-
-<version since="dev"></version> 
-
-You can use the config `file.meta.cache.ttl-second` to set TTL(Time-to-Live) config of File Cache, so that the stale file info will be invalidated automatically after expiring. The unit of time is second.
-
-You can also set file_meta_cache_ttl_second to 0 to disable file cache.Here is an example:
-
-```sql
 CREATE CATALOG hive PROPERTIES (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-    'hadoop.username' = 'hive',
-    'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
-    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
-    'file.meta.cache.ttl-second' = '60'
+     'type'='hms',
+     'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+     'file.meta.cache.ttl-second' = '60'
 );
 ```
 
-You can also put the `hive-site.xml` file in the `conf`  directories of FE and BE. This will enable Doris to automatically read information from `hive-site.xml`. The relevant information will be overwritten based on the following rules :
-	
+In the above example, `file.meta.cache.ttl-second` is set to 60 seconds, and the cache will expire after 60 seconds. This parameter will only affect the `file information cache`.
 
-* Information in Resource will overwrite that in  `hive-site.xml`. 
-* Information in `CREATE CATALOG PROPERTIES` will overwrite that in Resource.
+You can also set this value to 0 to disable file caching, which will fetch file information directly from the Hive MetaStore every time.
 
-### Hive Versions
+### Manual refresh
 
-Doris can access Hive Metastore in all Hive versions. By default, Doris uses the interface compatible with Hive 2.3 to access Hive Metastore. You can specify a certain Hive version when creating Catalogs, for example:
+Users need to manually refresh the metadata through the [REFRESH](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
+
+1. REFRESH CATALOG: Refresh the specified Catalog.
+
+     ```
+     REFRESH CATALOG ctl1 PROPERTIES("invalid_cache" = "true");
+     ```
+
+     This command will refresh the database list, table list, and all cache information of the specified Catalog.
+
+     `invalid_cache` indicates whether to flush the cache. Defaults to true. If it is false, only the database and table list of the catalog will be refreshed, but the cache information will not be refreshed. This parameter is applicable when the user only wants to synchronize newly added or deleted database/table information.
+
+2. REFRESH DATABASE: Refresh the specified Database.
+
+     ```
+     REFRESH DATABASE [ctl.]db1 PROPERTIES("invalid_cache" = "true");
+     ```
+
+     This command will refresh the table list of the specified Database and all cached information under the Database.
+
+     The meaning of the `invalid_cache` attribute is the same as above. Defaults to true. If false, only the Database's table list will be refreshed, not cached information. This parameter is suitable for users who only want to synchronize newly added or deleted table information.
+
+3. REFRESH TABLE: Refresh the specified Table.
+
+     ```
+     REFRESH TABLE [ctl.][db.]tbl1;
+     ```
+
+     This command will refresh all cache information under the specified Table.
+
+### Regular refresh
+
+Users can set the scheduled refresh of the Catalog when creating the Catalog.
+
+```
+CREATE CATALOG hive PROPERTIES (
+     'type'='hms',
+     'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+     'metadata_refresh_interval_sec' = '600'
+);
+```
+
+In the above example, `metadata_refresh_interval_sec` means refreshing the Catalog every 600 seconds. Equivalent to automatically executing every 600 seconds:
+
+`REFRESH CATALOG ctl1 PROPERTIES("invalid_cache" = "true");`
+
+The scheduled refresh interval must not be less than 5 seconds.
+
+### Auto Refresh
+
+Currently, Doris only supports automatic update of metadata in Hive Metastore (HMS). It perceives changes in metadata by the FE node which regularly reads the notification events from HMS. The supported events are as follows:
+
+| Event           | Corresponding Update Operation                               |
+| :-------------- | :----------------------------------------------------------- |
+| CREATE DATABASE | Create a database in the corresponding catalog.              |
+| DROP DATABASE   | Delete a database in the corresponding catalog.              |
+| ALTER DATABASE  | Such alterations mainly include changes in properties, comments, or storage location of databases. They do not affect Doris' queries in External Catalogs so they will not be synchronized. |
+| CREATE TABLE    | Create a table in the corresponding database.                |
+| DROP TABLE      | Delete a table in the corresponding database, and invalidate the cache of that table. |
+| ALTER TABLE     | If it is a renaming, delete the table of the old name, and then create a new table with the new name; otherwise, invalidate the cache of that table. |
+| ADD PARTITION   | Add a partition to the cached partition list of the corresponding table. |
+| DROP PARTITION  | Delete a partition from the cached partition list of the corresponding table, and invalidate the cache of that partition. |
+| ALTER PARTITION | If it is a renaming, delete the partition of the old name, and then create a new partition with the new name; otherwise, invalidate the cache of that partition. |
+
+> After data ingestion, changes in partition tables will follow the `ALTER PARTITION` logic, while those in non-partition tables will follow the `ALTER TABLE` logic.
+>
+> If changes are conducted on the file system directly instead of through the HMS, the HMS will not generate an event. As a result, such changes will not be perceived by Doris.
+
+The automatic update feature involves the following parameters in fe.conf:
+
+1. `enable_hms_events_incremental_sync`: This specifies whether to enable automatic incremental synchronization for metadata, which is disabled by default. 
+2. `hms_events_polling_interval_ms`: This specifies the interval between two readings, which is set to 10000 by default. (Unit: millisecond) 
+3. `hms_events_batch_size_per_rpc`: This specifies the maximum number of events that are read at a time, which is set to 500 by default.
+
+To enable automatic update(Excluding Huawei MRS), you need to modify the hive-site.xml of HMS and then restart HMS and HiveServer2:
+
+```
+<property>
+    <name>hive.metastore.event.db.notification.api.auth</name>
+    <value>false</value>
+</property>
+<property>
+    <name>hive.metastore.dml.events</name>
+    <value>true</value>
+</property>
+<property>
+    <name>hive.metastore.transactional.event.listeners</name>
+    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+
+```
+
+Huawei's MRS needs to change hivemetastore-site.xml and restart HMS and HiveServer2:
+
+```
+<property>
+    <name>metastore.transactional.event.listeners</name>
+    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+```
+
+Note: Value is appended with commas separated from the original value, not overwritten.For example, the default configuration for MRS 3.1.0 is
+
+```
+<property>
+    <name>metastore.transactional.event.listeners</name>
+    <value>com.huawei.bigdata.hive.listener.TableKeyFileManagerListener,org.apache.hadoop.hive.metastore.listener.FileAclListener</value>
+</property>
+```
+
+We need to change to
+
+```
+<property>
+    <name>metastore.transactional.event.listeners</name>
+    <value>com.huawei.bigdata.hive.listener.TableKeyFileManagerListener,org.apache.hadoop.hive.metastore.listener.FileAclListener,org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+```
+
+> Note: To enable automatic update, whether for existing Catalogs or newly created Catalogs, all you need is to set `enable_hms_events_incremental_sync` to `true`, and then restart the FE node. You don't need to manually update the metadata before or after the restart.
+
+## Hive Version
+
+Doris can correctly access the Hive Metastore in different Hive versions. By default, Doris will access the Hive Metastore with a Hive 2.3 compatible interface.
+
+If you meet error message like `Invalid method name: 'get_table_req'`, which means the hive version is mismatch.
+
+You can specify the hive version when creating the Catalog. If accessing Hive 1.1.0 version:
 
 ```sql 
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
     'hive.version' = '1.1.0'
 );
 ```
 
-## Column Type Mapping
+## Column type mapping
 
-This is applicable for Hive/Iceberge/Hudi.
+For Hive/Iceberge/Hudi
 
-| HMS Type      | Doris Type    | Comment                                           |
-| ------------- | ------------- | ------------------------------------------------- |
-| boolean       | boolean       |                                                   |
-| tinyint       | tinyint       |                                                   |
-| smallint      | smallint      |                                                   |
-| int           | int           |                                                   |
-| bigint        | bigint        |                                                   |
-| date          | date          |                                                   |
-| timestamp     | datetime      |                                                   |
-| float         | float         |                                                   |
-| double        | double        |                                                   |
-| char          | char          |                                                   |
-| varchar       | varchar       |                                                   |
-| decimal       | decimal       |                                                   |
-| `array<type>` | `array<type>` | Support nested array, such as `array<array<int>>` |
-| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | Not support nested map. KeyType and ValueType should be primitive types. |
-| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | Not support nested struct. Type1, Type2, ... should be primitive types. |
-| other         | unsupported   |                                                   |
+| HMS Type | Doris Type | Comment |
+|---|---|---|
+| boolean| boolean | |
+| tinyint|tinyint | |
+| smallint| smallint| |
+| int| int | |
+| bigint| bigint | |
+| date| date| |
+| timestamp| datetime| |
+| float| float| |
+| double| double| |
+| char| char | |
+| varchar| varchar| |
+| decimal| decimal | |
+| `array<type>` | `array<type>`| support nested type, for example `array<array<int>>` |
+| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | support nested type, for example `map<string, array<int>>` |
+| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | support nested type, for example `struct<col1: array<int>, col2: map<int, date>>` |
+| other | unsupported | |
 
-## Use Ranger for permission verification
+## Whether to truncate char or varchar columns according to the schema of the hive table
 
-<version since="dev">
+If the variable `truncate_char_or_varchar_columns` is enabled, when the maximum length of the char or varchar column in the schema of the hive table is inconsistent with the schema in the underlying parquet or orc file, it will be truncated according to the maximum length of the hive table column.
 
-Apache Ranger is a security framework for monitoring, enabling services, and managing comprehensive data security access on the Hadoop platform.
+The variable default is false.
 
-Currently, Doris supports Ranger's library, table, and column permissions, but does not support encryption, row permissions, and so on.
+## Access HMS with broker
 
-</version>
-
-
-### Environment configuration
-
-Connecting to Hive Metastore with Ranger permission verification enabled requires additional configuration&configuration environment:
-1. When creating a catalog, add:
+Add following setting when creating an HMS catalog, file splitting and scanning for Hive external table will be completed by broker named `test_broker`
 
 ```sql
-"access_controller.properties.ranger.service.name" = "hive",
-"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+"broker.name" = "test_broker"
 ```
+
+
+Doris has implemented Broker query support for HMS Catalog Iceberg based on the Iceberg `FileIO` interface. If needed, the following configuration can be added when creating the HMS Catalog.
+
+```sql
+"io-impl" = "org.apache.doris.datasource.iceberg.broker.IcebergBrokerIO"
+```
+
+## Integrate with Apache Ranger
+
+Apache Ranger is a security framework for monitoring, enabling services, and comprehensive data security access management on the Hadoop platform.
+
+Doris supports using Apache Ranger for authentication for a specified External Hive Catalog.
+
+Currently, authentication of database, table, and column is supported. Functions such as encryption, row policy, and data masks are not currently supported.
+
+To use Apache Ranger to authenticate the entire Doris cluster service, please refer to [Apache Ranger Authentication](../../admin-manual/privilege-ldap/ranger.md)
+
+### Settings
+
+To connect to the Hive Metastore with Ranger permission verification enabled, you need to add configuration & configuration environment:
+
+1. When creating a Catalog, add:
+
+	```sql
+	"access_controller.properties.ranger.service.name" = "hive",
+	"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+	```
+
+	> Note:
+	>
+	> `access_controller.properties.ranger.service.name` refers to the type of service, such as `hive`, `hdfs`, etc. It is not the value of `ranger.plugin.hive.service.name` in the configuration file.
+
 2. Configure all FE environments:
 
-    1. Copy the configuration files ranger-live-audit.xml, ranger-live-security.xml, ranger-policymgr-ssl.xml under the HMS conf directory to<doris_ Home>/conf directory.
+    1. Copy the configuration files ranger-hive-audit.xml, ranger-hive-security.xml, and ranger-policymgr-ssl.xml under the HMS conf directory to the FE conf directory.
 
-    2. Modify the properties of ranger-live-security.xml. The reference configuration is as follows:
+    2. Modify the properties of ranger-hive-security.xml, the reference configuration is as follows:
 
-    ```sql
-    <?xml version="1.0" encoding="UTF-8"?>
-    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
-    <configuration>
-        #The directory for caching permission data, needs to be writable
-        <property>
-            <name>ranger.plugin.hive.policy.cache.dir</name>
-            <value>/mnt/datadisk0/zhangdong/rangerdata</value>
-        </property>
-        #The time interval for periodically pulling permission data
-        <property>
-            <name>ranger.plugin.hive.policy.pollIntervalMs</name>
-            <value>30000</value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.policy.rest.client.connection.timeoutMs</name>
-            <value>60000</value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.policy.rest.client.read.timeoutMs</name>
-            <value>60000</value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.policy.rest.ssl.config.file</name>
-            <value></value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.policy.rest.url</name>
-            <value>http://172.21.0.32:6080</value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.policy.source.impl</name>
-            <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
-        </property>
-    
-        <property>
-            <name>ranger.plugin.hive.service.name</name>
-            <value>hive</value>
-        </property>
-    
-        <property>
-            <name>xasecure.hive.update.xapolicies.on.grant.revoke</name>
-            <value>true</value>
-        </property>
-    
-    </configuration>
-    ```
-    3. To obtain the log of Ranger authentication itself, you can click<doris_ Add the configuration file log4j.properties under the home>/conf directory.
+        ```sql
+        <?xml version="1.0" encoding="UTF-8"?>
+        <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+        <configuration>
+            #The directory for caching permission data, needs to be writable
+            <property>
+                <name>ranger.plugin.hive.policy.cache.dir</name>
+                <value>/mnt/datadisk0/zhangdong/rangerdata</value>
+            </property>
+            #The time interval for periodically pulling permission data
+            <property>
+                <name>ranger.plugin.hive.policy.pollIntervalMs</name>
+                <value>30000</value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.policy.rest.client.connection.timeoutMs</name>
+                <value>60000</value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.policy.rest.client.read.timeoutMs</name>
+                <value>60000</value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.policy.rest.ssl.config.file</name>
+                <value></value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.policy.rest.url</name>
+                <value>http://172.21.0.32:6080</value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.policy.source.impl</name>
+                <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
+            </property>
+        
+            <property>
+                <name>ranger.plugin.hive.service.name</name>
+                <value>hive</value>
+            </property>
+        
+            <property>
+                <name>xasecure.hive.update.xapolicies.on.grant.revoke</name>
+                <value>true</value>
+            </property>
+        
+        </configuration>
+        ```
+
+    3. In order to obtain the log of Ranger authentication itself, add the configuration file log4j.properties in the `<doris_home>/conf` directory.
 
     4. Restart FE.
 
 ### Best Practices
 
-1.Create user user1 on the ranger side and authorize the query permission of db1.table1.col1 
+1. Create user user1 on the ranger side and authorize the query permission of db1.table1.col1
 
-2.Create the role role1 on the ranger side and authorize the query permission of db1.table1.col2
+2. Create role role1 on the ranger side and authorize the query permission of db1.table1.col2
 
-3.Create user user1 with the same name in Doris, and user1 will directly have the query permission of db1.table1.col1
+3. Create a user user1 with the same name in doris, user1 will directly have the query authority of db1.table1.col1
 
-4.Create the role role1 with the same name in Doris and assign role1 to user1. User1 will have query permissions for both db1.table1.col1 and col2
+4. Create role1 with the same name in doris, and assign role1 to user1, user1 will have the query authority of db1.table1.col1 and col2 at the same time
+
+5. The permissions of Admin and Root users are not controlled by Apache Ranger.
+
+## Integrate with Kerberos
+
+Kerberos is an authentication protocol. It is designed to provide strong authentication for applications by using secret-key cryptography.
+
+### Settings
+
+1. If Kerberos authentication is configured for services in the cluster, need obtain their authentication information when configuring the Hive Catalog.
+
+    `hadoop.kerberos.keytab`: It records the principals required for authentication, and the keytab in the Doris cluster must be the same.
+
+    `hadoop.kerberos.principal`: Find the principal corresponding to the hostname on the Doris cluster, such as `doris/hostname@HADOOP.COM`, and check the keytab with `klist -kt`.
+
+    `yarn.resourcemanager.principal`: Go to the Yarn Resource Manager node, get it from `yarn-site.xml`, and check the keytab of Yarn with `klist-kt`.
+
+    `hive.metastore.kerberos.principal`: Go to the Hive metadata service node, get it from `hive-site.xmll`, and check the keytab of Hive with `klist-kt`.
+
+    `hadoop.security.authentication`: Enable Hadoop Kerberos authentication.
+
+Please place the `krb5.conf` file and `keytab` authentication file under all `BE` and `FE` nodes. The path of the `keytab` authentication file is consistent with the configuration. The `krb5.conf` file is placed in `/etc by default /krb5.conf` path. Make sure that the JVM parameter `-Djava.security.krb5.conf` and the environment variable `KRB5_CONFIG` point to the correct path to the `krb5.conf` file.
+
+2. After the configuration is complete, If no error is reported in the `FE` or `BE` logs, you can enable Kerberos debugging. See related error resolution: [FAQ](../faq.md)
+
+- Under all `FE` and `BE` nodes, find `conf/fe.conf` and `conf/be.conf` under the deployment path.
+
+- After the above configuration file is found, set the JVM parameter `-Dsun.security.krb5.debug=true` in the `JAVA_OPTS` variable to enable Kerberos debugging.
+
+- You can view debugging information about `FE` Kerberos authentication in the log path of the fe node `log/fe.out`.
+
+- You can view debugging information about `BE` Kerberos authentication in the log path of the be node `log/be.out`.
+
+### Best Practices
+
+Examples:
+
+```sql
+CREATE CATALOG hive_krb PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+    'hive.metastore.sasl.enabled' = 'true',
+    'hive.metastore.kerberos.principal' = 'your-hms-principal',
+    'hadoop.security.authentication' = 'kerberos',
+    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
+    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
+    'yarn.resourcemanager.principal' = 'your-rm-principal'
+);
+```
+
+Provide HDFS HA information and Kerberos authentication information at the same time, examples are as follows:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+    'hive.metastore.sasl.enabled' = 'true',
+    'hive.metastore.kerberos.principal' = 'your-hms-principal',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'hadoop.security.authentication' = 'kerberos',
+    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
+    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
+    'yarn.resourcemanager.principal' = 'your-rm-principal'
+);
+```
+## Hive Transactional Tables
+
+Hive transactional tables are tables in Hive that support ACID (Atomicity, Consistency, Isolation, Durability) semantics. For more details, you can refer to: [Hive Transactions](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions).
+
+### Supported Operations for Hive Transactional Tables:
+|Transactional Table Type|Supported Operations in Hive|Hive Table Properties|Supported Hive Versions|
+|---|---|---|---|
+|Full-ACID Transactional Table |Supports insert, update, delete operations|'transactional'='true', 'transactional_properties'='insert_only'|3.x, 2.x (requires major compaction in Hive before loading)|
+|Insert-Only Transactional Table|Supports only Insert operations|'transactional'='true'|3.x, 2.x|
+
+### Current Limitations:
+Currently, it does not support scenarios involving Original Files.
+When a table is transformed into a transactional table, subsequent newly written data files will use the schema of the Hive transactional table. However, existing data files will not be converted to the schema of the transactional table. These existing files are referred to as Original Files.
 

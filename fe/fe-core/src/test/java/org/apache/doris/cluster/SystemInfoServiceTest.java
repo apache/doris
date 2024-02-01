@@ -109,10 +109,6 @@ public class SystemInfoServiceTest {
                 minTimes = 0;
                 result = table;
 
-                env.getCluster(anyString);
-                minTimes = 0;
-                result = new Cluster("cluster", 1);
-
                 env.clear();
                 minTimes = 0;
 
@@ -230,10 +226,10 @@ public class SystemInfoServiceTest {
         }
 
         Assert.assertNotNull(Env.getCurrentSystemInfo().getBackend(backendId));
-        Assert.assertNotNull(Env.getCurrentSystemInfo().getBackendWithHeartbeatPort("192.168.0.1", null, 1234));
+        Assert.assertNotNull(Env.getCurrentSystemInfo().getBackendWithHeartbeatPort("192.168.0.1", 1234));
 
-        Assert.assertTrue(Env.getCurrentSystemInfo().getBackendIds(false).size() == 1);
-        Assert.assertTrue(Env.getCurrentSystemInfo().getBackendIds(false).get(0) == backendId);
+        Assert.assertTrue(Env.getCurrentSystemInfo().getAllBackendIds(false).size() == 1);
+        Assert.assertTrue(Env.getCurrentSystemInfo().getAllBackendIds(false).get(0) == backendId);
 
         Assert.assertTrue(Env.getCurrentSystemInfo().getBackendReportVersion(backendId) == 0L);
 
@@ -253,6 +249,33 @@ public class SystemInfoServiceTest {
         }
 
         DropBackendClause dropStmt = new DropBackendClause(Lists.newArrayList("192.168.0.1:1234"));
+        dropStmt.analyze(analyzer);
+        try {
+            Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostInfos());
+        } catch (DdlException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        try {
+            Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostInfos());
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("does not exist"));
+        }
+    }
+
+    @Test
+    public void removeBackendTestByBackendId() throws UserException {
+        clearAllBackend();
+        AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
+        stmt.analyze(analyzer);
+        try {
+            Env.getCurrentSystemInfo().addBackends(stmt.getHostInfos(), true);
+        } catch (DdlException e) {
+            e.printStackTrace();
+        }
+
+        DropBackendClause dropStmt = new DropBackendClause(Lists.newArrayList(String.valueOf(backendId)));
         dropStmt.analyze(analyzer);
         try {
             Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostInfos());

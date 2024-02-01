@@ -69,8 +69,8 @@ TEST(FunctionLikeTest, like) {
     InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String}};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
-        check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
-                                            const_pattern_dataset);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
+                                                              const_pattern_dataset));
     }
 }
 
@@ -105,8 +105,8 @@ TEST(FunctionLikeTest, regexp) {
     InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String}};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
-        check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
-                                            const_pattern_dataset);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
+                                                              const_pattern_dataset));
     }
 }
 
@@ -144,8 +144,8 @@ TEST(FunctionLikeTest, regexp_extract) {
                                               TypeIndex::Int64};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
-        check_function<DataTypeString, true>(func_name, const_pattern_input_types,
-                                             const_pattern_dataset);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
+                                                               const_pattern_dataset));
     }
 }
 
@@ -175,8 +175,8 @@ TEST(FunctionLikeTest, regexp_extract_all) {
     InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String}};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
-        check_function<DataTypeString, true>(func_name, const_pattern_input_types,
-                                             const_pattern_dataset);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
+                                                               const_pattern_dataset));
     }
 }
 
@@ -205,8 +205,8 @@ TEST(FunctionLikeTest, regexp_replace) {
                                               TypeIndex::String};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
-        check_function<DataTypeString, true>(func_name, const_pattern_input_types,
-                                             const_pattern_dataset);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
+                                                               const_pattern_dataset));
     }
 }
 
@@ -235,8 +235,8 @@ TEST(FunctionLikeTest, regexp_replace_one) {
                                               TypeIndex::String};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
-        check_function<DataTypeString, true>(func_name, const_pattern_input_types,
-                                             const_pattern_dataset);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
+                                                               const_pattern_dataset));
     }
 }
 

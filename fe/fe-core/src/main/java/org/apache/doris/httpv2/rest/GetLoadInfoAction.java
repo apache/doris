@@ -40,10 +40,9 @@ import javax.servlet.http.HttpServletResponse;
 //     "status": "OK",
 //     "msg": "Success",
 //     "jobInfo": {
-//         "dbName": "default_cluster:db1",
+//         "dbName": "db1",
 //         "tblNames": ["tbl1"],
 //         "label": "abc",
-//         "clusterName": "default_cluster",
 //         "state": "FINISHED",
 //         "failMsg": "",
 //         "trackingUrl": "\\N"
@@ -52,28 +51,21 @@ import javax.servlet.http.HttpServletResponse;
 @RestController
 public class GetLoadInfoAction extends RestBaseController {
 
-    protected Env env;
-
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_load_info", method = RequestMethod.GET)
     public Object execute(
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
 
-        this.env = Env.getCurrentEnv();
         String fullDbName = getFullDbName(dbName);
 
         Load.JobInfo info = new Load.JobInfo(fullDbName,
-                request.getParameter(LABEL_KEY),
-                ConnectContext.get().getClusterName());
+                request.getParameter(LABEL_KEY));
         if (Strings.isNullOrEmpty(info.dbName)) {
             return new RestBaseResult("No database selected");
         }
         if (Strings.isNullOrEmpty(info.label)) {
             return new RestBaseResult("No label selected");
-        }
-        if (Strings.isNullOrEmpty(info.clusterName)) {
-            return new RestBaseResult("No cluster selected");
         }
 
         Object redirectView = redirectToMaster(request, response);
@@ -82,7 +74,7 @@ public class GetLoadInfoAction extends RestBaseController {
         }
 
         try {
-            env.getLoadInstance().getJobInfo(info);
+            Env.getCurrentEnv().getLoadInstance().getJobInfo(info);
             if (info.tblNames.isEmpty()) {
                 checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), info.dbName, PrivPredicate.LOAD);
             } else {
@@ -93,7 +85,7 @@ public class GetLoadInfoAction extends RestBaseController {
             }
         } catch (DdlException | MetaNotFoundException e) {
             try {
-                env.getLoadManager().getLoadJobInfo(info);
+                Env.getCurrentEnv().getLoadManager().getLoadJobInfo(info);
             } catch (DdlException e1) {
                 return new RestBaseResult(e.getMessage());
             }

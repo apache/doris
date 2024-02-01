@@ -19,6 +19,7 @@ package org.apache.doris.task;
 
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DataSortInfo;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -73,8 +74,6 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean isInMemory;
 
-    private boolean isDynamicSchema;
-
     private TTabletType tabletType;
 
     // used for synchronous process
@@ -100,7 +99,24 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean disableAutoCompaction;
 
+    private boolean enableSingleReplicaCompaction;
+
+    private boolean skipWriteIndexOnLoad;
+
+    private String compactionPolicy;
+
+    private long timeSeriesCompactionGoalSizeMbytes;
+
+    private long timeSeriesCompactionFileCountThreshold;
+
+    private long timeSeriesCompactionTimeThresholdSeconds;
+
+    private long timeSeriesCompactionEmptyRowsetsThreshold;
+
     private boolean storeRowColumn;
+
+    private BinlogConfig binlogConfig;
+    private List<Integer> clusterKeyIndexes;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -114,8 +130,15 @@ public class CreateReplicaTask extends AgentTask {
                              TCompressionType compressionType,
                              boolean enableUniqueKeyMergeOnWrite,
                              String storagePolicy, boolean disableAutoCompaction,
+                             boolean enableSingleReplicaCompaction,
+                             boolean skipWriteIndexOnLoad,
+                             String compactionPolicy,
+                             long timeSeriesCompactionGoalSizeMbytes,
+                             long timeSeriesCompactionFileCountThreshold,
+                             long timeSeriesCompactionTimeThresholdSeconds,
+                             long timeSeriesCompactionEmptyRowsetsThreshold,
                              boolean storeRowColumn,
-                             boolean isDynamicSchema) {
+                             BinlogConfig binlogConfig) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -138,7 +161,6 @@ public class CreateReplicaTask extends AgentTask {
         this.latch = latch;
 
         this.isInMemory = isInMemory;
-        this.isDynamicSchema = isDynamicSchema;
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
         this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
@@ -150,7 +172,15 @@ public class CreateReplicaTask extends AgentTask {
             }
         }
         this.disableAutoCompaction = disableAutoCompaction;
+        this.enableSingleReplicaCompaction = enableSingleReplicaCompaction;
+        this.skipWriteIndexOnLoad = skipWriteIndexOnLoad;
+        this.compactionPolicy = compactionPolicy;
+        this.timeSeriesCompactionGoalSizeMbytes = timeSeriesCompactionGoalSizeMbytes;
+        this.timeSeriesCompactionFileCountThreshold = timeSeriesCompactionFileCountThreshold;
+        this.timeSeriesCompactionTimeThresholdSeconds = timeSeriesCompactionTimeThresholdSeconds;
+        this.timeSeriesCompactionEmptyRowsetsThreshold = timeSeriesCompactionEmptyRowsetsThreshold;
         this.storeRowColumn = storeRowColumn;
+        this.binlogConfig = binlogConfig;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -193,6 +223,10 @@ public class CreateReplicaTask extends AgentTask {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    public void setClusterKeyIndexes(List<Integer> clusterKeyIndexes) {
+        this.clusterKeyIndexes = clusterKeyIndexes;
     }
 
     public TCreateTabletReq toThrift() {
@@ -240,7 +274,10 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
         tSchema.setVersionColIdx(versionCol);
-
+        if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
+            tSchema.setClusterKeyIdxes(clusterKeyIndexes);
+            LOG.debug("cluster key index={}, table_id={}, tablet_id={}", clusterKeyIndexes, tableId, tabletId);
+        }
         if (CollectionUtils.isNotEmpty(indexes)) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
             for (Index index : indexes) {
@@ -255,8 +292,9 @@ public class CreateReplicaTask extends AgentTask {
         }
         tSchema.setIsInMemory(isInMemory);
         tSchema.setDisableAutoCompaction(disableAutoCompaction);
+        tSchema.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
+        tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
-        tSchema.setIsDynamicSchema(isDynamicSchema);
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);
@@ -284,6 +322,16 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+        createTabletReq.setCompactionPolicy(compactionPolicy);
+        createTabletReq.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
+        createTabletReq.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
+        createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
+        createTabletReq.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
+
+        if (binlogConfig != null) {
+            createTabletReq.setBinlogConfig(binlogConfig.toThrift());
+        }
+
         return createTabletReq;
     }
 }

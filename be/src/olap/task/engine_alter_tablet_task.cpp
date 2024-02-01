@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "olap/schema_change.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
@@ -45,42 +46,16 @@ EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request)
 Status EngineAlterTabletTask::execute() {
     SCOPED_ATTACH_TASK(_mem_tracker);
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
-
-    Status res = SchemaChangeHandler::process_alter_tablet_v2(_alter_tablet_req);
+    Status res = Status::OK();
+    try {
+        res = SchemaChangeHandler::process_alter_tablet_v2(_alter_tablet_req);
+    } catch (const Exception& e) {
+        res = e.to_status();
+    }
     if (!res.ok()) {
         DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
         return res;
     }
-    return res;
-} // execute
-
-EngineAlterInvertedIndexTask::EngineAlterInvertedIndexTask(
-        const TAlterInvertedIndexReq& alter_inverted_index_request)
-        : _alter_inverted_index_req(alter_inverted_index_request) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::SCHEMA_CHANGE,
-            fmt::format("EngineAlterInvertedIndexTask#tabletId={}",
-                        std::to_string(_alter_inverted_index_req.tablet_id)),
-            config::memory_limitation_per_thread_for_schema_change_bytes);
-}
-
-Status EngineAlterInvertedIndexTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker);
-    DorisMetrics::instance()->alter_inverted_index_requests_total->increment(1);
-
-    Status res = SchemaChangeHandler::process_alter_inverted_index(_alter_inverted_index_req);
-
-    if (!res.ok()) {
-        LOG(WARNING) << "failed to do alter inverted index task. res=" << res
-                     << " tablet_ud=" << _alter_inverted_index_req.tablet_id
-                     << ", schema_hash=" << _alter_inverted_index_req.schema_hash;
-        DorisMetrics::instance()->alter_inverted_index_requests_failed->increment(1);
-        return res;
-    }
-
-    LOG(INFO) << "success to execute alter inverted index. res=" << res
-              << " tablet_id=" << _alter_inverted_index_req.tablet_id
-              << ", schema_hash=" << _alter_inverted_index_req.schema_hash;
     return res;
 } // execute
 

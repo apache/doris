@@ -27,7 +27,6 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
@@ -65,9 +64,14 @@ public class SortNode extends PlanNode {
     private boolean useTopnOpt;
     private boolean useTwoPhaseReadOpt;
 
-    private boolean  isDefaultLimit;
+    // If mergeByexchange is set to true, the sort information is pushed to the
+    // exchange node, and the sort node is used for the ORDER BY .
+    private boolean mergeByexchange = false;
+
+    private boolean isDefaultLimit;
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
+    private boolean isColocate = false;
     private DataPartition inputPartition;
 
     private boolean isUnusedExprRemoved = false;
@@ -135,6 +139,10 @@ public class SortNode extends PlanNode {
         return info;
     }
 
+    public void setMergeByExchange() {
+        this.mergeByexchange = true;
+    }
+
     public boolean getUseTopnOpt() {
         return useTopnOpt;
     }
@@ -144,7 +152,7 @@ public class SortNode extends PlanNode {
     }
 
     public boolean getUseTwoPhaseReadOpt() {
-        return useTopnOpt;
+        return this.useTwoPhaseReadOpt;
     }
 
     public void setUseTwoPhaseReadOpt(boolean useTwoPhaseReadOpt) {
@@ -270,6 +278,13 @@ public class SortNode extends PlanNode {
         Expr.getIds(info.getOrderingExprs(), null, ids);
     }
 
+    @Override
+    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
+        // need call materializeRequiredSlots again to make sure required slots is materialized by children
+        // requiredSlotIdSet parameter means nothing for sort node, just call materializeRequiredSlots is enough
+        info.materializeRequiredSlots(analyzer, outputSmap);
+    }
+
     private void removeUnusedExprs() {
         if (!isUnusedExprRemoved) {
             if (resolvedTupleExprs != null) {
@@ -303,6 +318,9 @@ public class SortNode extends PlanNode {
         msg.sort_node = sortNode;
         msg.sort_node.setOffset(offset);
         msg.sort_node.setUseTopnOpt(useTopnOpt);
+        msg.sort_node.setMergeByExchange(this.mergeByexchange);
+        msg.sort_node.setIsAnalyticSort(isAnalyticSort);
+        msg.sort_node.setIsColocate(isColocate);
     }
 
     @Override
@@ -317,11 +335,6 @@ public class SortNode extends PlanNode {
     }
 
     @Override
-    public int getNumInstances() {
-        return children.get(0).getNumInstances();
-    }
-
-    @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         removeUnusedExprs();
         List<Expr> materializedTupleExprs = new ArrayList<>(resolvedTupleExprs);
@@ -330,30 +343,7 @@ public class SortNode extends PlanNode {
         return new HashSet<>(result);
     }
 
-    /**
-     * Supplement the information needed by be for the sort node.
-     * TODO: currently we only process slotref, so when order key is a + 1, we will failed.
-     */
-    public void finalizeForNereids(TupleDescriptor tupleDescriptor,
-            List<Expr> outputList, List<Expr> orderingExpr) {
-        resolvedTupleExprs = Lists.newArrayList();
-        // TODO: should fix the duplicate order by exprs in nereids code later
-        for (Expr order : orderingExpr) {
-            if (!resolvedTupleExprs.contains(order)) {
-                resolvedTupleExprs.add(order);
-            }
-        }
-        for (Expr output : outputList) {
-            if (!resolvedTupleExprs.contains(output)) {
-                resolvedTupleExprs.add(output);
-            }
-        }
-        info.setSortTupleDesc(tupleDescriptor);
-        info.setSortTupleSlotExprs(resolvedTupleExprs);
-
-        nullabilityChangedFlags.clear();
-        for (int i = 0; i < resolvedTupleExprs.size(); i++) {
-            nullabilityChangedFlags.add(false);
-        }
+    public void setColocate(boolean colocate) {
+        isColocate = colocate;
     }
 }

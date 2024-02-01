@@ -249,12 +249,12 @@ suite("test_array_load", "load_p0") {
         brokerName =getBrokerName()
         hdfsUser = getHdfsUser()
         hdfsPasswd = getHdfsPasswd()
-        def hdfs_json_file_path = uploadToHdfs "broker_load/simple_object_array.json"
-        def hdfs_csv_file_path = uploadToHdfs "broker_load/simple_array.csv"
-        def hdfs_orc_file_path = uploadToHdfs "broker_load/simple_array.orc"
+        def hdfs_json_file_path = uploadToHdfs "load_p0/broker_load/simple_object_array.json"
+        def hdfs_csv_file_path = uploadToHdfs "load_p0/broker_load/simple_array.csv"
+        def hdfs_orc_file_path = uploadToHdfs "load_p0/broker_load/simple_array.orc"
         // orc file with native array(list) type
-        def hdfs_orc_file_path2 = uploadToHdfs "broker_load/simple_array_list_type.orc"
-        def hdfs_parquet_file_path = uploadToHdfs "broker_load/simple_array.parquet"
+        def hdfs_orc_file_path2 = uploadToHdfs "load_p0/broker_load/simple_array_list_type.orc"
+        def hdfs_parquet_file_path = uploadToHdfs "load_p0/broker_load/simple_array.parquet"
  
         // case5: import array data by hdfs and enable vectorized engine
         try {
@@ -266,6 +266,21 @@ suite("test_array_load", "load_p0") {
             load_from_hdfs.call(testTable, test_load_label, hdfs_json_file_path, "json",
                                 brokerName, hdfsUser, hdfsPasswd)
             
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+        // test unified load
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs.call(testTable, test_load_label, hdfs_json_file_path, "json",
+                    brokerName, hdfsUser, hdfsPasswd)
+
             check_load_result.call(test_load_label, testTable)
 
         } finally {
@@ -287,6 +302,21 @@ suite("test_array_load", "load_p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+        // test unified load
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
+                    brokerName, hdfsUser, hdfsPasswd)
+
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
 
         // case9: import array data by hdfs in orc format and enable vectorized
         try {
@@ -298,6 +328,21 @@ suite("test_array_load", "load_p0") {
             load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path, "orc",
                                 brokerName, hdfsUser, hdfsPasswd)
             
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+        // test unified load
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path, "orc",
+                    brokerName, hdfsUser, hdfsPasswd)
+
             check_load_result.call(test_load_label, testTable)
 
         } finally {
@@ -319,6 +364,21 @@ suite("test_array_load", "load_p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+        // test unified load
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
+                    brokerName, hdfsUser, hdfsPasswd)
+
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
 
         // case13: import array data by hdfs in orc format(with array type) and enable vectorized
         try {
@@ -330,6 +390,21 @@ suite("test_array_load", "load_p0") {
             load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path2, "orc",
                                 brokerName, hdfsUser, hdfsPasswd)
             
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+        // test unified load
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path2, "orc",
+                    brokerName, hdfsUser, hdfsPasswd)
+
             check_load_result.call(test_load_label, testTable)
 
         } finally {

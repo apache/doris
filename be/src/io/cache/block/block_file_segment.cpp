@@ -68,6 +68,13 @@ FileBlock::FileBlock(size_t offset_, size_t size_, const Key& key_, IFileCache* 
     }
 }
 
+FileBlock::~FileBlock() {
+    std::shared_ptr<FileReader> reader;
+    if ((reader = _cache_reader.lock())) {
+        IFileCache::remove_file_reader(std::make_pair(_file_key, offset()));
+    }
+}
+
 FileBlock::State FileBlock::state() const {
     std::lock_guard segment_lock(_mutex);
     return _download_state;
@@ -124,7 +131,7 @@ void FileBlock::reset_downloader(std::lock_guard<std::mutex>& segment_lock) {
 
 void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& segment_lock) {
     if (_downloaded_size == range().size()) {
-        set_downloaded(segment_lock);
+        static_cast<void>(set_downloaded(segment_lock));
     } else {
         _downloaded_size = 0;
         _download_state = State::EMPTY;
@@ -152,7 +159,8 @@ Status FileBlock::append(Slice data) {
     Status st = Status::OK();
     if (!_cache_writer) {
         auto download_path = get_path_in_local_cache();
-        st = global_local_filesystem()->create_file(download_path, &_cache_writer);
+        FileWriterOptions not_sync {.sync_file_data = false};
+        st = global_local_filesystem()->create_file(download_path, &_cache_writer, &not_sync);
         if (!st) {
             _cache_writer.reset();
             return st;
@@ -171,22 +179,51 @@ std::string FileBlock::get_path_in_local_cache() const {
     return _cache->get_path_in_local_cache(key(), offset(), _cache_type);
 }
 
-Status FileBlock::read_at(Slice buffer, size_t offset) {
+Status FileBlock::read_at(Slice buffer, size_t read_offset) {
     Status st = Status::OK();
-    if (!_cache_reader) {
-        std::lock_guard segment_lock(_mutex);
-        if (!_cache_reader) {
+    std::shared_ptr<FileReader> reader;
+    if (!(reader = _cache_reader.lock())) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (!(reader = _cache_reader.lock())) {
             auto download_path = get_path_in_local_cache();
-            st = global_local_filesystem()->open_file(download_path, &_cache_reader);
-            if (!st) {
-                _cache_reader.reset();
-                return st;
-            }
+            RETURN_IF_ERROR(global_local_filesystem()->open_file(download_path, &reader));
+            _cache_reader =
+                    IFileCache::cache_file_reader(std::make_pair(_file_key, offset()), reader);
         }
     }
     size_t bytes_reads = buffer.size;
-    RETURN_IF_ERROR(_cache_reader->read_at(offset, buffer, &bytes_reads));
+    RETURN_IF_ERROR(reader->read_at(read_offset, buffer, &bytes_reads));
     DCHECK(bytes_reads == buffer.size);
+    return st;
+}
+
+bool FileBlock::change_cache_type(CacheType new_type) {
+    std::unique_lock segment_lock(_mutex);
+    if (new_type == _cache_type) {
+        return true;
+    }
+    if (_download_state == State::DOWNLOADED) {
+        std::error_code ec;
+        std::filesystem::rename(get_path_in_local_cache(),
+                                _cache->get_path_in_local_cache(key(), offset(), new_type), ec);
+        if (ec) {
+            LOG(ERROR) << "change cache type failed due to rename error " << ec.message();
+            return false;
+        }
+    }
+    _cache_type = new_type;
+    return true;
+}
+
+Status FileBlock::change_cache_type_self(CacheType new_type) {
+    std::lock_guard cache_lock(_cache->_mutex);
+    std::unique_lock segment_lock(_mutex);
+    Status st = Status::OK();
+    if (_cache_type == CacheType::TTL || new_type == _cache_type) {
+        return st;
+    }
+    _cache_type = new_type;
+    _cache->change_cache_type(_file_key, _segment_range.left, new_type, cache_lock);
     return st;
 }
 

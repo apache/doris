@@ -45,6 +45,8 @@
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_quantilestate.h"
@@ -52,17 +54,17 @@
 
 namespace doris::vectorized {
 
-void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
+inline void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
     const DataTypeSerDeSPtr serde = data_type->get_serde();
-    serde->write_column_to_pb(col, *result, 0, col.size());
+    static_cast<void>(serde->write_column_to_pb(col, *result, 0, col.size()));
 }
 
-void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
+inline void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
     auto serde = data_type->get_serde();
-    serde->read_column_from_pb(col, result);
+    static_cast<void>(serde->read_column_from_pb(col, result));
 }
 
-void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
+inline void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     PValues pv = PValues();
     column_to_pb(data_type, col, &pv);
     std::string s1 = pv.DebugString();
@@ -76,7 +78,7 @@ void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     EXPECT_EQ(s1, s2);
 }
 
-void serialize_and_deserialize_pb_test() {
+inline void serialize_and_deserialize_pb_test() {
     // int
     {
         auto vec = vectorized::ColumnVector<Int32>::create();
@@ -141,16 +143,16 @@ void serialize_and_deserialize_pb_test() {
     // quantilestate
     {
         vectorized::DataTypePtr quantile_data_type(
-                std::make_shared<vectorized::DataTypeQuantileStateDouble>());
+                std::make_shared<vectorized::DataTypeQuantileState>());
         auto quantile_column = quantile_data_type->create_column();
-        std::vector<QuantileStateDouble>& container =
-                ((vectorized::ColumnQuantileStateDouble*)quantile_column.get())->get_data();
+        std::vector<QuantileState>& container =
+                ((vectorized::ColumnQuantileState*)quantile_column.get())->get_data();
         const long max_rand = 1000000L;
         double lower_bound = 0;
         double upper_bound = 100;
         srandom(time(nullptr));
         for (int i = 0; i < 1024; ++i) {
-            QuantileStateDouble q;
+            QuantileState q;
             double random_double =
                     lower_bound + (upper_bound - lower_bound) * (random() % max_rand) / max_rand;
             q.add_value(random_double);
@@ -191,6 +193,26 @@ void serialize_and_deserialize_pb_test() {
         ((vectorized::ColumnNullable*)nullable_column.get())
                 ->insert_range_from_not_nullable(*vec, 0, 1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
+    }
+    // ipv4
+    {
+        auto vec = vectorized::ColumnVector<IPv4>::create();
+        auto& data = vec->get_data();
+        for (int i = 0; i < 1024; ++i) {
+            data.push_back(i);
+        }
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
+        check_pb_col(data_type, *vec.get());
+    }
+    // ipv6
+    {
+        auto vec = vectorized::ColumnVector<IPv6>::create();
+        auto& data = vec->get_data();
+        for (int i = 0; i < 1024; ++i) {
+            data.push_back(i);
+        }
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
+        check_pb_col(data_type, *vec.get());
     }
 }
 

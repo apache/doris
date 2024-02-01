@@ -82,6 +82,7 @@ public class DppUtils {
             case "INT":
                 return Integer.class;
             case "DATETIME":
+            case "DATETIMEV2":
                 return java.sql.Timestamp.class;
             case "BIGINT":
                 return Long.class;
@@ -92,6 +93,7 @@ public class DppUtils {
             case "DOUBLE":
                 return Double.class;
             case "DATE":
+            case "DATEV2":
                 return Date.class;
             case "HLL":
             case "CHAR":
@@ -127,6 +129,7 @@ public class DppUtils {
                 dataType = DataTypes.IntegerType;
                 break;
             case "DATETIME":
+            case "DATETIMEV2":
                 dataType = DataTypes.TimestampType;
                 break;
             case "BIGINT":
@@ -142,6 +145,7 @@ public class DppUtils {
                 dataType = DataTypes.DoubleType;
                 break;
             case "DATE":
+            case "DATEV2":
                 dataType = DataTypes.DateType;
                 break;
             case "CHAR":

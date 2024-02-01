@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Pipeline execution engine",
+    "title": "Pipeline Execution Engine",
     "language": "en",
     "toc_min_heading_level": 2,
     "toc_max_heading_level": 4
@@ -26,13 +26,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pipeline execution engine
+# Pipeline Execution Engine
 
 <version since="2.0.0"></version>
 
 Pipeline execution engine is an experimental feature added by Doris in version 2.0. The goal is to replace the current execution engine of Doris's volcano model, fully release the computing power of multi-core CPUs, and limit the number of Doris's query threads to solve the problem of Doris's execution thread bloat.
 
-Its specific design, implementation and effects can be found in [DSIP-027]([DSIP-027: Support Pipeline Exec Engine - DORIS - Apache Software Foundation](https://cwiki.apache.org/confluence/display/DORIS/DSIP-027%3A+Support+Pipeline+Exec+Engine))。
+Its specific design, implementation and effects can be found in [DSIP-027]([DSIP-027: Support Pipeline Exec Engine - DORIS - Apache Software Foundation](https://cwiki.apache.org/confluence/display/DORIS/DSIP-027%3A+Support+Pipeline+Exec+Engine)).
 
 ## Principle
 
@@ -69,10 +69,11 @@ This improves the efficiency of CPU execution on mixed-load SQL and enhances the
 set enable_pipeline_engine = true;
 ```
 
-#### parallel_fragment_exec_instance_num
+#### parallel_pipeline_task_num
 
-The default configuration of `parallel_fragment_exec_instance_num` represents the number of instances that a SQL query will query concurrently; Doris defaults to `1`, which affects the number of query threads in the non-Pipeline execution engine, whereas in the Pipeline execution engine there is no thread inflation This configuration affects the number of threads in the Non-Pipeline execution engine. The recommended configuration here is `16`, but users can actually adjust it to suit their own queries.
+`parallel_pipeline_task_num` represents the concurrency of pipeline tasks of a query. Default value is `0` (e.g. half number of CPU cores). Users can adjust this value according to their own workloads.
 
 ```
-set parallel_fragment_exec_instance_num = 16;
+set parallel_pipeline_task_num = 0;
 ```
+You can limit the automatically configured concurrency by setting "max_instance_num."（The default value is 64)

@@ -55,7 +55,8 @@ public:
     std::string get_name() override;
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override;
 
 protected:
     Status _init_profile() override;
@@ -64,7 +65,7 @@ protected:
 
 private:
     TupleId _tuple_id;
-    TupleDescriptor* _tuple_desc;
+    TupleDescriptor* _tuple_desc = nullptr;
 
     std::map<std::string, std::string> _properties;
     std::map<std::string, std::string> _fields_context;
@@ -74,9 +75,17 @@ private:
     std::vector<std::string> _column_names;
 
     // Profile
-    std::unique_ptr<RuntimeProfile> _es_profile;
-    RuntimeProfile::Counter* _rows_read_counter;
-    RuntimeProfile::Counter* _read_timer;
-    RuntimeProfile::Counter* _materialize_timer;
+    std::unique_ptr<RuntimeProfile> _es_profile = nullptr;
+    // FIXME: non-static data member '_rows_read_counter' of 'NewEsScanNode' shadows member inherited from type 'VScanNode'
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
+    RuntimeProfile::Counter* _rows_read_counter = nullptr;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+    RuntimeProfile::Counter* _read_timer = nullptr;
+    RuntimeProfile::Counter* _materialize_timer = nullptr;
 };
 } // namespace doris::vectorized

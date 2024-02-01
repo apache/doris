@@ -85,7 +85,7 @@ suite("test_add_drop_index", "inverted_index"){
         logger.info("create same duplicate with different name index,  result: " + ex)
     }
     assertEquals(create_dup_index_result, "fail")
-    // case1.3 create duplicate different index for one colume with same name
+    // case1.3 create duplicate different index for one colume with different name
     sql "create index age_idx_diff on ${indexTbName1}(`age`) using bitmap"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"

@@ -51,7 +51,8 @@ suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_chan
     int max_try_secs = 1200
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -72,7 +73,8 @@ suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_chan
     max_try_secs = 1200
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -123,7 +125,8 @@ suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_chan
     max_try_secs = 1200
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -144,7 +147,8 @@ suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_chan
     max_try_secs = 1200
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -168,7 +172,8 @@ suite("test_alter_table_column_with_delete_drop_column_unique_key", "schema_chan
     max_try_secs = 1200
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {

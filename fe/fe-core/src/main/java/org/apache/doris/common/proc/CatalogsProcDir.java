@@ -20,12 +20,14 @@ package org.apache.doris.common.proc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -36,8 +38,9 @@ import java.util.List;
  * show all catalogs' info
  */
 public class CatalogsProcDir implements ProcDirInterface {
+    private static final Logger LOG = Logger.getLogger(CatalogsProcDir.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("CatalogIds").add("CatalogName").add("DatabaseNum")
+            .add("CatalogIds").add("CatalogName").add("DatabaseNum").add("LastUpdateTime")
             .build();
 
     private Env env;
@@ -89,7 +92,14 @@ public class CatalogsProcDir implements ProcDirInterface {
             List<Comparable> catalogInfo = Lists.newArrayList();
             catalogInfo.add(catalog.getId());
             catalogInfo.add(catalog.getName());
-            catalogInfo.add(catalog.getDbNames().size());
+            int size = -1;
+            try {
+                size = catalog.getDbNames().size();
+            } catch (Exception e) {
+                LOG.warn("failed to get database: ", e);
+            }
+            catalogInfo.add(size);
+            catalogInfo.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
             catalogInfos.add(catalogInfo);
         }
 

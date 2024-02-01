@@ -69,21 +69,28 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
 
+#include <algorithm>
+#include <cctype>
+#include <charconv>
 #include <limits>
+#include <string>
 #include <type_traits>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 
 // #include "util/string_parser.hpp"
 
 namespace doris {
-
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wzero-length-array"
+#endif
 #pragma pack(push, 1)
 
 #define JSONB_VER 1
+
+using int128_t = __int128;
 
 // forward declaration
 class JsonbValue;
@@ -128,6 +135,19 @@ enum class JsonbType : char {
     T_Float = 0x0D,
     NUM_TYPES,
 };
+
+//for parse json path
+constexpr char SCOPE = '$';
+constexpr char BEGIN_MEMBER = '.';
+constexpr char BEGIN_ARRAY = '[';
+constexpr char END_ARRAY = ']';
+constexpr char DOUBLE_QUOTE = '"';
+constexpr char WILDCARD = '*';
+constexpr char MINUS = '-';
+constexpr char LAST[] = "last";
+constexpr char ESCAPE = '\\';
+constexpr unsigned int MEMBER_CODE = 0;
+constexpr unsigned int ARRAY_CODE = 1;
 
 /*
  * JsonbDocument is the main object that accesses and queries JSONB packed
@@ -176,27 +196,33 @@ public:
 
 public:
     bool operator==(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator!=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator<=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator>=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator<(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator>(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
 private:
@@ -211,6 +237,139 @@ private:
     } header_;
 
     char payload_[0];
+};
+
+/// A simple input stream class for the JSON path parser.
+class Stream {
+public:
+    /// Creates an input stream reading from a character string.
+    /// @param string  the input string
+    /// @param length  the length of the input string
+    Stream(const char* string, size_t length) : m_position(string), m_end(string + length) {}
+
+    /// Returns a pointer to the current position in the stream.
+    const char* position() const { return m_position; }
+
+    /// Returns a pointer to the position just after the end of the stream.
+    const char* end() const { return m_end; }
+
+    /// Returns the number of bytes remaining in the stream.
+    size_t remaining() const {
+        assert(m_position <= m_end);
+        return m_end - m_position;
+    }
+
+    /// Tells if the stream has been exhausted.
+    bool exhausted() const { return remaining() == 0; }
+
+    /// Reads the next byte from the stream and moves the position forward.
+    char read() {
+        assert(!exhausted());
+        return *m_position++;
+    }
+
+    /// Reads the next byte from the stream without moving the position forward.
+    char peek() const {
+        assert(!exhausted());
+        return *m_position;
+    }
+
+    /// Moves the position to the next non-whitespace character.
+    void skip_whitespace() {
+        m_position = std::find_if_not(m_position, m_end, [](char c) { return std::isspace(c); });
+    }
+
+    /// Moves the position n bytes forward.
+    void skip(size_t n) {
+        assert(remaining() >= n);
+        m_position += n;
+        skip_whitespace();
+    }
+
+    void clear_leg_ptr() { leg_ptr = nullptr; }
+
+    void set_leg_ptr(char* ptr) {
+        clear_leg_ptr();
+        leg_ptr = ptr;
+    }
+
+    char* get_leg_ptr() { return leg_ptr; }
+
+    void clear_leg_len() { leg_len = 0; }
+
+    void add_leg_len() { leg_len++; }
+
+    unsigned int get_leg_len() const { return leg_len; }
+
+    void remove_escapes() {
+        int new_len = 0;
+        for (int i = 0; i < leg_len; i++) {
+            if (leg_ptr[i] != '\\') {
+                leg_ptr[new_len++] = leg_ptr[i];
+            }
+        }
+        leg_ptr[new_len] = '\0';
+        leg_len = new_len;
+    }
+
+    void set_has_escapes(bool has) { has_escapes = has; }
+
+    bool get_has_escapes() const { return has_escapes; }
+
+private:
+    /// The current position in the stream.
+    const char* m_position = nullptr;
+
+    /// The end of the stream.
+    const char* const m_end;
+
+    ///path leg ptr
+    char* leg_ptr = nullptr;
+
+    ///path leg len
+    unsigned int leg_len;
+
+    ///Whether to contain escape characters
+    bool has_escapes = false;
+};
+
+struct leg_info {
+    ///path leg ptr
+    char* leg_ptr = nullptr;
+
+    ///path leg len
+    unsigned int leg_len;
+
+    ///array_index
+    int array_index;
+
+    ///type: 0 is member 1 is array
+    unsigned int type;
+};
+
+class JsonbPath {
+public:
+    // parse json path
+    static bool parsePath(Stream* stream, JsonbPath* path);
+
+    static bool parse_array(Stream* stream, JsonbPath* path);
+    static bool parse_member(Stream* stream, JsonbPath* path);
+
+    //return true if json path valid else return false
+    bool seek(const char* string, size_t length);
+
+    void add_leg_to_leg_vector(std::unique_ptr<leg_info> leg) {
+        leg_vector.emplace_back(leg.release());
+    }
+
+    size_t get_leg_vector_size() { return leg_vector.size(); }
+
+    leg_info* get_leg_from_leg_vector(size_t i) { return leg_vector[i].get(); }
+
+    void clean() { leg_vector.clear(); }
+
+private:
+    std::vector<std::unique_ptr<leg_info>> leg_vector;
 };
 
 /*
@@ -367,6 +526,8 @@ public:
             return "int";
         case JsonbType::T_Int64:
             return "bigint";
+        case JsonbType::T_Int128:
+            return "largeint";
         case JsonbType::T_Double:
             return "double";
         case JsonbType::T_Float:
@@ -390,18 +551,17 @@ public:
     // size of the value in bytes
     unsigned int size() const;
 
+    //Get the number of jsonbvalue elements
+    int length() const;
+
+    //Whether to include the jsonbvalue rhs
+    bool contains(JsonbValue* rhs) const;
+
     // get the raw byte array of the value
     const char* getValuePtr() const;
 
-    // find the JSONB value by a key path string (null terminated)
-    JsonbValue* findPath(const char* key_path, const char* delim = ".",
-                         hDictFind handler = nullptr) {
-        return findPath(key_path, (unsigned int)strlen(key_path), delim, handler);
-    }
-
-    // find the JSONB value by a key path string (with length)
-    JsonbValue* findPath(const char* key_path, unsigned int len, const char* delim,
-                         hDictFind handler);
+    // find the JSONB value by JsonbPath
+    JsonbValue* findValue(JsonbPath& path, hDictFind handler);
     friend class JsonbDocument;
 
 protected:
@@ -481,11 +641,11 @@ inline bool JsonbInt64Val::setVal(int64_t value) {
     return true;
 }
 
-typedef NumberValT<__int128_t> JsonbInt128Val;
+typedef NumberValT<int128_t> JsonbInt128Val;
 
-// override setVal for Int64Val
+// override setVal for Int128Val
 template <>
-inline bool JsonbInt128Val::setVal(__int128_t value) {
+inline bool JsonbInt128Val::setVal(int128_t value) {
     if (!isInt128()) {
         return false;
     }
@@ -523,7 +683,7 @@ inline bool JsonbFloatVal::setVal(float value) {
 // A class to get an integer
 class JsonbIntVal : public JsonbValue {
 public:
-    int64_t val() const {
+    int128_t val() const {
         switch (type_) {
         case JsonbType::T_Int8:
             return ((JsonbInt8Val*)this)->val();
@@ -533,11 +693,13 @@ public:
             return ((JsonbInt32Val*)this)->val();
         case JsonbType::T_Int64:
             return ((JsonbInt64Val*)this)->val();
+        case JsonbType::T_Int128:
+            return ((JsonbInt128Val*)this)->val();
         default:
             return 0;
         }
     }
-    bool setVal(int64_t val) {
+    bool setVal(int128_t val) {
         switch (type_) {
         case JsonbType::T_Int8:
             if (val < std::numeric_limits<int8_t>::min() ||
@@ -555,7 +717,9 @@ public:
                 return false;
             return ((JsonbInt32Val*)this)->setVal((int32_t)val);
         case JsonbType::T_Int64:
-            return ((JsonbInt64Val*)this)->setVal(val);
+            return ((JsonbInt64Val*)this)->setVal((int64_t)val);
+        case JsonbType::T_Int128:
+            return ((JsonbInt128Val*)this)->setVal(val);
         default:
             return false;
         }
@@ -746,6 +910,40 @@ public:
         return end();
     }
 
+    // Get number of elements in object
+    int numElem() const {
+        const char* pch = payload_;
+        const char* fence = payload_ + size_;
+
+        unsigned int num = 0;
+        while (pch < fence) {
+            JsonbKeyValue* pkey = (JsonbKeyValue*)(pch);
+            ++num;
+            pch += pkey->numPackedBytes();
+        }
+
+        assert(pch == fence);
+
+        return num;
+    }
+
+    JsonbKeyValue* getJsonbKeyValue(unsigned int i) const {
+        const char* pch = payload_;
+        const char* fence = payload_ + size_;
+
+        unsigned int num = 0;
+        while (pch < fence) {
+            JsonbKeyValue* pkey = (JsonbKeyValue*)(pch);
+            if (num == i) return pkey;
+            ++num;
+            pch += pkey->numPackedBytes();
+        }
+
+        assert(pch == fence);
+
+        return nullptr;
+    }
+
     JsonbValue* find(const char* key, hDictFind handler = nullptr) const {
         return const_cast<ObjectVal*>(this)->find(key, handler);
     }
@@ -824,7 +1022,7 @@ public:
     }
 
     // Get number of elements in array
-    unsigned int numElem() const {
+    int numElem() const {
         const char* pch = payload_;
         const char* fence = payload_ + size_;
 
@@ -988,7 +1186,7 @@ inline unsigned int JsonbValue::numPackedBytes() const {
         return sizeof(type_) + sizeof(float);
     }
     case JsonbType::T_Int128: {
-        return sizeof(type_) + sizeof(__int128_t);
+        return sizeof(type_) + sizeof(int128_t);
     }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
@@ -1025,7 +1223,7 @@ inline unsigned int JsonbValue::size() const {
         return sizeof(float);
     }
     case JsonbType::T_Int128: {
-        return sizeof(__int128_t);
+        return sizeof(int128_t);
     }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
@@ -1041,6 +1239,116 @@ inline unsigned int JsonbValue::size() const {
     case JsonbType::T_False:
     default:
         return 0;
+    }
+}
+
+inline int JsonbValue::length() const {
+    switch (type_) {
+    case JsonbType::T_Int8:
+    case JsonbType::T_Int16:
+    case JsonbType::T_Int32:
+    case JsonbType::T_Int64:
+    case JsonbType::T_Double:
+    case JsonbType::T_Float:
+    case JsonbType::T_Int128:
+    case JsonbType::T_String:
+    case JsonbType::T_Binary:
+    case JsonbType::T_Null:
+    case JsonbType::T_True:
+    case JsonbType::T_False: {
+        return 1;
+    }
+    case JsonbType::T_Object: {
+        return ((ObjectVal*)this)->numElem();
+    }
+    case JsonbType::T_Array: {
+        return ((ArrayVal*)this)->numElem();
+    }
+    default:
+        return 0;
+    }
+}
+
+inline bool JsonbValue::contains(JsonbValue* rhs) const {
+    switch (type_) {
+    case JsonbType::T_Int8:
+    case JsonbType::T_Int16:
+    case JsonbType::T_Int32:
+    case JsonbType::T_Int64:
+    case JsonbType::T_Int128: {
+        return ((JsonbIntVal*)(this))->val() == ((JsonbIntVal*)(rhs))->val();
+    }
+    case JsonbType::T_Double: {
+        if (rhs->isDouble()) {
+            return ((JsonbDoubleVal*)(this))->val() == ((JsonbDoubleVal*)(rhs))->val();
+        }
+        return false;
+    }
+    case JsonbType::T_Float: {
+        if (rhs->isDouble()) {
+            return ((JsonbFloatVal*)(this))->val() == ((JsonbFloatVal*)(rhs))->val();
+        }
+        return false;
+    }
+    case JsonbType::T_String:
+    case JsonbType::T_Binary: {
+        if (rhs->isString()) {
+            auto str_value1 = (JsonbStringVal*)this;
+            auto str_value2 = (JsonbStringVal*)rhs;
+            return str_value1->length() == str_value2->length() &&
+                   std::memcmp(str_value1->getBlob(), str_value2->getBlob(),
+                               str_value1->length()) == 0;
+        }
+        return false;
+    }
+    case JsonbType::T_Array: {
+        int lhs_num = ((ArrayVal*)this)->numElem();
+        if (rhs->isArray()) {
+            int rhs_num = ((ArrayVal*)rhs)->numElem();
+            if (rhs_num > lhs_num) return false;
+            int contains_num = 0;
+            for (int i = 0; i < lhs_num; ++i) {
+                for (int j = 0; j < rhs_num; ++j) {
+                    if (((ArrayVal*)this)->get(i)->contains(((ArrayVal*)rhs)->get(j))) {
+                        contains_num++;
+                        break;
+                    }
+                }
+            }
+            return contains_num == rhs_num;
+        }
+        for (int i = 0; i < lhs_num; ++i) {
+            if (((ArrayVal*)this)->get(i)->contains(rhs)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case JsonbType::T_Object: {
+        if (rhs->isObject()) {
+            auto str_value1 = (ObjectVal*)this;
+            auto str_value2 = (ObjectVal*)rhs;
+            for (int i = 0; i < str_value2->numElem(); ++i) {
+                JsonbKeyValue* key = str_value2->getJsonbKeyValue(i);
+                JsonbValue* value = str_value1->find(key->getKeyStr(), key->klen());
+                if (key != nullptr && value != nullptr && !value->contains(key->value()))
+                    return false;
+            }
+            return true;
+        }
+        return false;
+    }
+    case JsonbType::T_Null: {
+        return rhs->isNull();
+    }
+    case JsonbType::T_True: {
+        return rhs->isTrue();
+    }
+    case JsonbType::T_False: {
+        return rhs->isFalse();
+    }
+    default:
+        return false;
     }
 }
 
@@ -1071,108 +1379,243 @@ inline const char* JsonbValue::getValuePtr() const {
     }
 }
 
-inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_len,
-                                        const char* delim = ".", hDictFind handler = nullptr) {
-    if (!key_path) return nullptr;
-    if (kp_len == 0) return this;
-
-    // skip $ and . at beginning
-    if (kp_len > 0 && *key_path == '$') {
-        key_path++;
-        kp_len--;
-        if (kp_len > 0 && *key_path == '.') {
-            key_path++;
-            kp_len--;
-        }
+inline bool JsonbPath::seek(const char* key_path, size_t kp_len) {
+    //path invalid
+    if (!key_path || kp_len == 0) return false;
+    Stream stream(key_path, kp_len);
+    stream.skip_whitespace();
+    if (stream.exhausted() || stream.read() != SCOPE) {
+        //path invalid
+        return false;
     }
 
-    if (kp_len == 0) return this;
+    while (!stream.exhausted()) {
+        stream.skip_whitespace();
+        stream.clear_leg_ptr();
+        stream.clear_leg_len();
 
-    if (!delim) delim = "."; // default delimiter
+        if (!JsonbPath::parsePath(&stream, this)) {
+            //path invalid
+            return false;
+        }
+    }
+    return true;
+}
 
+inline JsonbValue* JsonbValue::findValue(JsonbPath& path, hDictFind handler) {
     JsonbValue* pval = this;
-    const char* fence = key_path + kp_len;
-    char idx_buf[21]; // buffer to parse array index (integer value)
-
-    while (pval && key_path < fence) {
-        const char* key = key_path;
-        unsigned int klen = 0;
-        const char* left_bracket = nullptr;
-        const char* right_bracket = nullptr;
-        size_t idx_len = 0;
-        // find the current key and [] bracket position
-        for (; key_path != fence && *key_path != *delim; ++key_path, ++klen) {
-            if ('[' == *key_path) {
-                left_bracket = key_path;
-            } else if (']' == *key_path) {
-                right_bracket = key_path;
-            }
-        }
-
-        // check brackets and array index length
-        if (left_bracket || right_bracket) {
-            if (!left_bracket || !right_bracket) {
-                return nullptr;
-            }
-            // check the last char is ]
-            if (key + klen - 1 != right_bracket) {
-                return nullptr;
-            }
-            // the part before left_bracket is object key
-            klen = left_bracket - key;
-            // the part between left_bracket and right_bracket is array index
-            idx_len = right_bracket - left_bracket - 1;
-        }
-
-        if (!klen && !idx_len) return nullptr;
-
-        // get value of key in object
-        if (klen) {
+    for (size_t i = 0; i < path.get_leg_vector_size(); ++i) {
+        switch (path.get_leg_from_leg_vector(i)->type) {
+        case MEMBER_CODE: {
             if (LIKELY(pval->type_ == JsonbType::T_Object)) {
-                pval = ((ObjectVal*)pval)->find(key, klen, handler);
+                if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
+                    *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
+                    continue;
+                }
+
+                pval = ((ObjectVal*)pval)
+                               ->find(path.get_leg_from_leg_vector(i)->leg_ptr,
+                                      path.get_leg_from_leg_vector(i)->leg_len, handler);
+
                 if (!pval) return nullptr;
+                continue;
             } else {
                 return nullptr;
             }
         }
-
-        // get value at idx in array
-        if (idx_len) {
-            if (LIKELY(pval->type_ == JsonbType::T_Array)) {
-                if (idx_len >= sizeof(idx_buf)) return nullptr;
-                memcpy(idx_buf, left_bracket + 1, idx_len);
-                idx_buf[idx_len] = 0;
-
-                char* end = nullptr;
-                int index = (int)strtol(idx_buf, &end, 10);
-                if (end && !*end)
-                    pval = ((ArrayVal*)pval)->get(index);
-                else
-                    // incorrect index string
+        case ARRAY_CODE: {
+            if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
+                *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
+                if (LIKELY(pval->type_ == JsonbType::T_Array)) {
+                    continue;
+                } else {
                     return nullptr;
-
-                // doris::StringParser::ParseResult parse_result;
-                // int index = doris::StringParser::string_to_int<int>(left_bracket + 1, idx_len, &parse_result);
-                // if (parse_result == doris::StringParser::ParseResult::PARSE_SUCCESS)
-            } else {
-                return nullptr;
+                }
             }
-        }
 
-        // skip the delimiter
-        if (key_path < fence) {
-            ++key_path;
-            if (key_path == fence)
-                // we have a trailing delimiter at the end
+            if (pval->type_ == JsonbType::T_Object &&
+                path.get_leg_from_leg_vector(i)->array_index == 0) {
+                continue;
+            }
+
+            if (pval->type_ != JsonbType::T_Array ||
+                path.get_leg_from_leg_vector(i)->leg_ptr != nullptr ||
+                path.get_leg_from_leg_vector(i)->leg_len != 0)
                 return nullptr;
+
+            if (path.get_leg_from_leg_vector(i)->array_index >= 0) {
+                pval = ((ArrayVal*)pval)->get(path.get_leg_from_leg_vector(i)->array_index);
+            } else {
+                pval = ((ArrayVal*)pval)
+                               ->get(((ArrayVal*)pval)->numElem() +
+                                     path.get_leg_from_leg_vector(i)->array_index);
+            }
+
+            if (!pval) return nullptr;
+            continue;
+        }
         }
     }
-
     return pval;
 }
 
-#pragma pack(pop)
+inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
+    if (stream->peek() == BEGIN_ARRAY) {
+        return parse_array(stream, path);
+    } else if (stream->peek() == BEGIN_MEMBER) {
+        return parse_member(stream, path);
+    } else {
+        return false; //invalid json path
+    }
+}
 
+inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
+    assert(stream->peek() == BEGIN_ARRAY);
+    stream->skip(1);
+    if (stream->exhausted()) {
+        return false;
+    }
+
+    if (stream->peek() == WILDCARD) {
+        stream->set_leg_ptr(const_cast<char*>(stream->position()));
+        stream->add_leg_len();
+        stream->skip(1);
+        if (stream->peek() == END_ARRAY) {
+            std::unique_ptr<leg_info> leg(
+                    new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, ARRAY_CODE));
+            path->add_leg_to_leg_vector(std::move(leg));
+            stream->skip(1);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    stream->set_leg_ptr(const_cast<char*>(stream->position()));
+
+    for (; !stream->exhausted() && stream->peek() != END_ARRAY; stream->skip(1)) {
+        stream->add_leg_len();
+    }
+
+    if (stream->exhausted() || stream->peek() != END_ARRAY) {
+        return false;
+    } else {
+        stream->skip(1);
+    }
+
+    //parse array index to int
+
+    std::string_view idx_string(stream->get_leg_ptr(), stream->get_leg_len());
+    int index = 0;
+
+    if (stream->get_leg_len() >= 4 &&
+        std::equal(LAST, LAST + 4, stream->get_leg_ptr(),
+                   [](char c1, char c2) { return std::tolower(c1) == std::tolower(c2); })) {
+        auto pos = idx_string.find(MINUS);
+
+        if (pos != std::string::npos) {
+            idx_string = idx_string.substr(pos + 1);
+
+            auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(),
+                                          index);
+            if (result.ec != std::errc()) {
+                return false;
+            }
+
+        } else if (stream->get_leg_len() > 4) {
+            return false;
+        }
+
+        std::unique_ptr<leg_info> leg(new leg_info(nullptr, 0, -index - 1, ARRAY_CODE));
+        path->add_leg_to_leg_vector(std::move(leg));
+
+        return true;
+    }
+
+    auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(), index);
+
+    if (result.ec != std::errc()) {
+        return false;
+    }
+
+    std::unique_ptr<leg_info> leg(new leg_info(nullptr, 0, index, ARRAY_CODE));
+    path->add_leg_to_leg_vector(std::move(leg));
+
+    return true;
+}
+
+inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
+    // advance past the .
+    assert(stream->peek() == BEGIN_MEMBER);
+    stream->skip(1);
+    if (stream->exhausted()) {
+        return false;
+    }
+
+    if (stream->peek() == WILDCARD) {
+        stream->set_leg_ptr(const_cast<char*>(stream->position()));
+        stream->add_leg_len();
+        stream->skip(1);
+        std::unique_ptr<leg_info> leg(
+                new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, MEMBER_CODE));
+        path->add_leg_to_leg_vector(std::move(leg));
+        return true;
+    }
+
+    stream->set_leg_ptr(const_cast<char*>(stream->position()));
+
+    const char* left_quotation_marks = nullptr;
+    const char* right_quotation_marks = nullptr;
+
+    for (; !stream->exhausted(); stream->skip(1)) {
+        if (stream->peek() == ESCAPE) {
+            stream->add_leg_len();
+            stream->skip(1);
+            stream->add_leg_len();
+            stream->set_has_escapes(true);
+            if (stream->exhausted()) {
+                return false;
+            }
+            continue;
+        } else if (stream->peek() == DOUBLE_QUOTE) {
+            if (left_quotation_marks == nullptr) {
+                left_quotation_marks = stream->position();
+                stream->set_leg_ptr(const_cast<char*>(++left_quotation_marks));
+                continue;
+            } else {
+                right_quotation_marks = stream->position();
+                stream->skip(1);
+                break;
+            }
+        } else if (stream->peek() == BEGIN_MEMBER || stream->peek() == BEGIN_ARRAY) {
+            if (left_quotation_marks == nullptr) {
+                break;
+            }
+        }
+
+        stream->add_leg_len();
+    }
+
+    if ((left_quotation_marks != nullptr && right_quotation_marks == nullptr) ||
+        stream->get_leg_ptr() == nullptr || stream->get_leg_len() == 0) {
+        return false; //invalid json path
+    }
+
+    if (stream->get_has_escapes()) {
+        stream->remove_escapes();
+    }
+
+    std::unique_ptr<leg_info> leg(
+            new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, MEMBER_CODE));
+    path->add_leg_to_leg_vector(std::move(leg));
+
+    return true;
+}
+
+#pragma pack(pop)
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 } // namespace doris
 
 #endif // JSONB_JSONBDOCUMENT_H

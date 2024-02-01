@@ -228,7 +228,7 @@ public class BackupHandlerTest {
                 BackupJobInfo info = BackupJobInfo.fromCatalog(System.currentTimeMillis(),
                         "ss2", CatalogMocker.TEST_DB_NAME,
                         CatalogMocker.TEST_DB_ID, BackupStmt.BackupContent.ALL,
-                        backupMeta, snapshotInfos);
+                        backupMeta, snapshotInfos, null);
                 infos.add(info);
                 return Status.OK;
             }

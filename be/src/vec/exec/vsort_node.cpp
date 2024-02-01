@@ -20,7 +20,6 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include <atomic>
 #include <functional>
@@ -35,7 +34,6 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/common/sort/heap_sorter.h"
 #include "vec/common/sort/topn_sorter.h"
 #include "vec/core/block.h"
@@ -88,7 +86,7 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
         auto first_sort_expr_node = tnode.sort_node.sort_info.ordering_exprs[0].nodes[0];
         if (first_sort_expr_node.node_type == TExprNodeType::SLOT_REF) {
             auto first_sort_slot = first_sort_expr_node.slot_ref;
-            for (auto tuple_desc : this->row_desc().tuple_descriptors()) {
+            for (auto tuple_desc : this->intermediate_row_desc().tuple_descriptors()) {
                 if (tuple_desc->id() != first_sort_slot.tuple_id) {
                     continue;
                 }
@@ -113,30 +111,34 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VSortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_TIMER(_exec_timer);
     _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
 
-    auto* memory_usage = _runtime_profile->create_child("PeakMemoryUsage", true, true);
-    _runtime_profile->add_child(memory_usage, false, nullptr);
-    _sort_blocks_memory_usage = ADD_COUNTER(memory_usage, "SortBlocks", TUnit::BYTES);
+    _memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
+    _sort_blocks_memory_usage =
+            ADD_CHILD_COUNTER(runtime_profile(), "SortBlocks", TUnit::BYTES, "MemoryUsage");
 
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor));
+    _child_get_next_timer = ADD_TIMER(runtime_profile(), "ChildGetResultTime");
+    _get_next_timer = ADD_TIMER(runtime_profile(), "GetResultTime");
+    _sink_timer = ADD_TIMER(runtime_profile(), "PartialSortTotalTime");
     return Status::OK();
 }
 
 Status VSortNode::alloc_resource(doris::RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(state->check_query_state("vsort, while open."));
 
     return Status::OK();
 }
 
 Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     if (input_block->rows() > 0) {
         RETURN_IF_ERROR(_sorter->append_block(input_block));
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
 
         // update runtime predicate
         if (_use_topn_opt) {
@@ -144,11 +146,13 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
             if (!new_top.is_null() && new_top != old_top) {
                 auto& sort_description = _sorter->get_sort_description();
                 auto col = input_block->get_by_position(sort_description[0].column_number);
-                bool is_reverse = sort_description[0].direction < 0;
-                auto query_ctx = state->get_query_ctx();
-                RETURN_IF_ERROR(
-                        query_ctx->get_runtime_predicate().update(new_top, col.name, is_reverse));
-                old_top = std::move(new_top);
+                if (!col.name.empty()) {
+                    bool is_reverse = sort_description[0].direction < 0;
+                    auto* query_ctx = state->get_query_ctx();
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(new_top, col.name,
+                                                                              is_reverse));
+                    old_top = std::move(new_top);
+                }
             }
         }
         if (!_reuse_mem) {
@@ -164,7 +168,6 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
 }
 
 Status VSortNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(child(0)->open(state));
@@ -174,18 +177,23 @@ Status VSortNode::open(RuntimeState* state) {
     bool eos = false;
     std::unique_ptr<Block> upstream_block = Block::create_unique();
     do {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, upstream_block.get(), &eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), eos);
-        RETURN_IF_ERROR(sink(state, upstream_block.get(), eos));
+        {
+            SCOPED_TIMER(_child_get_next_timer);
+            RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                    state, upstream_block.get(), &eos,
+                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                      ExecNode::get_next,
+                              _children[0], std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
+        }
+        {
+            SCOPED_TIMER(_sink_timer);
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(sink(state, upstream_block.get(), eos));
+        }
+
     } while (!eos);
 
-    child(0)->close(state);
+    static_cast<void>(child(0)->close(state));
 
     mem_tracker()->consume(_sorter->data_size());
     COUNTER_UPDATE(_sort_blocks_memory_usage, _sorter->data_size());
@@ -194,7 +202,9 @@ Status VSortNode::open(RuntimeState* state) {
 }
 
 Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
-    RETURN_IF_ERROR(_sorter->get_next(state, output_block, eos));
+    SCOPED_TIMER(_exec_timer);
+    SCOPED_TIMER(_get_next_timer);
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sorter->get_next(state, output_block, eos));
     reached_limit(output_block, eos);
     if (*eos) {
         _runtime_profile->add_info_string("Spilled", _sorter->is_spilled() ? "true" : "false");
@@ -203,7 +213,6 @@ Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_blo
 }
 
 Status VSortNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSortNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     return pull(state, block, eos);
@@ -214,7 +223,6 @@ Status VSortNode::reset(RuntimeState* state) {
 }
 
 void VSortNode::release_resource(doris::RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::close");
     _vsort_exec_exprs.close(state);
     _sorter = nullptr;
     ExecNode::release_resource(state);
