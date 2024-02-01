@@ -141,7 +141,7 @@ protected:
     virtual Status _check_segment_number_limit();
     virtual int64_t _num_seg() const;
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
-    RowsetSharedPtr _build_tmp();
+    Status _build_tmp(RowsetSharedPtr& rowset_ptr);
 
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
