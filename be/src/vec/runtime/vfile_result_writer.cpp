@@ -343,6 +343,15 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
+                case TYPE_JSONB: {
+                    auto jsonb_val = col.column->get_data_at(i);
+                    if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
+                        _plain_text_outstream << NULL_IN_CSV;
+                    } else {
+                        _plain_text_outstream << col.type->to_string(*col.column, i);
+                    }
+                    break;
+                }
                 default: {
                     // not supported type, like BITMAP, just export null
                     _plain_text_outstream << NULL_IN_CSV;
