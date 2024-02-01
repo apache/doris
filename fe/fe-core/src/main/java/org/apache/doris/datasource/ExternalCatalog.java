@@ -106,6 +106,7 @@ public abstract class ExternalCatalog
     private String comment;
     // A cached and being converted properties for external catalog.
     // generated from catalog properties.
+    private final byte[] lock = new byte[0];
     private Map<String, String> convertedProperties = null;
 
     public ExternalCatalog() {
@@ -431,7 +432,7 @@ public abstract class ExternalCatalog
         if (convertedProperties != null) {
             return convertedProperties;
         }
-        synchronized (convertedProperties) {
+        synchronized (lock) {
             if (convertedProperties != null) {
                 return convertedProperties;
             }
