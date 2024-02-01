@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.junit.Assert;
+
 suite("test_workload_group_mtmv") {
     def tableName = "t_test_workload_group_mtmv_user"
     def mvName = "multi_mv_test_workload_group_mtmv"
@@ -45,9 +47,15 @@ suite("test_workload_group_mtmv") {
     """
     order_qt_create "select MvProperties from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
-            alter MATERIALIZED VIEW ${mvName} set ('workload_group'='g2');
+            alter MATERIALIZED VIEW ${mvName} set ('workload_group'='mv_test_not_exist_group');
         """
     order_qt_alter "select MvProperties from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    sql """
+            refresh MATERIALIZED VIEW ${mvName};
+        """
+    def errors = """select ErrorMsg from tasks('type'='mv') where MvName=${mvName};"""
+    logger.info("errors: " + errors.toString())
+    assertTrue(errors.toString().contains("mv_test_not_exist_group"))
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
