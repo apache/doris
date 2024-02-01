@@ -602,18 +602,25 @@ public class Coordinator implements CoordInterface {
     @Override
     public void exec() throws Exception {
         // LoadTask does not have context, not controlled by queue now
-        if (Config.enable_workload_group && Config.enable_query_queue && context != null) {
-            queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
-            if (queryQueue == null) {
-                // This logic is actually useless, because when could not find query queue, it will
-                // throw exception during workload group manager.
-                throw new UserException("could not find query queue");
-            }
-            queueToken = queryQueue.getToken();
-            if (!queueToken.waitSignal(this.queryOptions.getExecutionTimeout() * 1000)) {
-                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
-                queryQueue.returnToken(queueToken);
-                throw new UserException(queueToken.getOfferResultDetail());
+        if (context != null) {
+            if (Config.enable_workload_group) {
+                this.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+                if (Config.enable_query_queue) {
+                    queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
+                    if (queryQueue == null) {
+                        // This logic is actually useless, because when could not find query queue, it will
+                        // throw exception during workload group manager.
+                        throw new UserException("could not find query queue");
+                    }
+                    queueToken = queryQueue.getToken();
+                    if (!queueToken.waitSignal(this.queryOptions.getExecutionTimeout() * 1000)) {
+                        LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
+                        queryQueue.returnToken(queueToken);
+                        throw new UserException(queueToken.getOfferResultDetail());
+                    }
+                }
+            } else {
+                context.setWorkloadGroupName("");
             }
         }
         execInternal();
@@ -2039,15 +2046,18 @@ public class Coordinator implements CoordInterface {
 
                         /**
                          * Ignore storage data distribution iff:
-                         * 1. Current fragment is not forced to use data distribution.
-                         * 2. `parallelExecInstanceNum` is larger than scan ranges.
-                         * 3. Use Nereids planner.
+                         * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
+                         * 2. Use Nereids planner.
                          */
                         boolean sharedScan = true;
                         int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                 leftMostNode.getNumInstances());
-                        boolean ignoreStorageDataDistribution = scanNodes.stream()
-                                .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context)) && useNereids;
+                        boolean forceToLocalShuffle = context != null
+                                && context.getSessionVariable().isForceToLocalShuffle();
+                        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
+                                .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context,
+                                        fragmentExecParamsMap.get(scanNode.getFragment().getFragmentId())
+                                                .scanRangeAssignment.size())) && useNereids);
                         if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
                                 || ignoreStorageDataDistribution)) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
@@ -2973,15 +2983,18 @@ public class Coordinator implements CoordInterface {
 
         /**
          * Ignore storage data distribution iff:
-         * 1. Current fragment is not forced to use data distribution.
-         * 2. `parallelExecInstanceNum` is larger than scan ranges.
-         * 3. Use Nereids planner.
+         * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
+         * 2. Use Nereids planner.
          */
-        boolean ignoreStorageDataDistribution = scanNodes.stream()
-                .allMatch(node -> node.ignoreStorageDataDistribution(context))
+        boolean forceToLocalShuffle = context != null
+                && context.getSessionVariable().isForceToLocalShuffle();
+        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
+                .allMatch(node -> node.ignoreStorageDataDistribution(context,
+                        fragmentExecParamsMap.get(node.getFragment().getFragmentId())
+                                .scanRangeAssignment.size()))
                 && addressToScanRanges.entrySet().stream().allMatch(addressScanRange -> {
                     return addressScanRange.getValue().size() < parallelExecInstanceNum;
-                }) && useNereids;
+                }) && useNereids);
 
         FragmentScanRangeAssignment assignment = params.scanRangeAssignment;
         for (Map.Entry<TNetworkAddress, List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> addressScanRange

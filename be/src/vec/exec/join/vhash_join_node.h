@@ -101,16 +101,16 @@ using ProfileCounter = RuntimeProfile::Counter;
 
 template <class HashTableContext, typename Parent>
 struct ProcessHashTableBuild {
-    ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
-                          Parent* parent, int batch_size, RuntimeState* state)
+    ProcessHashTableBuild(int rows, ColumnRawPtrs& build_raw_ptrs, Parent* parent, int batch_size,
+                          RuntimeState* state)
             : _rows(rows),
-              _acquired_block(acquired_block),
               _build_raw_ptrs(build_raw_ptrs),
               _parent(parent),
               _batch_size(batch_size),
               _state(state) {}
 
-    template <int JoinOpType, bool ignore_null, bool short_circuit_for_null>
+    template <int JoinOpType, bool ignore_null, bool short_circuit_for_null,
+              bool with_other_conjuncts>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
         if (short_circuit_for_null || ignore_null) {
             // first row is mocked and is null
@@ -131,63 +131,53 @@ struct ProcessHashTableBuild {
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr, true, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
-        hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
-                                         _rows);
+        hash_table_ctx.hash_table->template build<JoinOpType, with_other_conjuncts>(
+                hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), _rows);
         hash_table_ctx.bucket_nums.resize(_batch_size);
         hash_table_ctx.bucket_nums.shrink_to_fit();
 
-        COUNTER_UPDATE(_parent->_hash_table_memory_usage,
-                       hash_table_ctx.hash_table->get_byte_size());
+        COUNTER_SET(_parent->_hash_table_memory_usage,
+                    (int64_t)hash_table_ctx.hash_table->get_byte_size());
+        COUNTER_SET(_parent->_build_arena_memory_usage,
+                    (int64_t)hash_table_ctx.serialized_keys_size(true));
         return Status::OK();
     }
 
 private:
     const uint32_t _rows;
-    Block& _acquired_block;
     ColumnRawPtrs& _build_raw_ptrs;
     Parent* _parent = nullptr;
     int _batch_size;
     RuntimeState* _state = nullptr;
 };
 
-template <typename RowRefListType>
-using I8HashTableContext = PrimaryTypeHashTableContext<UInt8, RowRefListType>;
-template <typename RowRefListType>
-using I16HashTableContext = PrimaryTypeHashTableContext<UInt16, RowRefListType>;
-template <typename RowRefListType>
-using I32HashTableContext = PrimaryTypeHashTableContext<UInt32, RowRefListType>;
-template <typename RowRefListType>
-using I64HashTableContext = PrimaryTypeHashTableContext<UInt64, RowRefListType>;
-template <typename RowRefListType>
-using I128HashTableContext = PrimaryTypeHashTableContext<UInt128, RowRefListType>;
-template <typename RowRefListType>
-using I256HashTableContext = PrimaryTypeHashTableContext<UInt256, RowRefListType>;
+using I8HashTableContext = PrimaryTypeHashTableContext<UInt8>;
+using I16HashTableContext = PrimaryTypeHashTableContext<UInt16>;
+using I32HashTableContext = PrimaryTypeHashTableContext<UInt32>;
+using I64HashTableContext = PrimaryTypeHashTableContext<UInt64>;
+using I128HashTableContext = PrimaryTypeHashTableContext<UInt128>;
+using I256HashTableContext = PrimaryTypeHashTableContext<UInt256>;
 
-template <bool has_null, typename RowRefListType>
-using I64FixedKeyHashTableContext = FixedKeyHashTableContext<UInt64, has_null, RowRefListType>;
+template <bool has_null>
+using I64FixedKeyHashTableContext = FixedKeyHashTableContext<UInt64, has_null>;
 
-template <bool has_null, typename RowRefListType>
-using I128FixedKeyHashTableContext = FixedKeyHashTableContext<UInt128, has_null, RowRefListType>;
+template <bool has_null>
+using I128FixedKeyHashTableContext = FixedKeyHashTableContext<UInt128, has_null>;
 
-template <bool has_null, typename RowRefListType>
-using I256FixedKeyHashTableContext = FixedKeyHashTableContext<UInt256, has_null, RowRefListType>;
+template <bool has_null>
+using I256FixedKeyHashTableContext = FixedKeyHashTableContext<UInt256, has_null>;
 
-template <bool has_null, typename RowRefListType>
-using I136FixedKeyHashTableContext = FixedKeyHashTableContext<UInt136, has_null, RowRefListType>;
+template <bool has_null>
+using I136FixedKeyHashTableContext = FixedKeyHashTableContext<UInt136, has_null>;
 
 using HashTableVariants =
-        std::variant<std::monostate, SerializedHashTableContext<RowRefList>,
-                     I8HashTableContext<RowRefList>, I16HashTableContext<RowRefList>,
-                     I32HashTableContext<RowRefList>, I64HashTableContext<RowRefList>,
-                     I128HashTableContext<RowRefList>, I256HashTableContext<RowRefList>,
-                     I64FixedKeyHashTableContext<true, RowRefList>,
-                     I64FixedKeyHashTableContext<false, RowRefList>,
-                     I128FixedKeyHashTableContext<true, RowRefList>,
-                     I128FixedKeyHashTableContext<false, RowRefList>,
-                     I256FixedKeyHashTableContext<true, RowRefList>,
-                     I256FixedKeyHashTableContext<false, RowRefList>,
-                     I136FixedKeyHashTableContext<true, RowRefList>,
-                     I136FixedKeyHashTableContext<false, RowRefList>>;
+        std::variant<std::monostate, SerializedHashTableContext, I8HashTableContext,
+                     I16HashTableContext, I32HashTableContext, I64HashTableContext,
+                     I128HashTableContext, I256HashTableContext, I64FixedKeyHashTableContext<true>,
+                     I64FixedKeyHashTableContext<false>, I128FixedKeyHashTableContext<true>,
+                     I128FixedKeyHashTableContext<false>, I256FixedKeyHashTableContext<true>,
+                     I256FixedKeyHashTableContext<false>, I136FixedKeyHashTableContext<true>,
+                     I136FixedKeyHashTableContext<false>>;
 
 class VExprContext;
 
@@ -201,7 +191,8 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::CROSS_JOIN, HashJoinNode>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN, HashJoinNode>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN, HashJoinNode>,
-                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN, HashJoinNode>>;
+                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN, HashJoinNode>,
+                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN, HashJoinNode>>;
 
 class HashJoinNode final : public VJoinNodeBase {
 public:
@@ -291,6 +282,9 @@ private:
     // other expr
     VExprContextSPtrs _other_join_conjuncts;
 
+    // conjuncts for mark join, which result type is ternary boolean(true, false, null)
+    VExprContextSPtrs _mark_join_conjuncts;
+
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
 
@@ -351,6 +345,9 @@ private:
     bool _ready_probe = false;
     bool _probe_eos = false;
     int _last_probe_match;
+
+    // For mark join, last probe index of null mark
+    int _last_probe_null_mark;
 
     bool _build_side_ignore_null = false;
 

@@ -165,6 +165,7 @@ public class RuntimeFilterTranslator {
                         scanNode, targetExpr, true, isLocalTarget));
             }
             origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
+            origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
             org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
             scanNodeList.stream().filter(e -> e.getStatisticalType() == StatisticalType.CTE_SCAN_NODE)
                                  .forEach(f -> {

@@ -54,15 +54,17 @@ bool UnionSourceOperator::_has_data() {
 
 // we assumed it can read to process const expr， Although we don't know whether there is
 // ,and queue have data, could read also
+// The source operator's run dependences on Node's alloc_resource, which is called in Sink's open.
+// So hang until SinkOperator was scheduled to open.
 bool UnionSourceOperator::can_read() {
-    return _has_data() || _data_queue->is_all_finish();
+    return _node->resource_allocated() && (_has_data() || _data_queue->is_all_finish());
 }
 
 Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* block, bool* eos) {
     // here we precess const expr firstly
     if (_need_read_for_const_expr) {
         if (_node->has_more_const(state)) {
-            static_cast<void>(_node->get_next_const(state, block));
+            RETURN_IF_ERROR(_node->get_next_const(state, block));
         }
         _need_read_for_const_expr = _node->has_more_const(state);
     } else {

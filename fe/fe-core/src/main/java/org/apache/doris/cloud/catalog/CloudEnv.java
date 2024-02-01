@@ -17,17 +17,22 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.NodeInfoPB;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.Storage;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
@@ -52,7 +57,7 @@ public class CloudEnv extends Env {
 
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
-        this.cloudClusterCheck = new CloudClusterChecker();
+        this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
     }
 
     protected void startMasterOnlyDaemonThreads() {
@@ -354,6 +359,22 @@ public class CloudEnv extends Env {
     @Override
     public long saveTransactionState(CountingDataOutputStream dos, long checksum) throws IOException {
         return checksum;
+    }
+
+    public void checkCloudClusterPriv(String clusterName) throws DdlException {
+        // check resource usage privilege
+        if (!Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+                clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+            throw new DdlException("USAGE denied to user "
+                + ConnectContext.get().getQualifiedUser() + "'@'" + ConnectContext.get().getRemoteIP()
+                + "' for cloud cluster '" + clusterName + "'", ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
+        }
+
+        if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames().contains(clusterName)) {
+            LOG.debug("current instance does not have a cluster name :{}", clusterName);
+            throw new DdlException(String.format("Cluster %s not exist", clusterName),
+                ErrorCode.ERR_CLOUD_CLUSTER_ERROR);
+        }
     }
 }
 

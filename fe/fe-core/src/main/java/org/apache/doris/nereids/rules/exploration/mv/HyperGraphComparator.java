@@ -27,9 +27,13 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughJoin;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -44,6 +48,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * HyperGraphComparator
@@ -142,13 +147,81 @@ public class HyperGraphComparator {
         return buildComparisonRes();
     }
 
-    private boolean tryEliminateNodesAndEdge() {
-        for (int i : LongBitmap.getIterator(eliminateViewNodesMap)) {
-            if (!((StructInfoNode) viewHyperGraph.getNode(i)).canEliminate()) {
+    private @Nullable Plan constructViewPlan(long nodeBitmap, Set<Slot> requireOutputs) {
+        if (LongBitmap.getCardinality(nodeBitmap) != 1) {
+            return null;
+        }
+        Plan basePlan = viewHyperGraph.getNode(LongBitmap.lowestOneIndex(nodeBitmap)).getPlan();
+        if (basePlan.getOutputSet().containsAll(requireOutputs)) {
+            return basePlan;
+        }
+        List<NamedExpression> projects = viewHyperGraph
+                .getNamedExpressions(nodeBitmap, basePlan.getOutputSet(), requireOutputs);
+        if (projects == null) {
+            return null;
+        }
+        return new LogicalProject<>(projects, basePlan);
+    }
+
+    private boolean canEliminatePrimaryByForeign(long primaryNodes, long foreignNodes,
+            Set<Slot> primarySlots, Set<Slot> foreignSlots, JoinEdge joinEdge) {
+        Plan foreign = constructViewPlan(foreignNodes, foreignSlots);
+        Plan primary = constructViewPlan(primaryNodes, primarySlots);
+        if (foreign == null || primary == null) {
+            return false;
+        }
+        return JoinUtils.canEliminateByFk(joinEdge.getJoin(), primary, foreign);
+    }
+
+    private boolean canEliminateViewEdge(JoinEdge joinEdge) {
+        // eliminate by unique
+        if (joinEdge.getJoinType().isLeftOuterJoin() && joinEdge.isRightSimple()) {
+            long eliminatedRight =
+                    LongBitmap.newBitmapIntersect(joinEdge.getRightExtendedNodes(), eliminateViewNodesMap);
+            if (LongBitmap.getCardinality(eliminatedRight) != 1) {
                 return false;
             }
+            Plan rigthPlan = constructViewPlan(joinEdge.getRightExtendedNodes(), joinEdge.getRightInputSlots());
+            if (rigthPlan == null) {
+                return false;
+            }
+            return JoinUtils.canEliminateByLeft(joinEdge.getJoin(),
+                    rigthPlan.getLogicalProperties().getFunctionalDependencies());
         }
-        return true;
+        // eliminate by pk fk
+        if (joinEdge.getJoinType().isInnerJoin()) {
+            if (!joinEdge.isSimple()) {
+                return false;
+            }
+            long eliminatedLeft =
+                    LongBitmap.newBitmapIntersect(joinEdge.getLeftExtendedNodes(), eliminateViewNodesMap);
+            long eliminatedRight =
+                    LongBitmap.newBitmapIntersect(joinEdge.getRightExtendedNodes(), eliminateViewNodesMap);
+            if (LongBitmap.getCardinality(eliminatedLeft) == 0
+                    && LongBitmap.getCardinality(eliminatedRight) == 1) {
+                return canEliminatePrimaryByForeign(joinEdge.getRightExtendedNodes(), joinEdge.getLeftExtendedNodes(),
+                        joinEdge.getRightInputSlots(), joinEdge.getLeftInputSlots(), joinEdge);
+            } else if (LongBitmap.getCardinality(eliminatedLeft) == 1
+                    && LongBitmap.getCardinality(eliminatedRight) == 0) {
+                return canEliminatePrimaryByForeign(joinEdge.getLeftExtendedNodes(), joinEdge.getRightExtendedNodes(),
+                        joinEdge.getLeftInputSlots(), joinEdge.getRightInputSlots(), joinEdge);
+            }
+        }
+        return false;
+    }
+
+    private boolean tryEliminateNodesAndEdge() {
+        boolean hasFilterEdgeAbove = viewHyperGraph.getFilterEdges().stream()
+                .filter(e -> LongBitmap.getCardinality(e.getReferenceNodes()) == 1)
+                .anyMatch(e -> LongBitmap.isSubset(e.getReferenceNodes(), eliminateViewNodesMap));
+        if (hasFilterEdgeAbove) {
+            // If there is some filter edge above the eliminated node, we should rebuild a plan
+            // Right now, just reject it.
+            return false;
+        }
+        return viewHyperGraph.getJoinEdges().stream()
+                .filter(joinEdge -> LongBitmap.isOverlap(joinEdge.getReferenceNodes(), eliminateViewNodesMap))
+                .allMatch(this::canEliminateViewEdge);
     }
 
     private boolean compareNodeWithExpr(StructInfoNode query, StructInfoNode view) {

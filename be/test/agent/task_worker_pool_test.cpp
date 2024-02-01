@@ -41,14 +41,14 @@ TEST(TaskWorkerPoolTest, TaskWorkerPool) {
 
     TAgentTaskRequest task;
     task.__set_signature(-1);
-    workers.submit_task(task);
-    workers.submit_task(task);
-    workers.submit_task(task); // Pending and ignored when stop
+    auto _ = workers.submit_task(task);
+    _ = workers.submit_task(task);
+    _ = workers.submit_task(task); // Pending and ignored when stop
 
     std::this_thread::sleep_for(200ms);
     workers.stop();
 
-    workers.submit_task(task); // Ignore
+    _ = workers.submit_task(task); // Ignore
 
     EXPECT_EQ(count.load(), 2);
 }
@@ -69,13 +69,13 @@ TEST(TaskWorkerPoolTest, PriorTaskWorkerPool) {
     TAgentTaskRequest task;
     task.__set_signature(-1);
     task.__set_priority(TPriority::NORMAL);
-    workers.submit_task(task);
-    workers.submit_task(task);
+    auto _ = workers.submit_task(task);
+    _ = workers.submit_task(task);
     std::this_thread::sleep_for(200ms);
 
     task.__set_priority(TPriority::HIGH);
     // Normal pool is busy, but high prior pool should be idle
-    workers.submit_task(task);
+    _ = workers.submit_task(task);
     std::this_thread::sleep_for(500ms);
     EXPECT_EQ(normal_count.load(), 0);
     EXPECT_EQ(high_prior_count.load(), 1);
@@ -84,8 +84,8 @@ TEST(TaskWorkerPoolTest, PriorTaskWorkerPool) {
     EXPECT_EQ(normal_count.load(), 2);
     EXPECT_EQ(high_prior_count.load(), 1);
     // Both normal and high prior pool are idle
-    workers.submit_task(task);
-    workers.submit_task(task);
+    _ = workers.submit_task(task);
+    _ = workers.submit_task(task);
 
     std::this_thread::sleep_for(500ms);
     EXPECT_EQ(normal_count.load(), 2);
@@ -96,7 +96,7 @@ TEST(TaskWorkerPoolTest, PriorTaskWorkerPool) {
     EXPECT_EQ(normal_count.load(), 2);
     EXPECT_EQ(high_prior_count.load(), 3);
 
-    workers.submit_task(task); // Ignore
+    _ = workers.submit_task(task); // Ignore
 
     EXPECT_EQ(normal_count.load(), 2);
     EXPECT_EQ(high_prior_count.load(), 3);
@@ -110,7 +110,7 @@ TEST(TaskWorkerPoolTest, ReportWorkerPool) {
     std::atomic_int count {0};
     ReportWorker worker("test", master_info, 1, [&] { ++count; });
 
-    worker.notify(); // Not received heartbeat yet, igonre
+    worker.notify(); // Not received heartbeat yet, ignore
     std::this_thread::sleep_for(100ms);
 
     master_info.network_address.__set_port(9030);

@@ -681,7 +681,7 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 * `enable_memtable_on_sink_node`
 
   <version since="2.1.0">
-  是否在数据导入中启用 MemTable 前移，默认为 false
+  是否在数据导入中启用 MemTable 前移，默认为 true
   </version>
 
   在 DataSink 节点上构建 MemTable，并通过 brpc streaming 发送 segment 到其他 BE。

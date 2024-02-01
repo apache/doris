@@ -325,13 +325,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         try {
             this.newCurrentKafkaPartition = getAllKafkaPartitions();
         } catch (Exception e) {
+            String msg = e.getMessage()
+                        + " may be Kafka properties set in job is error"
+                        + " or no partition in this topic that should check Kafka";
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                    .add("error_msg", "Job failed to fetch all current partition with error " + e.getMessage())
+                    .add("error_msg", msg)
                     .build(), e);
             if (this.state == JobState.NEED_SCHEDULE) {
                 unprotectUpdateState(JobState.PAUSED,
-                        new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
-                                "Job failed to fetch all current partition with error " + e.getMessage()),
+                        new ErrorReason(InternalErrorCode.PARTITIONS_ERR, msg),
                         false /* not replay */);
             }
         }
