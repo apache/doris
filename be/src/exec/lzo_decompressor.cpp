@@ -16,8 +16,8 @@
 // under the License.
 
 #include "exec/decompressor.h"
-#include "orc/Exceptions.hh"
 #include "olap/utils.h"
+#include "orc/Exceptions.hh"
 #include "util/crc32c.h"
 
 
@@ -170,8 +170,9 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
         ptr += compressed_size;
     } else {
         try {
-            *decompressed_len = orc::lzoDecompress((const char*)ptr, (const char*)(ptr + compressed_size), 
-                                                   (char*)output, (char*)(output + uncompressed_size));
+            *decompressed_len =
+                    orc::lzoDecompress((const char*)ptr, (const char*)(ptr + compressed_size), 
+                                       (char*)output, (char*)(output + uncompressed_size));
         } catch (const orc::ParseError & err) {
             std::stringstream ss;
             ss << "Lzo decompression failed: " << err.what();
@@ -320,11 +321,9 @@ Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
     if (_header_info.header_checksum_type == CHECK_CRC32) {
         computed_checksum = CRC32_INIT_VALUE;
         computed_checksum = crc32c::Extend(computed_checksum, (const char*)header, cur - header);
-        //computed_checksum = lzo_crc32(computed_checksum, header, cur - header);
     } else {
         computed_checksum = ADLER32_INIT_VALUE;
         computed_checksum = olap_adler32(computed_checksum, (const char*)header, cur - header);
-        //computed_checksum = lzo_adler32(computed_checksum, header, cur - header);
     }
 
     if (computed_checksum != expected_checksum) {
@@ -370,11 +369,9 @@ Status LzopDecompressor::checksum(LzoChecksum type, const std::string& source, u
     case CHECK_NONE:
         return Status::OK();
     case CHECK_CRC32:
-        //computed_checksum = lzo_crc32(CRC32_INIT_VALUE, ptr, len);
         computed_checksum = crc32c::Extend(CRC32_INIT_VALUE, (const char*)ptr, len);
         break;
     case CHECK_ADLER:
-        //computed_checksum = lzo_adler32(ADLER32_INIT_VALUE, ptr, len);
         computed_checksum = olap_adler32(ADLER32_INIT_VALUE, (const char*)ptr, len);
         break;
     default:
