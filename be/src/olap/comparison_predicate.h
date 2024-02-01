@@ -365,6 +365,7 @@ public:
         _evaluate_vec_internal<true>(column, size, flags);
     }
 
+    // todo: It may be necessary to set a more reasonable threshold
     double get_ignore_threshold() const override { return 0.1; }
 
 private:

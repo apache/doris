@@ -135,7 +135,6 @@ struct RuntimeFilterParams {
 struct FilterFuncBase {
 public:
     void set_filter_id(int filter_id) {
-        _is_runtime_filter = true;
         if (_filter_id == -1) {
             _filter_id = filter_id;
         }
@@ -143,11 +142,10 @@ public:
 
     int get_filter_id() const { return _filter_id; }
 
-    bool is_runtime_filter() const { return _is_runtime_filter; }
+    bool is_runtime_filter() const { return _filter_id != -1; }
 
 private:
     int _filter_id = -1;
-    bool _is_runtime_filter = false;
 };
 struct UpdateRuntimeFilterParams {
     UpdateRuntimeFilterParams(const PPublishFilterRequest* req,

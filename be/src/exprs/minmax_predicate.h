@@ -93,21 +93,25 @@ public:
         if constexpr (std::is_same_v<T, StringRef>) {
             const auto& column_string = assert_cast<const vectorized::ColumnString&>(*column);
             for (size_t i = start; i < column->size(); i++) {
-                if constexpr (NeedMin) {
-                    _min = std::min(_min, column_string.get_data_at(i));
-                }
-                if constexpr (NeedMax) {
-                    _max = std::max(_max, column_string.get_data_at(i));
+                if (!nullmap[i]) {
+                    if constexpr (NeedMin) {
+                        _min = std::min(_min, column_string.get_data_at(i));
+                    }
+                    if constexpr (NeedMax) {
+                        _max = std::max(_max, column_string.get_data_at(i));
+                    }
                 }
             }
         } else {
             const T* data = (T*)column->get_raw_data().data;
             for (size_t i = start; i < column->size(); i++) {
-                if constexpr (NeedMin) {
-                    _min = std::min(_min, *(data + i));
-                }
-                if constexpr (NeedMax) {
-                    _max = std::max(_max, *(data + i));
+                if (!nullmap[i]) {
+                    if constexpr (NeedMin) {
+                        _min = std::min(_min, *(data + i));
+                    }
+                    if constexpr (NeedMax) {
+                        _max = std::max(_max, *(data + i));
+                    }
                 }
             }
         }
