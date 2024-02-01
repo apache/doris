@@ -55,7 +55,7 @@ suite("test_workload_group_mtmv") {
         """
     jobName = getJobName(dbName, mvName);
     logger.info(jobName)
-    waitingMTMVTaskFinished(jobName)
+    waitingMTMVTaskFinishedNotNeedSuccess(jobName)
     def errors = sql """select ErrorMsg from tasks('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"""
     logger.info("errors: " + errors.toString())
     assertTrue(errors.toString().contains("mv_test_not_exist_group"))
