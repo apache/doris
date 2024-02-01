@@ -1280,6 +1280,7 @@ visible_functions = {
         [['conv'], 'VARCHAR', ['VARCHAR', 'TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
         [['conv'], 'VARCHAR', ['STRING', 'TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
         [['cos'], 'DOUBLE', ['DOUBLE'], ''],
+        [['cosh'], 'DOUBLE', ['DOUBLE'], ''],
 
         [['degrees'], 'DOUBLE', ['DOUBLE'], ''],
 
@@ -1396,6 +1397,7 @@ visible_functions = {
         [['sqrt', 'dsqrt'], 'DOUBLE', ['DOUBLE'], ''],
         
         [['tan'], 'DOUBLE', ['DOUBLE'], ''],
+        [['tanh'], 'DOUBLE', ['DOUBLE'], ''],
         [['truncate'], 'DOUBLE', ['DOUBLE'], ''],
         [['truncate'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
         [['truncate'], 'DECIMAL32', ['DECIMAL32', 'INT'], ''],

@@ -192,6 +192,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
         wrequest.table_schema_param = _schema;
+        wrequest.txn_expiration = params.txn_expiration(); // Required by CLOUD.
 
         auto delta_writer = create_delta_writer(wrequest);
         {
@@ -455,6 +456,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .tablet_id = tablet.tablet_id(),
                 .schema_hash = schema_hash,
                 .txn_id = _txn_id,
+                .txn_expiration = request.txn_expiration(), // Required by CLOUD.
                 .index_id = request.index_id(),
                 .partition_id = tablet.partition_id(),
                 .load_id = request.id(),

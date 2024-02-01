@@ -170,7 +170,7 @@ Status ParallelScannerBuilder<ParentType>::_load() {
         auto& rowsets = _all_rowsets[tablet_id];
         {
             std::shared_lock read_lock(tablet->get_header_lock());
-            RETURN_IF_ERROR(tablet->capture_consistent_rowsets({0, version}, &rowsets));
+            RETURN_IF_ERROR(tablet->capture_consistent_rowsets_unlocked({0, version}, &rowsets));
         }
 
         for (auto& rowset : rowsets) {

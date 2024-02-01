@@ -20,9 +20,17 @@
 #include <rapidjson/stringbuffer.h>
 
 #include "common/status.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
+#include "vec/core/field.h"
+
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
 
 namespace doris {
 
@@ -55,6 +63,36 @@ Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
         }
     }
     return Status::OK();
+}
+
+void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                  Arena* mem_pool, int32_t col_id,
+                                                  int row_num) const {
+    const auto& variant = assert_cast<const ColumnObject&>(column);
+    if (!variant.is_finalized()) {
+        const_cast<ColumnObject&>(variant).finalize();
+    }
+    result.writeKey(col_id);
+    JsonbParser json_parser;
+    CHECK(variant.get_rowstore_column() != nullptr);
+    // use original document
+    const auto& data_ref = variant.get_rowstore_column()->get_data_at(row_num);
+    // encode as jsonb
+    bool succ = json_parser.parse(data_ref.data, data_ref.size);
+    // maybe more graceful, it is ok to check here since data could be parsed
+    CHECK(succ);
+    result.writeStartBinary();
+    result.writeBinary(json_parser.getWriter().getOutput()->getBuffer(),
+                       json_parser.getWriter().getOutput()->getSize());
+    result.writeEndBinary();
+}
+
+void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto& variant = assert_cast<ColumnObject&>(column);
+    Field field;
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    field.assign_jsonb(blob->getBlob(), blob->getBlobLen());
+    variant.insert(field);
 }
 
 } // namespace vectorized

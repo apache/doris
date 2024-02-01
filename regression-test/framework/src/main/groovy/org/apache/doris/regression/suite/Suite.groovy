@@ -975,7 +975,12 @@ class Suite implements GroovyInterceptable {
         def result = [:]
 
         tablets.each { row ->
-            def tablet_id = row[0]
+            def tablet_id
+            if (row.containsKey("TabletId")) {
+                tablet_id = row.TabletId
+            } else {
+                tablet_id = row[0]
+            }
             if (!result.containsKey(tablet_id)) {
                 result[tablet_id] = row
             }

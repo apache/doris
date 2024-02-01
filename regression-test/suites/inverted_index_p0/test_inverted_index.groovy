@@ -79,7 +79,24 @@ suite("test_inverted_index", "inverted_index") {
 
     sql "insert into ${tbName1} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111');"
     qt_sql "desc ${tbName1};"
-    qt_sql "SHOW INDEX FROM ${tbName1};"
+    def show_result = sql "show index from ${tbName1}"
+    logger.info("show index from " + tbName1 + " result: " + show_result)
+    assertEquals(show_result.size(), 15)
+    assertEquals(show_result[0][2], "index1")
+    assertEquals(show_result[1][2], "index2")
+    assertEquals(show_result[2][2], "index3")
+    assertEquals(show_result[3][2], "index4")
+    assertEquals(show_result[4][2], "index5")
+    assertEquals(show_result[5][2], "index6")
+    assertEquals(show_result[6][2], "index7")
+    assertEquals(show_result[7][2], "index8")
+    assertEquals(show_result[8][2], "index9")
+    assertEquals(show_result[9][2], "index10")
+    assertEquals(show_result[10][2], "index11")
+    assertEquals(show_result[11][2], "index12")
+    assertEquals(show_result[12][2], "index13")
+    assertEquals(show_result[13][2], "index14")
+    assertEquals(show_result[14][2], "index15")
     qt_sql "select * from ${tbName1};"
 
     sql "DROP INDEX IF EXISTS index1 ON ${tbName1};"
@@ -166,7 +183,24 @@ suite("test_inverted_index", "inverted_index") {
 
     sql "insert into ${tbName2} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111',1);"
     qt_sql "desc ${tbName2};"
-    qt_sql "SHOW INDEX FROM ${tbName2};"
+    show_result = sql "show index from ${tbName2}"
+    logger.info("show index from " + tbName2 + " result: " + show_result)
+    assertEquals(show_result.size(), 15)
+    assertEquals(show_result[0][2], "index1")
+    assertEquals(show_result[1][2], "index2")
+    assertEquals(show_result[2][2], "index3")
+    assertEquals(show_result[3][2], "index4")
+    assertEquals(show_result[4][2], "index5")
+    assertEquals(show_result[5][2], "index6")
+    assertEquals(show_result[6][2], "index7")
+    assertEquals(show_result[7][2], "index8")
+    assertEquals(show_result[8][2], "index9")
+    assertEquals(show_result[9][2], "index10")
+    assertEquals(show_result[10][2], "index11")
+    assertEquals(show_result[11][2], "index12")
+    assertEquals(show_result[12][2], "index13")
+    assertEquals(show_result[13][2], "index14")
+    assertEquals(show_result[14][2], "index15")
     qt_sql "select * from ${tbName2};"
 
     sql "DROP INDEX IF EXISTS index1 ON ${tbName2};"
@@ -253,7 +287,25 @@ suite("test_inverted_index", "inverted_index") {
 
     sql "insert into ${tbName3} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111',1);"
     qt_sql "desc ${tbName3};"
-    qt_sql "SHOW INDEX FROM ${tbName3};"
+    show_result = sql "show index from ${tbName3}"
+    logger.info("show index from " + tbName3 + " result: " + show_result)
+    assertEquals(show_result.size(), 16)
+    assertEquals(show_result[0][2], "index1")
+    assertEquals(show_result[1][2], "index2")
+    assertEquals(show_result[2][2], "index3")
+    assertEquals(show_result[3][2], "index4")
+    assertEquals(show_result[4][2], "index5")
+    assertEquals(show_result[5][2], "index6")
+    assertEquals(show_result[6][2], "index7")
+    assertEquals(show_result[7][2], "index8")
+    assertEquals(show_result[8][2], "index9")
+    assertEquals(show_result[9][2], "index10")
+    assertEquals(show_result[10][2], "index11")
+    assertEquals(show_result[11][2], "index12")
+    assertEquals(show_result[12][2], "index13")
+    assertEquals(show_result[13][2], "index14")
+    assertEquals(show_result[14][2], "index15")
+    assertEquals(show_result[15][2], "index16")
     qt_sql "select * from ${tbName3};"
 
     sql "DROP INDEX IF EXISTS index1 ON ${tbName3};"
