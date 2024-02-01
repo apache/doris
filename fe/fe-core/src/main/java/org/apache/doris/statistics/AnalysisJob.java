@@ -136,7 +136,6 @@ public class AnalysisJob {
             }
         }
         updateTaskState(AnalysisState.FINISHED, "");
-        syncLoadStats();
         queryFinished.clear();
         buf.clear();
     }
@@ -189,19 +188,6 @@ public class AnalysisJob {
             task.info.colToPartitions.clear();
             if (task.info.partitionNames != null) {
                 task.info.partitionNames.clear();
-            }
-        }
-    }
-
-    protected void syncLoadStats() {
-        long tblId = jobInfo.tblId;
-        for (BaseAnalysisTask task : queryFinished) {
-            if (task.info.externalTableLevelTask) {
-                continue;
-            }
-            String colName = task.col.getName();
-            if (!Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tblId, -1, colName)) {
-                analysisManager.removeColStatsStatus(tblId, colName);
             }
         }
     }
