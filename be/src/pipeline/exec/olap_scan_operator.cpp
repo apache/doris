@@ -267,12 +267,9 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         bool is_dup_mow_key = true;
         for (auto&& scan_range : _scan_ranges) {
             auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
-            is_dup_mow_key =
+            is_dup_mow_key &=
                     tablet->keys_type() == DUP_KEYS || (tablet->keys_type() == UNIQUE_KEYS &&
                                                         tablet->enable_unique_key_merge_on_write());
-            if (!is_dup_mow_key) {
-                break;
-            }
 
             int64_t version = 0;
             std::from_chars(scan_range->version.data(),
@@ -281,7 +278,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                     TabletWithVersion {std::dynamic_pointer_cast<Tablet>(tablet), version});
         }
 
-        if (is_dup_mow_key) {
+        {
             std::vector<OlapScanRange*> key_ranges;
             for (auto& range : _cond_ranges) {
                 if (range->begin_scan_range.size() == 1 &&
