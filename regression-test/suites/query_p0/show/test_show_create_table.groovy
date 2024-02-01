@@ -56,9 +56,21 @@ suite("test_show_create_table", "query") {
         res = sql "show create table `${tb_name}`"
         assertTrue(res.size() != 0)
 
+        sql """ drop table if exists test_ttl_table """
+        sql """ CREATE TABLE IF NOT EXISTS test_ttl_table 
+                    (id int, name varchar(20)) 
+                    DUPLICATE KEY(id, name)
+                    DISTRIBUTED BY RANDOM BUCKETS 1 
+                    properties(
+                    "replication_num" = "1");
+         """
+        res1 = sql "show create table test_ttl_table"
+        assertTrue(res1[0][1].toString().contains("\"binlog.ttl_seconds\" = \"10800\""))
+
     } finally {
 
         try_sql("DROP TABLE IF EXISTS `${tb_name}`")
+        try_sql("DROP TABLE IF EXISTS test_ttl_table")
     }
    
 }
