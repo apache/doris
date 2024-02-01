@@ -18,7 +18,7 @@
 #include "olap/compaction_permit_limiter.h"
 
 #include "common/config.h"
-#include "util/doris_bvar_metrics.h" 
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 
 namespace doris {

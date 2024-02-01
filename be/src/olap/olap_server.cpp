@@ -74,7 +74,7 @@
 #include "service/point_query_executor.h"
 #include "util/brpc_client_cache.h"
 #include "util/countdown_latch.h"
-#include "util/doris_bvar_metrics.h" 
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/thread.h"

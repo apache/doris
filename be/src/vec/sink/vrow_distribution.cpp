@@ -27,7 +27,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "util/doris_bvar_metrics.h" 
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column_const.h"

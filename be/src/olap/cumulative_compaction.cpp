@@ -110,7 +110,8 @@ Status CumulativeCompaction::execute_compact() {
     tablet()->set_last_cumu_compaction_success_time(UnixMillis());
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
-    DorisBvarMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
+    DorisBvarMetrics::instance()->cumulative_compaction_deltas_total->increment(
+            _input_rowsets.size());
     DorisBvarMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
     return Status::OK();
 }

@@ -25,7 +25,7 @@
 
 #include "olap/olap_define.h"
 #include "runtime/cache/cache_utils.h"
-#include "util/doris_bvar_metrics.h" 
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 
 namespace doris {

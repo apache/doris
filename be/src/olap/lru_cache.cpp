@@ -13,7 +13,7 @@
 
 #include "gutil/bits.h"
 #include "runtime/thread_context.h"
-#include "util/doris_bvar_metrics.h" 
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/time.h"
 

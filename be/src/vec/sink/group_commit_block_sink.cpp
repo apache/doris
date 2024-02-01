@@ -27,8 +27,11 @@
 #include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/runtime_state.h"
+<<<<<<< HEAD
 #include "util/debug_points.h"
-#include "util/doris_bvar_metrics.h" 
+=======
+#include "util/doris_bvar_metrics.h"
+>>>>>>> 4e08424c1e (clang-format)
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_finder.h"
