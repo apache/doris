@@ -84,13 +84,13 @@ public:
                            std::shared_ptr<std::condition_variable>& cv);
     Status wait_replay_wal_finish(int64_t wal_id);
     Status notify_relay_wal(int64_t wal_id);
+    static std::string get_base_wal_path(const std::string& wal_path_str);
 
 private:
     // wal back pressure
     Status _init_wal_dirs_conf();
     Status _init_wal_dirs();
     Status _init_wal_dirs_info();
-    std::string _get_base_wal_path(const std::string& wal_path_str);
     Status _update_wal_dir_info_thread();
 
     // replay wal
