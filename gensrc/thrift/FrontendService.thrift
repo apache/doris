@@ -478,7 +478,7 @@ struct TReportExecStatusParams {
 
   23: optional list<TDetailedReportParams> detailed_report
 
-  24: optional TQueryStatistics query_statistics
+  24: optional TQueryStatistics query_statistics // deprecated
 
   25: TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 }
