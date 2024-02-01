@@ -50,7 +50,7 @@ suite("test_dup_table_auto_inc_start_value_10000") {
     sql "drop table if exists ${table1};"
 
     // auto-increment column is value
-    def table2 = "test_dup_tab_auto_inc_10000_value"
+    def table2 = "test_dup_tab_auto_inc_start_value_10000_value"
     sql "drop table if exists ${table2}"
     sql """
         CREATE TABLE IF NOT EXISTS `${table2}` (
@@ -82,7 +82,7 @@ suite("test_dup_table_auto_inc_start_value_10000") {
     sql "drop table if exists ${table2};"
 
     sql "set batch_size = 4096;"
-    def table3 = "test_dup_tab_auto_inc_10000_key_2"
+    def table3 = "test_dup_tab_auto_inc_start_value_10000_key_2"
     sql "drop table if exists ${table3}"
     sql """
         CREATE TABLE IF NOT EXISTS `${table3}` (
