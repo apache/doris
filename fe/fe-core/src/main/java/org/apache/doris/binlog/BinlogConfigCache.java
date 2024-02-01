@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.Config;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -76,7 +77,7 @@ public class BinlogConfigCache {
     public long getDBTtlSeconds(long dbId) {
         BinlogConfig dBinlogConfig = getDBBinlogConfig(dbId);
         if (dBinlogConfig == null) {
-            return BinlogConfig.TTL_SECONDS;
+            return Config.default_binlog_ttl_seconds;
         }
         return dBinlogConfig.getTtlSeconds();
     }
@@ -130,7 +131,7 @@ public class BinlogConfigCache {
     public long getTableTtlSeconds(long dbId, long tableId) {
         BinlogConfig tableBinlogConfig = getTableBinlogConfig(dbId, tableId);
         if (tableBinlogConfig == null) {
-            return BinlogConfig.TTL_SECONDS;
+            return Config.default_binlog_ttl_seconds;
         }
         return tableBinlogConfig.getTtlSeconds();
     }
