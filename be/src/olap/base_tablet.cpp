@@ -135,10 +135,52 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_count);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
+
+    // construct _timestamped_versioned_tracker from rs and stale rs meta
+    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
+                                                             _tablet_meta->all_stale_rs_metas());
+
+    // if !_tablet_meta->all_rs_metas()[0]->tablet_schema(),
+    // that mean the tablet_meta is still no upgrade to doris 1.2 versions.
+    // Before doris 1.2 version, rowset metas don't have tablet schema.
+    // And when upgrade to doris 1.2 version,
+    // all rowset metas will be set the tablet schmea from tablet meta.
+    if (_tablet_meta->all_rs_metas().empty() || !_tablet_meta->all_rs_metas()[0]->tablet_schema()) {
+        _max_version_schema = _tablet_meta->tablet_schema();
+    } else {
+        _max_version_schema =
+                tablet_schema_with_merged_max_schema_version(_tablet_meta->all_rs_metas());
+    }
+    DCHECK(_max_version_schema);
 }
 
 BaseTablet::~BaseTablet() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
+}
+
+TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
+        const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
+    RowsetMetaSharedPtr max_schema_version_rs = *std::max_element(
+            rowset_metas.begin(), rowset_metas.end(),
+            [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
+                return !a->tablet_schema()
+                               ? true
+                               : (!b->tablet_schema()
+                                          ? false
+                                          : a->tablet_schema()->schema_version() <
+                                                    b->tablet_schema()->schema_version());
+            });
+    TabletSchemaSPtr target_schema = max_schema_version_rs->tablet_schema();
+    if (target_schema->num_variant_columns() > 0) {
+        // For variant columns tablet schema need to be the merged wide tablet schema
+        std::vector<TabletSchemaSPtr> schemas;
+        std::transform(rowset_metas.begin(), rowset_metas.end(), std::back_inserter(schemas),
+                       [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
+        static_cast<void>(
+                vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
+        VLOG_DEBUG << "dump schema: " << target_schema->dump_structure();
+    }
+    return target_schema;
 }
 
 Status BaseTablet::set_tablet_state(TabletState state) {
@@ -984,6 +1026,37 @@ void BaseTablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
             to_del->insert(id);
         }
     }
+}
+
+Status BaseTablet::_capture_consistent_rowsets_unlocked(
+        const std::vector<Version>& version_path, std::vector<RowsetSharedPtr>* rowsets) const {
+    DCHECK(rowsets != nullptr);
+    rowsets->reserve(version_path.size());
+    for (const auto& version : version_path) {
+        bool is_find = false;
+        do {
+            auto it = _rs_version_map.find(version);
+            if (it != _rs_version_map.end()) {
+                is_find = true;
+                rowsets->push_back(it->second);
+                break;
+            }
+
+            auto it_expired = _stale_rs_version_map.find(version);
+            if (it_expired != _stale_rs_version_map.end()) {
+                is_find = true;
+                rowsets->push_back(it_expired->second);
+                break;
+            }
+        } while (false);
+
+        if (!is_find) {
+            return Status::Error<CAPTURE_ROWSET_ERROR>(
+                    "fail to find Rowset for version. tablet={}, version={}", tablet_id(),
+                    version.to_string());
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris

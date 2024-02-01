@@ -82,12 +82,18 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 TabletColumn get_least_type_column(const TabletColumn& original, const DataTypePtr& new_type,
                                    const ExtraInfo& ext_info, bool* changed);
 
+struct ParseContext {
+    // record an extract json column, used for encoding row store
+    bool record_raw_json_column = false;
+};
 // thread steps to parse and encode variant columns into flatterned columns
 // 1. parse variant from raw json string
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
 // 2. encode sparse sub columns
-Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos);
-Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos);
+Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                                        const ParseContext& ctx);
+Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                             const ParseContext& ctx);
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
                               bool ignore_sparse = true);
 void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);
