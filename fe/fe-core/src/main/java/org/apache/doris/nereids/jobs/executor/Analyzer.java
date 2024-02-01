@@ -45,6 +45,7 @@ import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 
 import java.util.List;
@@ -172,7 +173,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new CollectJoinConstraint()
             ),
             topDown(new LeadingJoin()),
-            bottomUp(new SubqueryToApply())
+            bottomUp(new SubqueryToApply()),
+            topDown(new MergeProjects())
         );
     }
 }
