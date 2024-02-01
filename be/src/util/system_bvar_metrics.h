@@ -25,7 +25,7 @@
 
 namespace doris {
 
-struct CpuMetrics;
+struct CpuBvarMetrics;
 struct MemoryMetrics;
 struct DiskMetrics;
 struct NetworkMetrics;
@@ -38,14 +38,23 @@ class SystemBvarMetrics {
 public:
     SystemBvarMetrics();
     
+    ~SystemBvarMetrics();
+
     std::string to_prometheus(const std::string& registry_name) const;
+
+    // update metrics
+    void update();
+
 private:
     void install_cpu_metrics();
-    // void update_cpu_metrics();
-    void register_cpu_metrics(BvarMetricEntity* entity, const std::string& cpu_name);
+    // On Intel(R) Xeon(R) CPU E5-2450 0 @ 2.10GHz;
+    // read /proc/stat would cost about 170us
+    void update_cpu_metrics();
     void get_cpu_name();
+
 private:
     std::vector<std::string> cpu_names_;
+    std::map<std::string, CpuBvarMetrics*> cpu_metrics_;
     char* line_ptr_ = nullptr;
     size_t line_buf_size_ = 0;
     
