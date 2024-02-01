@@ -302,7 +302,7 @@ public abstract class ExternalCatalog
     public void onRefresh(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
-        synchronized (this.convertedProperties) {
+        synchronized (this.lock) {
             this.convertedProperties = null;
         }
         this.invalidCacheInInit = invalidCache;
