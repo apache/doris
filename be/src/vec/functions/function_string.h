@@ -2611,7 +2611,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
     bool is_variadic() const override { return false; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) override {
             return std::make_shared<DataTypeString>();
         }
     bool use_default_implementation_for_nulls() const override { return true; }
