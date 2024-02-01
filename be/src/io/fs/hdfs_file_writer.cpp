@@ -108,6 +108,14 @@ Status HdfsFileWriter::finalize() {
     return Status::OK();
 }
 
+Status HdfsFileWriter::open() {
+    if (!_opened) {
+        RETURN_IF_ERROR(_open());
+        _opened = true;
+    }
+    return Status::OK();
+}
+
 Status HdfsFileWriter::_open() {
     _path = convert_path(_path, _hdfs_fs->_fs_name);
     std::string hdfs_dir = _path.parent_path().string();

@@ -158,6 +158,14 @@ Status BrokerFileWriter::finalize() {
     return Status::OK();
 }
 
+Status BrokerFileWriter::open() {
+    if (!_opened) {
+        RETURN_IF_ERROR(_open());
+        _opened = true;
+    }
+    return Status::OK();
+}
+
 Status BrokerFileWriter::_open() {
     TBrokerOpenWriterRequest request;
 
