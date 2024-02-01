@@ -76,7 +76,7 @@ public class BinlogConfigCache {
     public long getDBTtlSeconds(long dbId) {
         BinlogConfig dBinlogConfig = getDBBinlogConfig(dbId);
         if (dBinlogConfig == null) {
-            return BinlogConfig.TTL_SECONDS;
+            return Config.default_binlog_ttl_seconds;
         }
         return dBinlogConfig.getTtlSeconds();
     }
@@ -130,7 +130,7 @@ public class BinlogConfigCache {
     public long getTableTtlSeconds(long dbId, long tableId) {
         BinlogConfig tableBinlogConfig = getTableBinlogConfig(dbId, tableId);
         if (tableBinlogConfig == null) {
-            return BinlogConfig.TTL_SECONDS;
+            return Config.default_binlog_ttl_seconds;
         }
         return tableBinlogConfig.getTtlSeconds();
     }
