@@ -1781,12 +1781,10 @@ build_wasmtime() {
     cd "${TP_SOURCE_DIR}/${WASMTIME_SOURCE}"
 
     cargo build --release -p wasmtime-c-api
-    mkdir -p "${TP_INCLUDE_DIR}/include/"
 
     cp -rf ./crates/c-api/wasm-c-api/include/wasm.* "${TP_INCLUDE_DIR}/"
     cp -rf ./crates/c-api/include/* "${TP_INCLUDE_DIR}/"
     cp -rf ./target/release/libwasmtime.a "${TP_LIB_DIR}/libwasmtime.a"
-    cp -rf ./target/release/libwasmtime.so "${TP_LIB_DIR}/libwasmtime.so"
 }
 
 build_wasmtime_cpp() {
