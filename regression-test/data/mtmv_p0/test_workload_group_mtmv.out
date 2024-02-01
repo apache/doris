@@ -3,5 +3,5 @@
 {workload_group=g1}
 
 -- !alter --
-{workload_group=g2}
+{workload_group=mv_test_not_exist_group}
 
