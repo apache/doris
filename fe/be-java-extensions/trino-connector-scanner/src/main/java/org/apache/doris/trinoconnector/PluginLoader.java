@@ -55,6 +55,4 @@ public class PluginLoader {
     public FeaturesConfig getFeaturesConfig() {
         return featuresConfig;
     }
-
 }
-

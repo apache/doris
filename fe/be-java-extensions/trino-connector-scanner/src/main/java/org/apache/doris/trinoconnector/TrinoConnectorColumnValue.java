@@ -21,19 +21,29 @@ import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 
 import io.trino.spi.block.Block;
-import static java.lang.Double.longBitsToDouble;
+import io.trino.spi.type.DateTimeEncoding;
+import io.trino.spi.type.DecimalType;
+import io.trino.spi.type.Decimals;
+import io.trino.spi.type.Type;
+import io.trino.util.DateTimeUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 public class TrinoConnectorColumnValue implements ColumnValue {
-
+    private static final Logger LOG = LoggerFactory.getLogger(TrinoConnectorColumnValue.class);
     private int position;
     private Block block;
     ColumnType dorisType;
+    Type trinoType;
 
     public TrinoConnectorColumnValue() {
     }
@@ -44,6 +54,10 @@ public class TrinoConnectorColumnValue implements ColumnValue {
 
     public void setColumnType(ColumnType dorisType) {
         this.dorisType = dorisType;
+    }
+
+    public void setTrinoType(Type trinoType) {
+        this.trinoType = trinoType;
     }
 
     public void setBlock(Block block) {
@@ -77,7 +91,7 @@ public class TrinoConnectorColumnValue implements ColumnValue {
 
     @Override
     public float getFloat() {
-        return 0;
+        return block.getSlice(position, 0, block.getSliceLength(position)).getFloat(0);
     }
 
     @Override
@@ -87,7 +101,7 @@ public class TrinoConnectorColumnValue implements ColumnValue {
 
     @Override
     public double getDouble() {
-        return longBitsToDouble(block.getLong(position, 0));
+        return block.getSlice(position, 0, block.getSliceLength(position)).getDouble(0);
     }
 
     @Override
@@ -95,33 +109,35 @@ public class TrinoConnectorColumnValue implements ColumnValue {
         return BigInteger.valueOf(block.getInt(position, 0));
     }
 
+    // block is LongArrayBlock type
     @Override
     public BigDecimal getDecimal() {
-        // return record.getDecimal(idx, dorisType.getPrecision(), dorisType.getScale()).toBigDecimal();
-        return null;
+        return Decimals.readBigDecimal((DecimalType) trinoType, block, position);
     }
 
+    // block is VariableWidthBlock
     @Override
     public String getString() {
-        int length = block.getSliceLength(position);
-        return block.getSlice(position, 0, length).toString();
+        return block.getSlice(position, 0, block.getSliceLength(position)).toStringUtf8();
     }
 
+    // block is VariableWidthBlock
     @Override
     public byte[] getStringAsBytes() {
-        int length = block.getSliceLength(position);
-        return block.getSlice(position, 0, length).getBytes();
+        return block.getSlice(position, 0, block.getSliceLength(position)).getBytes();
     }
 
+    // block is IntArrayBlock
     @Override
     public LocalDate getDate() {
-        return null;
+        return LocalDate.parse(DateTimeUtils.printDate(block.getInt(position, 0)), DateTimeFormatter.ISO_DATE);
     }
 
+    // block is LongArrayBlock
     @Override
     public LocalDateTime getDateTime() {
-        return null;
-
+        long timestamp = DateTimeEncoding.unpackMillisUtc(block.getLong(position, 0));
+        return Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDateTime();
     }
 
     @Override
@@ -131,21 +147,18 @@ public class TrinoConnectorColumnValue implements ColumnValue {
 
     @Override
     public byte[] getBytes() {
-        return null;
+        return block.getSlice(position, 0, block.getSliceLength(position)).getBytes();
     }
 
     @Override
     public void unpackArray(List<ColumnValue> values) {
-
     }
 
     @Override
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
-
     }
 
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
-
     }
 }

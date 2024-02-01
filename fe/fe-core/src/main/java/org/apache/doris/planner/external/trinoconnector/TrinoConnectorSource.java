@@ -18,10 +18,8 @@
 package org.apache.doris.planner.external.trinoconnector;
 
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.TrinoConnectorExternalTable;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.thrift.TFileAttributes;
 
@@ -33,21 +31,21 @@ import io.trino.spi.connector.ConnectorTransactionHandle;
 
 public class TrinoConnectorSource {
     private final TupleDescriptor desc;
-    private final TrinoConnectorExternalTable trinoConnectorExtTable;
     private final TrinoConnectorExternalCatalog trinoConnectorExternalCatalog;
+    private final TrinoConnectorExternalTable trinoConnectorExtTable;
     private final CatalogHandle catalogHandle;
-    private final ConnectorTableHandle trinoConnectorExtTableHandle;
     private final Session trinoSession;
     private final Connector connector;
     private ConnectorTransactionHandle connectorTransactionHandle;
+    private final ConnectorTableHandle trinoConnectorExtTableHandle;
 
     public TrinoConnectorSource(TupleDescriptor desc, TrinoConnectorExternalTable table) {
         this.desc = desc;
         this.trinoConnectorExtTable = table;
         this.trinoConnectorExternalCatalog = (TrinoConnectorExternalCatalog) table.getCatalog();
         this.catalogHandle = trinoConnectorExternalCatalog.getTrinoCatalogHandle();
-        this.trinoConnectorExtTableHandle = table.getOriginTable();
-        this.trinoSession = table.getTrinoSession();
+        this.trinoConnectorExtTableHandle = table.getConnectorTableHandle();
+        this.trinoSession = trinoConnectorExternalCatalog.getTrinoSession();
         this.connector = ((TrinoConnectorExternalCatalog) table.getCatalog()).getConnector();
     }
 
@@ -59,7 +57,7 @@ public class TrinoConnectorSource {
         return trinoConnectorExtTableHandle;
     }
 
-    public TableIf getTargetTable() {
+    public TrinoConnectorExternalTable getTargetTable() {
         return trinoConnectorExtTable;
     }
 

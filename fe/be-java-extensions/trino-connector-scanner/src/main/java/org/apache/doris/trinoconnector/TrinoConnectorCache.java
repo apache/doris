@@ -83,23 +83,6 @@ public class TrinoConnectorCache {
                 }
             });
 
-    public static void invalidateTableCache(TrinoConnectorCacheKey key) {
-        try {
-            TrinoConnectorCacheValue connectorCacheValue = connectorCache.get(key);
-            Connector connector = connectorCacheValue.getConnector();
-
-            if (connector != null) {
-                try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(connector.getClass().getClassLoader())) {
-                    connector.shutdown();
-                }
-            }
-
-            connectorCache.invalidate(key);
-        } catch (Exception e) {
-            throw new RuntimeException("failed to invalidate connector for:" + key);
-        }
-    }
-
     public static TrinoConnectorCacheValue getConnector(TrinoConnectorCacheKey key) {
         try {
             return connectorCache.get(key);
@@ -116,7 +99,6 @@ public class TrinoConnectorCache {
 
             // RecordReader will use ProcessBuilder to start a hotspot process, which may be stuck,
             // so use another process to kill this stuck process.
-            // TODO(gaoxin): better way to solve the stuck process?
             AtomicBoolean isKilled = new AtomicBoolean(false);
             ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
             executorService.scheduleAtFixedRate(() -> {
@@ -133,8 +115,10 @@ public class TrinoConnectorCache {
                 }
             }, 100, 1000, TimeUnit.MILLISECONDS);
 
+            // create CatalogHandle
             CatalogHandle catalogHandle = CatalogHandle.createRootCatalogHandle(key.catalogName,
                     new CatalogVersion("test"));
+
             isKilled.set(true);
             executorService.shutdownNow();
 
@@ -153,6 +137,22 @@ public class TrinoConnectorCache {
         }
     }
 
+    public static void invalidateTableCache(TrinoConnectorCacheKey key) {
+        try {
+            TrinoConnectorCacheValue connectorCacheValue = connectorCache.get(key);
+            Connector connector = connectorCacheValue.getConnector();
+
+            if (connector != null) {
+                try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(connector.getClass().getClassLoader())) {
+                    connector.shutdown();
+                }
+            }
+
+            connectorCache.invalidate(key);
+        } catch (Exception e) {
+            throw new RuntimeException("failed to invalidate connector for:" + key);
+        }
+    }
 
     private static CatalogFactory createCatalogFactory (TypeRegistry typeRegistry, ConnectorFactory connectorFactory) {
         LazyCatalogFactory catalogFactory = new LazyCatalogFactory();
@@ -180,10 +180,8 @@ public class TrinoConnectorCache {
     public static class TrinoConnectorCacheKey {
         private String catalogName;
         private String connectorName;
-
         // other properties
         private Map<String, String> properties;
-
         private TrinoConnectorPluginManager trinoConnectorPluginManager;
 
         public TrinoConnectorCacheKey(String catalogName, String connectorName) {
@@ -227,8 +225,8 @@ public class TrinoConnectorCache {
         private CatalogHandle catalogHandle;
         private Connector connector;
         private HandleResolver handleResolver;
-
         private TrinoConnectorServicesProvider trinoConnectorServicesProvider;
+
         public TrinoConnectorCacheValue(CatalogHandle catalogHandle, Connector connector, HandleResolver handleResolver,
                 TrinoConnectorServicesProvider trinoConnectorServicesProvider) {
             this.catalogHandle = catalogHandle;

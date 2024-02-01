@@ -89,9 +89,9 @@ public class TrinoConnectorPluginManager implements PluginInstaller  {
 
         PluginClassLoader pluginClassLoader = createClassLoader.get();
 
-        LOG.debug("Classpath for plugin:");
+        LOG.info("Classpath for plugin:");
         for (URL url : pluginClassLoader.getURLs()) {
-            LOG.debug("    {}", url.getPath());
+            LOG.info("    {}", url.getPath());
         }
 
         handleResolver.registerClassLoader(pluginClassLoader);
@@ -155,4 +155,3 @@ public class TrinoConnectorPluginManager implements PluginInstaller  {
         return handleResolver;
     }
 }
-

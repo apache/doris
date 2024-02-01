@@ -22,16 +22,11 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog.Type;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
 public class TrinoConnectorExternalDatabase extends ExternalDatabase<TrinoConnectorExternalTable> {
-
-    private static final Logger LOG = LogManager.getLogger(TrinoConnectorExternalDatabase.class);
 
     public TrinoConnectorExternalDatabase(ExternalCatalog extCatalog, Long id, String name) {
         super(extCatalog, id, name, Type.TRINO_CONNECTOR);

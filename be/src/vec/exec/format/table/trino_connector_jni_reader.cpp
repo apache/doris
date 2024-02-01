@@ -66,12 +66,19 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
     params["trino_connector_trascation_handle"] =
             range.table_format_params.trino_connector_params.trino_connector_trascation_handle;
 
-    // Used to create paimon option
+    // Used to create trino connector options
     for (auto& kv : range.table_format_params.trino_connector_params.trino_connector_options) {
         params[TRINO_CONNECTOR_OPTION_PREFIX + kv.first] = kv.second;
     }
     _jni_connector = std::make_unique<JniConnector>(
             "org/apache/doris/trinoconnector/TrinoConnectorJniScanner", params, column_names);
+}
+
+Status TrinoConnectorJniReader::init_reader(
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+    _colname_to_value_range = colname_to_value_range;
+    RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
+    return _jni_connector->open(_state, _profile);
 }
 
 Status TrinoConnectorJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
@@ -91,10 +98,4 @@ Status TrinoConnectorJniReader::get_columns(
     return Status::OK();
 }
 
-Status TrinoConnectorJniReader::init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    _colname_to_value_range = colname_to_value_range;
-    RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
-    return _jni_connector->open(_state, _profile);
-}
 } // namespace doris::vectorized

@@ -22,6 +22,7 @@ import io.trino.spi.type.BooleanType;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.DateType;
 import io.trino.spi.type.DecimalType;
+import io.trino.spi.type.DoubleType;
 import io.trino.spi.type.IntegerType;
 import io.trino.spi.type.SmallintType;
 import io.trino.spi.type.TimestampType;
@@ -39,24 +40,24 @@ public final class TrinoTypeToHiveTypeTranslator
     {
         if (type instanceof BooleanType) {
             return "boolean";
+        } else if (type instanceof TinyintType) {
+            return "tinyint";
+        } else if (type instanceof SmallintType) {
+            return "smallint";
         } else if (type instanceof IntegerType) {
             return "int";
         } else if (type instanceof BigintType) {
             return "bigint";
             // } else if (type instanceof FloatType) {
             //     return Type.FLOAT;
-        } else if (type instanceof IntegerType) {
+        } else if (type instanceof DoubleType) {
             return "double";
-        } else if (type instanceof SmallintType) {
-            return "smallint";
-        } else if (type instanceof TinyintType) {
-            return "tinyint";
+        } else if (type instanceof CharType) {
+            return type.toString();
         } else if (type instanceof VarcharType) {
             return "string";
             // } else if (type instanceof BinaryType) {
             //     return Type.STRING;
-        } else if (type instanceof CharType) {
-            return type.toString();
         } else if (type instanceof VarbinaryType) {
             return "string";
         } else if (type instanceof DecimalType) {
