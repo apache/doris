@@ -140,7 +140,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
-                            new EliminateSortUnderSubquery(),
+                            // new EliminateSortUnderSubquery(),
                             new EliminateGroupByConstant(),
                             // MergeProjects depends on this rule
                             new LogicalSubQueryAliasToLogicalProject(),
