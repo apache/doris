@@ -169,9 +169,10 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
         ptr += compressed_size;
     } else {
         try {
-            *decompressed_len =
-                    orc::lzoDecompress((const char*)ptr, (const char*)(ptr + compressed_size), 
-                                       (char*)output, (char*)(output + uncompressed_size));
+            *decompressed_len = orc::lzoDecompress((const char*)ptr,
+                                                   (const char*)(ptr + compressed_size),
+                                                   (char*)output,
+                                                   (char*)(output + uncompressed_size));
         } catch (const orc::ParseError& err) {
             std::stringstream ss;
             ss << "Lzo decompression failed: " << err.what();
