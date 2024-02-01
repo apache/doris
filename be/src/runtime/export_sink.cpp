@@ -35,8 +35,6 @@
 #include "util/types.h"
 #include "util/uid_util.h"
 
-
-
 namespace doris {
 
 ExportSink::ExportSink(ObjectPool* pool, const RowDescriptor& row_desc,
