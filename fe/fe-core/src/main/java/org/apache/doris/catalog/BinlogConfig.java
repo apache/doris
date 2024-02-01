@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -44,7 +45,6 @@ public class BinlogConfig implements Writable {
     @SerializedName("maxHistoryNums")
     private long maxHistoryNums;
 
-    public static final long TTL_SECONDS = 0x7fffffffffffffffL;
     public static final long MAX_BYTES = 0x7fffffffffffffffL;
     public static final long MAX_HISTORY_NUMS = 0x7fffffffffffffffL;
 
@@ -60,7 +60,7 @@ public class BinlogConfig implements Writable {
     }
 
     public BinlogConfig() {
-        this(false, TTL_SECONDS, MAX_BYTES, MAX_HISTORY_NUMS);
+        this(false, Config.default_binlog_ttl_seconds, MAX_BYTES, MAX_HISTORY_NUMS);
     }
 
     public void mergeFromProperties(Map<String, String> properties) {
