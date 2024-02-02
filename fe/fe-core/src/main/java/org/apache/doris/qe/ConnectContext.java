@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -1082,11 +1083,12 @@ public class ConnectContext {
     }
 
     public String getAuthorizedCloudCluster() {
-        List<String> cloudClusterNames = Env.getCurrentSystemInfo().getCloudClusterNames();
+        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
         // get all available cluster of the user
         for (String cloudClusterName : cloudClusterNames) {
             // find a cluster has more than one alive be
-            List<Backend> bes = Env.getCurrentSystemInfo().getBackendsByClusterName(cloudClusterName);
+            List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getBackendsByClusterName(cloudClusterName);
             AtomicBoolean hasAliveBe = new AtomicBoolean(false);
             bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
                 LOG.debug("get a clusterName {}, it's has more than one alive be {}", clusterName, backend);

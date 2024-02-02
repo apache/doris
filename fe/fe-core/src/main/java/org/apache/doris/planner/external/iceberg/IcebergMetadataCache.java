@@ -19,9 +19,7 @@ package org.apache.doris.planner.external.iceberg;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -72,76 +70,44 @@ public class IcebergMetadataCache {
             return ifPresent;
         }
 
-        Table icebergTable = getIcebergTable(key, catalog, params.getDatabase(), params.getTable());
+        Table icebergTable = getIcebergTable(catalog, params.getDatabase(), params.getTable());
         List<Snapshot> snaps = Lists.newArrayList();
         Iterables.addAll(snaps, icebergTable.snapshots());
         snapshotListCache.put(key, snaps);
         return snaps;
     }
 
-    public Table getIcebergTable(IcebergMetadataCacheKey key, CatalogIf catalog, String dbName, String tbName)
-            throws UserException {
+    public Table getIcebergTable(CatalogIf catalog, String dbName, String tbName) {
+        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog.getId(), dbName, tbName);
         Table cacheTable = tableCache.getIfPresent(key);
         if (cacheTable != null) {
             return cacheTable;
         }
 
-        Table icebergTable;
+        Catalog icebergCatalog;
         if (catalog instanceof HMSExternalCatalog) {
             HMSExternalCatalog ctg = (HMSExternalCatalog) catalog;
-            icebergTable = createIcebergTable(
-                ctg.getHiveMetastoreUris(),
-                ctg.getCatalogProperty().getHadoopProperties(),
-                dbName,
-                tbName,
-                ctg.getProperties());
+            icebergCatalog = createIcebergHiveCatalog(
+                    ctg.getHiveMetastoreUris(),
+                    ctg.getCatalogProperty().getHadoopProperties(),
+                    ctg.getProperties());
         } else if (catalog instanceof IcebergExternalCatalog) {
-            IcebergExternalCatalog extCatalog = (IcebergExternalCatalog) catalog;
-            icebergTable = getIcebergTable(
-                extCatalog.getCatalog(), extCatalog.getId(), dbName, tbName, extCatalog.getProperties());
+            icebergCatalog = ((IcebergExternalCatalog) catalog).getCatalog();
         } else {
-            throw new UserException("Only support 'hms' and 'iceberg' type for iceberg table");
+            throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
         }
+        Table icebergTable = HiveMetaStoreClientHelper.ugiDoAs(catalog.getId(),
+                () -> icebergCatalog.loadTable(TableIdentifier.of(dbName, tbName)));
+        initIcebergTableFileIO(icebergTable, catalog.getProperties());
         tableCache.put(key, icebergTable);
         return icebergTable;
     }
 
-    public Table getIcebergTable(IcebergSource icebergSource) throws MetaNotFoundException {
-        return icebergSource.getIcebergTable();
-    }
-
-    public Table getIcebergTable(HMSExternalTable hmsTable) {
-        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(
-                hmsTable.getCatalog().getId(),
-                hmsTable.getDbName(),
-                hmsTable.getName());
-        Table table = tableCache.getIfPresent(key);
-        if (table != null) {
-            return table;
-        }
-        Table icebergTable = createIcebergTable(hmsTable);
-        tableCache.put(key, icebergTable);
-
-        return icebergTable;
-    }
-
-    public Table getIcebergTable(Catalog catalog, long catalogId, String dbName, String tbName,
+    private Table getIcebergTable(Catalog catalog, long catalogId, String dbName, String tbName,
             Map<String, String> props) {
-        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(
-                catalogId,
-                dbName,
-                tbName);
-        Table cacheTable = tableCache.getIfPresent(key);
-        if (cacheTable != null) {
-            return cacheTable;
-        }
-
         Table table = HiveMetaStoreClientHelper.ugiDoAs(catalogId,
                 () -> catalog.loadTable(TableIdentifier.of(dbName, tbName)));
         initIcebergTableFileIO(table, props);
-
-        tableCache.put(key, table);
-
         return table;
     }
 
@@ -190,14 +156,12 @@ public class IcebergMetadataCache {
                 });
     }
 
-    private Table createIcebergTable(String uri, Map<String, String> hdfsConf, String db, String tbl,
-            Map<String, String> props) {
+    private Catalog createIcebergHiveCatalog(String uri, Map<String, String> hdfsConf, Map<String, String> props) {
         // set hdfs configure
         Configuration conf = new HdfsConfiguration();
         for (Map.Entry<String, String> entry : hdfsConf.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }
-
         HiveCatalog hiveCatalog = new HiveCatalog();
         hiveCatalog.setConf(conf);
 
@@ -211,20 +175,10 @@ public class IcebergMetadataCache {
             catalogProperties.put("uri", uri);
             hiveCatalog.initialize("hive", catalogProperties);
         }
-        Table table = HiveMetaStoreClientHelper.ugiDoAs(conf, () -> hiveCatalog.loadTable(TableIdentifier.of(db, tbl)));
-        initIcebergTableFileIO(table, props);
-        return table;
+        return hiveCatalog;
     }
 
-    private Table createIcebergTable(HMSExternalTable hmsTable) {
-        return createIcebergTable(hmsTable.getMetastoreUri(),
-            hmsTable.getHadoopProperties(),
-            hmsTable.getDbName(),
-            hmsTable.getName(),
-            hmsTable.getCatalogProperties());
-    }
-
-    private void initIcebergTableFileIO(Table table, Map<String, String> props) {
+    private static void initIcebergTableFileIO(Table table, Map<String, String> props) {
         Map<String, String> ioConf = new HashMap<>();
         table.properties().forEach((key, value) -> {
             if (key.startsWith("io.")) {

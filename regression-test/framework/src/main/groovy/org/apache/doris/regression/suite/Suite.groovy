@@ -400,11 +400,34 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    long getTableId(String dbName, String tableName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for(List<Object> row : dbInfo) {
+            if (row[1].equals(dbName)) {
+                def tbInfo = sql "show proc '/dbs/${row[0]}' "
+                for (List<Object> tb : tbInfo) {
+                    if (tb[1].equals(tableName)) {
+                        return tb[0].toLong()
+                    }
+                }
+            }
+        }
+    }
+
     long getDbId() {
         def dbInfo = sql "show proc '/dbs'"
         for(List<Object> row : dbInfo) {
             if (row[1].equals(context.dbName)) {
                 println(row[0])
+                return row[0].toLong()
+            }
+        }
+    }
+
+    long getDbId(String dbName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for (List<Object> row : dbInfo) {
+            if (row[1].equals(dbName)) {
                 return row[0].toLong()
             }
         }
@@ -975,7 +998,12 @@ class Suite implements GroovyInterceptable {
         def result = [:]
 
         tablets.each { row ->
-            def tablet_id = row[0]
+            def tablet_id
+            if (row.containsKey("TabletId")) {
+                tablet_id = row.TabletId
+            } else {
+                tablet_id = row[0]
+            }
             if (!result.containsKey(tablet_id)) {
                 result[tablet_id] = row
             }

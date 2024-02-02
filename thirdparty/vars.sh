@@ -277,10 +277,10 @@ BITSHUFFLE_SOURCE=bitshuffle-0.5.1
 BITSHUFFLE_MD5SUM="b3bf6a9838927f7eb62214981c138e2f"
 
 # croaringbitmap
-CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/refs/tags/v0.4.0.tar.gz"
-CROARINGBITMAP_NAME=CRoaring-0.4.0.tar.gz
-CROARINGBITMAP_SOURCE=CRoaring-0.4.0
-CROARINGBITMAP_MD5SUM="7c5cb6f2089cedc5ad9373f538a83334"
+CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/refs/tags/v2.1.2.tar.gz"
+CROARINGBITMAP_NAME=CRoaring-2.1.2.tar.gz
+CROARINGBITMAP_SOURCE=CRoaring-2.1.2
+CROARINGBITMAP_MD5SUM="419bfbafdf93e9a7e6cdc234454908fc"
 
 # fmt
 FMT_DOWNLOAD="https://github.com/fmtlib/fmt/archive/7.1.3.tar.gz"
@@ -508,6 +508,18 @@ ALI_SDK_NAME="1.36.1586.tar.gz"
 ALI_SDK_SOURCE="aliyun-openapi-cpp-sdk-1.36.1586"
 ALI_SDK_MD5SUM="14623ee8e87c89615477d9bf8cb30bea"
 
+# wasmtime
+WASMTIME_DOWNLOAD="https://github.com/bytecodealliance/wasmtime/releases/download/v14.0.4/wasmtime-v14.0.4-src.tar.gz"
+WASMTIME_NAME=wasmtime-v14.0.4-src.tar.gz
+WASMTIME_SOURCE=wasmtime-v14.0.4-src
+WASMTIME_MD5SUM="b440d7efd615f1b018cd326876d8ead7"
+
+# wasmtime-cpp
+WASMTIME_CPP_DOWNLOAD="https://github.com/bytecodealliance/wasmtime-cpp/archive/refs/tags/v9.0.0.tar.gz"
+WASMTIME_CPP_NAME=v9.0.0.tar.gz
+WASMTIME_CPP_SOURCE=wasmtime-cpp-9.0.0
+WASMTIME_CPP_MD5SUM="222cda259440a4243104571900fe087a"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -583,6 +595,8 @@ export TP_ARCHIVES=(
     'JSONCPP'
     'LIBUUID'
     'ALI_SDK'
+    'WASMTIME'
+    'WASMTIME_CPP'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

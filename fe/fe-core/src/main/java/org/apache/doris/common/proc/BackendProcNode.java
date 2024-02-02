@@ -33,7 +33,7 @@ import java.util.Map;
 public class BackendProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("RootPath").add("DataUsedCapacity").add("OtherUsedCapacity").add("AvailCapacity")
-            .add("TotalCapacity").add("TotalUsedPct").add("State").add("PathHash")
+            .add("TotalCapacity").add("TotalUsedPct").add("State").add("PathHash").add("StorageMedium")
             .build();
 
     private Backend backend;
@@ -53,17 +53,19 @@ public class BackendProcNode implements ProcNodeInterface {
             List<String> info = Lists.newArrayList();
             info.add(entry.getKey());
 
+            DiskInfo disk = entry.getValue();
+
             // data used
-            long dataUsedB = entry.getValue().getDataUsedCapacityB();
+            long dataUsedB = disk.getDataUsedCapacityB();
             Pair<Double, String> dataUsedUnitPair = DebugUtil.getByteUint(dataUsedB);
             info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(dataUsedUnitPair.first) + " "
                     + dataUsedUnitPair.second);
 
             // avail
-            long availB = entry.getValue().getAvailableCapacityB();
+            long availB = disk.getAvailableCapacityB();
             Pair<Double, String> availUnitPair = DebugUtil.getByteUint(availB);
             // total
-            long totalB = entry.getValue().getTotalCapacityB();
+            long totalB = disk.getTotalCapacityB();
             Pair<Double, String> totalUnitPair = DebugUtil.getByteUint(totalB);
             // other
             long otherB = totalB - availB - dataUsedB;
@@ -82,8 +84,9 @@ public class BackendProcNode implements ProcNodeInterface {
             }
             info.add(String.format("%.2f", used) + " %");
 
-            info.add(entry.getValue().getState().name());
-            info.add(String.valueOf(entry.getValue().getPathHash()));
+            info.add(disk.getState().name());
+            info.add(String.valueOf(disk.getPathHash()));
+            info.add(disk.getStorageMedium().name());
 
             result.addRow(info);
         }

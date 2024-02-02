@@ -119,6 +119,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
@@ -385,6 +386,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeToSec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
@@ -543,6 +545,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ConvertTo.class, "convert_to"),
             scalar(ConvertTz.class, "convert_tz"),
             scalar(Cos.class, "cos"),
+            scalar(Cosh.class, "cosh"),
             scalar(CosineDistance.class, "cosine_distance"),
             scalar(CountEqual.class, "countequal"),
             scalar(CreateMap.class, "map"),
@@ -838,6 +841,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Substring.class, "substr", "substring"),
             scalar(SubstringIndex.class, "substring_index"),
             scalar(Tan.class, "tan"),
+            scalar(Tanh.class, "tanh"),
             scalar(TimeDiff.class, "timediff"),
             scalar(TimeToSec.class, "time_to_sec"),
             scalar(Timestamp.class, "timestamp"),

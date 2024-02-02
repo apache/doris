@@ -22,7 +22,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.TableIf;
@@ -128,7 +127,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
-        icebergTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(source);
+        icebergTable = source.getIcebergTable();
         super.doInitialize();
     }
 

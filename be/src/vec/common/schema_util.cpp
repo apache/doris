@@ -47,6 +47,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "udf/udf.h"
+#include "util/defer_op.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -393,10 +394,11 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     return Status::OK();
 }
 
-Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos) {
+Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                                        const ParseContext& ctx) {
     try {
         // Parse each variant column from raw string column
-        RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_pos));
+        RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_pos, ctx));
         vectorized::schema_util::finalize_variant_columns(block, variant_pos,
                                                           false /*not ingore sparse*/);
         vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_pos);
@@ -408,14 +410,44 @@ Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& va
     return Status::OK();
 }
 
-Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
+Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                             const ParseContext& ctx) {
     for (int i = 0; i < variant_pos.size(); ++i) {
-        const auto& column_ref = block.get_by_position(variant_pos[i]).column;
+        auto column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
         const auto& column = remove_nullable(column_ref);
         const auto& var = assert_cast<const ColumnObject&>(*column.get());
         var.assume_mutable_ref().finalize();
+
+        MutableColumnPtr variant_column;
+        bool record_raw_string_with_serialization = false;
+        // set
+        auto __defer = Defer([&]() {
+            if (!ctx.record_raw_json_column) {
+                return;
+            }
+            auto* var = static_cast<vectorized::ColumnObject*>(variant_column.get());
+            if (record_raw_string_with_serialization) {
+                // encode to raw json column
+                auto raw_column = vectorized::ColumnString::create();
+                for (size_t i = 0; i < var->rows(); ++i) {
+                    std::string raw_str;
+                    var->serialize_one_row_to_string(i, &raw_str);
+                    raw_column->insert_data(raw_str.c_str(), raw_str.size());
+                }
+                var->set_rowstore_column(raw_column->get_ptr());
+            } else {
+                // use original input json column
+                auto original_var_root = vectorized::check_and_get_column<vectorized::ColumnObject>(
+                                                 remove_nullable(column_ref).get())
+                                                 ->get_root();
+                var->set_rowstore_column(original_var_root);
+            }
+        });
+
         if (!var.is_scalar_variant()) {
+            variant_column = var.assume_mutable();
+            record_raw_string_with_serialization = true;
             // already parsed
             continue;
         }
@@ -440,9 +472,10 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos) 
                             : var.get_root();
         }
 
-        MutableColumnPtr variant_column = ColumnObject::create(true);
+        variant_column = ColumnObject::create(true);
         parse_json_to_variant(*variant_column.get(),
                               assert_cast<const ColumnString&>(*raw_json_column));
+
         // Wrap variant with nullmap if it is nullable
         ColumnPtr result = variant_column->get_ptr();
         if (is_nullable) {

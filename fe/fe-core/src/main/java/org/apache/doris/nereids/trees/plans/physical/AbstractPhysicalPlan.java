@@ -25,7 +25,6 @@ import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -129,7 +128,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 filter.addTargetSlot(scanSlot, probeExpr, scan);
                 ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
                 ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-                ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeExpr).first, scanSlot);
+                ctx.setTargetsOnScanNode(ctx.getAliasTransferPair(probeSlot).first, scanSlot);
             }
         } else {
             filter = new RuntimeFilter(generator.getNextId(),
@@ -139,7 +138,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
             this.addAppliedRuntimeFilter(filter);
             ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
             ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-            ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeSlot).first, scanSlot);
+            ctx.setTargetsOnScanNode(ctx.getAliasTransferPair(probeSlot).first, scanSlot);
             ctx.setRuntimeFilterIdentityToFilter(src, type, builderNode, filter);
         }
         return true;

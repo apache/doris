@@ -364,7 +364,8 @@ const std::string* RuntimeProfile::get_info_string(const std::string& key) {
 
 #define ADD_COUNTER_IMPL(NAME, T)                                                                  \
     RuntimeProfile::T* RuntimeProfile::NAME(const std::string& name, TUnit::type unit,             \
-                                            const std::string& parent_counter_name) {              \
+                                            const std::string& parent_counter_name,                \
+                                            int64_t level) {                                       \
         DCHECK_EQ(_is_averaged_profile, false);                                                    \
         std::lock_guard<std::mutex> l(_counter_map_lock);                                          \
         if (_counter_map.find(name) != _counter_map.end()) {                                       \
@@ -372,7 +373,7 @@ const std::string* RuntimeProfile::get_info_string(const std::string& key) {
         }                                                                                          \
         DCHECK(parent_counter_name == ROOT_COUNTER ||                                              \
                _counter_map.find(parent_counter_name) != _counter_map.end());                      \
-        T* counter = _pool->add(new T(unit));                                                      \
+        T* counter = _pool->add(new T(unit, level));                                               \
         _counter_map[name] = counter;                                                              \
         std::set<std::string>* child_counters =                                                    \
                 find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>()); \

@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
@@ -77,8 +78,8 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]" + getGroupIdWithPrefix(),
-                "projects", projects,
-                "stats", statistics
+                "stats", statistics, "projects", projects
+
         );
     }
 
@@ -187,7 +188,12 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
                 }
                 NamedExpression newProbeExpr = this.getProjects().get(projIndex);
                 if (newProbeExpr instanceof Alias) {
-                    newProbeExpr = (NamedExpression) newProbeExpr.child(0);
+                    Expression child = ExpressionUtils.getExpressionCoveredByCast(newProbeExpr.child(0));
+                    if (child instanceof NamedExpression) {
+                        newProbeExpr = (NamedExpression) child;
+                    } else {
+                        return false;
+                    }
                 }
                 Slot newProbeSlot = RuntimeFilterGenerator.checkTargetChild(newProbeExpr);
                 if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, newProbeSlot)) {
