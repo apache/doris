@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -38,6 +39,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.qcloud.cos.internal.Unmarshallers.ImageAuditingUnmarshaller;
 
 import java.util.List;
 import java.util.Objects;
@@ -260,13 +262,35 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         }
     }
 
+    private void updateFuncDepsByWindowExpr(NamedExpression namedExpression, ImmutableSet.Builder<FdItem> builder) {
+        if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
+            return;
+        }
+        WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
+        List<Expression> partitionKeys = windowExpr.getPartitionKeys();
+
+        // Now we only support slot type keys
+        if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
+            return;
+        }
+        ImmutableSet<Slot> slotSet = partitionKeys.stream()
+                .map(s -> (Slot) s)
+                .collect(ImmutableSet.toImmutableSet());
+
+        // TODO: if partition by keys are unique, output is uniform
+        // TODO: if partition by keys are uniform, output is unique
+    }
+
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder(
-                child(0).getLogicalProperties().getFunctionalDependencies());
+    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFdItems();
+        builder.addAll(childItems);
+
         for (NamedExpression namedExpression : windowExpressions) {
             updateFuncDepsByWindowExpr(namedExpression, builder);
         }
+
         return builder.build();
     }
 }

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -228,24 +229,12 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies childFuncDeps = child().getLogicalProperties().getFunctionalDependencies();
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder(childFuncDeps);
-        builder.pruneSlots(new HashSet<>(outputSupplier.get()));
-        projects.stream().filter(Alias.class::isInstance).forEach(proj -> {
-            if (proj.child(0).isConstant()) {
-                builder.addUniformSlot(proj.toSlot());
-            } else if (proj.child(0) instanceof Uuid) {
-                builder.addUniqueSlot(proj.toSlot());
-            } else if (ExpressionUtils.isInjective(proj.child(0))) {
-                ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
-                if (childFuncDeps.isUnique(inputs)) {
-                    builder.addUniqueSlot(proj.toSlot());
-                } else if (childFuncDeps.isUniform(inputs)) {
-                    builder.addUniformSlot(proj.toSlot());
-                }
-            }
-        });
+    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFdItems();
+        builder.addAll(childItems);
+
         return builder.build();
     }
 }

@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.function.Supplier;
@@ -29,16 +33,16 @@ import java.util.function.Supplier;
  */
 public interface PropagateFuncDeps extends LogicalPlan {
     @Override
-    default FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+    default ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
         if (children().size() == 1) {
             // Note when changing function dependencies, we always clone it.
             // So it's safe to return a reference
-            return child(0).getLogicalProperties().getFunctionalDependencies();
+            return child(0).getLogicalProperties().getFdItems();
         }
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
         children().stream()
-                .map(p -> p.getLogicalProperties().getFunctionalDependencies())
-                .forEach(builder::addFunctionalDependencies);
+                .map(p -> p.getLogicalProperties().getFdItems())
+                .forEach(builder::addAll);
         return builder.build();
     }
 }

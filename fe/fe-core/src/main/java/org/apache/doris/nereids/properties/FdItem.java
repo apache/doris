@@ -15,25 +15,50 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.util.List;
-import java.util.function.Supplier;
 
-/**
- * Block fd propagation, it always returns an empty fd
- */
-public interface BlockFuncDepsPropagation extends LogicalPlan {
-    @Override
-    default ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        return ImmutableSet.of();
+public class FdItem {
+    private ImmutableSet<SlotReference> parentExprs;
+
+    boolean isUnique;
+
+    boolean isCandidate;
+
+    public FdItem(ImmutableSet<SlotReference> parentExprs, boolean isUnique, boolean isCandidate) {
+        this.parentExprs = ImmutableSet.copyOf(parentExprs);
+        this.isUnique = isUnique;
+        this.isCandidate = isCandidate;
+    }
+
+    public boolean isCandidate() {
+        return isCandidate;
+    }
+
+    public void setCandidate(boolean isCandidate) {
+        this.isCandidate = isCandidate;
+    }
+
+    public boolean isUnique() {
+        return isUnique;
+    }
+
+    public void setUnique(boolean isUnique) {
+        this.isUnique = isUnique;
+    }
+
+    public ImmutableSet<SlotReference> getParentExprs() {
+        return parentExprs;
+    }
+
+    public boolean checkExprInChild(SlotReference slot, LogicalPlan childPlan) {
+        return false;
     }
 }

@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Optional;
@@ -60,4 +63,6 @@ public interface LogicalPlan extends Plan {
      *   - PropagateFD: propagate the fd
      */
     FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier);
+
+    ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier);
 }

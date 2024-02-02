@@ -17,7 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.ExprFdItem;
+import org.apache.doris.nereids.properties.FdFactory;
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -35,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -115,16 +120,26 @@ public class LogicalIntersect extends LogicalSetOperation {
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        for (Plan child : children) {
-            builder.addFunctionalDependencies(
-                    child.getLogicalProperties().getFunctionalDependencies());
-            replaceSlotInFuncDeps(builder, child.getOutput(), outputSupplier.get());
-        }
+    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+
+        ImmutableSet<SlotReference> exprs = output.stream()
+                .filter(SlotReference.class::isInstance)
+                .map(SlotReference.class::cast)
+                .collect(ImmutableSet.toImmutableSet());
+
         if (qualifier == Qualifier.DISTINCT) {
-            builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+            ExprFdItem fdItem = FdFactory.INSTANCE.createExprFdItem(exprs, true, exprs);
+            builder.add(fdItem);
+            // inherit from both sides
+            ImmutableSet<FdItem> leftFdItems = child(0).getLogicalProperties().getFdItems();
+            ImmutableSet<FdItem> rightFdItems = child(1).getLogicalProperties().getFdItems();
+
+            builder.addAll(leftFdItems);
+            builder.addAll(rightFdItems);
         }
+
         return builder.build();
     }
 }

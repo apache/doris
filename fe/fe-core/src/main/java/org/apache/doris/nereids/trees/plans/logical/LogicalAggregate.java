@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FdFactory;
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -318,48 +321,23 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies childFd = child(0).getLogicalProperties().getFunctionalDependencies();
-        Set<Slot> outputSet = new HashSet<>(outputSupplier.get());
-        Builder fdBuilder = new Builder();
-        // when group by all tuples, the result only have one row
-        if (groupByExpressions.isEmpty()) {
-            outputSet.forEach(s -> {
-                fdBuilder.addUniformSlot(s);
-                fdBuilder.addUniqueSlot(s);
-            });
-            return fdBuilder.build();
-        }
+    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
-        // when group by complicate expression or virtual slot, just propagate uniform slots
-        if (groupByExpressions.stream()
-                .anyMatch(s -> !(s instanceof SlotReference) || s instanceof VirtualSlotReference)) {
-            fdBuilder.addUniformSlot(childFd);
-            fdBuilder.pruneSlots(outputSet);
-            return fdBuilder.build();
-        }
-
-        // when group by uniform slot, the result only have one row
-        ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
-                .map(s -> (Slot) s)
+        ImmutableSet<SlotReference> groupByExprs = getGroupByExpressions().stream()
+                .filter(SlotReference.class::isInstance)
+                .map(SlotReference.class::cast)
                 .collect(ImmutableSet.toImmutableSet());
-        if (childFd.isUniformAndNotNull(groupByKeys)) {
-            outputSupplier.get().forEach(s -> {
-                fdBuilder.addUniformSlot(s);
-                fdBuilder.addUniqueSlot(s);
-            });
-        }
 
-        // when group by unique slot, the result depends on agg func
-        if (childFd.isUniqueAndNotNull(groupByKeys)) {
-            for (NamedExpression namedExpression : getOutputExpressions()) {
-                updateFuncDepsGroupByUnique(namedExpression, fdBuilder);
-            }
-        }
+        // inherit from child
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFdItems();
+        builder.addAll(childItems);
 
-        // group by keys is unique
-        fdBuilder.addUniqueSlot(groupByKeys);
-        fdBuilder.pruneSlots(outputSet);
-        return fdBuilder.build();
+        // todo: fill the table sets
+        TableFdItem fdItem = FdFactory.INSTANCE.createTableFdItem(groupByExprs, true,
+                false, ImmutableSet.of());
+        builder.add(fdItem);
+
+        return builder.build();
     }
 }

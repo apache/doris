@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -32,6 +33,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanUtils;
+
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
@@ -50,8 +53,11 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                     Set<Slot> groupby = agg.getGroupByExpressions().stream().map(e -> (Slot) e)
                             .collect(Collectors.toSet());
                     Plan child = agg.child();
-                    boolean unique = child.getLogicalProperties().getFunctionalDependencies()
-                            .isUniqueAndNotNull(groupby);
+                    //boolean unique = child.getLogicalProperties().getFunctionalDependencies()
+                    //        .isUniqueAndNotNull(groupby);
+                    ImmutableSet<FdItem> fdItems = child.getLogicalProperties().getFdItems();
+                    boolean unique = fdItems.stream().anyMatch(e->e.getParentExprs()
+                            .containsAll(groupby) && e.isUnique() && !e.isCandidate());
                     if (!unique) {
                         return null;
                     }

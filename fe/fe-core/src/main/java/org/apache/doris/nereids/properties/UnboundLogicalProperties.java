@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 
@@ -32,7 +33,7 @@ public class UnboundLogicalProperties extends LogicalProperties {
     public static final UnboundLogicalProperties INSTANCE = new UnboundLogicalProperties();
 
     private UnboundLogicalProperties() {
-        super(ImmutableList::of, () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
+        super(ImmutableList::of, () -> FunctionalDependencies.EMPTY_FUNC_DEPS, ImmutableSet::of);
     }
 
     @Override
