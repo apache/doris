@@ -147,7 +147,7 @@ public class Statistics {
             return "-Infinite";
         }
         DecimalFormat format = new DecimalFormat("#,###.##");
-        return format.format(rowCount) + " " + widthInJoinCluster;
+        return format.format(rowCount);
     }
 
     public int getBENumber() {

@@ -35,6 +35,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.Lists;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -190,5 +191,19 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     public int getId() {
         return id.asInt();
+    }
+
+    /**
+     * ancestors in the tree
+     */
+    public List<Plan> getAncestors() {
+        List<Plan> ancestors = Lists.newArrayList();
+        ancestors.add(this);
+        Optional<Object> parent = this.getMutableState(MutableState.KEY_PARENT);
+        while (parent.isPresent()) {
+            ancestors.add((Plan) parent.get());
+            parent = ((Plan) parent.get()).getMutableState(MutableState.KEY_PARENT);
+        }
+        return ancestors;
     }
 }
