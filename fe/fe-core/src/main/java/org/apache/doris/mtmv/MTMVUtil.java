@@ -31,9 +31,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
-import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
-import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -76,7 +73,7 @@ public class MTMVUtil {
      * @return
      * @throws AnalysisException
      */
-    private static boolean isMTMVPartitionSync(MTMV mtmv, Long partitionId, Set<BaseTableInfo> tables,
+    public static boolean isMTMVPartitionSync(MTMV mtmv, Long partitionId, Set<BaseTableInfo> tables,
             Set<String> excludedTriggerTables) throws AnalysisException {
         boolean isSyncWithPartition = true;
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
@@ -215,55 +212,6 @@ public class MTMVUtil {
                 if (!isSyncWithBaseTable(mtmv, partitionId, baseTableInfo)) {
                     res.add(table.getName());
                 }
-            }
-        }
-        return res;
-    }
-
-    /**
-     * Determine which partition of mtmv can be rewritten
-     *
-     * @param mtmv
-     * @param ctx
-     * @return
-     */
-    public static Collection<Partition> getMTMVCanRewritePartitions(MTMV mtmv, ConnectContext ctx) {
-        List<Partition> res = Lists.newArrayList();
-        Collection<Partition> allPartitions = mtmv.getPartitions();
-        // check session variable if enable rewrite
-        if (!ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
-            return res;
-        }
-        if (mtmvContainsExternalTable(mtmv) && !ctx.getSessionVariable()
-                .isMaterializedViewRewriteEnableContainExternalTable()) {
-            return res;
-        }
-
-        MTMVRelation mtmvRelation = mtmv.getRelation();
-        if (mtmvRelation == null) {
-            return res;
-        }
-        // check mv is normal
-        if (!(mtmv.getStatus().getState() == MTMVState.NORMAL
-                && mtmv.getStatus().getRefreshState() == MTMVRefreshState.SUCCESS)) {
-            return res;
-        }
-        // check gracePeriod
-        long gracePeriodMills = mtmv.getGracePeriod();
-        long currentTimeMills = System.currentTimeMillis();
-        for (Partition partition : allPartitions) {
-            if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
-                    + gracePeriodMills)) {
-                res.add(partition);
-                continue;
-            }
-            try {
-                if (isMTMVPartitionSync(mtmv, partition.getId(), mtmvRelation.getBaseTables(), Sets.newHashSet())) {
-                    res.add(partition);
-                }
-            } catch (AnalysisException e) {
-                // ignore it
-                LOG.warn("check isMTMVPartitionSync failed", e);
             }
         }
         return res;
@@ -445,7 +393,7 @@ public class MTMVUtil {
                 .equalsWithBaseTable(mtmvPartitionName, baseTable.getId(), baseTableCurrentSnapshot);
     }
 
-    private static boolean mtmvContainsExternalTable(MTMV mtmv) {
+    public static boolean mtmvContainsExternalTable(MTMV mtmv) {
         Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTables();
         for (BaseTableInfo baseTableInfo : baseTables) {
             if (baseTableInfo.getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
