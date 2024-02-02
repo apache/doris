@@ -305,7 +305,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query15_0_before "${query15_0}"
-    check_mv_rewrite_success_with_mv_partition(mv15_0, query15_0, "mv15_0", "l_shipdate")
+    check_rewrite_with_mv_partition(mv15_0, query15_0, "mv15_0", "l_shipdate")
     order_qt_query15_0_after "${query15_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv15_0"""
 
