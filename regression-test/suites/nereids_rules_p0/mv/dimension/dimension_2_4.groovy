@@ -28,10 +28,10 @@ suite("partition_mv_rewrite_dimension_2_4") {
     sql "SET enable_nereids_timeout = false"
 
     sql """
-    drop table if exists orders
+    drop table if exists orders_2_4
     """
 
-    sql """CREATE TABLE `orders` (
+    sql """CREATE TABLE `orders_2_4` (
       `o_orderkey` BIGINT NULL,
       `o_custkey` INT NULL,
       `o_orderstatus` VARCHAR(1) NULL,
@@ -51,10 +51,10 @@ suite("partition_mv_rewrite_dimension_2_4") {
     );"""
 
     sql """
-    drop table if exists lineitem
+    drop table if exists lineitem_2_4
     """
 
-    sql """CREATE TABLE `lineitem` (
+    sql """CREATE TABLE `lineitem_2_4` (
       `l_orderkey` BIGINT NULL,
       `l_linenumber` INT NULL,
       `l_partkey` INT NULL,
@@ -99,7 +99,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     );"""
 
     sql """
-    insert into orders values 
+    insert into orders_2_4 values 
     (null, 1, 'o', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (1, null, 'k', 109.2, 'c','d',2, 'mm', '2023-10-17'),
     (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-19'),
@@ -113,7 +113,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     """
 
     sql """
-    insert into lineitem values 
+    insert into lineitem_2_4 values 
     (null, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
@@ -130,8 +130,8 @@ suite("partition_mv_rewrite_dimension_2_4") {
     (3, null, 1, 99.5, 'yy'); 
     """
 
-    sql """analyze table orders with sync;"""
-    sql """analyze table lineitem with sync;"""
+    sql """analyze table orders_2_4 with sync;"""
+    sql """analyze table lineitem_2_4 with sync;"""
     sql """analyze table partsupp with sync;"""
 
     def create_mv_lineitem = { mv_name, mv_sql ->
@@ -193,7 +193,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
     // Todo: query partial
     // agg function + query partial
-//    def mv_name_1 = "mv_name_1"
+//    def mv_name_1 = "mv_name_2_4_1"
 //    def mv_stmt_1 = """select
 //            sum(o_totalprice) as sum_total,
 //            max(o_totalprice) as max_total,
@@ -201,8 +201,8 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            count(*) as count_all,
 //            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
 //            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
-//            from orders
-//            left join lineitem on lineitem.l_orderkey = orders.o_orderkey"""
+//            from orders_2_4
+//            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey"""
 //    create_all_mv(mv_name_1, mv_stmt_1)
 //    def job_name_1 = getJobName(db, mv_name_1)
 //    waitingMTMVTaskFinished(job_name_1)
@@ -214,7 +214,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            max(o_totalprice),
 //            min(o_totalprice),
 //            count(*)
-//            from orders """
+//            from orders_2_4 """
 //    explain {
 //        sql("${sql_stmt_1}")
 //        contains "${mv_name_1}(${mv_name_1})"
@@ -222,10 +222,10 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
 
     // group by + query partial
-//    def mv_name_2 = "mv_name_2"
+//    def mv_name_2 = "mv_name_2_4_2"
 //    def mv_stmt_2 = """select o_orderdate, o_shippriority, o_comment
-//            from orders
-//            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
+//            from orders_2_4
+//            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
 //            group by
 //            o_orderdate,
 //            o_shippriority,
@@ -235,7 +235,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //    waitingMTMVTaskFinished(job_name_2)
 //
 //    def sql_stmt_2 = """select o_shippriority, o_comment
-//            from orders
+//            from orders_2_4
 //            group by
 //            o_shippriority,
 //            o_comment """
@@ -245,7 +245,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //    }
 
     // agg function + group by + query partial
-//    def mv_name_3 = "mv_name_3"
+//    def mv_name_3 = "mv_name_2_4_3"
 //    def mv_stmt_3 = """select  o_orderdate, o_shippriority, o_comment,
 //            sum(o_totalprice) as sum_total,
 //            max(o_totalprice) as max_total,
@@ -253,8 +253,8 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            count(*) as count_all,
 //            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
 //            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
-//            from orders
-//            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
+//            from orders_2_4
+//            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
 //            group by
 //            o_orderdate,
 //            o_shippriority,
@@ -270,7 +270,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            max(o_totalprice),
 //            min(o_totalprice),
 //            count(*)
-//            from orders
+//            from orders_2_4
 //            group by
 //            o_shippriority,
 //            o_comment """
@@ -281,16 +281,16 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
     // view partial
     // agg function + view partial
-    def mv_name_4 = "mv_name_4"
+    def mv_name_4 = "mv_name_2_4_4"
     def mv_stmt_4 = """select 
             o_totalprice, 
             o_shippriority,
             o_orderkey,
             l_orderkey,
             o_custkey 
-            from orders 
-            left join lineitem
-            on lineitem.l_orderkey = orders.o_orderkey """
+            from orders_2_4 
+            left join lineitem_2_4
+            on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey """
     create_all_mv(mv_name_4, mv_stmt_4)
     def job_name_4 = getJobName(db, mv_name_4)
     waitingMTMVTaskFinished(job_name_4)
@@ -301,10 +301,10 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_orderkey,
             l_orderkey,
             o_custkey 
-            from orders 
-            left join lineitem
-            on lineitem.l_orderkey = orders.o_orderkey
-            left join partsupp on partsupp.ps_partkey = lineitem.l_orderkey"""
+            from orders_2_4 
+            left join lineitem_2_4
+            on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
+            left join partsupp on partsupp.ps_partkey = lineitem_2_4.l_orderkey"""
     explain {
         sql("${sql_stmt_4}")
         contains "${mv_name_4}(${mv_name_4})"
@@ -314,10 +314,10 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
 
     // group by + query partial
-    def mv_name_5 = "mv_name_5"
+    def mv_name_5 = "mv_name_2_4_5"
     def mv_stmt_5 = """select o_orderdate, o_shippriority, o_comment 
-            from orders 
-            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
+            from orders_2_4 
+            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
             group by 
             o_orderdate, 
             o_shippriority, 
@@ -327,9 +327,9 @@ suite("partition_mv_rewrite_dimension_2_4") {
     waitingMTMVTaskFinished(job_name_5)
 
     def sql_stmt_5 = """select o_orderdate, o_shippriority, o_comment
-            from orders
-            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
-            left join partsupp on partsupp.ps_partkey = lineitem.l_orderkey
+            from orders_2_4
+            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
+            left join partsupp on partsupp.ps_partkey = lineitem_2_4.l_orderkey
             group by
             o_orderdate,
             o_shippriority,
@@ -343,7 +343,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
 
     // agg function + group by + view partial
-    def mv_name_6 = "mv_name_6"
+    def mv_name_6 = "mv_name_2_4_6"
     def mv_stmt_6 = """select  o_orderdate, o_shippriority, o_comment,
             sum(o_totalprice) as sum_total, 
             max(o_totalprice) as max_total, 
@@ -351,8 +351,8 @@ suite("partition_mv_rewrite_dimension_2_4") {
             count(*) as count_all, 
             bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-            from orders 
-            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
+            from orders_2_4 
+            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
             group by 
             o_orderdate, 
             o_shippriority, 
@@ -368,9 +368,9 @@ suite("partition_mv_rewrite_dimension_2_4") {
             count(*) as count_all, 
             bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-            from orders 
-            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
-            left join partsupp on partsupp.ps_partkey = lineitem.l_orderkey 
+            from orders_2_4 
+            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
+            left join partsupp on partsupp.ps_partkey = lineitem_2_4.l_orderkey 
             group by 
             o_orderdate, 
             o_shippriority, 
@@ -386,7 +386,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
     // Todo: union rewriting
     // agg function + union rewriting
-//    def mv_name_7 = "mv_name_7"
+//    def mv_name_7 = "mv_name_2_4_7"
 //    def mv_stmt_7 = """select
 //            sum(o_totalprice) as sum_total,
 //            max(o_totalprice) as max_total,
@@ -394,7 +394,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            count(*) as count_all,
 //            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
 //            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
-//            from orders
+//            from orders_2_4
 //            where o_orderdate >= '2023-10-17'"""
 //    create_mv_orders(mv_name_7, mv_stmt_7)
 //    def job_name_7 = getJobName(db, mv_name_7)
@@ -407,7 +407,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            count(*) as count_all,
 //            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
 //            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
-//            from orders
+//            from orders_2_4
 //            where o_orderdate >= "2023-10-15" """
 //    explain {
 //        sql("${sql_stmt_7}")
@@ -415,10 +415,10 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //    }
 //
 //    // group by + union rewriting
-//    def mv_name_8 = "mv_name_8"
+//    def mv_name_8 = "mv_name_2_4_8"
 //    def mv_stmt_8 = """select o_orderdate, o_shippriority, o_comment
-//            from orders
-//            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
+//            from orders_2_4
+//            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
 //            where l_shipdate >= "2023-10-17"
 //            group by
 //            o_orderdate,
@@ -429,8 +429,8 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //    waitingMTMVTaskFinished(job_name_8)
 //
 //    def sql_stmt_8 = """select o_orderdate, o_shippriority, o_comment
-//            from orders
-//            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
+//            from orders_2_4
+//            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
 //            where l_shipdate >= "2023-10-15"
 //            group by
 //            o_orderdate,
@@ -442,7 +442,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //    }
 //
 //    // agg function + group by + union rewriting
-//    def mv_name_9 = "mv_name_9"
+//    def mv_name_9 = "mv_name_2_4_9"
 //    def mv_stmt_9 = """select  o_orderdate, o_shippriority, o_comment,
 //            sum(o_totalprice) as sum_total,
 //            max(o_totalprice) as max_total,
@@ -450,8 +450,8 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            count(*) as count_all,
 //            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
 //            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
-//            from orders
-//            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
+//            from orders_2_4
+//            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
 //            where l_shipdate >= "2023-10-17"
 //            group by
 //            o_orderdate,
@@ -468,9 +468,9 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            count(*) as count_all,
 //            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
 //            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
-//            from orders
-//            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
-//            left join partsupp on partsupp.ps_partkey = lineitem.l_orderkey
+//            from orders_2_4
+//            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
+//            left join partsupp on partsupp.ps_partkey = lineitem_2_4.l_orderkey
 //            where l_shipdate >= "2023-10-15"
 //            group by
 //            o_orderdate,
@@ -483,7 +483,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
     // predicate compensate
     // agg function + predicate compensate
-    def mv_name_10 = "mv_name_10"
+    def mv_name_10 = "mv_name_2_4_10"
     def mv_stmt_10 = """select 
             sum(o_totalprice) as sum_total, 
             max(o_totalprice) as max_total, 
@@ -491,7 +491,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             count(*) as count_all, 
             bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-            from orders 
+            from orders_2_4 
             where o_orderdate >= '2023-10-17'"""
     create_all_mv(mv_name_10, mv_stmt_10)
     def job_name_10 = getJobName(db, mv_name_10)
@@ -504,7 +504,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             count(*) as count_all, 
             bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-            from orders where o_orderdate >= "2023-10-17" )  as t
+            from orders_2_4 where o_orderdate >= "2023-10-17" )  as t
             where t.count_all = 3"""
     explain {
         sql("${sql_stmt_10}")
@@ -516,9 +516,9 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
     // group by + predicate compensate
 
-    def mv_name_11 = "mv_name_11"
+    def mv_name_11 = "mv_name_2_4_11"
     def mv_stmt_11 = """select o_orderdate, o_shippriority, o_comment 
-            from orders 
+            from orders_2_4 
             where o_orderdate >= "2023-10-17"
             group by 
             o_orderdate, 
@@ -529,7 +529,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     waitingMTMVTaskFinished(job_name_11)
 
     def sql_stmt_11 = """select o_orderdate, o_shippriority, o_comment
-            from orders
+            from orders_2_4
             where o_orderdate >= "2023-10-17" and o_totalprice = 1
             group by
             o_orderdate,
@@ -542,9 +542,9 @@ suite("partition_mv_rewrite_dimension_2_4") {
     compare_res(sql_stmt_11 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_11};"""
 
-    def mv_name_16 = "mv_name_16"
+    def mv_name_16 = "mv_name_2_4_16"
     def mv_stmt_16 = """select o_orderdate, o_shippriority, o_comment, o_totalprice 
-            from orders 
+            from orders_2_4 
             where o_orderdate >= "2023-10-17"
             group by 
             o_orderdate, 
@@ -556,7 +556,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     waitingMTMVTaskFinished(job_name_16)
 
     def sql_stmt_16 = """select o_orderdate, o_shippriority, o_comment
-            from orders
+            from orders_2_4
             where o_orderdate >= "2023-10-17" and o_totalprice = 1
             group by
             o_orderdate,
@@ -572,7 +572,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_16};"""
 
     // agg function + group by + predicate compensate
-    def mv_name_12 = "mv_name_12"
+    def mv_name_12 = "mv_name_2_4_12"
     def mv_stmt_12 = """select o_orderdate, o_shippriority, o_comment , o_totalprice, 
             sum(o_totalprice) as sum_total, 
             max(o_totalprice) as max_total, 
@@ -580,7 +580,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             count(*) as count_all, 
             bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-            from orders 
+            from orders_2_4 
             where o_orderdate >= "2023-10-17" 
             group by 
             o_orderdate, 
@@ -601,7 +601,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             count(*) as count_all, 
             bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-            from orders where o_orderdate >= "2023-10-17" 
+            from orders_2_4 where o_orderdate >= "2023-10-17" 
             group by 
             o_orderdate, 
             o_shippriority, 
@@ -620,14 +620,14 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
     // project rewriting
     // agg function + group by + project rewriting
-    def mv_name_13 = "mv_name_13"
+    def mv_name_13 = "mv_name_2_4_13"
     def mv_stmt_13 = """select sum(o_totalprice) as sum_total, 
             max(o_totalprice) as max_total, 
             min(o_totalprice) as min_total, 
             count(*) as count_all, 
             bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-            from orders  
+            from orders_2_4  
             where  o_orderkey > 1 + 1  """
     create_all_mv(mv_name_13, mv_stmt_13)
     def job_name_13 = getJobName(db, mv_name_13)
@@ -636,7 +636,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     def sql_stmt_13 = """select sum(o_totalprice) + count(*) , 
             count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1,
             count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2 
-            from orders  
+            from orders_2_4  
             where o_orderkey > (-3) + 5 """
     explain {
         sql("${sql_stmt_13}")
@@ -647,9 +647,9 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
 
     // group by + project rewriting
-    def mv_name_14 = "mv_name_14"
+    def mv_name_14 = "mv_name_2_4_14"
     def mv_stmt_14 = """select o_orderdate, o_shippriority, o_comment 
-            from orders 
+            from orders_2_4 
             where o_orderkey > 1 + 1 
             group by 
             o_orderdate, 
@@ -660,7 +660,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     waitingMTMVTaskFinished(job_name_14)
 
     def sql_stmt_14 = """select o_orderdate + o_shippriority, o_comment 
-            from orders 
+            from orders_2_4 
             where o_orderkey > (-3) + 5 
             group by 
             o_orderdate, 
@@ -675,11 +675,11 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
 
     // agg function + group by + project rewriting
-    def mv_name_15 = "mv_name_15"
+    def mv_name_15 = "mv_name_2_4_15"
     def mv_stmt_15 = """select o_orderdate, o_shippriority, o_comment, o_custkey, 
             case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end as cnt_1, 
             case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end as cnt_2 
-            from orders 
+            from orders_2_4 
             where o_orderkey > 1 + 1 
             group by 
             o_orderdate, 
@@ -696,7 +696,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     def sql_stmt_15 = """select o_shippriority, o_comment, o_shippriority + o_custkey, 
             case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end as cnt_1,
             case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end as cnt_2 
-            from orders 
+            from orders_2_4 
             where  o_orderkey > (-3) + 5 
             group by 
             o_orderdate, 

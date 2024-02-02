@@ -28,10 +28,10 @@ suite("partition_mv_rewrite_dimension_2_3") {
     sql "SET enable_nereids_timeout = false"
 
     sql """
-    drop table if exists orders
+    drop table if exists orders_2_3
     """
 
-    sql """CREATE TABLE `orders` (
+    sql """CREATE TABLE `orders_2_3` (
       `o_orderkey` BIGINT NULL,
       `o_custkey` INT NULL,
       `o_orderstatus` VARCHAR(1) NULL,
@@ -51,10 +51,10 @@ suite("partition_mv_rewrite_dimension_2_3") {
     );"""
 
     sql """
-    drop table if exists lineitem
+    drop table if exists lineitem_2_3
     """
 
-    sql """CREATE TABLE `lineitem` (
+    sql """CREATE TABLE `lineitem_2_3` (
       `l_orderkey` BIGINT NULL,
       `l_linenumber` INT NULL,
       `l_partkey` INT NULL,
@@ -81,7 +81,7 @@ suite("partition_mv_rewrite_dimension_2_3") {
     );"""
 
     sql """
-    insert into orders values 
+    insert into orders_2_3 values 
     (null, 1, 'o', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (1, null, 'k', 109.2, 'c','d',2, 'mm', '2023-10-17'),
     (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-19'),
@@ -95,7 +95,7 @@ suite("partition_mv_rewrite_dimension_2_3") {
     """
 
     sql """
-    insert into lineitem values 
+    insert into lineitem_2_3 values 
     (null, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
@@ -105,8 +105,8 @@ suite("partition_mv_rewrite_dimension_2_3") {
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
     """
 
-    sql """analyze table orders with sync;"""
-    sql """analyze table lineitem with sync;"""
+    sql """analyze table orders_2_3 with sync;"""
+    sql """analyze table lineitem_2_3 with sync;"""
 
     def create_mv_lineitem = { mv_name, mv_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
@@ -166,7 +166,7 @@ suite("partition_mv_rewrite_dimension_2_3") {
     }
 
     // join + agg function
-    def mv_name_1 = "mv_name_1"
+    def mv_name_1 = "mv_name_2_3_1"
     def mv_stmt_1 = """select
             sum(o_totalprice) as sum_total,
             max(o_totalprice) as max_total,
@@ -174,8 +174,8 @@ suite("partition_mv_rewrite_dimension_2_3") {
             count(*) as count_all,
             bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
-            from orders
-            left join lineitem on lineitem.l_orderkey = orders.o_orderkey"""
+            from orders_2_3
+            left join lineitem_2_3 on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey"""
     create_all_mv(mv_name_1, mv_stmt_1)
     def job_name_1 = getJobName(db, mv_name_1)
     waitingMTMVTaskFinished(job_name_1)
@@ -187,8 +187,8 @@ suite("partition_mv_rewrite_dimension_2_3") {
             max(o_totalprice),
             min(o_totalprice),
             count(*)
-            from orders
-            left join lineitem on lineitem.l_orderkey = orders.o_orderkey"""
+            from orders_2_3
+            left join lineitem_2_3 on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey"""
     explain {
         sql("${sql_stmt_1}")
         contains "${mv_name_1}(${mv_name_1})"
@@ -197,10 +197,10 @@ suite("partition_mv_rewrite_dimension_2_3") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_1};"""
 
     // join + group by
-    def mv_name_2 = "mv_name_2"
+    def mv_name_2 = "mv_name_2_3_2"
     def mv_stmt_2 = """select o_orderdate, o_shippriority, o_comment
-            from orders
-            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
+            from orders_2_3
+            left join lineitem_2_3 on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey
             group by
             o_orderdate,
             o_shippriority,
@@ -210,8 +210,8 @@ suite("partition_mv_rewrite_dimension_2_3") {
     waitingMTMVTaskFinished(job_name_2)
 
     def sql_stmt_2 = """select o_shippriority, o_comment
-            from orders
-            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
+            from orders_2_3
+            left join lineitem_2_3 on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey
             group by
             o_shippriority,
             o_comment """
@@ -223,7 +223,7 @@ suite("partition_mv_rewrite_dimension_2_3") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_2};"""
 
     // join + group by + agg function
-    def mv_name_3 = "mv_name_3"
+    def mv_name_3 = "mv_name_2_3_3"
     def mv_stmt_3 = """select o_orderdate, o_shippriority, o_comment, 
             sum(o_totalprice) as sum_total, 
             max(o_totalprice) as max_total, 
@@ -231,8 +231,8 @@ suite("partition_mv_rewrite_dimension_2_3") {
             count(*) as count_all, 
             bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-            from orders 
-            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
+            from orders_2_3 
+            left join lineitem_2_3 on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey
             group by 
             o_orderdate, 
             o_shippriority, 
@@ -248,8 +248,8 @@ suite("partition_mv_rewrite_dimension_2_3") {
             max(o_totalprice), 
             min(o_totalprice), 
             count(*) 
-            from orders 
-            left join lineitem on lineitem.l_orderkey = orders.o_orderkey
+            from orders_2_3 
+            left join lineitem_2_3 on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey
             group by 
             o_shippriority, 
             o_comment """
@@ -262,39 +262,39 @@ suite("partition_mv_rewrite_dimension_2_3") {
 
 
     // Todo: query partial
-//    def mv_name_4 = "mv_name_4"
+//    def mv_name_4 = "mv_name_2_3_4"
 //    def mv_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey
-//        from lineitem
-//        left join orders
-//        on lineitem.l_orderkey = orders.o_orderkey """
+//        from lineitem_2_3
+//        left join orders_2_3
+//        on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey """
 //    create_mv_orders(mv_name_4, mv_stmt_4)
 //    def job_name_4 = getJobName(db, mv_name_4)
 //    waitingMTMVTaskFinished(job_name_4)
 //
-//    def sql_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey from lineitem """
+//    def sql_stmt_4 = """select l_shipdate, o_orderdate, l_partkey, l_suppkey from lineitem_2_3 """
 //    explain {
 //        sql("${sql_stmt_4}")
 //        contains "${mv_name_4}(${mv_name_4})"
 //    }
-//    sql_stmt_4 = """select o_orderdate from orders """
+//    sql_stmt_4 = """select o_orderdate from orders_2_3 """
 //    explain {
 //        sql("${sql_stmt_4}")
 //        contains "${mv_name_4}(${mv_name_4})"
 //    }
 
     // view partial
-    def mv_name_5 = "mv_name_5"
+    def mv_name_5 = "mv_name_2_3_5"
     def mv_stmt_5 = """select l_shipdate, l_partkey, l_orderkey, o_orderdate 
-        from lineitem 
-        left join orders 
-        on lineitem.l_orderkey = orders.o_orderkey"""
+        from lineitem_2_3 
+        left join orders_2_3 
+        on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey"""
     create_mv_lineitem(mv_name_5, mv_stmt_5)
     def job_name_5 = getJobName(db, mv_name_5)
     waitingMTMVTaskFinished(job_name_5)
 
     def sql_stmt_5 = """select l_shipdate, o_orderdate, l_partkey 
-        from lineitem 
-        left join orders  on lineitem.l_orderkey = orders.o_orderkey"""
+        from lineitem_2_3 
+        left join orders_2_3  on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey"""
     explain {
         sql("${sql_stmt_5}")
         contains "${mv_name_5}(${mv_name_5})"
@@ -304,20 +304,20 @@ suite("partition_mv_rewrite_dimension_2_3") {
 
 
     // Todo: union rewriting
-//    def mv_name_6 = "mv_name_6"
+//    def mv_name_6 = "mv_name_2_3_6"
 //    def mv_stmt_6 = """select l_shipdate, o_orderdate, l_partkey
-//        from lineitem
-//        left join orders
-//        on lineitem.l_orderkey = orders.o_orderkey
+//        from lineitem_2_3
+//        left join orders_2_3
+//        on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey
 //        where l_shipdate >= '2023-10-17'"""
 //    create_mv_lineitem(mv_name_6, mv_stmt_6)
 //    def job_name_6 = getJobName(db, mv_name_6)
 //    waitingMTMVTaskFinished(job_name_6)
 //
 //    def sql_stmt_6 = """select l_shipdate, o_orderdate, l_partkey
-//        from lineitem
-//        left join orders
-//        on lineitem.l_orderkey = orders.o_orderkey
+//        from lineitem_2_3
+//        left join orders_2_3
+//        on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey
 //        where l_shipdate >= '2023-10-15'"""
 //    explain {
 //        sql("${sql_stmt_6}")
@@ -325,20 +325,20 @@ suite("partition_mv_rewrite_dimension_2_3") {
 //    }
 
     // predicate compensate
-    def mv_name_7 = "mv_name_7"
+    def mv_name_7 = "mv_name_2_3_7"
     def mv_stmt_7 = """select l_shipdate, o_orderdate, l_partkey 
-        from lineitem 
-        left join orders   
-        on lineitem.l_orderkey = orders.o_orderkey
+        from lineitem_2_3 
+        left join orders_2_3   
+        on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey
         where l_shipdate >= '2023-10-17'"""
     create_mv_lineitem(mv_name_7, mv_stmt_7)
     def job_name_7 = getJobName(db, mv_name_7)
     waitingMTMVTaskFinished(job_name_7)
 
     def sql_stmt_7 = """select l_shipdate, o_orderdate, l_partkey 
-        from lineitem 
-        left join orders   
-        on lineitem.l_orderkey = orders.o_orderkey
+        from lineitem_2_3 
+        left join orders_2_3   
+        on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey
         where l_shipdate >= "2023-10-17" and l_partkey = 3"""
     explain {
         sql("${sql_stmt_7}")
@@ -349,11 +349,11 @@ suite("partition_mv_rewrite_dimension_2_3") {
 
 
     // project rewriting
-    def mv_name_8 = "mv_name_8"
+    def mv_name_8 = "mv_name_2_3_8"
     def mv_stmt_8 = """select o_orderdate, o_shippriority, o_comment, l_suppkey, o_shippriority + o_custkey, 
            case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end cnt_1, 
             case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end as cnt_2 
-            from orders  left join lineitem   on lineitem.l_orderkey = orders.o_orderkey
+            from orders_2_3  left join lineitem_2_3   on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey
             where  o_orderkey > 1 + 1 """
     create_mv_orders(mv_name_8, mv_stmt_8)
     def job_name_8 = getJobName(db, mv_name_8)
@@ -362,7 +362,7 @@ suite("partition_mv_rewrite_dimension_2_3") {
     def sql_stmt_8 = """select o_shippriority, o_comment, o_shippriority + o_custkey  + l_suppkey, 
             case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end as cnt_1,
             case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end as cnt_2 
-            from orders  left join lineitem   on lineitem.l_orderkey = orders.o_orderkey
+            from orders_2_3  left join lineitem_2_3   on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey
            where  o_orderkey > (-3) + 5 """
     explain {
         sql("${sql_stmt_8}")
