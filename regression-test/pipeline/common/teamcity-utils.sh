@@ -34,8 +34,7 @@ comment_to_pipeline=(
     ['external']='Doris_External_Regression'
     ['pipelinex_p0']='Doris_DorisRegression_P0RegressionPipelineX'
     ['arm']='Doris_ArmPipeline_P0Regression'
-    ['performance']='Doris_PerformanceNew_Performance'
-    ['perf']='Doris_DorisPerformance_Performance'
+    ['performance']='Doris_DorisPerformance_Performance'
 )
 
 # github中评论的要触发的流水线名字
@@ -54,8 +53,7 @@ conment_to_context=(
     ['external']='External Regression (Doris External Regression)'
     ['pipelinex_p0']='P0 Regression PipelineX (Doris Regression)'
     ['arm']='P0 Regression (ARM pipeline)'
-    ['performance']='performance (Performance New)'
-    ['perf']='performance (Doris Performance)'
+    ['performance']='performance (Doris Performance)'
 )
 
 get_commit_id_of_build() {

@@ -269,13 +269,6 @@ jobs:
             "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
             "performance" \
             "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
-
-          trigger_or_skip_build \
-            "${{ steps.changes.outputs.changed_performance }}" \
-            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-            "perf" \
-            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         else
           echo "PR target branch not in (master, branch-2.0), skip run performance"
           trigger_or_skip_build \
@@ -283,12 +276,5 @@ jobs:
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
             "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
             "performance" \
-            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
-
-          trigger_or_skip_build \
-            "false" \
-            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-            "perf" \
             "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         fi
