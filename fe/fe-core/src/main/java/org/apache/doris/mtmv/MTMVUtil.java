@@ -306,6 +306,9 @@ public class MTMVUtil {
     private static boolean isSyncWithPartition(MTMV mtmv, Long mtmvPartitionId,
             MTMVRelatedTableIf relatedTable,
             Long relatedPartitionId) throws AnalysisException {
+        if (!relatedTable.needAutoRefresh()) {
+            return true;
+        }
         MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable
                 .getPartitionSnapshot(relatedPartitionId);
         String relatedPartitionName = relatedTable.getPartitionName(relatedPartitionId);
@@ -433,6 +436,9 @@ public class MTMVUtil {
             return true;
         }
         MTMVRelatedTableIf baseTable = (MTMVRelatedTableIf) table;
+        if (!baseTable.needAutoRefresh()) {
+            return true;
+        }
         MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot();
         String mtmvPartitionName = mtmv.getPartitionName(mtmvPartitionId);
         return mtmv.getRefreshSnapshot()
