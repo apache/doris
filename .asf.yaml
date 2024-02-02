@@ -71,7 +71,7 @@ github:
         required_approving_review_count: 1
     branch-1.1-lts:
       required_status_checks:
-        # if strict is true, means "Require branches to be up to date before merging".
+        # if strict is true, means "Require branches to be up to date before  merging".
         strict: false
         contexts:
           - License Check
