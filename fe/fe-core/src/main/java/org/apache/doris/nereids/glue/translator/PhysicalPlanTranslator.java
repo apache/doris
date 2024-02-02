@@ -179,6 +179,7 @@ import org.apache.doris.planner.external.jdbc.JdbcScanNode;
 import org.apache.doris.planner.external.odbc.OdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
@@ -631,9 +632,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // olapScanNode.setCardinality((long) olapScan.getStats().getRowCount());
             if (ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
                 for (int i = 0; i < slots.size(); i++) {
-                    Slot slot = slots.get(i);
+                    SlotReference slot = (SlotReference) slots.get(i);
+                    boolean inVisibleCol = slot.getColumn().isPresent()
+                            && StatisticConstants.shouldIgnoreCol(olapTable, slot.getColumn().get());
                     if (olapScan.getStats().findColumnStatistics(slot).isUnKnown()
-                            && !isComplexDataType(slot.getDataType())) {
+                            && !isComplexDataType(slot.getDataType())
+                            && !StatisticConstants.isSystemTable(olapTable)
+                            && !inVisibleCol) {
                         context.addUnknownStatsColumn(olapScanNode, tupleDescriptor.getSlots().get(i).getId());
                     }
                 }
@@ -2124,7 +2129,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
                 for (SlotId slotId : requiredByProjectSlotIdSet) {
                     if (context.isColumnStatsUnknown(scanNode, slotId)) {
-                        throw new AnalysisException("meet unknown column stats on table " + scanNode);
+                        String colName = scanNode.getTupleDesc().getSlot(slotId.asInt()).getColumn().getName();
+                        throw new AnalysisException("meet unknown column stats: " + colName);
                     }
                 }
                 context.removeScanFromStatsUnknownColumnsMap(scanNode);
