@@ -280,6 +280,7 @@ private:
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
     int _core_id = 0;
+    Status _open_status = Status::OK();
 
     bool _try_close_flag = false;
 
