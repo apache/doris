@@ -67,6 +67,9 @@ Status CloudStorageEngine::open() {
     // TODO(plat1ko): Use file cache disks number?
     _memtable_flush_executor->init(1);
 
+    _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
+    _calc_delete_bitmap_executor->init();
+
     return Status::OK();
 }
 
