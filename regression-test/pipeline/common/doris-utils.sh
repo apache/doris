@@ -450,16 +450,36 @@ archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
-    if tar -I pigz \
-        --directory "${DORIS_HOME}" \
-        -cf "${DORIS_HOME}/${archive_name}" \
-        fe/conf \
-        fe/log \
-        be/conf \
-        be/log; then
-        echo "${DORIS_HOME}/${archive_name}"
+    if [[ -d "${DORIS_HOME}"/ms && -d "${DORIS_HOME}"/recycler/ ]]; then
+        cp -rf /var/log/foundationdb "${DORIS_HOME}"/foundationdb/log
+        if tar -I pigz \
+            --directory "${DORIS_HOME}" \
+            -cf "${DORIS_HOME}/${archive_name}" \
+            fe/conf \
+            fe/log \
+            be/conf \
+            be/log \
+            ms/conf \
+            ms/log \
+            recycler/conf \
+            recycler/log \
+            foundationdb/log; then
+            echo "${DORIS_HOME}/${archive_name}"
+        else
+            return 1
+        fi
     else
-        return 1
+        if tar -I pigz \
+            --directory "${DORIS_HOME}" \
+            -cf "${DORIS_HOME}/${archive_name}" \
+            fe/conf \
+            fe/log \
+            be/conf \
+            be/log; then
+            echo "${DORIS_HOME}/${archive_name}"
+        else
+            return 1
+        fi
     fi
 }
 
@@ -479,6 +499,10 @@ print_doris_be_log() {
     echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
     tail -n 100 "${DORIS_HOME}"/be/log/be.INFO
     echo -e "WARNING: ----------------------------------------\n\n\n\n"
+}
+
+print_fdb_log() {
+    echo
 }
 
 print_doris_conf() {
