@@ -38,7 +38,7 @@ public class UrlDecode extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(StringType.INSTANCE)
+            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE)
     );
 
     /**
