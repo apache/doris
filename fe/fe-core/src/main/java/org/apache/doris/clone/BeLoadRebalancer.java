@@ -236,8 +236,8 @@ public class BeLoadRebalancer extends Rebalancer {
         } // end for high backends
 
         if (!alternativeTablets.isEmpty()) {
-            LOG.info("select alternative tablets, medium: {}, num: {}, detail: {}",
-                    medium, alternativeTablets.size(),
+            LOG.info("select alternative tablets, medium: {}, is urgent: {}, num: {}, detail: {}",
+                    medium, isUrgent, alternativeTablets.size(),
                     alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
         }
         return alternativeTablets;

@@ -409,6 +409,7 @@ public class LoadStatisticForTag {
                 pathStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
                         pathStatistic.getUsedCapacityB() * 100 / (double) pathStatistic.getCapacityB())));
                 pathStat.add(pathStatistic.getLocalClazz().name());
+                pathStat.add(pathStatistic.getGlobalClazz().name());
                 pathStat.add(pathStatistic.getDiskState().name());
                 statistics.add(pathStat);
             }
