@@ -136,7 +136,7 @@ TEST_F(BitmapFilterColumnPredicateTest, evaluate_column) {
         sel[i] = i;
     }
     uint16_t size = column->size();
-    size = predicate.evaluate(*column, sel, size);
+    size = predicate.ColumnPredicate::evaluate(*column, sel, size);
     EXPECT_EQ(size, 8);
     EXPECT_EQ(sel[0], 0);
     EXPECT_EQ(sel[1], 1);
@@ -178,7 +178,7 @@ TEST_F(BitmapFilterColumnPredicateTest, evaluate_column_nullable) {
     }
 
     uint16_t size = column_nullable->size();
-    size = predicate.evaluate(*column_nullable, sel, size);
+    size = predicate.ColumnPredicate::evaluate(*column_nullable, sel, size);
 
     EXPECT_EQ(size, 6);
     EXPECT_EQ(sel[0], 1);

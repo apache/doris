@@ -140,7 +140,9 @@ public:
         }
     }
 
-    [[nodiscard]] int get_filter_id() const { return _filter_id; }
+    int get_filter_id() const { return _filter_id; }
+
+    bool is_runtime_filter() const { return _filter_id != -1; }
 
 private:
     int _filter_id = -1;
