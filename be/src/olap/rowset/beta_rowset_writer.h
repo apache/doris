@@ -136,7 +136,6 @@ protected:
     virtual Status _close_file_writers();
     virtual Status _check_segment_number_limit();
     virtual int64_t _num_seg() const;
-    virtual Status _check_segment_num();
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
     Status _build_tmp(RowsetSharedPtr& rowset_ptr);
 

@@ -446,34 +446,10 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
 Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     RETURN_IF_ERROR(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
-    auto num_segments = rowset->num_segments();
-    auto row_num = rowset->num_rows();
-    auto data_size = rowset->rowset_meta()->data_disk_size();
-    auto index_size = rowset->rowset_meta()->index_disk_size();
-    // auto segment_id = _num_segment.load();
-
-    _num_rows_written += row_num;
-    _total_data_size += data_size;
-    _total_index_size += index_size;
-    _num_segment += num_segments;
-    // append key_bounds to current rowset
-    RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
-    if (num_segments != _segments_encoded_key_bounds.size()) {
-        return Status::InternalError(
-                "rowset num segment should equal to _segments_encoded_key_bounds size, "
-                "num_segment: {}, _segments_encoded_key_bounds: {}",
-                num_segments, _segments_encoded_key_bounds.size());
-    }
-    _base_segid_num += num_segments;
-    // for (KeyBoundsPB _segments_encoded_key_bound : _segments_encoded_key_bounds) {
-    //     SegmentStatistics statistic;
-    //     statistic.row_num = row_num;
-    //     statistic.data_size = data_size;
-    //     statistic.index_size = index_size;
-    //     statistic.key_bounds = _segments_encoded_key_bound;
-    //     _segid_statistics_map.emplace(segment_id, statistic);
-    //     segment_id++;
-    // }
+    _num_rows_written += rowset->num_rows();
+    _total_data_size += rowset->rowset_meta()->data_disk_size();
+    _total_index_size += rowset->rowset_meta()->index_disk_size();
+    _num_segment += rowset->num_segments();
 
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
@@ -621,18 +597,6 @@ int64_t BaseBetaRowsetWriter::_num_seg() const {
 
 int64_t BetaRowsetWriter::_num_seg() const {
     return _is_segcompacted() ? _num_segcompacted : _num_segment;
-}
-
-Status BaseBetaRowsetWriter::_check_segment_num() {
-    auto segment_id_statistics_size = _segid_statistics_map.size() + _base_segid_num.load();
-    auto segment_num = _num_seg();
-    if (segment_id_statistics_size != segment_num) {
-        return Status::InternalError(
-                "_segid_statistics_map size should  equal to _num_seg, _segid_statistics_map size "
-                "is: {}, _num_seg is: {}",
-                segment_id_statistics_size, segment_num);
-    }
-    return Status::OK();
 }
 
 // update tablet schema when meet variant columns, before commit_txn
