@@ -18,6 +18,11 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LargeIntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -186,33 +191,55 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     }
 
     private ColumnStatistic castMinMax(ColumnStatistic colStats, DataType targetType) {
-        ColumnStatistic defaultStats = new ColumnStatisticBuilder(colStats).setMaxExpr(null).setMinExpr(null)
-                .setMaxValue(Double.POSITIVE_INFINITY).setMinValue(Double.NEGATIVE_INFINITY)
-                .build();
-        if (colStats.minExpr instanceof StringLiteral && colStats.maxExpr instanceof StringLiteral) {
-            if (targetType.isDateLikeType()) {
-                ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
-                if (colStats.minExpr != null && colStats.maxExpr != null) {
-                    try {
-                        String strMin = colStats.minExpr.getStringValue();
-                        DateLiteral dateMinLiteral = new DateLiteral(strMin);
-                        long min = dateMinLiteral.getValue();
-                        builder.setMinValue(min);
-                        builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
-                        String strMax = colStats.maxExpr.getStringValue();
-                        DateLiteral dateMaxLiteral = new DateLiteral(strMax);
-                        long max = dateMaxLiteral.getValue();
-                        builder.setMaxValue(max);
-                        builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
-                    } catch (AnalysisException e) {
-                        // min/max convert failed, set +/- Infinity
-                        return defaultStats;
-                    }
+        // cast str to date/datetime
+        if (colStats.minExpr instanceof StringLiteral
+                && colStats.maxExpr instanceof StringLiteral
+                && targetType.isDateLikeType()) {
+            boolean convertSuccess = true;
+            ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
+            if (colStats.minExpr != null) {
+                try {
+                    String strMin = colStats.minExpr.getStringValue();
+                    DateLiteral dateMinLiteral = new DateLiteral(strMin);
+                    long min = dateMinLiteral.getValue();
+                    builder.setMinValue(min);
+                    builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
+                } catch (AnalysisException e) {
+                    convertSuccess = false;
                 }
+            }
+            if (convertSuccess && colStats.maxExpr != null) {
+                try {
+                    String strMax = colStats.maxExpr.getStringValue();
+                    DateLiteral dateMaxLiteral = new DateLiteral(strMax);
+                    long max = dateMaxLiteral.getValue();
+                    builder.setMaxValue(max);
+                    builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
+                } catch (AnalysisException e) {
+                    convertSuccess = false;
+                }
+            }
+            if (convertSuccess) {
                 return builder.build();
             }
         }
-        return defaultStats;
+        // cast numeric to numeric
+        if (isNumericLiteralExpr(colStats.minExpr) && isNumericLiteralExpr(colStats.maxExpr)) {
+            if (targetType.isNumericType()) {
+                return colStats;
+            }
+        }
+
+        // cast other date types, set min/max infinity
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
+        builder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
+                .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
+        return builder.build();
+    }
+
+    private boolean isNumericLiteralExpr(LiteralExpr literal) {
+        return literal instanceof DecimalLiteral || literal instanceof FloatLiteral
+                || literal instanceof IntLiteral || literal instanceof LargeIntLiteral;
     }
 
     @Override
