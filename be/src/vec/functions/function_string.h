@@ -2749,14 +2749,14 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
     bool is_variadic() const override { return false; }
 
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) override {
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
 
-    static Status execute_impl(FunctionContext* context, Block& block,
+    Status execute_impl(FunctionContext* context, Block& block,
 
                                const ColumnNumbers& arguments, size_t result,
-                               size_t input_rows_count) override {
+                               size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map_data = null_map->get_data();
 
@@ -2783,7 +2783,7 @@ public:
             StringRef url_val(const_cast<char*>(source.data), source.size);
 
             std::string decoded_url;
-            url_decode(url_val, decoded_url);
+            url_decode(url_val.to_string(), &decoded_url);
 
             StringOP::push_value_string(decoded_url, i, res_chars, res_offsets);
         }
