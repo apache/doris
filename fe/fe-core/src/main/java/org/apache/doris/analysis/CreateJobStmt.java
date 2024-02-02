@@ -82,6 +82,8 @@ public class CreateJobStmt extends DdlStmt {
     private final String endsTimeStamp;
 
     private final String comment;
+
+    public static final String CURRENT_TIMESTAMP_STRING = "current_timestamp";
     private JobExecuteType executeType;
 
     // exclude job name prefix, which is used by inner job
@@ -122,7 +124,11 @@ public class CreateJobStmt extends DdlStmt {
         TimerDefinition timerDefinition = new TimerDefinition();
 
         if (null != onceJobStartTimestamp) {
-            timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(onceJobStartTimestamp));
+            if (onceJobStartTimestamp.equalsIgnoreCase(CURRENT_TIMESTAMP_STRING)) {
+                jobExecutionConfiguration.setImmediate(true);
+            } else {
+                timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(onceJobStartTimestamp));
+            }
         }
         if (null != interval) {
             timerDefinition.setInterval(interval);
@@ -139,7 +145,11 @@ public class CreateJobStmt extends DdlStmt {
             timerDefinition.setIntervalUnit(intervalUnit);
         }
         if (null != startsTimeStamp) {
-            timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(startsTimeStamp));
+            if (startsTimeStamp.equalsIgnoreCase(CURRENT_TIMESTAMP_STRING)) {
+                jobExecutionConfiguration.setImmediate(true);
+            } else {
+                timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(startsTimeStamp));
+            }
         }
         if (null != endsTimeStamp) {
             timerDefinition.setEndTimeMs(TimeUtils.timeStringToLong(endsTimeStamp));
@@ -158,7 +168,6 @@ public class CreateJobStmt extends DdlStmt {
                 jobExecutionConfiguration,
                 System.currentTimeMillis(),
                 executeSql);
-        //job.checkJobParams();
         jobInstance = job;
     }
 
