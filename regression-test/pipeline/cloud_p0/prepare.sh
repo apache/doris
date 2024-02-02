@@ -93,3 +93,10 @@ clean_fdb
 
 echo "#### 5. install fdb"
 install_fdb
+
+echo "#### 6. check if binary package ready"
+# shellcheck source=/dev/null
+# check_oss_file_exist
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
+export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile_result"}"
+if ! check_oss_file_exist "${pull_request_num}_${commit_id_from_trigger}.tar.gz"; then return 1; fi
