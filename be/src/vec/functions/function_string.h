@@ -2166,6 +2166,257 @@ public:
     static constexpr auto name = "split_by_string";
 
     static FunctionPtr create() { return std::make_shared<FunctionSplitByString>(); }
+
+    String get_name() const override { return name; }
+
+    bool is_variadic() const override { return false; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DCHECK(is_string(arguments[0]))
+                << "first argument for function: " << name << " should be string"
+                << " and arguments[0] is " << arguments[0]->get_name();
+        DCHECK(is_string(arguments[1]))
+                << "second argument for function: " << name << " should be string"
+                << " and arguments[1] is " << arguments[1]->get_name();
+        return std::make_shared<DataTypeArray>(arguments[0]);
+    }
+
+    Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t /*input_rows_count*/) const override {
+        DCHECK_EQ(arguments.size(), 2);
+
+        const auto& [src_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        DataTypePtr right_column_type = block.get_by_position(arguments[1]).type;
+        DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
+        auto dest_column_ptr = ColumnArray::create(src_column_type->create_column(),
+                                                   ColumnArray::ColumnOffsets::create());
+
+        IColumn* dest_nested_column = &dest_column_ptr->get_data();
+        auto& dest_offsets = dest_column_ptr->get_offsets();
+        DCHECK(dest_nested_column != nullptr);
+        dest_nested_column->reserve(0);
+        dest_offsets.reserve(0);
+
+        const auto* col_left = check_and_get_column<ColumnString>(src_column.get());
+        if (!col_left) {
+            return Status::InternalError("Left operator of function {} can not be {}", get_name(),
+                                         src_column_type->get_name());
+        }
+
+        const auto* col_right = check_and_get_column<ColumnString>(right_column.get());
+        if (!col_right) {
+            return Status::InternalError("Right operator of function {} can not be {}", get_name(),
+                                         right_column_type->get_name());
+        }
+
+        // split_by_string(ColumnString, "xxx")
+        if (right_const) {
+            _execute_constant_delimiter(*col_left, col_right->get_data_at(0), *dest_nested_column,
+                                        dest_offsets);
+        } else if (left_const) {
+            // split_by_string("xxx", ColumnString)
+            _execute_constant_src_string(col_left->get_data_at(0), *col_right, *dest_nested_column,
+                                         dest_offsets);
+        } else {
+            // split_by_string(ColumnString, ColumnString)
+            _execute_vector(*col_left, *col_right, *dest_nested_column, dest_offsets);
+        }
+
+        block.replace_by_position(result, std::move(dest_column_ptr));
+
+        return Status::OK();
+    }
+
+private:
+    void _execute_constant_delimiter(const ColumnString& src_column_string,
+                                     const StringRef& delimiter_ref, IColumn& dest_nested_column,
+                                     ColumnArray::Offsets64& dest_offsets) const {
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
+        ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
+        column_string_chars.reserve(0);
+
+        ColumnArray::Offset64 string_pos = 0;
+        ColumnArray::Offset64 dest_pos = 0;
+        ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
+
+        StringSearch search(&delimiter_ref);
+
+        for (size_t i = 0; i < src_offsets_size; i++) {
+            const StringRef str_ref = src_column_string.get_data_at(i);
+
+            if (str_ref.size == 0) {
+                dest_offsets.push_back(dest_pos);
+                continue;
+            }
+            if (delimiter_ref.size == 0) {
+                for (size_t str_pos = 0; str_pos < str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    str_pos++;
+                    const size_t new_size = old_size + 1;
+                    column_string_chars.resize(new_size);
+                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
+                    string_pos++;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            } else {
+                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    // search first match delimter_ref index from src string among str_offset to end
+                    const char* result_start =
+                            search.search(str_ref.data + str_offset, str_ref.size - str_offset);
+                    // compute split part size
+                    const size_t split_part_size = result_start - str_ref.data - str_offset;
+                    // save dist string split part
+                    if (split_part_size > 0) {
+                        const size_t new_size = old_size + split_part_size;
+                        column_string_chars.resize(new_size);
+                        memcpy_small_allow_read_write_overflow15(
+                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                split_part_size);
+                        // add dist string offset
+                        string_pos += split_part_size;
+                    }
+                    column_string_offsets.push_back(string_pos);
+                    // array offset + 1
+                    dest_pos++;
+                    // add src string str_pos to next search start
+                    str_pos += split_part_size + delimiter_ref.size;
+                }
+            }
+            dest_offsets.push_back(dest_pos);
+        }
+    }
+
+    void _execute_vector(const ColumnString& src_column_string,
+                         const ColumnString& delimiter_column, IColumn& dest_nested_column,
+                         ColumnArray::Offsets64& dest_offsets) const {
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
+        ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
+        column_string_chars.reserve(0);
+
+        ColumnArray::Offset64 string_pos = 0;
+        ColumnArray::Offset64 dest_pos = 0;
+        ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
+
+        for (size_t i = 0; i < src_offsets_size; i++) {
+            const StringRef delimiter_ref = delimiter_column.get_data_at(i);
+            const StringRef str_ref = src_column_string.get_data_at(i);
+
+            if (str_ref.size == 0) {
+                dest_offsets.push_back(dest_pos);
+                continue;
+            }
+            if (delimiter_ref.size == 0) {
+                for (size_t str_pos = 0; str_pos < str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    str_pos++;
+                    const size_t new_size = old_size + 1;
+                    column_string_chars.resize(new_size);
+                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
+                    string_pos++;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            } else {
+                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    const size_t split_part_size = split_str(str_pos, str_ref, delimiter_ref);
+                    str_pos += delimiter_ref.size;
+                    const size_t new_size = old_size + split_part_size;
+                    column_string_chars.resize(new_size);
+                    if (split_part_size > 0) {
+                        memcpy_small_allow_read_write_overflow15(
+                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                split_part_size);
+                    }
+                    string_pos += split_part_size;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            }
+            dest_offsets.push_back(dest_pos);
+        }
+    }
+
+    void _execute_constant_src_string(const StringRef& str_ref, const ColumnString& delimiter_col,
+                                      IColumn& dest_nested_column,
+                                      ColumnArray::Offsets64& dest_offsets) const {
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
+        ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
+        column_string_chars.reserve(0);
+
+        ColumnArray::Offset64 string_pos = 0;
+        ColumnArray::Offset64 dest_pos = 0;
+        const ColumnArray::Offset64 delimiter_offsets_size = delimiter_col.get_offsets().size();
+
+        for (size_t i = 0; i < delimiter_offsets_size; ++i) {
+            const StringRef delimiter_ref = delimiter_col.get_data_at(i);
+
+            if (delimiter_ref.size == 0) {
+                for (size_t str_pos = 0; str_pos < str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    str_pos++;
+                    const size_t new_size = old_size + 1;
+                    column_string_chars.resize(new_size);
+                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
+                    string_pos++;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            } else {
+                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    const size_t split_part_size = split_str(str_pos, str_ref, delimiter_ref);
+                    str_pos += delimiter_ref.size;
+                    const size_t new_size = old_size + split_part_size;
+                    column_string_chars.resize(new_size);
+                    if (split_part_size > 0) {
+                        memcpy_small_allow_read_write_overflow15(
+                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                split_part_size);
+                    }
+                    string_pos += split_part_size;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            }
+            dest_offsets.push_back(dest_pos);
+        }
+    }
+
+    size_t split_str(size_t& pos, const StringRef str_ref, StringRef delimiter_ref) const {
+        size_t old_size = pos;
+        size_t str_size = str_ref.size;
+        while (pos < str_size &&
+               memcmp_small_allow_overflow15(str_ref.data + pos, delimiter_ref.data,
+                                             delimiter_ref.size)) {
+            pos++;
+        }
+        return pos - old_size;
+    }
+};
+
+class FunctionSplitByStringOld : public IFunction {
+public:
+    static constexpr auto name = "split_by_string";
+
+    static FunctionPtr create() { return std::make_shared<FunctionSplitByStringOld>(); }
     using NullMapType = PaddedPODArray<UInt8>;
 
     String get_name() const override { return name; }
@@ -2205,17 +2456,17 @@ public:
         dest_offsets.reserve(0);
 
         NullMapType* dest_nested_null_map = nullptr;
-        ColumnNullable* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
+        auto* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
         dest_nested_column = dest_nullable_col->get_nested_column_ptr();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
-        auto col_left = check_and_get_column<ColumnString>(src_column.get());
+        const auto* col_left = check_and_get_column<ColumnString>(src_column.get());
         if (!col_left) {
             return Status::InternalError("Left operator of function {} can not be {}", get_name(),
                                          src_column_type->get_name());
         }
 
-        auto col_right = check_and_get_column<ColumnString>(right_column.get());
+        const auto* col_right = check_and_get_column<ColumnString>(right_column.get());
         if (!col_right) {
             return Status::InternalError("Right operator of function {} can not be {}", get_name(),
                                          right_column_type->get_name());
@@ -2245,7 +2496,7 @@ private:
                                      const StringRef& delimiter_ref, IColumn& dest_nested_column,
                                      ColumnArray::Offsets64& dest_offsets,
                                      NullMapType* dest_nested_null_map) const {
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(0);
@@ -2312,7 +2563,7 @@ private:
                          const ColumnString& delimiter_column, IColumn& dest_nested_column,
                          ColumnArray::Offsets64& dest_offsets,
                          NullMapType* dest_nested_null_map) const {
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(0);
@@ -2369,7 +2620,7 @@ private:
                                       IColumn& dest_nested_column,
                                       ColumnArray::Offsets64& dest_offsets,
                                       NullMapType* dest_nested_null_map) const {
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(0);
