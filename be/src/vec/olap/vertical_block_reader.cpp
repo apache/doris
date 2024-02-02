@@ -319,6 +319,9 @@ void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, 
             function->reset(place);
         }
     }
+    if (is_close) {
+        _arena.clear();
+    }
 }
 
 size_t VerticalBlockReader::_copy_agg_data() {
