@@ -268,6 +268,10 @@ public class MTMV extends OlapTable {
         relation = materializedView.relation;
         mvPartitionInfo = materializedView.mvPartitionInfo;
         refreshSnapshot = materializedView.refreshSnapshot;
+        // For compatibility
+        if (refreshSnapshot == null) {
+            refreshSnapshot = new MTMVRefreshSnapshot();
+        }
     }
 
 }
