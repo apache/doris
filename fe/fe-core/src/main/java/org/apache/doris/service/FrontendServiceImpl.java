@@ -185,6 +185,7 @@ import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
@@ -1801,14 +1802,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ctx.setThreadLocalInfo();
 
         try {
+            List<TPipelineWorkloadGroup> tWorkloadGroupList = null;
+            if (Config.enable_workload_group) {
+                tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ctx);
+            }
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result, ctx);
+                if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
+                    result.params.setWorkloadGroups(tWorkloadGroupList);
+                }
                 return result;
             } else {
                 if (Config.enable_pipeline_load) {
                     result.setPipelineParams(pipelineStreamLoadPutImpl(request));
+                    if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
+                        result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
+                    }
                 } else {
                     result.setParams(streamLoadPutImpl(request, result));
+                    if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
+                        result.params.setWorkloadGroups(tWorkloadGroupList);
+                    }
                 }
             }
         } catch (UserException e) {
