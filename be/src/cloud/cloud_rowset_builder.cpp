@@ -64,8 +64,7 @@ Status CloudRowsetBuilder::init() {
     context.rowset_dir = _tablet->tablet_path();
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
 
-    // TODO(plat1ko):
-    //_calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
 
     RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), true));
 
