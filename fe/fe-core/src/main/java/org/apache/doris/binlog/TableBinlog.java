@@ -18,7 +18,11 @@
 package org.apache.doris.binlog;
 
 import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
@@ -27,8 +31,10 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -231,6 +237,82 @@ public class TableBinlog {
             }
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    public void getBinlogInfo(Database db, BaseProcResult result) {
+        BinlogConfig binlogConfig = binlogConfigCache.getTableBinlogConfig(dbId, tableId);
+
+        String tableName = null;
+        String dropped = null;
+        if (db == null) {
+            tableName = "(dropped).(unknown)";
+            dropped = "true";
+        } else {
+            String dbName = db.getFullName();
+            Table table = db.getTableNullable(tableId);
+            if (table == null) {
+                dropped = "true";
+                tableName = dbName + ".(dropped)";
+            }
+
+            dropped = "false";
+            if (table instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) table;
+                tableName = dbName + "." + olapTable.getName();
+            } else {
+                tableName = dbName + ".(not_olaptable)";
+            }
+        }
+
+        lock.readLock().lock();
+        try {
+            List<String> info = new ArrayList<>();
+
+            info.add(tableName);
+            String type = "table";
+            info.add(type);
+
+            String id = String.valueOf(tableId);
+            info.add(id);
+            info.add(dropped);
+            String binlogLength = String.valueOf(binlogs.size());
+            info.add(binlogLength);
+            String firstBinlogCommittedTime = null;
+            String readableFirstBinlogCommittedTime = null;
+            for (TBinlog binlog : binlogs) {
+                long timestamp = binlog.getTimestamp();
+                if (timestamp != -1) {
+                    firstBinlogCommittedTime = String.valueOf(timestamp);
+                    readableFirstBinlogCommittedTime = BinlogUtils.convertTimeToReadable(timestamp);
+                    break;
+                }
+            }
+            info.add(firstBinlogCommittedTime);
+            info.add(readableFirstBinlogCommittedTime);
+            String lastBinlogCommittedTime = null;
+            String readableLastBinlogCommittedTime = null;
+            Iterator<TBinlog> iterator = binlogs.descendingIterator();
+            while (iterator.hasNext()) {
+                TBinlog binlog = iterator.next();
+                long timestamp = binlog.getTimestamp();
+                if (timestamp != -1) {
+                    lastBinlogCommittedTime = String.valueOf(timestamp);
+                    readableLastBinlogCommittedTime = BinlogUtils.convertTimeToReadable(timestamp);
+                    break;
+                }
+            }
+            info.add(lastBinlogCommittedTime);
+            info.add(readableLastBinlogCommittedTime);
+            String binlogTtlSeconds = null;
+            if (binlogConfig != null) {
+                binlogTtlSeconds = String.valueOf(binlogConfig.getTtlSeconds());
+            }
+            info.add(binlogTtlSeconds);
+
+            result.addRow(info);
+        } finally {
+            lock.readLock().unlock();
         }
     }
 }
