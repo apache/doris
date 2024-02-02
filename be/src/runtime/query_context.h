@@ -78,7 +78,11 @@ public:
         if (_task_group) {
             _task_group->remove_mem_tracker_limiter(query_mem_tracker);
         }
-        _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(query_id));
+        if (_exec_env &&
+            _exec_env
+                    ->runtime_query_statistics_mgr()) { // for BE ut FragmentMgrTest.Normal, Meaningless
+            _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(query_id));
+        }
     }
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
@@ -191,8 +195,11 @@ public:
             std::shared_ptr<QueryStatistics> qs = query_mem_tracker->get_query_statistics();
             std::string query_id_str = print_id(query_id);
             if (qs) {
-                _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                        query_id_str, qs, coord_addr);
+                if (_exec_env &&
+                    _exec_env->runtime_query_statistics_mgr()) { // for ut FragmentMgrTest.normal
+                    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+                            query_id_str, qs, coord_addr);
+                }
             } else {
                 LOG(INFO) << " query " << query_id_str << " get memory query statistics failed ";
             }
@@ -202,8 +209,11 @@ public:
     void register_cpu_statistics() {
         if (!_cpu_statistics) {
             _cpu_statistics = std::make_shared<QueryStatistics>();
-            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                    print_id(query_id), _cpu_statistics, coord_addr);
+            if (_exec_env &&
+                _exec_env->runtime_query_statistics_mgr()) { // for ut FragmentMgrTest.normal
+                _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+                        print_id(query_id), _cpu_statistics, coord_addr);
+            }
         }
     }
 
