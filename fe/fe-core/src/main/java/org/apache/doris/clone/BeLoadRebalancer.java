@@ -143,7 +143,7 @@ public class BeLoadRebalancer extends Rebalancer {
             Set<Long> pathHigh = null;
             if (choseHighDisk) {
                 pathHigh = beStat.getAvailPaths(medium).stream().filter(RootPathLoadStatistic::isGlobalHighUsage)
-                        .map(RootPathLoadStatistic::getBeId).collect(Collectors.toSet());
+                        .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toSet());
             } else {
                 // classify the paths.
                 pathHigh = Sets.newHashSet();
@@ -169,14 +169,16 @@ public class BeLoadRebalancer extends Rebalancer {
             List<Pair<Long, Long>> tabletIdSizes = invertedIndex.getTabletSizeByBackendIdAndStorageMedium(
                     beStat.getBeId(), medium);
             if (!isUrgent || tabletIdSizes.size() < Config.urgent_balance_pick_large_tablet_num_threshold
-                    || Config.urgent_balance_pick_large_tablet_percentage >= 1.0
-                    || Config.urgent_balance_pick_large_tablet_percentage <= 0) {
+                    || Config.urgent_balance_shuffle_large_tablet_percentage >= 1.0
+                    || Config.urgent_balance_shuffle_large_tablet_percentage < 0) {
                 Collections.shuffle(tabletIdSizes);
             } else {
                 Collections.sort(tabletIdSizes, new Pair.PairComparator<Pair<Long, Long>>());
-                int startIndex = (int) (tabletIdSizes.size()
-                        * (1 - Config.urgent_balance_pick_large_tablet_percentage));
-                Collections.shuffle(tabletIdSizes.subList(startIndex, tabletIdSizes.size()));
+                if (Config.urgent_balance_shuffle_large_tablet_percentage > 0) {
+                    int startIndex = (int) (tabletIdSizes.size()
+                            * (1 - Config.urgent_balance_shuffle_large_tablet_percentage));
+                    Collections.shuffle(tabletIdSizes.subList(startIndex, tabletIdSizes.size()));
+                }
             }
 
             // select tablet from shuffled tablets

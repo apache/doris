@@ -248,9 +248,17 @@ public class BackendLoadStatistic {
                         + (diskInfo.getTotalCapacityB() - diskInfo.getAvailableCapacityB()));
             }
 
+            // Doris-compose put test all backends' disks on the same physical disk.
+            // Make a little change here.
+            long usedCapacityB = diskInfo.getDiskUsedCapacityB();
+            if (Config.be_rebalancer_fuzzy_test) {
+                usedCapacityB = Math.min(diskInfo.getTotalCapacityB(),
+                        usedCapacityB + Math.abs(diskInfo.getPathHash()) % 10000);
+            }
+
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
                     diskInfo.getPathHash(), diskInfo.getStorageMedium(),
-                    diskInfo.getTotalCapacityB(), diskInfo.getDiskUsedCapacityB(), diskInfo.getState());
+                    diskInfo.getTotalCapacityB(), usedCapacityB, diskInfo.getState());
             pathStatistics.add(pathStatistic);
         }
 
