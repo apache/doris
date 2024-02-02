@@ -160,6 +160,7 @@ protected:
     // TODO rowset Zonemap
 
     std::map<uint32_t, SegmentStatistics> _segid_statistics_map;
+    std::atomic<int64_t> _base_segid_num;
     std::mutex _segid_statistics_map_mutex;
 
     bool _is_pending = false;

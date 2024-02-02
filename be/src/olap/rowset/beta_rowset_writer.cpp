@@ -450,7 +450,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     auto row_num = rowset->num_rows();
     auto data_size = rowset->rowset_meta()->data_disk_size();
     auto index_size = rowset->rowset_meta()->index_disk_size();
-    auto segment_id = _num_segment.load();
+    // auto segment_id = _num_segment.load();
 
     _num_rows_written += row_num;
     _total_data_size += data_size;
@@ -461,18 +461,20 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     if (num_segments != _segments_encoded_key_bounds.size()) {
         return Status::InternalError(
                 "rowset num segment should equal to _segments_encoded_key_bounds size, "
-                "num_segment: {}, _segments_encoded_key_bounds:{}",
+                "num_segment: {}, _segments_encoded_key_bounds: {}",
                 num_segments, _segments_encoded_key_bounds.size());
     }
-    for (KeyBoundsPB _segments_encoded_key_bound : _segments_encoded_key_bounds) {
-        SegmentStatistics statistic;
-        statistic.row_num = row_num;
-        statistic.data_size = data_size;
-        statistic.index_size = index_size;
-        statistic.key_bounds = _segments_encoded_key_bound;
-        _segid_statistics_map.emplace(segment_id, statistic);
-        segment_id++;
-    }
+    _base_segid_num += num_segments;
+    // for (KeyBoundsPB _segments_encoded_key_bound : _segments_encoded_key_bounds) {
+    //     SegmentStatistics statistic;
+    //     statistic.row_num = row_num;
+    //     statistic.data_size = data_size;
+    //     statistic.index_size = index_size;
+    //     statistic.key_bounds = _segments_encoded_key_bound;
+    //     _segid_statistics_map.emplace(segment_id, statistic);
+    //     segment_id++;
+    // }
+
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
@@ -622,7 +624,7 @@ int64_t BetaRowsetWriter::_num_seg() const {
 }
 
 Status BaseBetaRowsetWriter::_check_segment_num() {
-    auto segment_id_statistics_size = _segid_statistics_map.size();
+    auto segment_id_statistics_size = _segid_statistics_map.size() + _base_segid_num.load();
     auto segment_num = _num_seg();
     if (segment_id_statistics_size != segment_num) {
         return Status::InternalError(
