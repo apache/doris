@@ -58,6 +58,7 @@ static constexpr std::array<RawMaskArrayT, masksCount> generate_bit_masks() {
 }
 
 /// Returns a reference to 16-byte array containing mask with first `prefix_len` bits set to `1` and `128 - prefix_len` to `0`.
+/// Store in little-endian byte order
 /// The reference is valid during all program execution time.
 /// Values of prefix_len greater than 128 interpreted as 128 exactly.
 inline const std::array<uint8_t, 16>& get_cidr_mask_ipv6(uint8_t prefix_len) {

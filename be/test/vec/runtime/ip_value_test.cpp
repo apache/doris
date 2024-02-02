@@ -54,8 +54,8 @@ TEST(IPValueTest, IPv4ValueTest) {
     ASSERT_TRUE(IPv4Value::from_string(ipv4_val1, ipv4_str1.c_str(), ipv4_str1.size()));
     ASSERT_TRUE(IPv4Value::from_string(ipv4_val2, ipv4_str2.c_str(), ipv4_str2.size()));
     ASSERT_TRUE(ipv4_val1 < ipv4_val2);
-    // print_bytes(ipv4_val1);
-    // print_bytes(ipv4_val2);
+    print_bytes(ipv4_val1);
+    print_bytes(ipv4_val2);
     std::string ipv4_format1 = IPv4Value::to_string(ipv4_val1);
     std::string ipv4_format2 = IPv4Value::to_string(ipv4_val2);
     ASSERT_EQ(ipv4_str1, ipv4_format1);
@@ -70,8 +70,8 @@ TEST(IPValueTest, IPv6ValueTest) {
     ASSERT_TRUE(IPv6Value::from_string(ipv6_val1, ipv6_str1.c_str(), ipv6_str1.size()));
     ASSERT_TRUE(IPv6Value::from_string(ipv6_val2, ipv6_str2.c_str(), ipv6_str2.size()));
     ASSERT_TRUE(ipv6_val1 < ipv6_val2);
-    // print_bytes(ipv6_val1);
-    // print_bytes(ipv6_val2);
+    print_bytes(ipv6_val1);
+    print_bytes(ipv6_val2);
     std::string ipv6_format1 = IPv6Value::to_string(ipv6_val1);
     std::string ipv6_format2 = IPv6Value::to_string(ipv6_val2);
     ASSERT_EQ(ipv6_str1, ipv6_format1);
@@ -91,8 +91,8 @@ static void apply_cidr_mask(const char* __restrict src, char* __restrict dst_low
 TEST(IPValueTest, IPv6CIDRTest) {
     const std::string ipv6_str1 = "2001:0db8:0000:85a3:0000:0000:ac1f:8001";
     const std::string ipv6_str2 = "2001:0db8:0000:85a3:ffff:ffff:ffff:ffff";
-    vectorized::IPv6 ipv6_val1;
-    vectorized::IPv6 ipv6_val2;
+    vectorized::IPv6 ipv6_val1; // little-endian
+    vectorized::IPv6 ipv6_val2; // little-endian
     ASSERT_TRUE(IPv6Value::from_string(ipv6_val1, ipv6_str1.c_str(), ipv6_str1.size()));
     ASSERT_TRUE(IPv6Value::from_string(ipv6_val2, ipv6_str2.c_str(), ipv6_str2.size()));
     vectorized::IPv6 min_range1, max_range1;
@@ -101,10 +101,10 @@ TEST(IPValueTest, IPv6CIDRTest) {
                     reinterpret_cast<char*>(&max_range1), 0);
     apply_cidr_mask(reinterpret_cast<const char*>(&ipv6_val2), reinterpret_cast<char*>(&min_range2),
                     reinterpret_cast<char*>(&max_range2), 32);
-    // print_bytes(min_range1);
-    // print_bytes(max_range1);
-    // print_bytes(min_range2);
-    // print_bytes(max_range2);
+    print_bytes(min_range1);
+    print_bytes(max_range1);
+    print_bytes(min_range2);
+    print_bytes(max_range2);
     std::string min_range_format1 = IPv6Value::to_string(min_range1);
     std::string max_range_format1 = IPv6Value::to_string(max_range1);
     std::string min_range_format2 = IPv6Value::to_string(min_range2);
