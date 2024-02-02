@@ -154,7 +154,7 @@ public class StructInfo {
                                 Lists.newArrayList(conjunctExpr),
                                 ImmutableSet.of(),
                                 ImmutableSet.of());
-                topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+                edge.getJoin().accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
                 // Replace expressions by expression map
                 List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
                 shuttledHashConjunctsToConjunctsMap.put(replacedExpressions.get(0), conjunctExpr);
