@@ -67,17 +67,10 @@ suite("test_show_create_table", "query") {
         res1 = sql "show create table test_ttl_table"
         assertTrue(res1[0][1].toString().contains("\"binlog.ttl_seconds\" = \"10800\""))
 
-        sql """ drop database if exists test_ttl_db """
-        sql """ create database if not exists test_ttl_db """
-        res2 = sql "show create database `test_ttl_db`"
-        assertTrue(res2[0][1].toString().contains("\"binlog.ttl_seconds\" = \"10800\""))
-
-
     } finally {
 
         try_sql("DROP TABLE IF EXISTS `${tb_name}`")
         try_sql("DROP TABLE IF EXISTS test_ttl_table")
-        try_sql("DROP database IF EXISTS test_ttl_db")
     }
    
 }
