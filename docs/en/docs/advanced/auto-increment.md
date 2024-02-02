@@ -164,9 +164,9 @@ mysql> select * from tbl order by id;
 +------+-------+-------+
 | id   | name  | value |
 +------+-------+-------+
-|    0 | Bob   |    10 |
-|    1 | Alice |    20 |
-|    2 | Jack  |    30 |
+|    1 | Bob   |    10 |
+|    2 | Alice |    20 |
+|    3 | Jack  |    30 |
 +------+-------+-------+
 3 rows in set (0.05 sec)
 ```
@@ -188,11 +188,11 @@ mysql> select * from tbl order by id;
 +------+-------+-------+
 | id   | name  | value |
 +------+-------+-------+
-|    0 | Bob   |    10 |
-|    1 | Alice |    20 |
-|    2 | Jack  |    30 |
-|    3 | Tom   |    40 |
-|    4 | John  |    50 |
+|    1 | Bob   |    10 |
+|    2 | Alice |    20 |
+|    3 | Jack  |    30 |
+|    4 | Tom   |    40 |
+|    5 | John  |    50 |
 +------+-------+-------+
 5 rows in set (0.04 sec)
 ```
@@ -208,13 +208,13 @@ mysql> select * from tbl order by id;
 +------+---------+-------+
 | id   | name    | value |
 +------+---------+-------+
-|    0 | Bob     |    10 |
-|    1 | Alice   |    20 |
-|    2 | Jack    |    30 |
-|    3 | Tom     |    40 |
-|    4 | John    |    50 |
-|    5 | Doris   |    60 |
-|    6 | Nereids |    70 |
+|    1 | Bob     |    10 |
+|    2 | Alice   |    20 |
+|    3 | Jack    |    30 |
+|    4 | Tom     |    40 |
+|    5 | John    |    50 |
+|    6 | Doris   |    60 |
+|    7 | Nereids |    70 |
 +------+---------+-------+
 7 rows in set (0.04 sec)
 ```
