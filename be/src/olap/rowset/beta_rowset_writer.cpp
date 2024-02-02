@@ -446,12 +446,33 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
 Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     RETURN_IF_ERROR(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
-    _num_rows_written += rowset->num_rows();
-    _total_data_size += rowset->rowset_meta()->data_disk_size();
-    _total_index_size += rowset->rowset_meta()->index_disk_size();
-    _num_segment += rowset->num_segments();
+    auto num_segments = rowset->num_segments();
+    auto row_num = rowset->num_rows();
+    auto data_size = rowset->rowset_meta()->data_disk_size();
+    auto index_size = rowset->rowset_meta()->index_disk_size();
+    auto segment_id = _num_segment.load();
+
+    _num_rows_written += row_num;
+    _total_data_size += data_size;
+    _total_index_size += index_size;
+    _num_segment += num_segments;
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
+    if (num_segments != _segments_encoded_key_bounds.size()) {
+        return Status::InternalError(
+                "rowset num segment should equal to _segments_encoded_key_bounds size, "
+                "num_segment: {}, _segments_encoded_key_bounds:{}",
+                num_segments, _segments_encoded_key_bounds.size());
+    }
+    for (KeyBoundsPB _segments_encoded_key_bound : _segments_encoded_key_bounds) {
+        SegmentStatistics statistic;
+        statistic.row_num = row_num;
+        statistic.data_size = data_size;
+        statistic.index_size = index_size;
+        statistic.key_bounds = _segments_encoded_key_bound;
+        _segid_statistics_map.emplace(segment_id, statistic);
+        segment_id++;
+    }
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
@@ -568,7 +589,7 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
 
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(),
                                    "too many segments when build new rowset");
-    RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get()));
+    RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get(), true));
     if (_is_pending) {
         _rowset_meta->set_rowset_state(COMMITTED);
     } else {
@@ -630,14 +651,16 @@ void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
     VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
 }
 
-Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta) {
+Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
     int64_t num_rows_written = 0;
     int64_t total_data_size = 0;
     int64_t total_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
-        RETURN_IF_ERROR(_check_segment_num());
+        if (check_segment_num) {
+            RETURN_IF_ERROR(_check_segment_num());
+        }
         for (const auto& itr : _segid_statistics_map) {
             num_rows_written += itr.second.row_num;
             total_data_size += itr.second.data_size;

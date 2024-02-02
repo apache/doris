@@ -131,7 +131,7 @@ private:
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:
-    Status _build_rowset_meta(RowsetMeta* rowset_meta);
+    Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
     virtual Status _check_segment_number_limit();
