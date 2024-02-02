@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -37,12 +38,11 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
-import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -57,7 +57,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -68,8 +67,7 @@ import javax.annotation.Nullable;
  * modify, if wanting to modify, should copy and then modify
  */
 public class StructInfo {
-    public static final JoinPatternChecker JOIN_PATTERN_CHECKER = new JoinPatternChecker();
-    public static final AggregatePatternChecker AGGREGATE_PATTERN_CHECKER = new AggregatePatternChecker();
+    public static final PlanPatternChecker PLAN_PATTERN_CHECKER = new PlanPatternChecker();
     // struct info splitter
     public static final PlanSplitter PLAN_SPLITTER = new PlanSplitter();
     private static final RelationCollector RELATION_COLLECTOR = new RelationCollector();
@@ -448,55 +446,58 @@ public class StructInfo {
     }
 
     /**
-     * JoinPatternChecker
+     * PlanPatternChecker, this is used to check the plan pattern is valid or not
      */
-    public static class JoinPatternChecker extends DefaultPlanVisitor<Boolean, Set<JoinType>> {
+    public static class PlanPatternChecker extends DefaultPlanVisitor<Boolean, Set<JoinType>> {
         @Override
-        public Boolean visit(Plan plan, Set<JoinType> requiredJoinType) {
-            super.visit(plan, requiredJoinType);
-            if (!(plan instanceof Filter)
-                    && !(plan instanceof Project)
-                    && !(plan instanceof CatalogRelation)
-                    && !(plan instanceof Join)
-                    && !(plan instanceof Sort)
-                    && !(plan instanceof LogicalAggregate && !((LogicalAggregate) plan).getSourceRepeat()
-                    .isPresent())) {
+        public Boolean visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+                Set<JoinType> supportJoinTypes) {
+            if (!supportJoinTypes.contains(join.getJoinType())) {
                 return false;
             }
-            if (plan instanceof Join) {
-                Join join = (Join) plan;
-                if (!requiredJoinType.contains(join.getJoinType())) {
-                    return false;
-                }
-                if (!join.getOtherJoinConjuncts().isEmpty()) {
+            if (!join.getOtherJoinConjuncts().isEmpty()) {
+                return false;
+            }
+            return visit(join, supportJoinTypes);
+        }
+
+        @Override
+        public Boolean visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
+                Set<JoinType> supportJoinTypes) {
+            if (aggregate.getSourceRepeat().isPresent()) {
+                return false;
+            }
+            return visit(aggregate, supportJoinTypes);
+        }
+
+        @Override
+        public Boolean visitGroupPlan(GroupPlan groupPlan, Set<JoinType> supportJoinTypes) {
+            return groupPlan.getGroup().getLogicalExpressions().stream()
+                    .anyMatch(logicalExpression -> logicalExpression.getPlan().accept(this, supportJoinTypes));
+        }
+
+        @Override
+        public Boolean visit(Plan plan, Set<JoinType> supportJoinTypes) {
+            if (plan instanceof Filter
+                    || plan instanceof Project
+                    || plan instanceof CatalogRelation
+                    || plan instanceof Join
+                    || plan instanceof LogicalSort
+                    || plan instanceof LogicalAggregate
+                    || plan instanceof GroupPlan) {
+                return doVisit(plan, supportJoinTypes);
+            }
+            return false;
+        }
+
+        private Boolean doVisit(Plan plan, Set<JoinType> supportJoinTypes) {
+            for (Plan child : plan.children()) {
+                boolean valid = child.accept(this, supportJoinTypes);
+                if (!valid) {
                     return false;
                 }
             }
             return true;
-        }
-    }
-
-    /**
-     * AggregatePatternChecker
-     */
-    public static class AggregatePatternChecker extends DefaultPlanVisitor<Boolean, Void> {
-        @Override
-        public Boolean visit(Plan plan, Void context) {
-            if (plan instanceof LogicalAggregate) {
-                LogicalAggregate<Plan> aggregate = (LogicalAggregate<Plan>) plan;
-                Optional<LogicalRepeat<?>> sourceRepeat = aggregate.getSourceRepeat();
-                if (sourceRepeat.isPresent()) {
-                    return false;
-                }
-                super.visit(aggregate, context);
-                return true;
-            }
-            if (plan instanceof Project || plan instanceof Filter || plan instanceof Sort) {
-                super.visit(plan, context);
-                return true;
-            }
-            super.visit(plan, context);
-            return false;
         }
     }
 }

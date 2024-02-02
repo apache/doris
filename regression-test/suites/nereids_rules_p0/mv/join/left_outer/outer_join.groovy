@@ -476,14 +476,14 @@ suite("outer_join") {
     def mv6_1 = """
         select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey
         from lineitem_null
-        left join (select o_orderdate,o_orderkey from orders_null where o_orderdate = '2023-12-10' ) t 
+        left join (select o_orderdate,o_orderkey from orders_null where o_orderdate = '2023-12-10' ) t
         on l_orderkey = t.o_orderkey;
     """
     def query6_1 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
-        from lineitem_null  
-        left join orders_null 
-        on l_orderkey = o_orderkey 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem_null
+        left join orders_null
+        on l_orderkey = o_orderkey
         where l_shipdate = '2023-12-10'  and o_orderdate = '2023-12-10';
     """
     order_qt_query6_1_before "${query6_1}"
@@ -494,16 +494,16 @@ suite("outer_join") {
 
     // should compensate predicate o_orderdate = '2023-12-10' on mv
     def mv6_2 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
-        from lineitem 
-        left join (select * from orders where o_orderdate = '2023-12-10' ) t2 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem
+        left join (select * from orders where o_orderdate = '2023-12-10' ) t2
         on lineitem.l_orderkey = t2.o_orderkey;
     """
     def query6_2 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
-        from lineitem 
-        left join orders 
-        on lineitem.l_orderkey = orders.o_orderkey 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem
+        left join orders
+        on lineitem.l_orderkey = orders.o_orderkey
         where o_orderdate = '2023-12-10' order by 1, 2, 3, 4, 5;
     """
     order_qt_query6_2_before "${query6_2}"
