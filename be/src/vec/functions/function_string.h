@@ -2616,7 +2616,8 @@ public:
     }
     bool use_default_implementation_for_nulls() const override { return true; }
 
-    static Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+    static Status execute_impl(FunctionContext* context, Block& block,
+                            const ColumnNumbers& arguments,
                             size_t result, size_t input_rows_count) override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map_data = null_map->get_data();
@@ -2626,7 +2627,8 @@ public:
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
 
-        ColumnPtr argument_column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr argument_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto* url_col = check_and_get_column<ColumnString>(argument_column.get());
 
         if (!url_col) {
