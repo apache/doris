@@ -1173,6 +1173,9 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 // create tablet in partition random robin idx lru size, default 10000
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 
+// 1 row may use 8.5 bytes
+DEFINE_Int64(rowid_conversion_persistence_threshold_count, "50000000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

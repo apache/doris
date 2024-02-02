@@ -1249,6 +1249,10 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
 
+// when the memory used for rowid conversion exceeds the threshold size,
+// persistence this memory to local to reduce memory using.
+DECLARE_Int64(rowid_conversion_persistence_threshold_count);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
