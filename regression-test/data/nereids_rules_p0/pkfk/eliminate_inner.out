@@ -102,8 +102,8 @@ fk with limit
 
 -- !shape --
 PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalLimit[LOCAL]
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
 ------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
@@ -245,8 +245,8 @@ fk with limit
 -- !shape --
 PhysicalResultSink
 --filter(( not fk IS NULL))
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
+----PhysicalTopN[MERGE_SORT]
+------PhysicalTopN[LOCAL_SORT]
 --------PhysicalOlapScan[fkt]
 
 -- !res --

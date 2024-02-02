@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -457,6 +458,7 @@ public class StructInfo {
                     && !(plan instanceof Project)
                     && !(plan instanceof CatalogRelation)
                     && !(plan instanceof Join)
+                    && !(plan instanceof Sort)
                     && !(plan instanceof LogicalAggregate && !((LogicalAggregate) plan).getSourceRepeat()
                     .isPresent())) {
                 return false;
@@ -489,7 +491,7 @@ public class StructInfo {
                 super.visit(aggregate, context);
                 return true;
             }
-            if (plan instanceof LogicalProject || plan instanceof LogicalFilter) {
+            if (plan instanceof Project || plan instanceof Filter || plan instanceof Sort) {
                 super.visit(plan, context);
                 return true;
             }

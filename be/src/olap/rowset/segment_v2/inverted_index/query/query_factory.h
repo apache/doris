@@ -34,8 +34,8 @@ public:
     static std::unique_ptr<Query> create(InvertedIndexQueryType query_type, Args&&... args) {
         switch (query_type) {
         case InvertedIndexQueryType::MATCH_ANY_QUERY:
-        case InvertedIndexQueryType::EQUAL_QUERY:
             return std::make_unique<DisjunctionQuery>(std::forward<Args>(args)...);
+        case InvertedIndexQueryType::EQUAL_QUERY:
         case InvertedIndexQueryType::MATCH_ALL_QUERY:
             return std::make_unique<ConjunctionQuery>(std::forward<Args>(args)...);
         case InvertedIndexQueryType::MATCH_PHRASE_QUERY:

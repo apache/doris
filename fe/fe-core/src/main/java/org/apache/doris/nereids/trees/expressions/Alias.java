@@ -75,6 +75,9 @@ public class Alias extends NamedExpression implements UnaryExpression {
                 ? (SlotReference) child() : null;
         return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier,
                 slotReference != null
+                        ? ((SlotReference) child()).getTable().orElse(null)
+                        : null,
+                slotReference != null
                         ? slotReference.getColumn().orElse(null)
                         : null,
                 nameFromChild ? Optional.of(child().toString()) : Optional.of(name), slotReference != null

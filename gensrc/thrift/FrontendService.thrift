@@ -478,7 +478,7 @@ struct TReportExecStatusParams {
 
   23: optional list<TDetailedReportParams> detailed_report
 
-  24: optional TQueryStatistics query_statistics
+  24: optional TQueryStatistics query_statistics // deprecated
 
   25: TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 }
@@ -1179,7 +1179,8 @@ struct TGetBinlogLagResult {
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
-    2: list<string> statsRows;
+    2: optional list<string> statsRows;
+    3: optional string colStatsData;
 }
 
 struct TInvalidateFollowerStatsCacheRequest {

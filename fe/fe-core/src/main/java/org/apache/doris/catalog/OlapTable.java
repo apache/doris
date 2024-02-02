@@ -48,6 +48,8 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
+import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
@@ -2538,6 +2540,28 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return tablets;
     }
 
+    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
+    // the write lock on the table should be held continuously
+    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
+        LOG.info("updateVisibleVersionAndTime, tableName: {}, visibleVersion, {}, visibleVersionTime: {}", name,
+                visibleVersion, visibleVersionTime);
+        tableAttributes.updateVisibleVersionAndTime(visibleVersion, visibleVersionTime);
+    }
+
+    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
+    // the write lock on the table should be held continuously
+    public long getNextVersion() {
+        return tableAttributes.getNextVersion();
+    }
+
+    public long getVisibleVersion() {
+        return tableAttributes.getVisibleVersion();
+    }
+
+    public long getVisibleVersionTime() {
+        return tableAttributes.getVisibleVersionTime();
+    }
+
     @Override
     public PartitionType getPartitionType() {
         return partitionInfo.getType();
@@ -2549,25 +2573,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public long getPartitionLastModifyTime(long partitionId, PartitionItem item) throws AnalysisException {
-        return getPartitionOrAnalysisException(partitionId).getVisibleVersionTimeIgnoreInit();
-    }
-
-    @Override
-    public long getLastModifyTime() {
-        long result = 0L;
-        long visibleVersionTime;
-        for (Partition partition : getAllPartitions()) {
-            visibleVersionTime = partition.getVisibleVersionTimeIgnoreInit();
-            if (visibleVersionTime > result) {
-                result = visibleVersionTime;
-            }
-        }
-        return result;
-    }
-
-    @Override
     public List<Column> getPartitionColumns() {
         return getPartitionInfo().getPartitionColumns();
     }
+
+    @Override
+    public MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException {
+        long visibleVersion = getPartitionOrAnalysisException(partitionId).getVisibleVersion();
+        return new MTMVVersionSnapshot(visibleVersion);
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot() {
+        long visibleVersion = getVisibleVersion();
+        return new MTMVVersionSnapshot(visibleVersion);
+    }
+
+    @Override
+    public String getPartitionName(long partitionId) throws AnalysisException {
+        return getPartitionOrAnalysisException(partitionId).getName();
+    }
+
 }
