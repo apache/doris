@@ -64,11 +64,6 @@ public class JdbcTable extends Table {
     private static final String DRIVER_CLASS = "driver_class";
     private static final String DRIVER_URL = "driver_url";
     private static final String CHECK_SUM = "checksum";
-    private static final String CONNECTION_POOL_MIN_SIZE = "connection_pool_min_size";
-    private static final String CONNECTION_POOL_MAX_SIZE = "connection_pool_max_size";
-    private static final String CONNECTION_POOL_MAX_WAIT_TIME = "connection_pool_max_wait_time";
-    private static final String CONNECTION_POOL_MAX_LIFE_TIME = "connection_pool_max_life_time";
-    private static final String CONNECTION_POOL_KEEP_ALIVE = "connection_pool_keep_alive";
     private static Map<String, TOdbcTableType> TABLE_TYPE_MAP;
     private String resourceName;
     private String externalTableName;
@@ -413,11 +408,14 @@ public class JdbcTable extends Table {
         driverClass = jdbcResource.getProperty(DRIVER_CLASS);
         driverUrl = jdbcResource.getProperty(DRIVER_URL);
         checkSum = jdbcResource.getProperty(CHECK_SUM);
-        connectionPoolMinSize = Integer.parseInt(jdbcResource.getProperty(CONNECTION_POOL_MIN_SIZE));
-        connectionPoolMaxSize = Integer.parseInt(jdbcResource.getProperty(CONNECTION_POOL_MAX_SIZE));
-        connectionPoolMaxWaitTime = Integer.parseInt(jdbcResource.getProperty(CONNECTION_POOL_MAX_WAIT_TIME));
-        connectionPoolMaxLifeTime = Integer.parseInt(jdbcResource.getProperty(CONNECTION_POOL_MAX_LIFE_TIME));
-        connectionPoolKeepAlive = Boolean.parseBoolean(jdbcResource.getProperty(CONNECTION_POOL_KEEP_ALIVE));
+        connectionPoolMinSize = Integer.parseInt(jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MIN_SIZE));
+        connectionPoolMaxSize = Integer.parseInt(jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MAX_SIZE));
+        connectionPoolMaxWaitTime = Integer.parseInt(
+                jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MAX_WAIT_TIME));
+        connectionPoolMaxLifeTime = Integer.parseInt(
+                jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MAX_LIFE_TIME));
+        connectionPoolKeepAlive = Boolean.parseBoolean(
+                jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_KEEP_ALIVE));
 
         String urlType = jdbcUrl.split(":")[1];
         if (!jdbcTypeName.equalsIgnoreCase(urlType)) {

@@ -177,7 +177,7 @@ public class JdbcResourceTest {
 
     @Test
     public void testHandleJdbcUrlForSqlServerWithoutParams() throws DdlException {
-        String inputUrl = "jdbc:sqlserver://43.129.237.12:1433;databaseName=doris_test";
+        String inputUrl = "jdbc:sqlserver://127.0.0.1:1433;databaseName=doris_test";
         String resultUrl = JdbcResource.handleJdbcUrl(inputUrl);
 
         // Ensure that the result URL for SQL Server doesn't have '?' or '&'
@@ -191,7 +191,7 @@ public class JdbcResourceTest {
     @Test
     public void testHandleJdbcUrlForSqlServerWithParams() throws DdlException {
         String inputUrl
-                = "jdbc:sqlserver://43.129.237.12:1433;encrypt=false;databaseName=doris_test;trustServerCertificate=false";
+                = "jdbc:sqlserver://127.0.0.1:1433;encrypt=false;databaseName=doris_test;trustServerCertificate=false";
         String resultUrl = JdbcResource.handleJdbcUrl(inputUrl);
 
         // Ensure that the result URL for SQL Server doesn't have '?' or '&'
