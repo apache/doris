@@ -25,7 +25,6 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -49,7 +48,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.qcloud.cos.internal.Unmarshallers.ImageAuditingUnmarshaller;
 
 import java.util.HashSet;
 import java.util.List;
@@ -333,26 +331,15 @@ public class JoinUtils {
     }
 
     /**
-     * can this join be eliminated by its left child
+     * if canEliminateByLeft
      */
-    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, FunctionalDependencies rightFuncDeps) {
-        if (join.getJoinType().isLeftOuterJoin()) {
-            Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
-            if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {
-                return false;
-            }
-            return rightFuncDeps.isUnique(njHashKeys.second);
-        }
-        return false;
-    }
-
     public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, ImmutableSet<FdItem> fdItems) {
         if (join.getJoinType().isLeftOuterJoin()) {
             Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
             if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {
                 return false;
             }
-            return fdItems.stream().anyMatch(e->e.getParentExprs().containsAll(njHashKeys.second)
+            return fdItems.stream().anyMatch(e -> e.getParentExprs().containsAll(njHashKeys.second)
                     && e.isUnique()
                     && !e.isCandidate());
         }

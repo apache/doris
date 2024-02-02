@@ -42,15 +42,12 @@ public class LogicalProperties {
     protected final Supplier<Set<Slot>> outputSetSupplier;
     protected final Supplier<Map<Slot, Slot>> outputMapSupplier;
     protected final Supplier<Set<ExprId>> outputExprIdSetSupplier;
-    protected final Supplier<FunctionalDependencies> fdSupplier;
-
     protected final Supplier<ImmutableSet<FdItem>> fdItemsSupplier;
     private Integer hashCode = null;
 
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<FunctionalDependencies> fdSupplier,
             Supplier<ImmutableSet<FdItem>> fdItemsSupplier) {
-        this(outputSupplier, fdSupplier, fdItemsSupplier, ImmutableList::of);
+        this(outputSupplier, fdItemsSupplier, ImmutableList::of);
     }
 
     /**
@@ -60,7 +57,6 @@ public class LogicalProperties {
      *                       throw exception for which children have UnboundRelation
      */
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<FunctionalDependencies> fdSupplier,
             Supplier<ImmutableSet<FdItem>> fdItemsSupplier,
             Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
         this.outputSupplier = Suppliers.memoize(
@@ -81,9 +77,9 @@ public class LogicalProperties {
                         .map(NamedExpression::getExprId)
                         .collect(ImmutableSet.toImmutableSet())
         );
-        this.fdSupplier = Suppliers.memoize(
-                Objects.requireNonNull(fdSupplier, "FunctionalDependencies can not be null")
-        );
+        //this.fdSupplier = Suppliers.memoize(
+        //        Objects.requireNonNull(fdSupplier, "FunctionalDependencies can not be null")
+        //);
         this.fdItemsSupplier = Suppliers.memoize(
                 Objects.requireNonNull(fdItemsSupplier, "FunctionalDependencies can not be null")
         );
@@ -105,9 +101,9 @@ public class LogicalProperties {
         return outputExprIdSetSupplier.get();
     }
 
-    public FunctionalDependencies getFunctionalDependencies() {
-        return fdSupplier.get();
-    }
+    //public FunctionalDependencies getFunctionalDependencies() {
+    //    return fdSupplier.get();
+    //}
 
     public ImmutableSet<FdItem> getFdItems() {
         return fdItemsSupplier.get();

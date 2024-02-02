@@ -25,17 +25,17 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
-
+/**
+ * TableFdItem
+ */
 public class TableFdItem extends FdItem {
 
     private ImmutableSet<TableIf> childTables;
@@ -49,6 +49,7 @@ public class TableFdItem extends FdItem {
     @Override
     public boolean checkExprInChild(SlotReference slot, LogicalPlan childPlan) {
         NamedExpression slotInChild = null;
+        // find in child project based on exprid matching
         List<NamedExpression> exprList = ((LogicalProject) childPlan).getProjects();
         for (NamedExpression expr : exprList) {
             if (expr.getExprId().equals(slot.getExprId())) {
@@ -56,42 +57,37 @@ public class TableFdItem extends FdItem {
                 break;
             }
         }
-        if (slotInChild != null) {
+        if (slotInChild == null) {
+            return false;
+        } else {
             Set<Slot> slotSet = new HashSet<>();
             if (slotInChild instanceof Alias) {
-                slotSet = ((Alias) slotInChild).getInputSlots();
+                slotSet = slotInChild.getInputSlots();
             } else {
-                slotSet.add((SlotReference) slotInChild);
+                slotSet.add((Slot) slotInChild);
             }
             // get table list from slotSet
-            Set<TableIf> tableSets = getTableIds(slotSet, childPlan);
-            if (childTables.containsAll(tableSets)) {
+            Set<TableIf> tableSets = getTableSets(slotSet, childPlan);
+            if (tableSets.isEmpty()) {
+                return false;
+            } else if (childTables.containsAll(tableSets)) {
                 return true;
             } else {
                 return false;
             }
-        } else {
-            return false;
         }
     }
 
-    private Set<TableIf> getTableIds(Set<Slot> slotSet, LogicalPlan project) {
-        List<LogicalCatalogRelation> tableList = getTableListUnderProject(project);
+    private Set<TableIf> getTableSets(Set<Slot> slotSet, LogicalPlan plan) {
+        Set<LogicalCatalogRelation> tableSets = PlanUtils.getLogicalScanFromRootPlan(plan);
         Set<TableIf> resultSet = new HashSet<>();
         for (Slot slot : slotSet) {
-            for (LogicalCatalogRelation table : tableList) {
+            for (LogicalCatalogRelation table : tableSets) {
                 if (table.getOutputExprIds().contains(slot.getExprId())) {
                     resultSet.add(table.getTable());
                 }
             }
         }
         return resultSet;
-    }
-
-    private List<LogicalCatalogRelation> getTableListUnderProject(LogicalPlan project) {
-        List<LogicalCatalogRelation> tableLists = new ArrayList<>();
-        tableLists.addAll((Collection<? extends LogicalCatalogRelation>) project
-                .collect(LogicalCatalogRelation.class::isInstance));
-        return tableLists;
     }
 }

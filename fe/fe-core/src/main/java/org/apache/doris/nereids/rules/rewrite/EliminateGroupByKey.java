@@ -23,10 +23,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -34,7 +32,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -54,23 +51,23 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             if (fdItems.isEmpty()) {
                 return null;
             }
-            List<SlotReference> candiExprs = agg.getGroupByExpressions().stream().
-                    map(SlotReference.class::cast).collect(Collectors.toList());
+            List<SlotReference> candiExprs = agg.getGroupByExpressions().stream()
+                    .map(SlotReference.class::cast).collect(Collectors.toList());
 
             fdItems.stream().filter(e -> !e.isCandidate()).forEach(e -> {
-                    if (e.isUnique()) {
-                        uniqueFdItems.add(e);
-                    } else {
-                        nonUniqueFdItems.add(e);
+                        if (e.isUnique()) {
+                            uniqueFdItems.add(e);
+                        } else {
+                            nonUniqueFdItems.add(e);
+                        }
                     }
-                }
             );
 
             int minParentExprCnt = -1;
             ImmutableSet<SlotReference> minParentExprs = ImmutableSet.of();
             // if unique fd items exists, try to find the one which has the
             // smallest parent exprs
-            for (int i = 0 ; i < uniqueFdItems.size(); i ++) {
+            for (int i = 0; i < uniqueFdItems.size(); i++) {
                 FdItem fdItem = uniqueFdItems.get(i);
                 ImmutableSet<SlotReference> parentExprs = fdItem.getParentExprs();
                 if (minParentExprCnt == -1 || parentExprs.size() < minParentExprCnt) {
@@ -88,7 +85,7 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             if (minParentExprs.size() > 0) {
                 // if any unique fd item found, find the expr which matching parentExprs
                 // from candiExprs directly
-                for (int i = 0; i < minParentExprs.size(); i ++) {
+                for (int i = 0; i < minParentExprs.size(); i++) {
                     int index = findEqualExpr(candiExprs, minParentExprs.asList().get(i));
                     if (index != -1) {
                         rootExprsSet.add(new Integer(index));
@@ -99,7 +96,7 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             } else {
                 // no unique fd item found, try to find the smallest root exprs set
                 // from non-unique fd items.
-                for (int i = 0; i < nonUniqueFdItems.size() && eliminateSet.size() < candiExprs.size(); i ++) {
+                for (int i = 0; i < nonUniqueFdItems.size() && eliminateSet.size() < candiExprs.size(); i++) {
                     FdItem fdItem = nonUniqueFdItems.get(i);
                     ImmutableSet<SlotReference> parentExprs = fdItem.getParentExprs();
                     boolean isContains = isExprsContainFdParent(candiExprs, fdItem);
@@ -107,7 +104,7 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
                         List<SlotReference> leftDomain = new ArrayList<>();
                         List<SlotReference> rightDomain = new ArrayList<>();
                         // generate new root exprs
-                        for (int j = 0 ; j < rootExprs.size(); j ++) {
+                        for (int j = 0; j < rootExprs.size(); j++) {
                             leftDomain.add(rootExprs.get(j));
                             boolean isInChild = fdItem.checkExprInChild(rootExprs.get(j), childPlan);
                             if (isInChild) {
@@ -116,7 +113,7 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
                                 rightDomain.add(rootExprs.get(j));
                             }
                         }
-                        for (int j = 0 ; j < parentExprs.size(); j ++) {
+                        for (int j = 0; j < parentExprs.size(); j++) {
                             int index = findEqualExpr(candiExprs, parentExprs.asList().get(j));
                             if (index != -1) {
                                 rightDomain.add(candiExprs.get(index));
@@ -128,7 +125,7 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
                             }
                         }
                         // check fd can eliminate new candi expr
-                        for (int j = 0 ; j < candiExprs.size(); j ++) {
+                        for (int j = 0; j < candiExprs.size(); j++) {
                             if (eliminateSet.contains(j)) {
                                 // skip
                             } else {
@@ -142,8 +139,8 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
                         }
                         // if fd eliminate new candi exprs or new root exprs is smaller than the older,
                         // than use new root expr to replace old ones
-                        List<SlotReference> newRootExprs = leftDomain.size() <= rightDomain.size() ?
-                                leftDomain : rightDomain;
+                        List<SlotReference> newRootExprs = leftDomain.size() <= rightDomain.size()
+                                ? leftDomain : rightDomain;
                         rootExprs.clear();
                         rootExprs.addAll(newRootExprs);
                     }
@@ -151,10 +148,13 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             }
             // find the root expr, add into root exprs set, indicate the index in
             // candiExprs list
-            for (int i = 0 ; i < rootExprs.size(); i ++) {
-                // todo: add index valid checking
+            for (int i = 0; i < rootExprs.size(); i++) {
                 int index = findEqualExpr(candiExprs, rootExprs.get(i));
-                rootExprsSet.add(new Integer(index));
+                if (index != -1) {
+                    rootExprsSet.add(new Integer(index));
+                } else {
+                    return null;
+                }
             }
             // other can't be determined expr, add into root exprs directly
             if (eliminateSet.size() < candiExprs.size()) {
@@ -167,7 +167,7 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
                 }
             }
             rootExprs.clear();
-            for (int i = 0; i < candiExprs.size(); i ++) {
+            for (int i = 0; i < candiExprs.size(); i++) {
                 if (!rootExprsSet.contains(i)) {
                     // skip
                 } else {
@@ -176,27 +176,31 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             }
 
             // use the new rootExprs as new group by keys
-            List<SlotReference> resultExprs = new ArrayList<>();
-            for (int i = 0 ;i < rootExprs.size(); i ++) {
+            List<Expression> resultExprs = new ArrayList<>();
+            for (int i = 0; i < rootExprs.size(); i++) {
                 resultExprs.add(rootExprs.get(i));
             }
 
             // eliminate outputs keys
-            List<SlotReference> outputExprList = new ArrayList<>();
+            List<NamedExpression> outputExprList = new ArrayList<>();
             for (int i = 0; i < agg.getOutputExpressions().size(); i++) {
                 if (!rootExprsSet.contains(i)) {
                     // skip
                 } else {
-                    outputExprList.add((SlotReference) agg.getOutputExpressions().get(i));
+                    outputExprList.add(agg.getOutputExpressions().get(i));
                 }
             }
-            outputExprList.add((SlotReference) agg.getOutputExpressions().get(agg.getOutputExpressions().size() - 1));
-            return new LogicalAggregate<>(rootExprs, outputExprList, agg.child());
+            // TODO: add other columns, such as aggr fields
+            outputExprList.add(agg.getOutputExpressions().get(agg.getOutputExpressions().size() - 1));
+            return new LogicalAggregate<>(resultExprs, outputExprList, agg.child());
         }).toRule(RuleType.ELIMINATE_GROUP_BY_KEY);
     }
 
+    /**
+     * findEqualExpr
+     */
     public int findEqualExpr(List<SlotReference> candiExprs, SlotReference expr) {
-        for (int i = 0 ; i < candiExprs.size(); i ++) {
+        for (int i = 0; i < candiExprs.size(); i++) {
             if (candiExprs.get(i).equals(expr)) {
                 return i;
             }
@@ -205,6 +209,6 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
     }
 
     private boolean isExprsContainFdParent(List<SlotReference> candiExprs, FdItem fdItem) {
-        return fdItem.getParentExprs().stream().allMatch(e->candiExprs.contains(e));
+        return fdItem.getParentExprs().stream().allMatch(e -> candiExprs.contains(e));
     }
 }

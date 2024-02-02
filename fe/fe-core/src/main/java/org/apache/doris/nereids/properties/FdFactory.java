@@ -17,16 +17,14 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-
-import com.google.common.collect.ImmutableSet;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
+import com.google.common.collect.ImmutableSet;
 
+/**
+ * FdFactory
+ */
 public class FdFactory {
 
     public static final FdFactory INSTANCE = new FdFactory();

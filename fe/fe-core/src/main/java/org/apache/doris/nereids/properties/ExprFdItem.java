@@ -17,13 +17,14 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableSet;
 
+/**
+ * ExprFdItem
+ */
 public class ExprFdItem extends FdItem {
     private ImmutableSet<SlotReference> childExprs;
 

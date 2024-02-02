@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -39,7 +38,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.qcloud.cos.internal.Unmarshallers.ImageAuditingUnmarshaller;
 
 import java.util.List;
 import java.util.Objects;
@@ -230,38 +228,6 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return Optional.ofNullable(window);
     }
 
-    private void updateFuncDepsByWindowExpr(NamedExpression namedExpression, FunctionalDependencies.Builder builder) {
-        if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
-            return;
-        }
-        WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
-        List<Expression> partitionKeys = windowExpr.getPartitionKeys();
-
-        // Now we only support slot type keys
-        if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
-            return;
-        }
-        ImmutableSet<Slot> slotSet = partitionKeys.stream()
-                .map(s -> (Slot) s)
-                .collect(ImmutableSet.toImmutableSet());
-
-        // if partition by keys are unique, output is uniform
-        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniqueAndNotNull(slotSet)) {
-            if (windowExpr.getFunction() instanceof RowNumber
-                    || windowExpr.getFunction() instanceof Rank
-                    || windowExpr.getFunction() instanceof DenseRank) {
-                builder.addUniformSlot(namedExpression.toSlot());
-            }
-        }
-
-        // if partition by keys are uniform, output is unique
-        if (child(0).getLogicalProperties().getFunctionalDependencies().isUniformAndNotNull(slotSet)) {
-            if (windowExpr.getFunction() instanceof RowNumber) {
-                builder.addUniqueSlot(namedExpression.toSlot());
-            }
-        }
-    }
-
     private void updateFuncDepsByWindowExpr(NamedExpression namedExpression, ImmutableSet.Builder<FdItem> builder) {
         if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
             return;
@@ -273,10 +239,9 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
             return;
         }
-        ImmutableSet<Slot> slotSet = partitionKeys.stream()
-                .map(s -> (Slot) s)
-                .collect(ImmutableSet.toImmutableSet());
-
+        //ImmutableSet<Slot> slotSet = partitionKeys.stream()
+        //        .map(s -> (Slot) s)
+        //        .collect(ImmutableSet.toImmutableSet());
         // TODO: if partition by keys are unique, output is uniform
         // TODO: if partition by keys are uniform, output is unique
     }

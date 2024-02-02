@@ -17,20 +17,20 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableSet;
 
-
+/**
+ * FdItem
+ */
 public class FdItem {
     private ImmutableSet<SlotReference> parentExprs;
 
-    boolean isUnique;
+    private boolean isUnique;
 
-    boolean isCandidate;
+    private boolean isCandidate;
 
     public FdItem(ImmutableSet<SlotReference> parentExprs, boolean isUnique, boolean isCandidate) {
         this.parentExprs = ImmutableSet.copyOf(parentExprs);

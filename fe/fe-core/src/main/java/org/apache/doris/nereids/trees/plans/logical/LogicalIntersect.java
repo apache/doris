@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;

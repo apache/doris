@@ -17,19 +17,25 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -95,5 +101,24 @@ public class PlanUtils {
             return plan.child(0);
         }
         return plan;
+    }
+
+    public static Set<LogicalCatalogRelation> getLogicalScanFromRootPlan(LogicalPlan rootPlan) {
+        Set<LogicalCatalogRelation> tableSet = new HashSet<>();
+        tableSet.addAll((Collection<? extends LogicalCatalogRelation>) rootPlan
+                .collect(LogicalCatalogRelation.class::isInstance));
+        return tableSet;
+    }
+
+    /**
+     * getTableSet
+     */
+    public static ImmutableSet<TableIf> getTableSet(LogicalPlan plan) {
+        Set<LogicalCatalogRelation> tableSet = new HashSet<>();
+        tableSet.addAll((Collection<? extends LogicalCatalogRelation>) plan
+                .collect(LogicalCatalogRelation.class::isInstance));
+        ImmutableSet<TableIf> resultSet = tableSet.stream().map(e -> e.getTable())
+                .collect(ImmutableSet.toImmutableSet());
+        return resultSet;
     }
 }
