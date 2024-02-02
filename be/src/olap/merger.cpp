@@ -320,6 +320,10 @@ Status Merger::vertical_compact_one_group(
         output_rows += block.rows();
         block.clear_column_data();
     }
+    if (is_key && reader_params.record_rowids > 0) {
+        RETURN_IF_ERROR(
+                stats_output->rowid_conversion->save_to_file_if_necessary(tablet, reader_type));
+    }
     if (ExecEnv::GetInstance()->storage_engine().stopped()) {
         return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
                                              tablet->tablet_id());

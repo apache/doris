@@ -1327,6 +1327,9 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 // filter wrong data.
 DEFINE_mBool(enable_parquet_page_index, "true");
 
+// 1 row may use 8.5 bytes
+DEFINE_Int64(rowid_conversion_persistence_threshold_count, "50000000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

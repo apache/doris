@@ -1410,6 +1410,10 @@ DECLARE_mInt64(compaction_batch_size);
 
 DECLARE_mBool(enable_parquet_page_index);
 
+// when the memory used for rowid conversion exceeds the threshold size,
+// persistence this memory to local to reduce memory using.
+DECLARE_Int64(rowid_conversion_persistence_threshold_count);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

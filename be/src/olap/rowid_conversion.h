@@ -20,7 +20,13 @@
 #include <map>
 #include <vector>
 
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
 #include "olap/olap_common.h"
+#include "olap/tablet.h"
 #include "olap/utils.h"
 
 namespace doris {
@@ -32,64 +38,16 @@ namespace doris {
 // destination rowset.
 class RowIdConversion {
 public:
-    RowIdConversion() = default;
-    ~RowIdConversion() = default;
-
-    // resize segment rowid map to its rows num
-    void init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& num_rows) {
-        for (size_t i = 0; i < num_rows.size(); i++) {
-            uint32_t id = _segments_rowid_map.size();
-            _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {src_rowset_id, i}, id);
-            _id_to_segment_map.emplace_back(src_rowset_id, i);
-            _segments_rowid_map.emplace_back(std::vector<std::pair<uint32_t, uint32_t>>(
-                    num_rows[i], std::pair<uint32_t, uint32_t>(UINT32_MAX, UINT32_MAX)));
-        }
-    }
+    RowIdConversion();
+    ~RowIdConversion();
+    void init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& num_rows);
 
     // set dst rowset id
     void set_dst_rowset_id(const RowsetId& dst_rowset_id) { _dst_rowst_id = dst_rowset_id; }
     const RowsetId get_dst_rowset_id() { return _dst_rowst_id; }
 
-    // add row id to the map
     void add(const std::vector<RowLocation>& rss_row_ids,
-             const std::vector<uint32_t>& dst_segments_num_row) {
-        for (auto& item : rss_row_ids) {
-            if (item.row_id == -1) {
-                continue;
-            }
-            uint32_t id = _segment_to_id_map.at(
-                    std::pair<RowsetId, uint32_t> {item.rowset_id, item.segment_id});
-            if (_cur_dst_segment_id < dst_segments_num_row.size() &&
-                _cur_dst_segment_rowid >= dst_segments_num_row[_cur_dst_segment_id]) {
-                _cur_dst_segment_id++;
-                _cur_dst_segment_rowid = 0;
-            }
-            _segments_rowid_map[id][item.row_id] =
-                    std::pair<uint32_t, uint32_t> {_cur_dst_segment_id, _cur_dst_segment_rowid++};
-        }
-    }
-
-    // get destination RowLocation
-    // return non-zero if the src RowLocation does not exist
-    int get(const RowLocation& src, RowLocation* dst) const {
-        auto iter = _segment_to_id_map.find({src.rowset_id, src.segment_id});
-        if (iter == _segment_to_id_map.end()) {
-            return -1;
-        }
-        const auto& rowid_map = _segments_rowid_map[iter->second];
-        if (src.row_id >= rowid_map.size()) {
-            return -1;
-        }
-        auto& [dst_segment_id, dst_rowid] = rowid_map[src.row_id];
-        if (dst_segment_id == UINT32_MAX && dst_rowid == UINT32_MAX) {
-            return -1;
-        }
-
-        dst->rowset_id = _dst_rowst_id;
-        dst->segment_id = dst_segment_id;
-        dst->row_id = dst_rowid;
-        return 0;
-    }
+             const std::vector<uint32_t>& dst_segments_num_row);
 
     const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& get_rowid_conversion_map()
             const {
@@ -109,6 +67,22 @@ public:
         return _segment_to_id_map.at(segment);
     }
 
+    void set_file_name(std::string file_name);
+
+    Status create_file_name(TabletSharedPtr tablet, ReaderType reader_type);
+
+    Status save_to_file_if_necessary(TabletSharedPtr tablet, ReaderType reader_type);
+
+    Status save_to_file();
+
+    Status open_file();
+
+    void clear_segments_rowid_map();
+
+    int get(const RowLocation& src, RowLocation* dst) const;
+
+    uint64_t count();
+
 private:
     // the first level vector: index indicates src segment.
     // the second level vector: index indicates row id of source segment,
@@ -122,6 +96,9 @@ private:
     // Map 0 to n to source segment
     std::vector<std::pair<RowsetId, uint32_t>> _id_to_segment_map;
 
+    // Map src segment index to file reading position
+    std::map<uint32_t, uint32_t> _id_to_pos_map;
+
     // dst rowset id
     RowsetId _dst_rowst_id;
 
@@ -130,6 +107,13 @@ private:
 
     // current rowid of dst segment
     std::uint32_t _cur_dst_segment_rowid = 0;
+
+    std::string _file_name;
+    io::FileWriterPtr _file_writer;
+    io::FileReaderSPtr _file_reader;
+
+    uint64_t _count = 0;
+    bool _read_from_file = false;
 };
 
 } // namespace doris

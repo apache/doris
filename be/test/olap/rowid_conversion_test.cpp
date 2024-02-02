@@ -483,6 +483,8 @@ TEST_F(TestRowIdConversion, Basic) {
         rss_row_ids.push_back(rss_row_id);
     }
     RowIdConversion rowid_conversion;
+    std::string file_name = absolute_dir + "/basic";
+    rowid_conversion.set_file_name(file_name);
     src_rowset.init(0);
     std::vector<uint32_t> rs0_segment_num_rows = {4, 3};
     rowid_conversion.init_segment_map(src_rowset, rs0_segment_num_rows);
@@ -493,6 +495,11 @@ TEST_F(TestRowIdConversion, Basic) {
 
     std::vector<uint32_t> dst_segment_num_rows = {4, 3, 4};
     rowid_conversion.add(rss_row_ids, dst_segment_num_rows);
+    auto st = rowid_conversion.save_to_file();
+    EXPECT_TRUE(st.ok());
+    rowid_conversion.clear_segments_rowid_map();
+    st = rowid_conversion.open_file();
+    EXPECT_TRUE(st.ok());
 
     int res = 0;
     src_rowset.init(0);
