@@ -837,6 +837,8 @@ class FilterEstimationTest {
                 .setNumNulls(0)
                 .setMaxValue(100)
                 .setMinValue(0)
+                .setMaxExpr(new IntLiteral(100))
+                .setMinExpr(new IntLiteral(0))
                 .setCount(100);
         DoubleLiteral begin = new DoubleLiteral(40.0);
         DoubleLiteral end = new DoubleLiteral(50.0);
