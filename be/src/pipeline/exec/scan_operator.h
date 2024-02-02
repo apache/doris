@@ -141,13 +141,9 @@ protected:
     std::shared_ptr<ScanDependency> _scan_dependency;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
-    RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
-    RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
-    // Num of newly created free blocks when running query
-    RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
     // time of get block from scanner
@@ -160,8 +156,8 @@ protected:
     // time of filter output block from scanner
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
 
