@@ -49,7 +49,7 @@ public class LocationPath {
     private final LocationType locationType;
     private final String location;
 
-    enum LocationType {
+    public enum LocationType {
         HDFS,
         LOCAL, // Local File
         BOS, // Baidu
@@ -70,11 +70,15 @@ public class LocationPath {
     }
 
     private LocationPath(String location) {
-        this(location, new HashMap<>());
+        this(location, new HashMap<>(), false);
     }
 
     public LocationPath(String location, Map<String, String> props) {
-        String scheme = parseScheme(location).toLowerCase();
+        this(location, props, false);
+    }
+
+    public LocationPath(String location, Map<String, String> props, boolean nothrows) {
+        String scheme = parseScheme(location, nothrows).toLowerCase();
         switch (scheme) {
             case FeConstants.FS_PREFIX_HDFS:
                 locationType = LocationType.HDFS;
@@ -165,7 +169,7 @@ public class LocationPath {
         }
     }
 
-    private static String parseScheme(String location) {
+    private static String parseScheme(String location, boolean nothrows) {
         String[] schemeSplit = location.split(SCHEME_DELIM);
         if (schemeSplit.length > 1) {
             return schemeSplit[0];
@@ -174,7 +178,11 @@ public class LocationPath {
             if (schemeSplit.length > 1) {
                 return schemeSplit[0];
             }
-            throw new IllegalArgumentException("Fail to parse scheme, invalid location: " + location);
+            if (!nothrows) {
+                throw new IllegalArgumentException("Fail to parse scheme, invalid location: " + location);
+            } else {
+                return "";
+            }
         }
     }
 
