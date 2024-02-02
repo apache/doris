@@ -232,7 +232,10 @@ Status PipelineTask::execute(bool* eos) {
     if (!_opened) {
         {
             SCOPED_RAW_TIMER(&time_spent);
-            if (!_open_status.ok()) {
+            // if _open_status is not ok, could know have execute open function,
+            // now execute open again, so need excluding PIP_WAIT_FOR_RF and PIP_WAIT_FOR_SC error out.
+            if (!_open_status.ok() && !_open_status.is<ErrorCode::PIP_WAIT_FOR_RF>() &&
+                !_open_status.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
                 return _open_status;
             }
             // here execute open and not check dependency(eg: the second start rpc arrival)
@@ -251,7 +254,7 @@ Status PipelineTask::execute(bool* eos) {
                 set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
                 return Status::OK();
             }
-            // not ok and no dependency, return error to cancel.
+            // if not ok and no dependency, return error to cancel.
             RETURN_IF_ERROR(_open_status);
         }
         if (has_dependency()) {
