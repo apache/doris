@@ -67,13 +67,13 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
         partition_ids.insert(tablet_writer_it->second->partition_id());
     }
     if (!partition_ids.empty()) {
-        RETURN_IF_ERROR(_init_writers_by_parition_ids(partition_ids));
+        RETURN_IF_ERROR(_init_writers_by_partition_ids(partition_ids));
     }
 
     return _write_block_data(request, cur_seq, tablet_to_rowidxs, response);
 }
 
-Status CloudTabletsChannel::_init_writers_by_parition_ids(
+Status CloudTabletsChannel::_init_writers_by_partition_ids(
         const std::unordered_set<int64_t>& partition_ids) {
     std::vector<CloudDeltaWriter*> writers;
     for (auto&& [tablet_id, base_writer] : _tablet_writers) {
@@ -129,7 +129,10 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
 
     for (auto&& [tablet_id, base_writer] : _tablet_writers) {
         auto* writer = static_cast<CloudDeltaWriter*>(base_writer.get());
-        if (_partition_ids.contains(writer->partition_id())) {
+        // ATTN: the strict mode means strict filtering of column type conversions during import.
+        // Sometimes all inputs are filtered, but the partition ID is still set, and the writer is
+        // not initialized.
+        if (_partition_ids.contains(writer->partition_id()) && writer->is_init()) {
             if (!success) { // Already failed, cancel all remain writers
                 static_cast<void>(writer->cancel());
                 continue;
