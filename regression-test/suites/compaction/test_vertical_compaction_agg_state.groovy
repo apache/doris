@@ -42,6 +42,7 @@ suite("test_vertical_compaction_agg_state") {
         }
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql "set enable_agg_state=true"
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
                 user_id                         VARCHAR,
