@@ -1031,7 +1031,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1051,7 +1050,7 @@ public:
         for (int i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            auto col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
+            const auto* col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
             offsets_list[i] = &col_str->get_offsets();
             chars_list[i] = &col_str->get_chars();
         }
@@ -1084,8 +1083,8 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             int current_length = 0;
             for (size_t j = 0; j < offsets_list.size(); ++j) {
-                auto& current_offsets = *offsets_list[j];
-                auto& current_chars = *chars_list[j];
+                const auto& current_offsets = *offsets_list[j];
+                const auto& current_chars = *chars_list[j];
 
                 int size = current_offsets[i] - current_offsets[i - 1];
                 if (size > 0) {
@@ -1642,7 +1641,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1784,8 +1782,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -3007,7 +3003,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
