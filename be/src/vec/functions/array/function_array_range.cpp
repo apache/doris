@@ -99,10 +99,6 @@ struct RangeImplUtil {
                 return "array_range_year_unit";
             } else if constexpr (std::is_same_v<
                                          TimeUnitOrVoid,
-                                         std::integral_constant<TimeUnit, TimeUnit::QUARTER>>) {
-                return "array_range_quarter_unit";
-            } else if constexpr (std::is_same_v<
-                                         TimeUnitOrVoid,
                                          std::integral_constant<TimeUnit, TimeUnit::MONTH>>) {
                 return "array_range_month_unit";
             } else if constexpr (std::is_same_v<TimeUnitOrVoid,
@@ -205,28 +201,28 @@ private:
                     dest_offsets.push_back(offset);
                 }
             } else {
-                auto end_row_daynr =
-                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(end_row).daynr();
                 const auto& idx_0 = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(idx);
+                const auto& end_row_cast =
+                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(end_row);
                 bool is_null = !idx_0.is_valid_date();
-                if (args_null_map_row || step_row < 0) {
+                bool is_end_row_invalid = !end_row_cast.is_valid_date();
+                if (args_null_map_row || step_row < 0 || is_null || is_end_row_invalid) {
                     nested_column.push_back(0);
                     dest_offsets.push_back(offset + 1);
                     dest_nested_null_map.push_back(1);
                     args_null_map_row = 1;
                 } else {
-                    while ((reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(idx).daynr() -
-                            end_row_daynr) < 0) {
+                    using UNIT = std::conditional_t<std::is_same_v<TimeUnitOrVoid, void>,
+                                                    std::integral_constant<TimeUnit, TimeUnit::DAY>,
+                                                    TimeUnitOrVoid>;
+                    while (doris::datetime_diff<UNIT::value, DateTimeV2ValueType,
+                                                DateTimeV2ValueType>(idx, end_row) > 0) {
                         nested_column.push_back(idx);
                         dest_nested_null_map.push_back(0);
                         offset++;
-                        using UNIT =
-                                std::conditional_t<std::is_same_v<TimeUnitOrVoid, void>,
-                                                   std::integral_constant<TimeUnit, TimeUnit::DAY>,
-                                                   TimeUnitOrVoid>;
                         idx = doris::vectorized::date_time_add<
                                 UNIT::value, DateV2Value<DateTimeV2ValueType>,
-                                DateV2Value<DateTimeV2ValueType>, DateTimeV2>(idx, step[row],
+                                DateV2Value<DateTimeV2ValueType>, DateTimeV2>(idx, step_row,
                                                                               is_null);
                     }
                     dest_offsets.push_back(offset);
@@ -317,6 +313,9 @@ void register_function_array_range(SimpleFunctionFactory& factory) {
             RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::MINUTE>>>>();
     factory.register_function<FunctionArrayRange<
             RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::SECOND>>>>();
+
+    // alias
+    factory.register_alias("array_range", "sequence");
 }
 
 } // namespace doris::vectorized

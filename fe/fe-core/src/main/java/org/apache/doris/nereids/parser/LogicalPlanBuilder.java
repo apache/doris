@@ -1680,30 +1680,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression end = (Expression) visit(ctx.end);
         Expression step = (Expression) visit(ctx.unitsAmount);
 
-        if (ctx.end == null) {
-            return new ArrayRange(start);
+        String unit = ctx.unit.getText();
+        if (unit != null && !unit.isEmpty()) {
+            if ("Year".equalsIgnoreCase(unit)) {
+                return new ArrayRangeYearUnit(start, end, step);
+            } else if ("Month".equalsIgnoreCase(unit)) {
+                return new ArrayRangeMonthUnit(start, end, step);
+            } else if ("Week".equalsIgnoreCase(unit)) {
+                return new ArrayRangeWeekUnit(start, end, step);
+            } else if ("Day".equalsIgnoreCase(unit)) {
+                return new ArrayRangeDayUnit(start, end, step);
+            } else if ("Hour".equalsIgnoreCase(unit)) {
+                return new ArrayRangeHourUnit(start, end, step);
+            } else if ("Minute".equalsIgnoreCase(unit)) {
+                return new ArrayRangeMinuteUnit(start, end, step);
+            } else if ("Second".equalsIgnoreCase(unit)) {
+                return new ArrayRangeSecondUnit(start, end, step);
+            }
+            throw new ParseException("Unsupported time unit: " + ctx.unit
+                    + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
+        } else {
+            return new ArrayRange(start, end, step);
         }
-        if (ctx.unit == null) {
-            return new ArrayRange(start, end);
-        }
-
-        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
-            return new ArrayRangeYearUnit(start, end, step);
-        } else if ("Month".equalsIgnoreCase(ctx.unit.getText())) {
-            return new ArrayRangeMonthUnit(start, end, step);
-        } else if ("Week".equalsIgnoreCase(ctx.unit.getText())) {
-            return new ArrayRangeWeekUnit(start, end, step);
-        } else if ("Day".equalsIgnoreCase(ctx.unit.getText())) {
-            return new ArrayRangeDayUnit(start, end, step);
-        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
-            return new ArrayRangeHourUnit(start, end, step);
-        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
-            return new ArrayRangeMinuteUnit(start, end, step);
-        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
-            return new ArrayRangeSecondUnit(start, end, step);
-        }
-        throw new ParseException("Unsupported time unit: " + ctx.unit
-                + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
     }
 
     @Override
