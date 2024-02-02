@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
@@ -36,6 +38,7 @@ import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -54,6 +57,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class BinlogManager {
     private static final int BUFFER_SIZE = 16 * 1024;
+    private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("Name")
+            .add("Type").add("Id").add("Dropped").add("BinlogLength").add("FirstBinlogCommittedTime")
+            .add("ReadableFirstBinlogCommittedTime").add("LastBinlogCommittedTime")
+            .add("ReadableLastBinlogCommittedTime").add("BinlogTtlSeconds")
+            .build();
 
     private static final Logger LOG = LogManager.getLogger(BinlogManager.class);
 
@@ -543,6 +551,22 @@ public class BinlogManager {
         }
 
         return checksum;
+    }
+
+    public ProcResult getBinlogInfo() {
+        BaseProcResult result = new BaseProcResult();
+        result.setNames(TITLE_NAMES);
+
+        lock.readLock().lock();
+        try {
+            for (DBBinlog dbBinlog : dbBinlogMap.values()) {
+                dbBinlog.getBinlogInfo(result);
+            }
+        } finally {
+            lock.readLock().unlock();
+        }
+
+        return result;
     }
 
     // remove DB
