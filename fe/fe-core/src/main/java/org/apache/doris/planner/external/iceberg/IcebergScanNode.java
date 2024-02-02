@@ -356,7 +356,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         if ("hadoop".equalsIgnoreCase(icebergCatalogType)) {
             if (!location.startsWith(HdfsResource.HDFS_PREFIX)) {
                 String fsName = props.get(HdfsResource.HADOOP_FS_NAME);
-                location = fsName + location;
+                if (fsName != null) {
+                    location = fsName + location;
+                }
             }
         }
         return location;
