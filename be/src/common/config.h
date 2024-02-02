@@ -817,6 +817,9 @@ DECLARE_mInt32(segment_compression_threshold_kb);
 // The connection timeout when connecting to external table such as odbc table.
 DECLARE_mInt32(external_table_connect_timeout_sec);
 
+// Time to clean up useless JDBC connection pool cache
+DECLARE_mInt32(jdbc_connection_pool_cache_clear_time_sec);
+
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
 
