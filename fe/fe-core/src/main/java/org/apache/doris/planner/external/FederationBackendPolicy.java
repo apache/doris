@@ -97,7 +97,7 @@ public class FederationBackendPolicy {
                     @Override
                     public ConsistentHash<Split, Backend> load(HashCacheKey key) {
                         return new ConsistentHash<>(Hashing.murmur3_128(), new SplitHash(),
-                                new BackendHash(), key.bes, Config.virtual_node_number);
+                                new BackendHash(), key.bes, Config.split_assigner_virtual_node_number);
                     }
                 });
     }
@@ -238,7 +238,7 @@ public class FederationBackendPolicy {
 
         // optimizedLocalScheduling enables prioritized assignment of splits to local nodes when splits contain
         // locality information
-        if (Config.optimized_local_scheduling) {
+        if (Config.split_assigner_optimized_local_scheduling) {
             remainingSplits = new ArrayList<>(splits.size());
             for (int i = 0; i < splits.size(); ++i) {
                 Split split = splits.get(i);
@@ -277,11 +277,12 @@ public class FederationBackendPolicy {
                     }
                     case RANDOM: {
                         randomCandidates.reset();
-                        candidateNodes = selectNodes(Config.min_random_candidate_num, randomCandidates);
+                        candidateNodes = selectNodes(Config.split_assigner_min_random_candidate_num, randomCandidates);
                         break;
                     }
                     case CONSISTENT_HASHING: {
-                        candidateNodes = consistentHash.getNode(split, Config.min_consistent_hash_candidate_num);
+                        candidateNodes = consistentHash.getNode(split,
+                                Config.split_assigner_min_consistent_hash_candidate_num);
                         splitsToBeRedistributed = true;
                         break;
                     }
@@ -358,7 +359,7 @@ public class FederationBackendPolicy {
             // distribution is used like consistent hashing). In such case it makes sense to assign splits to nodes
             // with data because of potential savings in network throughput and CPU time.
             if (assignedWeightPerBackend.get(maxNode) - assignedWeightPerBackend.get(minNode)
-                    <= SplitWeight.rawValueForStandardSplitCount(Config.max_split_num_variance)) {
+                    <= SplitWeight.rawValueForStandardSplitCount(Config.split_assigner_max_split_num_variance)) {
                 return;
             }
 

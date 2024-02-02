@@ -209,7 +209,7 @@ public class FederationBackendPolicyTest {
             }
             System.out.printf("%s -> %d splits, %d bytes\n", backend, assignedSplits.size(), scanBytes);
         }
-        Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.max_split_num_variance);
+        Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
 
     }
 
@@ -284,7 +284,7 @@ public class FederationBackendPolicyTest {
             }
             System.out.printf("%s -> %d splits, %d bytes\n", backend, assignedSplits.size(), scanBytes);
         }
-        Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.max_split_num_variance);
+        Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
 
     }
 
@@ -401,7 +401,7 @@ public class FederationBackendPolicyTest {
             }
             Assert.assertEquals(totalSplits.size(), totalSplitNum);
 
-            Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.max_split_num_variance);
+            Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
         }
     }
 
@@ -522,7 +522,7 @@ public class FederationBackendPolicyTest {
             }
             Assert.assertEquals(totalSplits.size(), totalSplitNum);
 
-            Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.max_split_num_variance);
+            Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
         }
     }
 
@@ -620,7 +620,7 @@ public class FederationBackendPolicyTest {
             policy.init();
             // Set these options to ensure that the consistent hash algorithm is consistent.
             policy.setEnableSplitsRedistribution(false);
-            Config.min_consistent_hash_candidate_num = 1;
+            Config.split_assigner_min_consistent_hash_candidate_num = 1;
             int backendNum = 3;
             Assertions.assertEquals(policy.numBackends(), backendNum);
             Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
