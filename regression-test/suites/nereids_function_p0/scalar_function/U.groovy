@@ -43,4 +43,5 @@ suite("nereids_scalar_fn_U") {
 	qt_sql_upper_String_notnull "select upper(kstr) from fn_test_not_nullable order by kstr"
 	sql "select user() from fn_test"
 	sql "select user() from fn_test_not_nullable"
+    qt_sql_url_decode "select url_decode('https%3A%2F%2Fdoris.apache.org%2Fzh-CN%2Fdocs%2Fsql-manual%2Fsql-functions%2Fstring-functions')"
 }
