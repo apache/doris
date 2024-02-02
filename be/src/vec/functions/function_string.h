@@ -2612,46 +2612,46 @@ public:
     bool is_variadic() const override { return false; }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) override {
-            return std::make_shared<DataTypeString>();
-        }
+        return std::make_shared<DataTypeString>();
+    }
     bool use_default_implementation_for_nulls() const override { return true; }
 
     static Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                             size_t result, size_t input_rows_count) override {
-            auto null_map = ColumnUInt8::create(input_rows_count, 0);
-            auto& null_map_data = null_map->get_data();
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& null_map_data = null_map->get_data();
 
-            auto res = ColumnString::create();
-            auto& res_offsets = res->get_offsets();
-            auto& res_chars = res->get_chars();
-            res_offsets.resize(input_rows_count);
+        auto res = ColumnString::create();
+        auto& res_offsets = res->get_offsets();
+        auto& res_chars = res->get_chars();
+        res_offsets.resize(input_rows_count);
 
-            ColumnPtr argument_column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-            const auto* url_col = check_and_get_column<ColumnString>(argument_column.get());
+        ColumnPtr argument_column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto* url_col = check_and_get_column<ColumnString>(argument_column.get());
 
-            if (!url_col) {
-                return Status::InternalError("Not supported input argument type");
-            }
-
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                if (null_map_data[i]) {
-                    StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                    continue;
-                }
-
-                auto source = url_col->get_data_at(i);
-                StringRef url_val(const_cast<char*>(source.data), source.size);
-
-                std::string decoded_url;
-                url_decode(url_val, decoded_url);
-
-                StringOP::push_value_string(decoded_url, i, res_chars, res_offsets);
-            }
-
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(res), std::move(null_map));
-            return Status::OK();
+        if (!url_col) {
+            return Status::InternalError("Not supported input argument type");
         }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map_data[i]) {
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                continue;
+            }
+
+            auto source = url_col->get_data_at(i);
+            StringRef url_val(const_cast<char*>(source.data), source.size);
+
+            std::string decoded_url;
+            url_decode(url_val, decoded_url);
+
+            StringOP::push_value_string(decoded_url, i, res_chars, res_offsets);
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
 };
 
 template <typename Impl>
