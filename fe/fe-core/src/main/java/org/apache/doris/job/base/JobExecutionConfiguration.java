@@ -137,8 +137,10 @@ public class JobExecutionConfiguration {
             long jobStartTimeMs = timerDefinition.getStartTimeMs();
             if (isImmediate()) {
                 jobStartTimeMs += intervalValue;
+                if (jobStartTimeMs > endTimeMs) {
+                    return delayTimeSeconds;
+                }
             }
-
             return getExecutionDelaySeconds(startTimeMs, endTimeMs, jobStartTimeMs,
                     intervalValue, currentTimeMs);
         }
