@@ -1375,8 +1375,8 @@ Status SchemaChangeHandler::_calc_delete_bitmap_for_mow_table(TabletSharedPtr ne
                   << "double write rowsets for version: " << alter_version + 1 << "-" << max_version
                   << " new_tablet=" << new_tablet->tablet_id();
         std::shared_lock<std::shared_mutex> rlock(new_tablet->get_header_lock());
-        RETURN_IF_ERROR(
-                new_tablet->capture_consistent_rowsets({alter_version + 1, max_version}, &rowsets));
+        RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets_unlocked(
+                {alter_version + 1, max_version}, &rowsets));
     }
     for (auto rowset_ptr : rowsets) {
         std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
@@ -1394,8 +1394,8 @@ Status SchemaChangeHandler::_calc_delete_bitmap_for_mow_table(TabletSharedPtr ne
         LOG(INFO) << "alter table for unique with merge-on-write, calculate delete bitmap of "
                   << "incremental rowsets for version: " << max_version + 1 << "-"
                   << new_max_version << " new_tablet=" << new_tablet->tablet_id();
-        RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets({max_version + 1, new_max_version},
-                                                               &rowsets));
+        RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets_unlocked(
+                {max_version + 1, new_max_version}, &rowsets));
     }
     for (auto&& rowset_ptr : rowsets) {
         RETURN_IF_ERROR(Tablet::update_delete_bitmap_without_lock(new_tablet, rowset_ptr));

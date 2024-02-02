@@ -1775,6 +1775,25 @@ build_ali_sdk() {
     "${BUILD_SYSTEM}" install
 }
 
+# wasmtime
+build_wasmtime() {
+    check_if_source_exist "${WASMTIME_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${WASMTIME_SOURCE}"
+
+    cargo build --release -p wasmtime-c-api
+
+    cp -rf ./crates/c-api/wasm-c-api/include/wasm.* "${TP_INCLUDE_DIR}/"
+    cp -rf ./crates/c-api/include/* "${TP_INCLUDE_DIR}/"
+    cp -rf ./target/release/libwasmtime.a "${TP_LIB_DIR}/libwasmtime.a"
+}
+
+build_wasmtime_cpp() {
+    check_if_source_exist "${WASMTIME_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${WASMTIME_CPP_SOURCE}"
+
+    cp -rf ./include/wasmtime.hh "${TP_INCLUDE_DIR}/"
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         libunixodbc
@@ -1841,6 +1860,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         libdeflate
         streamvbyte
         ali_sdk
+        wasmtime
+        wasmtime_cpp
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

@@ -49,6 +49,7 @@ public:
     Status update_wal_dir_limit(size_t limit = -1);
     Status update_wal_dir_used(size_t used = -1);
     void update_wal_dir_pre_allocated(size_t increase_pre_allocated, size_t decrease_pre_allocated);
+    std::string get_wal_dir_info_string();
 
 private:
     std::string _wal_dir;
@@ -75,6 +76,7 @@ public:
                                         size_t decrease_pre_allocated);
     Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
     Status get_wal_dir_info(const std::string& wal_dir, std::shared_ptr<WalDirInfo>& wal_dir_info);
+    std::string get_wal_dirs_info_string();
 
 private:
     std::vector<std::shared_ptr<WalDirInfo>> _wal_dirs_info_vec;

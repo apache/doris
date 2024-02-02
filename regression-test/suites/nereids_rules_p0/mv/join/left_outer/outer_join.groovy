@@ -388,9 +388,9 @@ suite("outer_join") {
 
 
     def mv3_2 = """
-            select lineitem.L_LINENUMBER, t2.O_CUSTKEY, t2.O_ORDERSTATUS 
-            from lineitem 
-            left join 
+            select lineitem.L_LINENUMBER, t2.O_CUSTKEY, t2.O_ORDERSTATUS
+            from lineitem
+            left join
             (select * from orders where O_ORDERSTATUS = 'o') t2
             on lineitem.L_ORDERKEY = t2.O_ORDERKEY;
     """

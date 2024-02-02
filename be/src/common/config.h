@@ -820,6 +820,8 @@ DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 DECLARE_Bool(share_delta_writers);
 // timeout for open load stream rpc in ms
 DECLARE_Int64(open_load_stream_timeout_ms);
+// enable write background when using brpc stream
+DECLARE_mBool(enable_brpc_stream_write_background);
 
 // brpc streaming max_buf_size in bytes
 DECLARE_Int64(load_stream_max_buf_size);
@@ -939,7 +941,7 @@ DECLARE_mInt64(small_column_size_buffer);
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
-DECLARE_mInt32(bloom_filter_predicate_check_row_num);
+DECLARE_mInt32(rf_predicate_check_row_num);
 
 // cooldown task configs
 DECLARE_Int32(cooldown_thread_num);

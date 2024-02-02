@@ -144,7 +144,7 @@ set workload_group = 'g2';
 ```
 session变量`workload_group`优先于 user property `default_workload_group`, 在`workload_group`为空时，查询将绑定到`default_workload_group`, 在session变量`workload_group`不为空时，查询将绑定到`workload_group`。
 
-如果是非admin用户，需要先执行[SHOW-WORKLOAD-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS.md) 确认下当前用户能否看到该workload group，不能看到的workload group可能不存在或者当前用户没有权限，执行查询时会报错。给worklaod group授权参考：[grant语句](../sql-manual/sql-reference/Account-Management-Statements/GRANT.md)。
+如果是非admin用户，需要先执行[SHOW-WORKLOAD-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS.md) 确认下当前用户能否看到该 workload group，不能看到的 workload group 可能不存在或者当前用户没有权限，执行查询时会报错。给 workload group 授权参考：[grant语句](../sql-manual/sql-reference/Account-Management-Statements/GRANT.md)。
 
 6. 执行查询，查询将关联到指定的 workload group。
 
