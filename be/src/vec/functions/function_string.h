@@ -2752,7 +2752,6 @@ public:
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) override {
         return std::make_shared<DataTypeString>();
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     static Status execute_impl(FunctionContext* context, Block& block,
 
