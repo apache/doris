@@ -2138,12 +2138,11 @@ private:
                     }
 
                     bool narrow_integral =
-                            context->check_overflow_for_decimal() &&
                             (to_precision - to_scale) <= (from_precision - from_scale);
 
-                    bool multiply_may_overflow = context->check_overflow_for_decimal();
+                    bool multiply_may_overflow = false;
                     if (to_scale > from_scale) {
-                        multiply_may_overflow &=
+                        multiply_may_overflow =
                                 (from_precision + to_scale - from_scale) >= to_max_digits;
                     }
                     return narrow_integral || multiply_may_overflow;
