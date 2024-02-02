@@ -27,8 +27,9 @@ import com.google.common.collect.ImmutableList;
 public class CloudPropertyAnalyzer extends PropertyAnalyzer {
 
     public CloudPropertyAnalyzer() {
+        // Ignore unsupported properties in cloud mode
         forceProperties = ImmutableList.of(
-                RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_INMEMORY, "true"),
+                RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_INMEMORY),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM),
                 RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "V2"),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY),
