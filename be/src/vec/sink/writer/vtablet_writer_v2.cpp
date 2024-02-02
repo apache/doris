@@ -551,8 +551,8 @@ Status VTabletWriterV2::close(Status exec_status) {
 
         {
             SCOPED_TIMER(_close_load_timer);
-            auto remain_ms = _state->execution_timeout() * 1000 -
-                             _timeout_watch.elapsed_time() / 1000 / 1000;
+            int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
+                                _timeout_watch.elapsed_time() / 1000 / 1000;
             if (remain_ms <= 0) {
                 LOG(WARNING) << "load timed out before close waiting, load_id="
                              << print_id(_load_id);
