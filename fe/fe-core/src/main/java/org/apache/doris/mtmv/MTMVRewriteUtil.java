@@ -73,7 +73,7 @@ public class MTMVRewriteUtil {
                 continue;
             }
             try {
-                if (MTMVUtil.isMTMVPartitionSync(mtmv, partition.getId(), mtmvRelation.getBaseTables(),
+                if (MTMVPartitionUtil.isMTMVPartitionSync(mtmv, partition.getId(), mtmvRelation.getBaseTables(),
                         Sets.newHashSet())) {
                     res.add(partition);
                 }

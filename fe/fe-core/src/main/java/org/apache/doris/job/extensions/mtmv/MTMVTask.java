@@ -36,6 +36,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
@@ -161,10 +162,10 @@ public class MTMVTask extends AbstractTask {
             // To be completely consistent with hive, you need to manually refresh the cache
             // refreshHmsTable();
             if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
-                MTMVUtil.alignMvPartition(mtmv, mtmv.getMvPartitionInfo().getRelatedTable());
+                MTMVPartitionUtil.alignMvPartition(mtmv, mtmv.getMvPartitionInfo().getRelatedTable());
             }
             List<Long> needRefreshPartitionIds = calculateNeedRefreshPartitions();
-            this.needRefreshPartitions = MTMVUtil.getPartitionNamesByIds(mtmv, needRefreshPartitionIds);
+            this.needRefreshPartitions = MTMVPartitionUtil.getPartitionNamesByIds(mtmv, needRefreshPartitionIds);
             this.refreshMode = generateRefreshMode(needRefreshPartitionIds);
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
@@ -181,8 +182,8 @@ public class MTMVTask extends AbstractTask {
                 Set<Long> execPartitionIds = Sets.newHashSet(needRefreshPartitionIds
                         .subList(start, end > needRefreshPartitionIds.size() ? needRefreshPartitionIds.size() : end));
                 // need get names before exec
-                List<String> execPartitionNames = MTMVUtil.getPartitionNamesByIds(mtmv, execPartitionIds);
-                Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVUtil
+                List<String> execPartitionNames = MTMVPartitionUtil.getPartitionNamesByIds(mtmv, execPartitionIds);
+                Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVPartitionUtil
                         .generatePartitionSnapshots(mtmv, relation.getBaseTables(), execPartitionIds);
                 exec(ctx, execPartitionIds, tableWithPartKey);
                 completedPartitions.addAll(execPartitionNames);
@@ -393,13 +394,13 @@ public class MTMVTask extends AbstractTask {
                 return mtmv.getPartitionIds();
             } else if (!CollectionUtils
                     .isEmpty(taskContext.getPartitions())) {
-                return MTMVUtil.getPartitionsIdsByNames(mtmv, taskContext.getPartitions());
+                return MTMVPartitionUtil.getPartitionsIdsByNames(mtmv, taskContext.getPartitions());
             }
         }
         // check if data is fresh
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
-        boolean fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), mtmv.getExcludedTriggerTables());
+        boolean fresh = MTMVPartitionUtil.isMTMVSync(mtmv, relation.getBaseTables(), mtmv.getExcludedTriggerTables());
         if (fresh) {
             return Lists.newArrayList();
         }
@@ -413,7 +414,7 @@ public class MTMVTask extends AbstractTask {
         }
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
-        return MTMVUtil.getMTMVNeedRefreshPartitions(mtmv, relation.getBaseTables());
+        return MTMVPartitionUtil.getMTMVNeedRefreshPartitions(mtmv, relation.getBaseTables());
     }
 
     public MTMVTaskContext getTaskContext() {
