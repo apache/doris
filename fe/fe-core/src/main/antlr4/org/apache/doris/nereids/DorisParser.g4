@@ -663,7 +663,7 @@ primaryExpression
                 (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
                 | unitsAmount=valueExpression)
             RIGHT_PAREN                                                                        #dateCeil
-    | name =ARRAY_RANGE
+    | name =(ARRAY_RANGE | SEQUENCE)
             LEFT_PAREN
                 start=valueExpression COMMA
                 end=valueExpression COMMA

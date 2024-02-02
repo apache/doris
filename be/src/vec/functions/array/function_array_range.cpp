@@ -306,8 +306,6 @@ void register_function_array_range(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayRange<
             RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::YEAR>>>>();
     factory.register_function<FunctionArrayRange<
-            RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::QUARTER>>>>();
-    factory.register_function<FunctionArrayRange<
             RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::MONTH>>>>();
     factory.register_function<FunctionArrayRange<
             RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::WEEK>>>>();

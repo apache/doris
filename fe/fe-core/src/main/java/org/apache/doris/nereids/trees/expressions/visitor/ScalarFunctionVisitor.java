@@ -58,6 +58,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPushBack
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPushFront;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeDayUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeHourUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeMinuteUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeMonthUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeSecondUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeWeekUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeYearUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
@@ -570,6 +576,30 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayRangeDayUnit(ArrayRangeDayUnit arrayRangeDayUnit, C context) {
         return visitScalarFunction(arrayRangeDayUnit, context);
+    }
+
+    default R visitArrayRangeHourUnit(ArrayRangeHourUnit arrayRangeHourUnit, C context) {
+        return visitScalarFunction(arrayRangeHourUnit, context);
+    }
+
+    default R visitArrayRangeMinuteUnit(ArrayRangeMinuteUnit arrayRangeMinuteUnit, C context) {
+        return visitScalarFunction(arrayRangeMinuteUnit, context);
+    }
+
+    default R visitArrayRangeMonthUnit(ArrayRangeMonthUnit arrayRangeMonthUnit, C context) {
+        return visitScalarFunction(arrayRangeMonthUnit, context);
+    }
+
+    default R visitArrayRangeSecondUnit(ArrayRangeSecondUnit arrayRangeSecondUnit, C context) {
+        return visitScalarFunction(arrayRangeSecondUnit, context);
+    }
+
+    default R visitArrayRangeWeekUnit(ArrayRangeWeekUnit arrayRangeWeekUnit, C context) {
+        return visitScalarFunction(arrayRangeWeekUnit, context);
+    }
+
+    default R visitArrayRangeYearUnit(ArrayRangeYearUnit arrayRangeYearUnit, C context) {
+        return visitScalarFunction(arrayRangeYearUnit, context);
     }
 
     default R visitArrayRemove(ArrayRemove arrayRemove, C context) {
