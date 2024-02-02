@@ -660,9 +660,6 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
-        if (check_segment_num) {
-            RETURN_IF_ERROR(_check_segment_num());
-        }
         for (const auto& itr : _segid_statistics_map) {
             num_rows_written += itr.second.row_num;
             total_data_size += itr.second.data_size;
@@ -680,8 +677,19 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
     }
 
-    rowset_meta->set_num_segments(_num_seg());
-    // TODO(zhangzhengyu): key_bounds.size() should equal num_seg, but currently not always
+    auto segment_num = _num_seg();
+    if (check_segment_num) {
+        auto segments_encoded_key_bounds_size = segments_encoded_key_bounds.size();
+        if (segments_encoded_key_bounds_size != segment_num) {
+            return Status::InternalError(
+                    "segments_encoded_key_bounds_size should  equal to _num_seg, "
+                    "segments_encoded_key_bounds_size "
+                    "is: {}, _num_seg is: {}",
+                    segments_encoded_key_bounds_size, segment_num);
+        }
+    }
+
+    rowset_meta->set_num_segments(segment_num);
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
