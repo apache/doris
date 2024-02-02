@@ -466,4 +466,64 @@ suite("outer_join_dphyp") {
     check_rewrite(mv8_0, query8_0, "mv8_0")
     order_qt_query8_0_after "${query8_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_0"""
+
+    // join input with simple agg, use aggregate function as outer group by
+    def mv9_0 = """
+        select 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1 
+        from 
+          (
+            select 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate, 
+              sum(o_shippriority) as col1 
+            from 
+              orders 
+            group by 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate
+          ) as t1 
+          left join lineitem on lineitem.l_orderkey = t1.o_orderkey 
+        group by 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1
+    """
+    def query9_0 = """
+        select 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1 
+        from 
+          (
+            select 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate, 
+              sum(o_shippriority) as col1 
+            from 
+              orders 
+            group by 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate
+          ) as t1 
+          left join lineitem on lineitem.l_orderkey = t1.o_orderkey 
+        group by 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1
+    """
+    order_qt_query9_0_before "${query9_0}"
+    check_rewrite(mv9_0, query9_0, "mv9_0")
+    order_qt_query9_0_after "${query9_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv9_0"""
 }
