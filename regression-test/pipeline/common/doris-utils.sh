@@ -51,6 +51,42 @@ function set_doris_conf_value() {
 # get_doris_conf_value "$1" "$2"
 # set_doris_conf_value "$1" "$2" "$3"
 
+function start_doris_ms() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if ! "${DORIS_HOME}"/ms/bin/start.sh --meta-service --daemonized; then
+        echo "ERROR: start doris meta-service failed." && return 1
+    fi
+    local i=1
+    while [[ $((i++)) -lt 5 ]]; do
+        if ! pgrep -fia 'doris_cloud --meta-service' >/dev/null; then
+            echo "ERROR: start doris meta-service failed." && return 1
+        else
+            sleep 1
+        fi
+    done
+    if [[ ${i} -ge 5 ]]; then
+        echo -e "INFO: doris meta-service started,\n$("${DORIS_HOME}"/ms/lib/doris_cloud --version)"
+    fi
+}
+
+function start_doris_recycler() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if ! "${DORIS_HOME}"/recycler/bin/start.sh --recycler --daemonized; then
+        echo "ERROR: start doris recycler failed." && return 1
+    fi
+    local i=1
+    while [[ $((i++)) -lt 5 ]]; do
+        if ! pgrep -fia 'doris_cloud --recycler' >/dev/null; then
+            echo "ERROR: start doris recycler failed." && return 1
+        else
+            sleep 1
+        fi
+    done
+    if [[ ${i} -ge 5 ]]; then
+        echo -e "INFO: doris recycler started,\n$("${DORIS_HOME}"/ms/lib/doris_cloud --version)"
+    fi
+}
+
 function start_doris_fe() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if ! java -version >/dev/null ||
@@ -150,7 +186,8 @@ function clean_fdb() {
         fdbcli --exec "writemode on;clearrange \x01\x10stats\x00\x01\x10${instance_id}\x00\x01 \x01\x10stats\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
         fdbcli --exec "writemode on;clearrange \x01\x10recycle\x00\x01\x10${instance_id}\x00\x01 \x01\x10recycle\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
         fdbcli --exec "writemode on;clearrange \x01\x10job\x00\x01\x10${instance_id}\x00\x01 \x01\x10job\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
-        fdbcli --exec "writemode on;clearrange \x01\x10copy\x00\x01\x10${instance_id}\x00\x01 \x01\x10copy\x00\x01\x10${instance_id}\x00\xff\x00\x01"; then
+        fdbcli --exec "writemode on;clearrange \x01\x10copy\x00\x01\x10${instance_id}\x00\x01 \x01\x10copy\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        rm -f /var/log/foundationdb/*; then
         echo "INFO: fdb cleaned."
     else
         echo "ERROR: failed to clean fdb" && return 1
@@ -442,4 +479,29 @@ print_doris_be_log() {
     echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
     tail -n 100 "${DORIS_HOME}"/be/log/be.INFO
     echo -e "WARNING: ----------------------------------------\n\n\n\n"
+}
+
+print_doris_conf() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    echo -e "\n\n\n\nINFO: --------------------cat ${DORIS_HOME}/fe/conf/fe.conf--------------------"
+    cat "${DORIS_HOME}"/fe/conf/fe.conf
+    if [[ -f ${DORIS_HOME}/fe/conf/fe_custom.conf ]]; then
+        echo -e "\n\n\n\nINFO: --------------------cat ${DORIS_HOME}/fe/conf/fe_custom.conf--------------------"
+        cat "${DORIS_HOME}"/fe/conf/fe_custom.conf
+    fi
+    echo -e "\n\n\n\nINFO: --------------------tail -n 100 ${DORIS_HOME}/be/conf/be.conf--------------------"
+    tail -n 100 "${DORIS_HOME}"/be/conf/be.conf
+    if [[ -f ${DORIS_HOME}/be/conf/be_custom.conf ]]; then
+        echo -e "\n\n\n\nINFO: --------------------cat ${DORIS_HOME}/be/conf/be_custom.conf--------------------"
+        cat "${DORIS_HOME}"/be/conf/be_custom.conf
+    fi
+    if [[ -f ${DORIS_HOME}/ms/conf/doris_cloud.conf ]]; then
+        echo -e "\n\n\n\nINFO: --------------------cat ${DORIS_HOME}/ms/conf/doris_cloud.conf--------------------"
+        cat "${DORIS_HOME}"/ms/conf/doris_cloud.conf
+    fi
+    if [[ -f ${DORIS_HOME}/recycler/conf/doris_cloud.conf ]]; then
+        echo -e "\n\n\n\nINFO: --------------------cat ${DORIS_HOME}/recycler/conf/doris_cloud.conf--------------------"
+        cat "${DORIS_HOME}"/recycler/conf/doris_cloud.conf
+    fi
+    echo -e "INFO: ----------------------------------------\n\n\n\n"
 }

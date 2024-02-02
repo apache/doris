@@ -88,13 +88,11 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-uti
 echo "#### 3. try to kill old doris process"
 stop_doris
 
-echo "#### 4. try to clean fdb"
+echo "#### 4. prepare fundationdb"
+install_fdb
 clean_fdb
 
-echo "#### 5. install fdb"
-install_fdb
-
-echo "#### 6. check if binary package ready"
+echo "#### 5. check if binary package ready"
 # shellcheck source=/dev/null
 # check_oss_file_exist
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
