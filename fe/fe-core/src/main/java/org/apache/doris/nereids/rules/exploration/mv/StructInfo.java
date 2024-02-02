@@ -189,7 +189,7 @@ public class StructInfo {
                                     Lists.newArrayList(expression),
                                     ImmutableSet.of(),
                                     ImmutableSet.of());
-                    topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+                    structInfoNode.getPlan().accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
                     // Replace expressions by expression map
                     List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
                     shuttledHashConjunctsToConjunctsMap.put(replacedExpressions.get(0), expression);
