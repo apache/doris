@@ -347,7 +347,7 @@ void DorisBvarMetrics::initialize(bool init_system_metrics,
                                   const std::set<std::string>& disk_devices,
                                   const std::vector<std::string>& network_interfaces) {
     if (init_system_metrics) {
-        system_metrics_ = std::make_unique<SystemBvarMetrics>();
+        system_metrics_ = std::make_unique<SystemBvarMetrics>(disk_devices, network_interfaces);
     }
 }
 
