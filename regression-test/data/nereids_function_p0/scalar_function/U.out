@@ -289,3 +289,5 @@ STRING3
 STRING3
 STRING3
 
+-- !qt_sql_url_decode --
+https://doris.apache.org/zh-CN/docs/sql-manual/sql-functions/string-functions
