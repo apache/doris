@@ -2111,7 +2111,7 @@ public class Config extends ConfigBase {
         "Set the maximum byte length of binlog message."})
     public static int max_binlog_messsage_size = 1024 * 1024 * 1024;
 
-    @ConfField(mutable = false, masterOnly = false, varType = ExperimentalType.EXPERIMENTAL, description = {
+    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL, description = {
         "默认 binlog 过期时间，单位为 s",
         "default expire time of binlog in seconds."})
     public static int default_binlog_ttl_seconds = 10800;
