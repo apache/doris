@@ -698,6 +698,11 @@ Status VFileScanner::_truncate_char_or_varchar_columns(Block* block) {
 void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int len) {
     auto int_type = std::make_shared<DataTypeInt32>();
     size_t num_columns_without_result = block->columns();
+    const ColumnNullable* col_nullable =
+            assert_cast<const ColumnNullable*>(block->get_by_position(idx).column.get());
+    const ColumnPtr& string_column_ptr = col_nullable->get_nested_column_ptr();
+    ColumnPtr null_map_column_ptr = col_nullable->get_null_map_column_ptr();
+    block->replace_by_position(idx, std::move(string_column_ptr));
     block->insert({int_type->create_column_const(block->rows(), to_field(1)), int_type,
                    "const 1"}); // pos is 1
     block->insert({int_type->create_column_const(block->rows(), to_field(len)), int_type,
@@ -708,8 +713,11 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
     temp_arguments[1] = num_columns_without_result;     // pos
     temp_arguments[2] = num_columns_without_result + 1; // len
     size_t result_column_id = num_columns_without_result + 2;
+
     SubstringUtil::substring_execute(*block, temp_arguments, result_column_id, block->rows());
-    block->replace_by_position(idx, block->get_by_position(result_column_id).column);
+    auto res = ColumnNullable::create(block->get_by_position(result_column_id).column,
+                                      null_map_column_ptr);
+    block->replace_by_position(idx, std::move(res));
     Block::erase_useless_column(block, num_columns_without_result);
 }
 
