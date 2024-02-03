@@ -159,6 +159,22 @@ set enable_odbc_transcation = true;
 
 The transaction mechanism ensures the atomicity of data writing to JDBC External Tables, but it reduces performance to a certain extent. You may decide whether to enable transactions based on your own tradeoff.
 
+## JDBC Connection Pool Configuration
+
+In Doris, each Frontend (FE) and Backend (BE) node maintains a connection pool, thus avoiding the need to frequently open and close individual connections to data sources. Each connection within this pool can be used to establish a connection to a data source and perform queries. After operations are completed, connections are returned to the pool for reuse. This not only enhances performance but also reduces system load during connection establishment, and helps to prevent hitting the maximum connection limits of the data sources.
+
+The following Catalog configuration properties are available for tuning the behavior of the connection pool:
+
+| Parameter Name                  | Default Value  | Description and Behavior                                                                                                                                                                                                                                                                                                                                                                          |
+|---------------------------------|----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `connection_pool_min_size`      | 1              | Defines the minimum number of connections that the pool will maintain, ensuring that this number of connections remains active when the keep-alive mechanism is enabled.                                                                                                                                                                                                                          |
+| `connection_pool_max_size`      | 10             | Specifies the maximum number of connections allowed in the pool. Each Catalog corresponding to every FE or BE node can hold up to this number of connections.                                                                                                                                                                                                                                     |
+| `connection_pool_max_wait_time` | 5000           | Determines the maximum amount of time, in milliseconds, that the client will wait for a connection from the pool if none is immediately available.                                                                                                                                                                                                                                                |
+| `connection_pool_max_life_time` | 1800000        | Sets the maximum lifetime of connections in the pool, in milliseconds. Connections exceeding this set time limit will be forcibly closed. Additionally, half of this value is used as the minimum evictable idle time for the pool. Connections reaching this idle time are considered for eviction, and the eviction task runs at intervals of one-tenth of the `connection_pool_max_life_time`. |
+| `connection_pool_keep_alive`    | false          | Effective only on BE nodes, it controls whether to keep connections that have reached the minimum evictable idle time but not the maximum lifetime active. It is kept false by default to avoid unnecessary resource usage.                                                                                                                                                                       |
+
+To prevent an accumulation of unused connection pool caches on the BE, the BE `jdbc_connection_pool_cache_clear_time_sec` parameter for the BE can be set to specify the interval for clearing the cache. With a default value of 28800 seconds (8 hours), the BE will forcibly clear all connection pool caches that have not been used beyond this interval.
+
 ## Guide
 
 ### View the JDBC Catalog
