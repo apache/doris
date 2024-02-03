@@ -1021,7 +1021,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alternative_function<FunctionLeftOld>();
     factory.register_alternative_function<FunctionRightOld>();
     factory.register_alternative_function<FunctionSubstringIndexOld>();
-    factory.register_alternative_function<FunctionSplitByStringOld>();
     factory.register_alternative_function<FunctionStringRepeatOld>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
