@@ -17,19 +17,25 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.cloud.catalog.CloudEnvFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.loadv2.BrokerLoadJob;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import java.lang.reflect.Type;
 import java.util.Map;
 
 public class EnvFactory {
 
-    public EnvFactory() {
-    }
+    public EnvFactory() {}
 
     private static class SingletonHolder {
         private static final EnvFactory INSTANCE =
@@ -88,4 +94,16 @@ public class EnvFactory {
         return new DynamicPartitionProperty(properties);
     }
 
+    public GlobalTransactionMgrIface createGlobalTransactionMgr(Env env) {
+        return new GlobalTransactionMgr(env);
+    }
+
+    public BrokerLoadJob createBrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, OriginStatement originStmt,
+            UserIdentity userInfo) throws MetaNotFoundException {
+        return new BrokerLoadJob(dbId, label, brokerDesc, originStmt, userInfo);
+    }
+
+    public BrokerLoadJob createBrokerLoadJob() {
+        return new BrokerLoadJob();
+    }
 }

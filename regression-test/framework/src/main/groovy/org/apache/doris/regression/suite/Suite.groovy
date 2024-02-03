@@ -26,6 +26,7 @@ import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.action.BenchmarkAction
+import org.apache.doris.regression.action.WaitForAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.CreateMVAction
@@ -399,6 +400,49 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    long getTableId(String dbName, String tableName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for(List<Object> row : dbInfo) {
+            if (row[1].equals(dbName)) {
+                def tbInfo = sql "show proc '/dbs/${row[0]}' "
+                for (List<Object> tb : tbInfo) {
+                    if (tb[1].equals(tableName)) {
+                        return tb[0].toLong()
+                    }
+                }
+            }
+        }
+    }
+
+    long getDbId() {
+        def dbInfo = sql "show proc '/dbs'"
+        for(List<Object> row : dbInfo) {
+            if (row[1].equals(context.dbName)) {
+                println(row[0])
+                return row[0].toLong()
+            }
+        }
+    }
+
+    long getDbId(String dbName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for (List<Object> row : dbInfo) {
+            if (row[1].equals(dbName)) {
+                return row[0].toLong()
+            }
+        }
+    }
+
+    long getTableVersion(long dbId, String tableName) {
+       def result = sql_return_maparray """show proc '/dbs/${dbId}'"""
+        for (def res : result) {
+            if(res.TableName.equals(tableName)) {
+                log.info(res.toString())
+                return res.VisibleVersion.toLong()
+            }
+        }
+    }
+
     List<List<Object>> order_sql(String sqlStr) {
         return sql(sqlStr,  true)
     }
@@ -472,6 +516,10 @@ class Suite implements GroovyInterceptable {
 
     void benchmark(Closure actionSupplier) {
         runAction(new BenchmarkAction(context), actionSupplier)
+    }
+
+    void waitForSchemaChangeDone(Closure actionSupplier) {
+        runAction(new WaitForAction(context), actionSupplier)
     }
 
     String getBrokerName() {
@@ -950,7 +998,12 @@ class Suite implements GroovyInterceptable {
         def result = [:]
 
         tablets.each { row ->
-            def tablet_id = row[0]
+            def tablet_id
+            if (row.containsKey("TabletId")) {
+                tablet_id = row.TabletId
+            } else {
+                tablet_id = row[0]
+            }
             if (!result.containsKey(tablet_id)) {
                 result[tablet_id] = row
             }

@@ -244,11 +244,11 @@ public class StatsCalculatorTest {
     @Test
     public void testOlapScan() {
         long tableId1 = 0;
+        OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference(new ExprId(0),
-                "c1", IntegerType.INSTANCE, true, qualifier, new Column("c1", PrimitiveType.INT));
+                "c1", IntegerType.INSTANCE, true, qualifier, table1, new Column("c1", PrimitiveType.INT));
 
-        OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
         LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(
                 StatementScopeIdGenerator.newRelationId(), table1,
                 Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
@@ -266,7 +266,7 @@ public class StatsCalculatorTest {
     public void testLimit() {
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference(new ExprId(0),
-                "c1", IntegerType.INSTANCE, true, qualifier, new Column("c1", PrimitiveType.INT));
+                "c1", IntegerType.INSTANCE, true, qualifier, null, new Column("c1", PrimitiveType.INT));
         ColumnStatisticBuilder columnStat1 = new ColumnStatisticBuilder();
         columnStat1.setNdv(10);
         columnStat1.setNumNulls(5);

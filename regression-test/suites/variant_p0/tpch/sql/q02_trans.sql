@@ -1,5 +1,5 @@
 -- TABLES: part,SUPPLIER,partsupp,NATION,REGION
-SELECT
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
   CAST(SS.var["S_ACCTBAL"] AS DOUBLE),
   CAST(SS.var["S_NAME"] AS TEXT),
   CAST(NN.var["N_NAME"] AS TEXT),

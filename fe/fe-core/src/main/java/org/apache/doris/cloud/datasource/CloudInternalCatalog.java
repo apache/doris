@@ -658,7 +658,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     // END DROP TABLE
 
     @Override
-    protected void checkAvailableCapacity(Database db) throws DdlException {
+    public void checkAvailableCapacity(Database db) throws DdlException {
     }
 
     private void sleepSeveralMs() {

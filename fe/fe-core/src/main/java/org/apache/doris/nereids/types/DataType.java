@@ -379,6 +379,8 @@ public abstract class DataType {
             return DecimalV2Type.createDecimalV2Type(precision, scale);
         } else if (type.isJsonbType()) {
             return JsonType.INSTANCE;
+        } else if (type.isVariantType()) {
+            return VariantType.INSTANCE;
         } else if (type.isStructType()) {
             List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
                     .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
@@ -618,6 +620,10 @@ public abstract class DataType {
 
     public boolean isMapType() {
         return this instanceof MapType;
+    }
+
+    public boolean isVariantType() {
+        return this instanceof VariantType;
     }
 
     public boolean isStructType() {

@@ -33,9 +33,17 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.google.common.collect.Lists;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -45,19 +53,17 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Iceberg utils
  */
 public class IcebergUtils {
     private static final Logger LOG = LogManager.getLogger(IcebergUtils.class);
-    private static ThreadLocal<Integer> columnIdThreadLocal = new ThreadLocal<Integer>() {
-        @Override
-        public Integer initialValue() {
-            return 0;
-        }
-    };
-    static long MILLIS_TO_NANO_TIME = 1000;
+    private static long MILLIS_TO_NANO_TIME = 1000;
+    // https://iceberg.apache.org/spec/#schemas-and-data-types
+    // All time and timestamp values are stored with microsecond precision
+    private static final int ICEBERG_DATETIME_SCALE_MS = 6;
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -206,7 +212,11 @@ public class IcebergUtils {
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
+            if (dateLiteral.isDateType()) {
+                return dateLiteral.getStringValue();
+            } else {
+                return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
+            }
         } else if (expr instanceof DecimalLiteral) {
             DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
             return decimalLiteral.getValue();
@@ -233,5 +243,75 @@ public class IcebergUtils {
             }
         }
         return slotRef;
+    }
+
+    private static Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive) {
+        switch (primitive.typeId()) {
+            case BOOLEAN:
+                return Type.BOOLEAN;
+            case INTEGER:
+                return Type.INT;
+            case LONG:
+                return Type.BIGINT;
+            case FLOAT:
+                return Type.FLOAT;
+            case DOUBLE:
+                return Type.DOUBLE;
+            case STRING:
+            case BINARY:
+            case UUID:
+                return Type.STRING;
+            case FIXED:
+                Types.FixedType fixed = (Types.FixedType) primitive;
+                return ScalarType.createCharType(fixed.length());
+            case DECIMAL:
+                Types.DecimalType decimal = (Types.DecimalType) primitive;
+                return ScalarType.createDecimalV3Type(decimal.precision(), decimal.scale());
+            case DATE:
+                return ScalarType.createDateV2Type();
+            case TIMESTAMP:
+                return ScalarType.createDatetimeV2Type(ICEBERG_DATETIME_SCALE_MS);
+            case TIME:
+                return Type.UNSUPPORTED;
+            default:
+                throw new IllegalArgumentException("Cannot transform unknown type: " + primitive);
+        }
+    }
+
+    public static Type icebergTypeToDorisType(org.apache.iceberg.types.Type type) {
+        if (type.isPrimitiveType()) {
+            return icebergPrimitiveTypeToDorisType((org.apache.iceberg.types.Type.PrimitiveType) type);
+        }
+        switch (type.typeId()) {
+            case LIST:
+                Types.ListType list = (Types.ListType) type;
+                return ArrayType.create(icebergTypeToDorisType(list.elementType()), true);
+            case MAP:
+            case STRUCT:
+                return Type.UNSUPPORTED;
+            default:
+                throw new IllegalArgumentException("Cannot transform unknown type: " + type);
+        }
+    }
+
+    /**
+     * Get iceberg schema from catalog and convert them to doris schema
+     */
+    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
+        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
+            org.apache.iceberg.Table icebergTable = Env.getCurrentEnv()
+                    .getExtMetaCacheMgr()
+                    .getIcebergMetadataCache()
+                    .getIcebergTable(catalog, dbName, name);
+            Schema schema = icebergTable.schema();
+            List<Types.NestedField> columns = schema.columns();
+            List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
+            for (Types.NestedField field : columns) {
+                tmpSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
+                        IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
+                        schema.caseInsensitiveFindField(field.name()).fieldId()));
+            }
+            return tmpSchema;
+        });
     }
 }

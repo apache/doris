@@ -117,15 +117,6 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 );
 
         PlanChecker.from(connectContext)
-                .analyze("select CONVERT('2021-01-30 00:00:00.0000001', DATETIME(6))")
-                .rewrite()
-                .matches(
-                        logicalResultSink(
-                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0).equals(new NullLiteral(DateTimeV2Type.of(6))))
-                        )
-                );
-
-        PlanChecker.from(connectContext)
                 .analyze("select CONVERT_TZ('2021-01-32 00:00:00', '+08:00', 'America/London') = '2021-01-30'")
                 .rewrite()
                 .matches(

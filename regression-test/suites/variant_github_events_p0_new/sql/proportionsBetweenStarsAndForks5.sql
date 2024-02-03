@@ -1,4 +1,4 @@
-SELECT
+SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
     sum(forks) AS forks,
     sum(stars) AS stars,
     round(sum(stars) / sum(forks), 2) AS ratio

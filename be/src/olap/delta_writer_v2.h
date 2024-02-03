@@ -63,9 +63,8 @@ class Block;
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriterV2 {
 public:
-    static std::unique_ptr<DeltaWriterV2> open(
-            WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-            RuntimeState* state);
+    DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
+                  RuntimeState* state);
 
     ~DeltaWriterV2();
 
@@ -88,9 +87,6 @@ public:
     Status cancel_with_status(const Status& st);
 
 private:
-    DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                  StorageEngine* storage_engine, RuntimeState* state);
-
     void _build_current_tablet_schema(int64_t index_id,
                                       const OlapTableSchemaParam* table_schema_param,
                                       const TabletSchema& ori_tablet_schema);

@@ -402,7 +402,7 @@ public class NativeInsertStmt extends InsertStmt {
             boolean isInsertStrict = analyzer.getContext().getSessionVariable().getEnableInsertStrict()
                     && !isFromDeleteOrUpdateStmt;
             sink.init(loadId, transactionId, db.getId(), timeoutSecond,
-                    sendBatchParallelism, false, isInsertStrict);
+                    sendBatchParallelism, false, isInsertStrict, timeoutSecond);
         }
     }
 
@@ -929,10 +929,11 @@ public class NativeInsertStmt extends InsertStmt {
                         && col.getName().equals(Column.SEQUENCE_COL)
                         && ((OlapTable) targetTable).getSequenceMapCol() != null) {
                     if (resultExprByName.stream().map(Pair::key)
-                            .anyMatch(key -> key.equals(((OlapTable) targetTable).getSequenceMapCol()))) {
+                            .anyMatch(key -> key.equalsIgnoreCase(((OlapTable) targetTable).getSequenceMapCol()))) {
                         resultExprByName.add(Pair.of(Column.SEQUENCE_COL,
                                 resultExprByName.stream()
-                                        .filter(p -> p.key().equals(((OlapTable) targetTable).getSequenceMapCol()))
+                                        .filter(p -> p.key()
+                                                .equalsIgnoreCase(((OlapTable) targetTable).getSequenceMapCol()))
                                         .map(Pair::value).findFirst().orElse(null)));
                     }
                     continue;
@@ -1140,7 +1141,7 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         boolean partialUpdate = ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate();
-        if (!partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
+        if (!isExplain() && !partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
                 && ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
                 && targetTable instanceof OlapTable
                 && ((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()

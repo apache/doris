@@ -70,7 +70,8 @@ inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_s
     return ostr;
 }
 
-Status TabletStream::init(OlapTableSchemaParam* schema, int64_t index_id, int64_t partition_id) {
+Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
+                          int64_t partition_id) {
     WriteRequest req {
             .tablet_id = _id,
             .txn_id = _txn_id,
@@ -291,8 +292,8 @@ Status IndexStream::_init_tablet_stream(TabletStreamSharedPtr& tablet_stream, in
                                         int64_t partition_id) {
     tablet_stream = std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id, _load_stream_mgr,
                                                    _profile);
-    RETURN_IF_ERROR(tablet_stream->init(_schema.get(), _id, partition_id));
     _tablet_streams_map[tablet_id] = tablet_stream;
+    RETURN_IF_ERROR(tablet_stream->init(_schema, _id, partition_id));
     return Status::OK();
 }
 
@@ -428,13 +429,14 @@ void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
     PLoadStreamResponse response;
     Status st = Status::OK();
     for (const auto& req : hdr.tablets()) {
-        TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
-        TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
-        if (tablet == nullptr) {
-            st = Status::NotFound("Tablet {} not found", req.tablet_id());
+        BaseTabletSPtr tablet;
+        if (auto res = ExecEnv::get_tablet(req.tablet_id()); res.has_value()) {
+            tablet = std::move(res).value();
+        } else {
+            st = std::move(res).error();
             break;
         }
-        auto resp = response.add_tablet_schemas();
+        auto* resp = response.add_tablet_schemas();
         resp->set_index_id(req.index_id());
         resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
         tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());

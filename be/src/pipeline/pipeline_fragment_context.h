@@ -67,7 +67,7 @@ public:
                             const std::function<void(RuntimeState*, Status*)>& call_back,
                             const report_status_callback& report_status_cb);
 
-    virtual ~PipelineFragmentContext();
+    ~PipelineFragmentContext() override;
 
     PipelinePtr add_pipeline();
 
@@ -89,7 +89,7 @@ public:
 
     int32_t next_operator_builder_id() { return _next_operator_builder_id++; }
 
-    Status prepare(const doris::TPipelineFragmentParams& request, const size_t idx);
+    Status prepare(const doris::TPipelineFragmentParams& request, size_t idx);
 
     virtual Status prepare(const doris::TPipelineFragmentParams& request) {
         return Status::InternalError("Pipeline fragment context do not implement prepare");
@@ -158,7 +158,6 @@ protected:
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
     virtual void _close_fragment_instance();
     void _init_next_report_time();
-    void _set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
     // Id of this query
     TUniqueId _query_id;

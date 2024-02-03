@@ -198,8 +198,8 @@ if [[ "${RUN_MYSQL}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
         sudo rm "${ROOT}"/docker-compose/mysql/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
         sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
     fi
 fi
@@ -210,8 +210,8 @@ if [[ "${RUN_PG}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
         sudo rm "${ROOT}"/docker-compose/postgresql/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
         sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
     fi
 fi
@@ -222,8 +222,8 @@ if [[ "${RUN_ORACLE}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/oracle/oracle-11.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
         sudo rm "${ROOT}"/docker-compose/oracle/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
         sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
     fi
 fi
@@ -234,8 +234,8 @@ if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
         sudo rm "${ROOT}"/docker-compose/sqlserver/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
         sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d
     fi
 fi
@@ -246,8 +246,8 @@ if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
         sudo rm "${ROOT}"/docker-compose/clickhouse/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
         sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d
     fi
 fi

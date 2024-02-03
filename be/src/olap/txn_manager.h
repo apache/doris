@@ -62,7 +62,45 @@ enum class TxnState {
     DELETED = 5,
 };
 
-struct TabletTxnInfo;
+struct TabletTxnInfo {
+    PUniqueId load_id;
+    RowsetSharedPtr rowset;
+    PendingRowsetGuard pending_rs_guard;
+    bool unique_key_merge_on_write {false};
+    DeleteBitmapPtr delete_bitmap;
+    // records rowsets calc in commit txn
+    RowsetIdUnorderedSet rowset_ids;
+    int64_t creation_time;
+    bool ingest {false};
+    std::shared_ptr<PartialUpdateInfo> partial_update_info;
+    TxnState state {TxnState::PREPARED};
+
+    TabletTxnInfo() = default;
+
+    TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset)
+            : load_id(load_id), rowset(rowset), creation_time(UnixSeconds()) {}
+
+    TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset, bool ingest_arg)
+            : load_id(load_id), rowset(rowset), creation_time(UnixSeconds()), ingest(ingest_arg) {}
+
+    TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset, bool merge_on_write,
+                  DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& ids)
+            : load_id(load_id),
+              rowset(rowset),
+              unique_key_merge_on_write(merge_on_write),
+              delete_bitmap(delete_bitmap),
+              rowset_ids(ids),
+              creation_time(UnixSeconds()) {}
+
+    void prepare() { state = TxnState::PREPARED; }
+    void commit() { state = TxnState::COMMITTED; }
+    void rollback() { state = TxnState::ROLLEDBACK; }
+    void abort() {
+        if (state == TxnState::PREPARED) {
+            state = TxnState::ABORTED;
+        }
+    }
+};
 
 struct CommitTabletTxnInfo {
     TTransactionId transaction_id {0};

@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
 #include <snappy.h>
+#include <streamvbyte.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -741,7 +742,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
                     const auto result_size = column->assume_mutable()->filter(filter);
                     if (result_size != count) {
                         throw Exception(ErrorCode::INTERNAL_ERROR,
-                                        "result_size not euqal with filter_size, result_size={}, "
+                                        "result_size not equal with filter_size, result_size={}, "
                                         "filter_size={}",
                                         result_size, count);
                     }
@@ -869,7 +870,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     *uncompressed_bytes = content_uncompressed_size;
     const size_t serialize_bytes = buf - column_values.data();
     *compressed_bytes = serialize_bytes;
-    column_values.resize(serialize_bytes);
+    column_values.resize(serialize_bytes + STREAMVBYTE_PADDING);
 
     // compress
     if (compression_type != segment_v2::NO_COMPRESSION && content_uncompressed_size > 0) {

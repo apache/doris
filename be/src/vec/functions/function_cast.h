@@ -1240,7 +1240,6 @@ public:
 
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
-    bool get_is_injective(const Block&) override { return std::is_same_v<Name, NameToString>; }
 
     // This function should not be called for get DateType Ptr
     // using the FunctionCast::get_return_type_impl
@@ -1698,9 +1697,6 @@ public:
     }
 
     String get_name() const override { return name; }
-
-    bool is_deterministic() const override { return true; }
-    bool is_deterministic_in_scope_of_query() const override { return true; }
 
     Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
                                             const Field& right) const override {

@@ -23,13 +23,11 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -40,14 +38,11 @@ import java.util.stream.Collectors;
  */
 public abstract class AbstractMaterializedViewJoinRule extends AbstractMaterializedViewRule {
 
-    protected final String currentClassName = this.getClass().getSimpleName();
-    private final Logger logger = LogManager.getLogger(this.getClass());
-
     @Override
     protected Plan rewriteQueryByView(MatchMode matchMode,
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
-            SlotMapping queryToViewSlotMapping,
+            SlotMapping targetToSourceMapping,
             Plan tempRewritedPlan,
             MaterializationContext materializationContext) {
         // Rewrite top projects, represent the query projects by view
@@ -55,19 +50,18 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                 queryStructInfo.getExpressions(),
                 queryStructInfo.getOriginalPlan(),
                 materializationContext.getMvExprToMvScanExprMapping(),
-                queryToViewSlotMapping,
+                targetToSourceMapping,
                 true
         );
         // Can not rewrite, bail out
-        if (expressionsRewritten.isEmpty()
-                || expressionsRewritten.stream().anyMatch(expr -> !(expr instanceof NamedExpression))) {
+        if (expressionsRewritten.isEmpty()) {
             materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                     Pair.of("Rewrite expressions by view in join fail",
                             String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
-                                            + "queryToViewSlotMapping = %s",
+                                            + "targetToSourceMapping = %s",
                                     queryStructInfo.getExpressions(),
                                     materializationContext.getMvExprToMvScanExprMapping(),
-                                    queryToViewSlotMapping)));
+                                    targetToSourceMapping)));
             return null;
         }
         // record the group id in materializationContext, and when rewrite again in
@@ -77,7 +71,10 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                     queryStructInfo.getOriginalPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
         }
         return new LogicalProject<>(
-                expressionsRewritten.stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                expressionsRewritten.stream()
+                        .map(expression -> expression instanceof NamedExpression ? expression : new Alias(expression))
+                        .map(NamedExpression.class::cast)
+                        .collect(Collectors.toList()),
                 tempRewritedPlan);
     }
 

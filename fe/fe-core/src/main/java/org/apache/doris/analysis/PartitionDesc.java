@@ -248,6 +248,14 @@ public class PartitionDesc {
         return type;
     }
 
+    public ArrayList<Expr> getPartitionExprs() {
+        return partitionExprs;
+    }
+
+    public boolean isAutoCreatePartitions() {
+        return isAutoCreatePartitions;
+    }
+
     public String toSql() {
         throw new NotImplementedException("toSql not implemented");
     }

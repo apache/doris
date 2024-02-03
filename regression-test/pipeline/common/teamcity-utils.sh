@@ -27,15 +27,15 @@ declare -A comment_to_pipeline
 comment_to_pipeline=(
     ['feut']='Doris_Doris_FeUt'
     ['beut']='Doris_DorisBeUt_BeUt'
+    ['cloudut']='Doris_DorisCloudUt_CloudUt'
     ['compile']='Doris_DorisCompile_Compile'
     ['p0']='Doris_DorisRegression_P0Regression'
     ['p1']='Doris_DorisRegression_P1Regression'
     ['external']='Doris_External_Regression'
-    ['clickbench']='Doris_Performance_Clickbench_ClickbenchNew'
     ['pipelinex_p0']='Doris_DorisRegression_P0RegressionPipelineX'
     ['arm']='Doris_ArmPipeline_P0Regression'
-    ['tpch']='Tpch_TpchSf100'
     ['performance']='Doris_PerformanceNew_Performance'
+    ['perf']='Doris_DorisPerformance_Performance'
 )
 
 # github中评论的要触发的流水线名字
@@ -48,14 +48,14 @@ conment_to_context=(
     ['compile']='COMPILE (DORIS_COMPILE)'
     ['feut']='FE UT (Doris FE UT)'
     ['beut']='BE UT (Doris BE UT)'
+    ['cloudut']='Cloud UT (Doris Cloud UT)'
     ['p0']='P0 Regression (Doris Regression)'
     ['p1']='P1 Regression (Doris Regression)'
     ['external']='External Regression (Doris External Regression)'
     ['pipelinex_p0']='P0 Regression PipelineX (Doris Regression)'
-    ['clickbench']='clickbench-new (clickbench)'
     ['arm']='P0 Regression (ARM pipeline)'
-    ['tpch']='tpch-sf100 (tpch)'
     ['performance']='performance (Performance New)'
+    ['perf']='performance (Doris Performance)'
 )
 
 get_commit_id_of_build() {

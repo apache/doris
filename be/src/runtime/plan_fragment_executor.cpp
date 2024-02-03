@@ -133,7 +133,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
-    static_cast<void>(_runtime_state->runtime_filter_mgr()->init());
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
@@ -518,8 +517,7 @@ void PlanFragmentExecutor::send_report(bool done) {
             _runtime_state.get(),
             std::bind(&PlanFragmentExecutor::update_status, this, std::placeholders::_1),
             std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1,
-                      std::placeholders::_2),
-            _query_ctx->get_query_statistics()};
+                      std::placeholders::_2)};
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.

@@ -137,16 +137,21 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      * @param ifExists is is true, if job not exist,we will ignore job not exist exception, else throw exception
      */
     public void unregisterJob(String jobName, boolean ifExists) throws JobException {
-        T dropJob = null;
-        for (T job : jobMap.values()) {
-            if (job.getJobName().equals(jobName)) {
-                dropJob = job;
+        try {
+            T dropJob = null;
+            for (T job : jobMap.values()) {
+                if (job.getJobName().equals(jobName)) {
+                    dropJob = job;
+                }
             }
+            if (dropJob == null && ifExists) {
+                return;
+            }
+            dropJob(dropJob, jobName);
+        } catch (Exception e) {
+            log.error("drop job error, jobName:" + jobName, e);
+            throw new JobException("unregister job error, jobName:" + jobName);
         }
-        if (dropJob == null && ifExists) {
-            return;
-        }
-        dropJob(dropJob, jobName);
     }
 
     private void dropJob(T dropJob, String jobName) throws JobException {
@@ -284,6 +289,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         for (T job : jobMap.values()) {
             if (job.getJobName().equals(jobName)) {
                 job.cancelTaskById(taskId);
+                job.logUpdateOperation();
                 return;
             }
         }
@@ -378,6 +384,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
+    //todo it's not belong to JobManager
     public void cancelLoadJob(CancelLoadStmt cs)
             throws JobException, AnalysisException, DdlException {
         String dbName = cs.getDbName();

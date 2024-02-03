@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -46,6 +47,9 @@ import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
+import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
@@ -99,7 +103,7 @@ import java.util.stream.Collectors;
  * Internal representation of tableFamilyGroup-related metadata. A OlaptableFamilyGroup contains several tableFamily.
  * Note: when you add a new olap table property, you should modify TableProperty class
  */
-public class OlapTable extends Table {
+public class OlapTable extends Table implements MTMVRelatedTableIf {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
 
     public enum OlapTableState {
@@ -771,6 +775,7 @@ public class OlapTable extends Table {
         return partitionInfo;
     }
 
+    @Override
     public Set<String> getPartitionColumnNames() throws DdlException {
         Set<String> partitionColumnNames = Sets.newHashSet();
         if (partitionInfo instanceof SinglePartitionInfo) {
@@ -999,6 +1004,17 @@ public class OlapTable extends Table {
     //
     // ATTN: partitions not belonging to this table will be filtered.
     public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds) {
+        if (Config.isCloudMode() && Config.enable_cloud_snapshot_version) {
+            // Assumption: all partitions are CloudPartition.
+            List<CloudPartition> partitions = partitionIds.stream()
+                    .map(this::getPartition)
+                    .filter(p -> p != null)
+                    .filter(p -> p instanceof CloudPartition)
+                    .map(p -> (CloudPartition) p)
+                    .collect(Collectors.toList());
+            return CloudPartition.selectNonEmptyPartitionIds(partitions);
+        }
+
         return partitionIds.stream()
                 .map(this::getPartition)
                 .filter(p -> p != null)
@@ -2523,4 +2539,59 @@ public class OlapTable extends Table {
         }
         return tablets;
     }
+
+    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
+    // the write lock on the table should be held continuously
+    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
+        LOG.info("updateVisibleVersionAndTime, tableName: {}, visibleVersion, {}, visibleVersionTime: {}", name,
+                visibleVersion, visibleVersionTime);
+        tableAttributes.updateVisibleVersionAndTime(visibleVersion, visibleVersionTime);
+    }
+
+    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
+    // the write lock on the table should be held continuously
+    public long getNextVersion() {
+        return tableAttributes.getNextVersion();
+    }
+
+    public long getVisibleVersion() {
+        return tableAttributes.getVisibleVersion();
+    }
+
+    public long getVisibleVersionTime() {
+        return tableAttributes.getVisibleVersionTime();
+    }
+
+    @Override
+    public PartitionType getPartitionType() {
+        return partitionInfo.getType();
+    }
+
+    @Override
+    public Map<Long, PartitionItem> getPartitionItems() {
+        return getPartitionInfo().getIdToItem(false);
+    }
+
+    @Override
+    public List<Column> getPartitionColumns() {
+        return getPartitionInfo().getPartitionColumns();
+    }
+
+    @Override
+    public MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException {
+        long visibleVersion = getPartitionOrAnalysisException(partitionId).getVisibleVersion();
+        return new MTMVVersionSnapshot(visibleVersion);
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot() {
+        long visibleVersion = getVisibleVersion();
+        return new MTMVVersionSnapshot(visibleVersion);
+    }
+
+    @Override
+    public String getPartitionName(long partitionId) throws AnalysisException {
+        return getPartitionOrAnalysisException(partitionId).getName();
+    }
+
 }

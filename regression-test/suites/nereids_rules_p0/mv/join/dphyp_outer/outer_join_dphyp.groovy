@@ -321,7 +321,7 @@ suite("outer_join_dphyp") {
             "where orders.O_ORDERSTATUS = 'o'"
     order_qt_query3_2_before "${query3_2}"
     // should not success, as mv filter is under left outer input
-    check_not_match(mv3_2, query3_2, "mv3_2")
+    check_rewrite(mv3_2, query3_2, "mv3_2")
     order_qt_query3_2_after "${query3_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 

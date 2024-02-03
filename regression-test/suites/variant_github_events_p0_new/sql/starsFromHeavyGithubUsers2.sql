@@ -1,4 +1,4 @@
-SELECT
+SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
     cast(v["repo"]["name"] as string) as repo_name,
     count()
 FROM github_events

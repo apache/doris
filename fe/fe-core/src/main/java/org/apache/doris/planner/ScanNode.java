@@ -720,12 +720,13 @@ public abstract class ScanNode extends PlanNode {
                 || getShouldColoScan();
     }
 
-    public boolean ignoreStorageDataDistribution(ConnectContext context) {
+    public boolean ignoreStorageDataDistribution(ConnectContext context, int numBackends) {
         return context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
                 && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.isHasNullAwareLeftAntiJoin()
-                && getScanRangeNum() < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+                && getScanRangeNum()
+                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numBackends;
     }
 
     public int getScanRangeNum() {

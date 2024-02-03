@@ -42,6 +42,8 @@ class TabletJobInfoPB;
 class TabletStatsPB;
 class TabletIndexPB;
 
+Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency);
+
 class CloudMetaMgr {
 public:
     CloudMetaMgr() = default;
@@ -88,7 +90,7 @@ public:
 private:
     Status sync_tablet_delete_bitmap(
             CloudTablet* tablet, int64_t old_max_version,
-            const google::protobuf::RepeatedPtrField<RowsetMetaPB>& rs_metas,
+            const google::protobuf::RepeatedPtrField<RowsetMetaCloudPB>& rs_metas,
             const TabletStatsPB& stas, const TabletIndexPB& idx, DeleteBitmap* delete_bitmap);
 };
 

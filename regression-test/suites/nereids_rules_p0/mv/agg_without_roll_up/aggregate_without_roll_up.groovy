@@ -502,6 +502,43 @@ suite("aggregate_without_roll_up") {
     order_qt_query15_0_after "${query15_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv15_0"""
 
+    def mv15_1 = """
+            select o_orderdate, l_partkey, l_suppkey,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as distinct_count
+            from lineitem
+            left join (select * from orders where o_orderstatus = 'o') t2
+            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+    def query15_1 = """
+            select t1.l_partkey, t1.l_suppkey + o_orderdate,
+            sum(o_totalprice) + max(o_totalprice),
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*),
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end),
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) + count(*)
+            from (select * from lineitem where l_partkey in (2, 3)) t1
+            left join (select * from orders where o_orderstatus = 'o') t2
+            on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+    order_qt_query15_1_before "${query15_1}"
+    check_rewrite(mv15_1, query15_1, "mv15_1")
+    order_qt_query15_0_after "${query15_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv15_1"""
+
     // filter outside + left
     def mv16_0 = "select o_orderdate, l_partkey, l_suppkey, " +
             "sum(o_totalprice) as sum_total, " +
@@ -533,6 +570,39 @@ suite("aggregate_without_roll_up") {
     order_qt_query16_0_after "${query16_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv16_0"""
 
+    // should not rewrite, because query has the dimension which is not in view
+    def mv16_1 = """
+            select o_orderdate, l_partkey,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as distinct_count
+            from lineitem
+            left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_partkey;
+    """
+
+    def query16_1 = """
+            select t1.l_suppkey, o_orderdate,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*),
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)
+            from lineitem t1
+            left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate
+            where l_partkey in (1, 2 ,3, 4)
+            group by
+            o_orderdate,
+            l_suppkey;
+    """
+    order_qt_query16_1_before "${query16_1}"
+    check_not_match(mv16_1, query16_1, "mv16_1")
+    order_qt_query16_1_after "${query16_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv16_1"""
 
     // filter outside + right
     def mv17_0 = "select o_orderdate, l_partkey, l_suppkey, " +
@@ -772,6 +842,43 @@ suite("aggregate_without_roll_up") {
     order_qt_query19_2_after "${query19_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_2"""
 
+
+    // aggregate function and group by expression is complex
+    def mv19_3 = """
+            select o_orderdate, l_partkey, l_suppkey + sum(o_totalprice),
+            sum(o_totalprice),
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            min(o_totalprice) + sum(o_totalprice),
+            count(*) as count_all
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+
+    def query19_3 = """
+            select l_partkey, l_suppkey + sum(o_totalprice), o_orderdate,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            min(o_totalprice) + sum(o_totalprice),
+            count(*)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+    order_qt_query19_3_before "${query19_3}"
+    check_rewrite(mv19_3, query19_3, "mv19_3")
+    order_qt_query19_3_after "${query19_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_0"""
+
+
     // without group, scalar aggregate
     def mv20_0 = "select count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (1, 3) then O_ORDERSTATUS else null end) as filter_cnt_1, " +
             "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (2) then O_ORDERSTATUS else null end) as filter_cnt_2, " +
@@ -830,7 +937,7 @@ suite("aggregate_without_roll_up") {
             from lineitem
             left join
             orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
-            group by 
+            group by
             l_shipmode,
             l_shipinstruct;
     """
@@ -876,4 +983,137 @@ suite("aggregate_without_roll_up") {
     check_not_match(mv20_2, query20_2, "mv20_2")
     order_qt_query20_2_after "${query20_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_2"""
+
+    // join input has simple agg, simple agg which can not contains rollup, cube
+    def mv21_0 = """
+            select
+            l_linenumber,
+            count(distinct l_orderkey),
+            sum(case when l_orderkey in (1,2,3) then l_suppkey * l_linenumber else 0 end),
+            max(case when l_orderkey in (4, 5) then (l_quantity *2 + part_supp_a.qty_max) * 0.88 else 100 end),
+            avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey
+            left join
+            (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
+                min(ps_availqty) qty_min,
+                avg(ps_supplycost) cost_avg
+                from partsupp
+                group by ps_partkey,ps_suppkey) part_supp_a
+            on l_partkey = part_supp_a.ps_partkey
+            and l_suppkey = part_supp_a.ps_suppkey
+            group by l_linenumber;
+    """
+    def query21_0 = """
+                       select
+            l_linenumber,
+            count(distinct l_orderkey),
+            sum(case when l_orderkey in (1,2,3) then l_suppkey * l_linenumber else 0 end),
+            max(case when l_orderkey in (4, 5) then (l_quantity *2 + part_supp_a.qty_max) * 0.88 else 100 end),
+            avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey
+            left join
+            (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
+                min(ps_availqty) qty_min,
+                avg(ps_supplycost) cost_avg
+                from partsupp
+                group by ps_partkey,ps_suppkey) part_supp_a
+            on l_partkey = part_supp_a.ps_partkey
+            and l_suppkey = part_supp_a.ps_suppkey
+            group by l_linenumber;
+    """
+    order_qt_query21_0_before "${query21_0}"
+    check_rewrite(mv21_0, query21_0, "mv21_0")
+    order_qt_query21_0_after "${query21_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_0"""
+
+    // should rewrite success because query agg input the join has ps_availqty dimension which is not in mv
+    def mv21_1 = """
+            select
+            l_linenumber,
+            count(distinct l_orderkey),
+            sum(case when l_orderkey in (1,2,3) then l_suppkey * l_linenumber else 0 end),
+            max(case when l_orderkey in (4, 5) then (l_quantity *2 + part_supp_a.qty_max) * 0.88 else 100 end),
+            avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey
+            left join
+            (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
+                min(ps_availqty) qty_min,
+                avg(ps_supplycost) cost_avg
+                from partsupp
+                group by ps_partkey,ps_suppkey) part_supp_a
+            on l_partkey = part_supp_a.ps_partkey
+            and l_suppkey = part_supp_a.ps_suppkey
+            group by l_linenumber;
+    """
+    def query21_1 = """
+            select
+            l_linenumber,
+            count(distinct l_orderkey),
+            sum(case when l_orderkey in (1,2,3) then l_suppkey * l_linenumber else 0 end),
+            max(case when l_orderkey in (4, 5) then (l_quantity *2 + part_supp_a.qty_max) * 0.88 else 100 end),
+            avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey
+            left join
+            (select ps_suppkey, ps_partkey, ps_availqty, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
+                min(ps_availqty) qty_min,
+                avg(ps_supplycost) cost_avg
+                from partsupp
+                group by ps_suppkey, ps_partkey, ps_availqty) part_supp_a
+            on l_partkey = part_supp_a.ps_partkey
+            and l_suppkey = part_supp_a.ps_suppkey
+            group by l_linenumber;
+    """
+    order_qt_query21_1_before "${query21_1}"
+    check_not_match(mv21_1, query21_1, "mv21_1")
+    order_qt_query21_1_after "${query21_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_1"""
+
+    // should not rewritten successfully, because query has more filter
+    def mv21_2 = """
+            select
+            l_linenumber,
+            count(distinct l_orderkey),
+            sum(case when l_orderkey in (1,2,3) then l_suppkey * l_linenumber else 0 end),
+            max(case when l_orderkey in (4, 5) then (l_quantity *2 + part_supp_a.qty_max) * 0.88 else 100 end),
+            avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey
+            left join 
+            (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
+                min(ps_availqty) qty_min,
+                avg(ps_supplycost) cost_avg
+                from partsupp
+                where ps_partkey in (1, 2)
+                group by ps_partkey,ps_suppkey) part_supp_a
+            on l_partkey = part_supp_a.ps_partkey
+            and l_suppkey = part_supp_a.ps_suppkey
+            group by l_linenumber;
+    """
+    def query21_2 = """
+                       select
+            l_linenumber,
+            count(distinct l_orderkey),
+            sum(case when l_orderkey in (1,2,3) then l_suppkey * l_linenumber else 0 end),
+            max(case when l_orderkey in (4, 5) then (l_quantity *2 + part_supp_a.qty_max) * 0.88 else 100 end),
+            avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey
+            left join 
+            (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
+                min(ps_availqty) qty_min,
+                avg(ps_supplycost) cost_avg
+                from partsupp
+                group by ps_partkey,ps_suppkey) part_supp_a
+            on l_partkey = part_supp_a.ps_partkey
+            and l_suppkey = part_supp_a.ps_suppkey
+            group by l_linenumber;
+    """
+    order_qt_query21_2_before "${query21_2}"
+    check_not_match(mv21_2, query21_2, "mv21_2")
+    order_qt_query21_2_after "${query21_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_2"""
 }

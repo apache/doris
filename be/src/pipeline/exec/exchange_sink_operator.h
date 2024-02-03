@@ -178,7 +178,6 @@ private:
     // Used to counter send bytes under local data exchange
     RuntimeProfile::Counter* _local_bytes_send_counter = nullptr;
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
 
     RuntimeProfile::Counter* _wait_queue_timer = nullptr;
     RuntimeProfile::Counter* _wait_broadcast_buffer_timer = nullptr;
@@ -216,8 +215,6 @@ public:
 
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
-
-    Status try_close(RuntimeState* state, Status exec_status) override;
 
 private:
     friend class ExchangeSinkLocalState;

@@ -406,6 +406,8 @@ struct TQueryStatistics {
     5: optional i64 max_peak_memory_bytes
     6: optional i64 current_used_memory_bytes
     7: optional i64 workload_group_id
+    8: optional i64 shuffle_send_bytes
+    9: optional i64 shuffle_send_rows
 }
 
 struct TReportWorkloadRuntimeStatusParams {
@@ -476,7 +478,7 @@ struct TReportExecStatusParams {
 
   23: optional list<TDetailedReportParams> detailed_report
 
-  24: optional TQueryStatistics query_statistics
+  24: optional TQueryStatistics query_statistics // deprecated
 
   25: TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 }
@@ -835,6 +837,7 @@ struct TLoadTxnRollbackRequest {
     12: optional i64 db_id
     13: optional list<string> tbls
     14: optional string auth_code_uuid
+    15: optional string label
 }
 
 struct TLoadTxnRollbackResult {
@@ -1176,7 +1179,8 @@ struct TGetBinlogLagResult {
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
-    2: list<string> statsRows;
+    2: optional list<string> statsRows;
+    3: optional string colStatsData;
 }
 
 struct TInvalidateFollowerStatsCacheRequest {

@@ -477,7 +477,6 @@ As for data mapping from SQLServer to Doris, one Database in Doris corresponds t
 | date                                   | DATE          |                                                                          |
 | datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                                          |
 | char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                                          |
-| binary/varbinary                       | STRING        |                                                                          |
 | time/datetimeoffset                    | STRING        |                                                                          |
 | Other                                  | UNSUPPORTED   |                                                                          |
 

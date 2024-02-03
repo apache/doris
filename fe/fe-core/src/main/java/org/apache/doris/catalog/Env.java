@@ -69,7 +69,6 @@ import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
-import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
@@ -179,6 +178,7 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
@@ -269,7 +269,7 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
 import com.google.common.base.Joiner;
@@ -330,7 +330,7 @@ public class Env {
 
     private String metaDir;
     private String bdbDir;
-    private String imageDir;
+    protected String imageDir;
 
     private MetaContext metaContext;
     private long epoch = 0;
@@ -380,8 +380,8 @@ public class Env {
 
     private ColumnIdFlushDaemon columnIdFlusher;
 
-    private boolean isFirstTimeStartUp = false;
-    private boolean isElectable;
+    protected boolean isFirstTimeStartUp = false;
+    protected boolean isElectable;
     // set to true after finished replay all meta and ready to serve
     // set to false when catalog is not ready.
     private AtomicBoolean isReady = new AtomicBoolean(false);
@@ -395,8 +395,8 @@ public class Env {
     private BlockingQueue<FrontendNodeType> typeTransferQueue;
 
     // node name is used for bdbje NodeName.
-    private String nodeName;
-    private FrontendNodeType role;
+    protected String nodeName;
+    protected FrontendNodeType role;
     private FrontendNodeType feType;
     // replica and observer use this value to decide provide read service or not
     private long synchronizedTimeMs;
@@ -405,19 +405,19 @@ public class Env {
     private MetaIdGenerator idGenerator = new MetaIdGenerator(NEXT_ID_INIT_VALUE);
 
     private EditLog editLog;
-    private int clusterId;
-    private String token;
+    protected int clusterId;
+    protected String token;
     // For checkpoint and observer memory replayed marker
     private AtomicLong replayedJournalId;
 
     private static Env CHECKPOINT = null;
     private static long checkpointThreadId = -1;
     private Checkpoint checkpointer;
-    private List<HostInfo> helperNodes = Lists.newArrayList();
-    private HostInfo selfNode = null;
+    protected List<HostInfo> helperNodes = Lists.newArrayList();
+    protected HostInfo selfNode = null;
 
     // node name -> Frontend
-    private ConcurrentHashMap<String, Frontend> frontends;
+    protected ConcurrentHashMap<String, Frontend> frontends;
     // removed frontends' name. used for checking if name is duplicated in bdbje
     private ConcurrentLinkedQueue<String> removedFrontends;
 
@@ -425,7 +425,7 @@ public class Env {
 
     private JournalObservable journalObservable;
 
-    private SystemInfoService systemInfo;
+    protected SystemInfoService systemInfo;
     private HeartbeatMgr heartbeatMgr;
     private TabletInvertedIndex tabletInvertedIndex;
     private ColocateTableIndex colocateTableIndex;
@@ -441,7 +441,7 @@ public class Env {
     private BrokerMgr brokerMgr;
     private ResourceMgr resourceMgr;
 
-    private GlobalTransactionMgr globalTransactionMgr;
+    private GlobalTransactionMgrIface globalTransactionMgr;
 
     private DeployManager deployManager;
 
@@ -688,7 +688,7 @@ public class Env {
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
 
-        this.globalTransactionMgr = new GlobalTransactionMgr(this);
+        this.globalTransactionMgr = EnvFactory.getInstance().createGlobalTransactionMgr(this);
 
         this.tabletStatMgr = new TabletStatMgr();
 
@@ -795,11 +795,11 @@ public class Env {
         return resourceMgr;
     }
 
-    public static GlobalTransactionMgr getCurrentGlobalTransactionMgr() {
+    public static GlobalTransactionMgrIface getCurrentGlobalTransactionMgr() {
         return getCurrentEnv().globalTransactionMgr;
     }
 
-    public GlobalTransactionMgr getGlobalTransactionMgr() {
+    public GlobalTransactionMgrIface getGlobalTransactionMgr() {
         return globalTransactionMgr;
     }
 
@@ -1067,7 +1067,7 @@ public class Env {
         this.httpReady.set(httpReady);
     }
 
-    private void getClusterIdAndRole() throws IOException {
+    protected void getClusterIdAndRole() throws IOException {
         File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
         File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
 
@@ -1151,7 +1151,7 @@ public class Env {
                 clusterId = storage.getClusterID();
                 if (storage.getToken() == null) {
                     token = Strings.isNullOrEmpty(Config.auth_token) ? Storage.newToken() : Config.auth_token;
-                    LOG.info("new token={}", token);
+                    LOG.info("refresh new token");
                     storage.setToken(token);
                     storage.writeClusterIdAndToken();
                 } else {
@@ -1278,7 +1278,7 @@ public class Env {
 
     // Get the role info and node name from helper node.
     // return false if failed.
-    private boolean getFeNodeTypeAndNameFromHelpers() {
+    protected boolean getFeNodeTypeAndNameFromHelpers() {
         // we try to get info from helper nodes, once we get the right helper node,
         // other helper nodes will be ignored and removed.
         HostInfo rightHelperNode = null;
@@ -1502,6 +1502,10 @@ public class Env {
                 VariableMgr.setGlobalBroadcastScaleFactor(newBcFactorVal);
                 LOG.info("upgrade FE from 1.x to 2.x, set broadcast_right_table_scale_factor "
                         + "to new default value: {}", newBcFactorVal);
+
+                // similar reason as above, need to upgrade enable_nereids_planner to true
+                VariableMgr.enableNereidsPlanner();
+                LOG.info("upgrade FE from 1.x to 2.x, set enable_nereids_planner to new default value: true");
             }
         }
 
@@ -1584,7 +1588,7 @@ public class Env {
     }
 
     // start all daemon threads only running on Master
-    private void startMasterOnlyDaemonThreads() {
+    protected void startMasterOnlyDaemonThreads() {
         // start checkpoint thread
         checkpointer = new Checkpoint(editLog);
         checkpointer.setMetaContext(metaContext);
@@ -1781,7 +1785,7 @@ public class Env {
         }
     }
 
-    private boolean getVersionFileFromHelper(HostInfo helperNode) throws IOException {
+    protected boolean getVersionFileFromHelper(HostInfo helperNode) throws IOException {
         try {
             String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
                     + "/version";
@@ -1797,7 +1801,7 @@ public class Env {
         return false;
     }
 
-    private void getNewImage(HostInfo helperNode) throws IOException {
+    protected void getNewImage(HostInfo helperNode) throws IOException {
         long localImageVersion = 0;
         Storage storage = new Storage(this.imageDir);
         localImageVersion = storage.getLatestImageSeq();
@@ -1829,7 +1833,7 @@ public class Env {
         }
     }
 
-    private boolean isMyself() {
+    protected boolean isMyself() {
         Preconditions.checkNotNull(selfNode);
         Preconditions.checkNotNull(helperNodes);
         LOG.debug("self: {}. helpers: {}", selfNode, helperNodes);
@@ -2762,7 +2766,7 @@ public class Env {
         };
     }
 
-    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire env lock. Try again");
         }
@@ -2774,7 +2778,10 @@ public class Env {
             if (Config.enable_fqdn_mode && StringUtils.isEmpty(host)) {
                 throw new DdlException("frontend's hostName should not be empty while enable_fqdn_mode is true");
             }
-            String nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
+
+            if (Strings.isNullOrEmpty(nodeName)) {
+                nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
+            }
 
             if (removedFrontends.contains(nodeName)) {
                 throw new DdlException("frontend name already exists " + nodeName + ". Try again");
@@ -4992,27 +4999,6 @@ public class Env {
         this.alter.getClusterHandler().cancel(stmt);
     }
 
-    public void checkCloudClusterPriv(String clusterName) throws DdlException {
-        // check resource usage privilege
-        if (!Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
-                clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-            throw new DdlException("USAGE denied to user "
-                    + ConnectContext.get().getQualifiedUser() + "'@'" + ConnectContext.get().getRemoteIP()
-                    + "' for cloud cluster '" + clusterName + "'", ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
-        }
-
-        if (!Env.getCurrentSystemInfo().getCloudClusterNames().contains(clusterName)) {
-            LOG.debug("current instance does not have a cluster name :{}", clusterName);
-            throw new DdlException(String.format("Cluster %s not exist", clusterName),
-                    ErrorCode.ERR_CLOUD_CLUSTER_ERROR);
-        }
-    }
-
-    public static void waitForAutoStart(final String clusterName) throws DdlException {
-        // TODO: merge from cloud.
-        throw new DdlException("Env.waitForAutoStart unimplemented");
-    }
-
     // Switch catalog of this sesseion.
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
         CatalogIf catalogIf = catalogMgr.getCatalogNullable(catalogName);
@@ -5455,11 +5441,13 @@ public class Env {
             }
         }
         olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
-
+        long version = olapTable.getNextVersion();
+        long versionTime = System.currentTimeMillis();
+        olapTable.updateVisibleVersionAndTime(version, versionTime);
         // write log
         ReplacePartitionOperationLog info =
                 new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
-                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
+                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName, version, versionTime);
         editLog.logReplaceTempPartition(info);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
                 clause.getTempPartitionNames(), olapTable.getName());
@@ -5477,6 +5465,8 @@ public class Env {
             olapTable.replaceTempPartitions(replaceTempPartitionLog.getPartitions(),
                     replaceTempPartitionLog.getTempPartitions(), replaceTempPartitionLog.isStrictRange(),
                     replaceTempPartitionLog.useTempPartitionName());
+            olapTable.updateVisibleVersionAndTime(replaceTempPartitionLog.getVersion(),
+                    replaceTempPartitionLog.getVersionTime());
         } catch (DdlException e) {
             throw new MetaNotFoundException(e);
         } finally {
@@ -5574,18 +5564,17 @@ public class Env {
         long tabletId = stmt.getTabletId();
         long backendId = stmt.getBackendId();
         ReplicaStatus status = stmt.getStatus();
-        setReplicaStatusInternal(tabletId, backendId, status, false);
-    }
-
-    public void setReplicaStatus(long tabletId, long backendId, ReplicaStatus status) throws MetaNotFoundException {
-        setReplicaStatusInternal(tabletId, backendId, status, false);
+        long userDropTime = status == ReplicaStatus.DROP ? System.currentTimeMillis() : -1L;
+        setReplicaStatusInternal(tabletId, backendId, status, userDropTime, false);
     }
 
     public void replaySetReplicaStatus(SetReplicaStatusOperationLog log) throws MetaNotFoundException {
-        setReplicaStatusInternal(log.getTabletId(), log.getBackendId(), log.getReplicaStatus(), true);
+        setReplicaStatusInternal(log.getTabletId(), log.getBackendId(), log.getReplicaStatus(),
+                log.getUserDropTime(), true);
     }
 
-    private void setReplicaStatusInternal(long tabletId, long backendId, ReplicaStatus status, boolean isReplay)
+    private void setReplicaStatusInternal(long tabletId, long backendId, ReplicaStatus status, long userDropTime,
+            boolean isReplay)
             throws MetaNotFoundException {
         try {
             TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
@@ -5600,16 +5589,24 @@ public class Env {
                 if (replica == null) {
                     throw new MetaNotFoundException("replica does not exist on backend, beId=" + backendId);
                 }
+                boolean updated = false;
                 if (status == ReplicaStatus.BAD || status == ReplicaStatus.OK) {
+                    replica.setUserDropTime(-1L);
                     if (replica.setBad(status == ReplicaStatus.BAD)) {
-                        if (!isReplay) {
-                            SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(backendId, tabletId,
-                                    status);
-                            getEditLog().logSetReplicaStatus(log);
-                        }
+                        updated = true;
                         LOG.info("set replica {} of tablet {} on backend {} as {}. is replay: {}", replica.getId(),
                                 tabletId, backendId, status, isReplay);
                     }
+                } else if (status == ReplicaStatus.DROP) {
+                    replica.setUserDropTime(userDropTime);
+                    updated = true;
+                    LOG.info("set replica {} of tablet {} on backend {} as {}.", replica.getId(),
+                            tabletId, backendId, status);
+                }
+                if (updated && !isReplay) {
+                    SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(backendId, tabletId,
+                            status, userDropTime);
+                    getEditLog().logSetReplicaStatus(log);
                 }
             } finally {
                 table.writeUnlock();
@@ -5984,10 +5981,12 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation) {
+    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation,
+            Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots) {
         AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ADD_TASK);
         alter.setTask(task);
         alter.setRelation(relation);
+        alter.setPartitionSnapshots(partitionSnapshots);
         this.alter.processAlterMTMV(alter, false);
     }
 

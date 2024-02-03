@@ -51,6 +51,7 @@
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
@@ -69,9 +70,7 @@
 #include "vec/json/path_in_data.h"
 #include "vec/olap/vgeneric_iterators.h"
 
-namespace doris {
-
-namespace segment_v2 {
+namespace doris::segment_v2 {
 class InvertedIndexIterator;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
@@ -80,7 +79,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
                      std::shared_ptr<Segment>* output) {
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
-    std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, tablet_schema));
+    std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, std::move(tablet_schema)));
     segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());
     *output = std::move(segment);
@@ -91,8 +90,9 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
         : _segment_id(segment_id),
           _meta_mem_usage(0),
           _rowset_id(rowset_id),
-          _tablet_schema(tablet_schema),
-          _segment_meta_mem_tracker(StorageEngine::instance()->segment_meta_mem_tracker()) {}
+          _tablet_schema(std::move(tablet_schema)),
+          _segment_meta_mem_tracker(
+                  ExecEnv::GetInstance()->storage_engine().segment_meta_mem_tracker()) {}
 
 Segment::~Segment() {
 #ifndef BE_TEST
@@ -768,5 +768,4 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
     return Status::OK();
 }
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

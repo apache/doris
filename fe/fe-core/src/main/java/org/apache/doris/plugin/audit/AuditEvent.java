@@ -88,6 +88,10 @@ public class AuditEvent {
     public String stmt = "";
     @AuditField(value = "CpuTimeMS")
     public long cpuTimeMs = -1;
+    @AuditField(value = "ShuffleSendBytes")
+    public long shuffleSendBytes = -1;
+    @AuditField(value = "ShuffleSendRows")
+    public long shuffleSendRows = -1;
     @AuditField(value = "SqlHash")
     public String sqlHash = "";
     @AuditField(value = "peakMemoryBytes")

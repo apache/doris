@@ -114,7 +114,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
-    public static final String ENABLE_COLOCATE_SCAN = "enable_colocate_scan";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
@@ -235,6 +234,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
+    public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
+
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
@@ -319,6 +320,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
 
     public static final String SKIP_MISSING_VERSION = "skip_missing_version";
+
+    public static final String SKIP_BAD_TABLET = "skip_bad_tablet";
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
@@ -703,9 +706,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_PLAN)
     public boolean disableColocatePlan = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_COLOCATE_SCAN)
-    public boolean enableColocateScan = false;
-
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
 
@@ -843,6 +843,12 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable local shuffle on pipelineX engine."})
     private boolean enableLocalShuffle = true;
 
+    @VariableMgr.VarAttr(
+                name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+                description = {"是否在pipelineX引擎上强制开启local shuffle优化",
+                        "Whether to force to local shuffle on pipelineX engine."})
+    private boolean forceToLocalShuffle = false;
+
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
     public boolean enableAggState = false;
@@ -896,7 +902,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Set runtimeFilterType to IN_OR_BLOOM filter
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE, fuzzy = true, needForward = true)
-    private int runtimeFilterType = 8;
+    private int runtimeFilterType = 12;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM, needForward = true)
     private int runtimeFilterMaxInNum = 1024;
@@ -1146,6 +1152,14 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
     public boolean skipMissingVersion = false;
 
+    // This variable is used to control whether to skip the bad tablet.
+    // In some scenarios, user has a huge amount of data and only a single replica was specified when creating
+    // the table, if one of the tablet is damaged, the table will not be able to be select. If the user does not care
+    // about the integrity of the data, they can use this variable to temporarily skip the bad tablet for querying and
+    // load the remaining data into a new table.
+    @VariableMgr.VarAttr(name = SKIP_BAD_TABLET)
+    public boolean skipBadTablet = false;
+
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
     // in nereids for some mistaken modification. You should set it on the
@@ -1383,7 +1397,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean truncateCharOrVarcharColumns = false;
 
     @VariableMgr.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
-    public boolean enableMemtableOnSinkNode = false;
+    public boolean enableMemtableOnSinkNode = true;
 
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
     public int loadStreamPerNode = 20;
@@ -1437,7 +1451,7 @@ public class SessionVariable implements Serializable, Writable {
                 "Maximum table width to enable auto analyze, "
                     + "table with more columns than this value will not be auto analyzed."},
             flag = VariableMgr.GLOBAL)
-    public int autoAnalyzeTableWidthThreshold = 70;
+    public int autoAnalyzeTableWidthThreshold = 100;
 
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
             description = {"该参数定义自动ANALYZE例程的开始时间",
@@ -2023,10 +2037,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDisableColocatePlan() {
         return disableColocatePlan;
-    }
-
-    public boolean enableColocateScan() {
-        return enableColocateScan;
     }
 
     public boolean isEnableBucketShuffleJoin() {
@@ -2853,6 +2863,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
+        tResult.setSkipBadTablet(skipBadTablet);
 
         return tResult;
     }
@@ -3309,5 +3320,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
+    }
+
+    public boolean isForceToLocalShuffle() {
+        return getEnablePipelineXEngine() && enableLocalShuffle && enableNereidsPlanner && forceToLocalShuffle;
+    }
+
+    public void setForceToLocalShuffle(boolean forceToLocalShuffle) {
+        this.forceToLocalShuffle = forceToLocalShuffle;
     }
 }

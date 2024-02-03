@@ -678,6 +678,22 @@ update orc_full_acid_par set value = 'BB' where id = 2;
 alter table orc_full_acid_par PARTITION(part_col=20230101) compact 'major';
 alter table orc_full_acid_par PARTITION(part_col=20230102) compact 'major';
 
+create table mtmv_base1 (id INT, value STRING)
+    PARTITIONED BY (part_col INT)
+    CLUSTERED BY (id) INTO 3 BUCKETS
+    STORED AS ORC;
+
+insert into mtmv_base1 PARTITION(part_col=20230101) values
+(1, 'A'),
+(2, 'B'),
+(3, 'C');
+
+insert into mtmv_base1 PARTITION(part_col=20230102) values
+(4, 'D'),
+(5, 'E'),
+(6, 'F');
+
+
 CREATE TABLE `test_different_column_orders_orc`(
   `name` string,
   `id` int,
@@ -1882,6 +1898,25 @@ LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_decimal90_table';
 
 msck repair table parquet_decimal90_table;
+
+CREATE TABLE `fixed_length_byte_array_decimal_table`(
+  `decimal_col1` decimal(7,2),
+  `decimal_col2` decimal(7,2),
+  `decimal_col3` decimal(7,2),
+  `decimal_col4` decimal(7,2),
+  `decimal_col5` decimal(7,2))
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/fixed_length_byte_array_decimal_table'
+TBLPROPERTIES (
+  'parquet.compress'='SNAPPY');
+
+msck repair table fixed_length_byte_array_decimal_table;
 
 show tables;
 
