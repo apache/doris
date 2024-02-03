@@ -476,14 +476,14 @@ suite("outer_join") {
     def mv6_1 = """
         select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey
         from lineitem_null
-        left join (select o_orderdate,o_orderkey from orders_null where o_orderdate = '2023-12-10' ) t 
+        left join (select o_orderdate,o_orderkey from orders_null where o_orderdate = '2023-12-10' ) t
         on l_orderkey = t.o_orderkey;
     """
     def query6_1 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
-        from lineitem_null  
-        left join orders_null 
-        on l_orderkey = o_orderkey 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem_null
+        left join orders_null
+        on l_orderkey = o_orderkey
         where l_shipdate = '2023-12-10'  and o_orderdate = '2023-12-10';
     """
     order_qt_query6_1_before "${query6_1}"
@@ -494,16 +494,16 @@ suite("outer_join") {
 
     // should compensate predicate o_orderdate = '2023-12-10' on mv
     def mv6_2 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
-        from lineitem 
-        left join (select * from orders where o_orderdate = '2023-12-10' ) t2 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem
+        left join (select * from orders where o_orderdate = '2023-12-10' ) t2
         on lineitem.l_orderkey = t2.o_orderkey;
     """
     def query6_2 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
-        from lineitem 
-        left join orders 
-        on lineitem.l_orderkey = orders.o_orderkey 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem
+        left join orders
+        on lineitem.l_orderkey = orders.o_orderkey
         where o_orderdate = '2023-12-10' order by 1, 2, 3, 4, 5;
     """
     order_qt_query6_2_before "${query6_2}"
@@ -586,4 +586,65 @@ suite("outer_join") {
     check_rewrite(mv8_0, query8_0, "mv8_0")
     order_qt_query8_0_after "${query8_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_0"""
+
+
+    // join input with simple agg, use aggregate function as outer group by
+    def mv9_0 = """
+        select 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1 
+        from 
+          (
+            select 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate, 
+              sum(o_shippriority) as col1 
+            from 
+              orders 
+            group by 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate
+          ) as t1 
+          left join lineitem on lineitem.l_orderkey = t1.o_orderkey 
+        group by 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1
+    """
+    def query9_0 = """
+        select 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1 
+        from 
+          (
+            select 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate, 
+              sum(o_shippriority) as col1 
+            from 
+              orders 
+            group by 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate
+          ) as t1 
+          left join lineitem on lineitem.l_orderkey = t1.o_orderkey 
+        group by 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1
+    """
+    order_qt_query9_0_before "${query9_0}"
+    check_rewrite(mv9_0, query9_0, "mv9_0")
+    order_qt_query9_0_after "${query9_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv9_0"""
 }
