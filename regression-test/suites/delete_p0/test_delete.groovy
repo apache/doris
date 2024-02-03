@@ -424,4 +424,26 @@ suite("test_delete") {
     """
     sql "set enable_fold_constant_by_be = true;"
     sql "DELETE FROM test2  WHERE col_2 = cast(123.45 as decimalv2(10,3));"
+
+    sql "drop table if exists test3"
+    sql """
+            CREATE TABLE `test3` (
+            `statistic_date` datev2 NULL,
+            `project_name` varchar(20) NULL ,
+            `brand` varchar(30) NULL ,
+            `vehicle_status` varchar(30) NULL ,
+            `abnormal_note` varchar(30) NULL ,
+            `inv_qty` bigint(20) NULL ,
+            `age_120_qty` bigint(20) NULL ,
+            `create_date` datetime NULL ,
+            `zparvin` varchar(50) NULL,
+            `tonnage` varchar(50) NULL 
+            ) ENGINE=OLAP
+            DISTRIBUTED BY HASH(`statistic_date`, `project_name`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            ); 
+    """
+    sql "set experimental_enable_nereids_planner = false;"
+    sql "delete from test3 where statistic_date >= date_sub('2024-01-16',INTERVAL 1 day);"
 }
