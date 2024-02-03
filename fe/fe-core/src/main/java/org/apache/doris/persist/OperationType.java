@@ -340,6 +340,15 @@ public class OperationType {
     // change an auto increment id for a column
     public static final short OP_UPDATE_AUTO_INCREMENT_ID = 437;
 
+    // plsql 440 ~ 450
+    public static final short OP_ADD_PLSQL_STORED_PROCEDURE = 440;
+
+    public static final short OP_DROP_PLSQL_STORED_PROCEDURE = 441;
+
+    public static final short OP_ADD_PLSQL_PACKAGE = 442;
+
+    public static final short OP_DROP_PLSQL_PACKAGE = 443;
+
     // scheduler job
     public static final short OP_CREATE_SCHEDULER_JOB = 450;
 

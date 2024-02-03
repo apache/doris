@@ -70,6 +70,7 @@ import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.ConstantSeqContext;
 import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
+import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateTableContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
@@ -341,6 +342,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
@@ -621,7 +623,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * @param ctx context
      * @return originSql
      */
-    private String getOriginSql(ParserRuleContext ctx) {
+    public String getOriginSql(ParserRuleContext ctx) {
         int startIndex = ctx.start.getStartIndex();
         int stopIndex = ctx.stop.getStopIndex();
         org.antlr.v4.runtime.misc.Interval interval = new org.antlr.v4.runtime.misc.Interval(startIndex, stopIndex);
@@ -2097,7 +2099,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public UnboundSlot visitColumnReference(ColumnReferenceContext ctx) {
+    public Expression visitColumnReference(ColumnReferenceContext ctx) {
         // todo: handle quoted and unquoted
         return UnboundSlot.quoted(ctx.getText());
     }
@@ -3250,7 +3252,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<Expression> arguments = ctx.expression().stream()
                 .<Expression>map(this::typedVisit)
                 .collect(ImmutableList.toImmutableList());
-        UnboundFunction unboundFunction = new UnboundFunction(functionName, arguments);
+        UnboundFunction unboundFunction = new UnboundFunction(functionName, arguments, getOriginSql(ctx));
         return new CallCommand(unboundFunction);
+    }
+
+    @Override
+    public LogicalPlan visitCreateProcedure(CreateProcedureContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            LogicalPlan createProcedurePlan;
+            String name = ctx.identifier().getText().toUpperCase();
+            createProcedurePlan = new CreateProcedureCommand(name, getOriginSql(ctx), ctx.REPLACE() != null);
+            return createProcedurePlan;
+        });
     }
 }

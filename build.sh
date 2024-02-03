@@ -659,6 +659,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         "${DORIS_OUTPUT}/fe/webroot" "${DORIS_OUTPUT}/fe/lib"
 
     cp -r -p "${DORIS_HOME}/bin"/*_fe.sh "${DORIS_OUTPUT}/fe/bin"/
+    cp -r -p "${DORIS_HOME}/bin"/plsql.sh "${DORIS_OUTPUT}/fe/bin"/
     cp -r -p "${DORIS_HOME}/conf/fe.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/

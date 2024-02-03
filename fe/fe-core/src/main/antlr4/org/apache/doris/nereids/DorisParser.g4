@@ -34,6 +34,12 @@ singleStatement
     ;
 
 statement
+    : statementBase # statementBaseAlias
+    | CALL functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
+    | (ALTER | CREATE (OR REPLACE)? | REPLACE)? (PROCEDURE | PROC) identifier LEFT_PAREN .*? RIGHT_PAREN .*? #createProcedure
+    ;
+
+statementBase
     : explain? query outFileClause?                                    #statementDefault
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
@@ -103,7 +109,6 @@ statement
     | ALTER TABLE table=multipartIdentifier
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
     | SHOW CONSTRAINTS FROM table=multipartIdentifier                                 #showConstraint
-    | CALL functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
     ;
 
 constraint

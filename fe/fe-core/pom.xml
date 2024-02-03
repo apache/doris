@@ -635,6 +635,10 @@ under the License.
             <groupId>org.mariadb.jdbc</groupId>
             <artifactId>mariadb-java-client</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+        </dependency>
 
         <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
             when upgrade doris antlr-runtime version, should take care of trino-parser.-->
@@ -887,7 +891,7 @@ under the License.
                 <configuration>
                     <visitor>true</visitor>
                     <sourceDirectory>src/main/antlr4</sourceDirectory>
-                    <treatWarningsAsErrors>true</treatWarningsAsErrors>
+                    <libDirectory>src/main/antlr4/org/apache/doris/nereids</libDirectory>
                 </configuration>
             </plugin>
             <!-- jmockit -->

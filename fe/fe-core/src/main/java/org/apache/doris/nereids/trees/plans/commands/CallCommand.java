@@ -47,7 +47,7 @@ public class CallCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        CallFunc analyzedFunc = CallFunc.getFunc(ctx.getCurrentUserIdentity(), unboundFunction);
+        CallFunc analyzedFunc = CallFunc.getFunc(ctx, ctx.getCurrentUserIdentity(), unboundFunction);
         analyzedFunc.run();
     }
 

@@ -123,7 +123,7 @@ public class LdapManager {
 
     public boolean checkUserPasswd(String fullName, String passwd, String remoteIp, List<UserIdentity> currentUser) {
         if (checkUserPasswd(fullName, passwd)) {
-            currentUser.addAll(Env.getCurrentEnv().getAuth().getUserIdentityForLdap(fullName, remoteIp));
+            currentUser.addAll(Env.getCurrentEnv().getAuth().getUserIdentityUncheckPasswd(fullName, remoteIp));
             return true;
         }
         return false;

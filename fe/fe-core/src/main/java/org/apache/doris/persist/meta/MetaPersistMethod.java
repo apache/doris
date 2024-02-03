@@ -246,6 +246,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Env.class.getDeclaredMethod("saveInsertOverwrite", CountingDataOutputStream.class, long.class);
                 break;
+            case "plsql":
+                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadPlsqlProcedure", DataInputStream.class,
+                        long.class);
+                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("savePlsqlProcedure",
+                        CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }

@@ -29,6 +29,9 @@ public class AutoCloseConnectContext implements AutoCloseable {
         connectContext.setThreadLocalInfo();
     }
 
+    public void call() {
+    }
+
     @Override
     public void close() {
         ConnectContext.remove();
