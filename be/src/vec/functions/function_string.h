@@ -2788,8 +2788,8 @@ public:
             StringOP::push_value_string(decoded_url, i, res_chars, res_offsets);
         }
 
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(res), std::move(null_map));
+        block.get_by_position(result).column = std::move(res);
+
         return Status::OK();
     }
 };
