@@ -66,7 +66,7 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
 
     // TODO(plat1ko): check_segment_footer
 
-    _build_rowset_meta(_rowset_meta.get());
+    RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get()));
     // If the current load is a partial update, new segments may be appended to the tmp rowset after the tmp rowset
     // has been committed if conflicts occur due to concurrent partial updates. However, when the recycler do recycling,
     // it will generate the paths for the segments to be recycled on the object storage based on the number of segments
