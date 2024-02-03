@@ -130,7 +130,8 @@ public:
 
 private:
     virtual Status _generate_delete_bitmap(int32_t segment_id) = 0;
-    void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
+    Status _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta,
+                              bool check_segment_num = false);
 
     void update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
