@@ -18,10 +18,6 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -79,26 +75,11 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
     }
 
     /**
-     * Check join is whether valid or not. Support join's input can not contain aggregate
-     * Only support project, filter, join, logical relation node and
-     * join condition should be slot reference equals currently
+     * Check join is whether valid or not. Support join's input only support project, filter, join,
+     * logical relation node and join condition should be slot reference equals currently
      */
     @Override
     protected boolean checkPattern(StructInfo structInfo) {
-        HyperGraph hyperGraph = structInfo.getHyperGraph();
-        for (AbstractNode node : hyperGraph.getNodes()) {
-            StructInfoNode structInfoNode = (StructInfoNode) node;
-            if (!structInfoNode.getPlan().accept(StructInfo.JOIN_PATTERN_CHECKER,
-                    SUPPORTED_JOIN_TYPE_SET)) {
-                return false;
-            }
-        }
-        for (JoinEdge edge : hyperGraph.getJoinEdges()) {
-            if (!edge.getJoin().accept(StructInfo.JOIN_PATTERN_CHECKER,
-                    SUPPORTED_JOIN_TYPE_SET)) {
-                return false;
-            }
-        }
-        return true;
+        return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, SUPPORTED_JOIN_TYPE_SET);
     }
 }
