@@ -30,7 +30,7 @@ suite("query27") {
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
-    sql 'set dump_nereids_memo=true'
+    sql 'set dump_nereids_memo=false'
     def ds = """select  i_item_id,
         s_state, grouping(s_state) g_state,
         avg(ss_quantity) agg1,

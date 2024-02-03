@@ -183,10 +183,14 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         private final List<Expression> groupByExpressions;
         private final Map<Expression, Slot> substitution = Maps.newHashMap();
         private final List<NamedExpression> newOutputSlots = Lists.newArrayList();
+        private final Map<Slot, Expression> outputSubstitutionMap;
 
         Resolver(Aggregate aggregate) {
             outputExpressions = aggregate.getOutputExpressions();
             groupByExpressions = aggregate.getGroupByExpressions();
+            outputSubstitutionMap = outputExpressions.stream().filter(Alias.class::isInstance)
+                    .collect(Collectors.toMap(alias -> alias.toSlot(), alias -> alias.child(0),
+                            (k1, k2) -> k1));
         }
 
         public void resolve(Expression expression) {
@@ -273,7 +277,8 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         }
 
         private void generateAliasForNewOutputSlots(Expression expression) {
-            Alias alias = new Alias(expression);
+            Expression replacedExpr = ExpressionUtils.replace(expression, outputSubstitutionMap);
+            Alias alias = new Alias(replacedExpr);
             newOutputSlots.add(alias);
             substitution.put(expression, alias.toSlot());
         }
