@@ -422,7 +422,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                  print_id(req.fragment_instance_id), rpc_status.to_string());
         // we need to cancel the execution of this fragment
         static_cast<void>(req.update_fn(rpc_status));
-        req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, rpc_status.msg());
+        req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, std::string(rpc_status.msg()));
     }
 }
 
