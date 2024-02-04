@@ -127,6 +127,10 @@ public class BeLoadRebalancer extends Rebalancer {
         }
         int clusterAvailableBEnum = infoService.getAllBackendIds(true).size();
         ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        List<Set<Long>> lowBETablets = lowBEs.stream()
+                .map(beStat -> Sets.newHashSet(invertedIndex.getTabletIdsByBackendId(beStat.getBeId())))
+                .collect(Collectors.toList());
+
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
         // so we need to traverse it from last to first
@@ -216,6 +220,13 @@ public class BeLoadRebalancer extends Rebalancer {
                         continue;
                     }
 
+                    // for urgent disk, pick tablets order by size,
+                    // then it may always pick tablets that was on the low backends.
+                    if (!lowBETablets.isEmpty()
+                            && lowBETablets.stream().allMatch(tablets -> tablets.contains(tabletId))) {
+                        continue;
+                    }
+
                     if (recycleBin != null && recycleBin.isRecyclePartition(tabletMeta.getDbId(),
                             tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
                         continue;
@@ -275,6 +286,7 @@ public class BeLoadRebalancer extends Rebalancer {
         List<BackendLoadStatistic> lowBEs = Lists.newArrayList();
         List<BackendLoadStatistic> highBEs = Lists.newArrayList();
         boolean isUrgent = clusterStat.getLowHighBEsWithIsUrgent(lowBEs, highBEs, tabletCtx.getStorageMedium());
+        String isUrgentInfo = isUrgent ? " for urgent" : " for non-urgent";
 
         if (lowBEs.isEmpty() && highBEs.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "cluster is balance");
@@ -304,7 +316,7 @@ public class BeLoadRebalancer extends Rebalancer {
         }
         if (replicaHighBEs.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
-                    "no replica on high load backend");
+                    "no replica on high load backend" + isUrgentInfo);
         }
 
         // select a replica as source
@@ -322,7 +334,7 @@ public class BeLoadRebalancer extends Rebalancer {
             }
         }
         if (!setSource) {
-            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to take src backend slot");
+            throw new SchedException(Status.UNRECOVERABLE, "unable to take src slot" + isUrgentInfo);
         }
 
         // Select a low load backend as destination.
@@ -344,7 +356,8 @@ public class BeLoadRebalancer extends Rebalancer {
                 BalanceStatus bs;
                 if ((bs = beStat.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), availPaths,
                         false /* not supplement */)) != BalanceStatus.OK) {
-                    LOG.debug("tablet not fit in BE {}, reason: {}", beStat.getBeId(), bs.getErrMsgs());
+                    LOG.debug("tablet not fit in BE {}, reason: {}, {}",
+                            beStat.getBeId(), bs.getErrMsgs(), isUrgentInfo);
                     continue;
                 }
 
@@ -369,7 +382,8 @@ public class BeLoadRebalancer extends Rebalancer {
         }
 
         if (candidates.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to find low dest backend");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                    "unable to find low dest backend" + isUrgentInfo);
         }
 
         List<BePathLoadStatPair> candFitPaths = Lists.newArrayList();
@@ -379,25 +393,27 @@ public class BeLoadRebalancer extends Rebalancer {
                 continue;
             }
 
-            // classify the paths.
-            // And we only select path from 'low' and 'mid' paths
-            List<RootPathLoadStatistic> pathLow = Lists.newArrayList();
-            List<RootPathLoadStatistic> pathMid = Lists.newArrayList();
-            List<RootPathLoadStatistic> pathHigh = Lists.newArrayList();
-            beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
+            List<RootPathLoadStatistic> pathLow = null;
+            if (isUrgent) {
+                pathLow = beStat.getAvailPaths(tabletCtx.getStorageMedium()).stream()
+                        .filter(RootPathLoadStatistic::isGlobalLowUsage)
+                        .collect(Collectors.toList());
+            } else {
+                // classify the paths.
+                // And we only select path from 'low' and 'mid' paths
+                pathLow = Lists.newArrayList();
+                List<RootPathLoadStatistic> pathMid = Lists.newArrayList();
+                List<RootPathLoadStatistic> pathHigh = Lists.newArrayList();
+                beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
 
-            pathLow.addAll(pathMid);
-            for (RootPathLoadStatistic path : pathLow) {
-                if (!Config.be_rebalancer_fuzzy_test && isUrgent && path.isGlobalHighUsage()) {
-                    continue;
-                }
-                candFitPaths.add(new BePathLoadStatPair(beStat, path));
+                pathLow.addAll(pathMid);
             }
+            pathLow.forEach(path -> candFitPaths.add(new BePathLoadStatPair(beStat, path)));
         }
 
         if (candFitPaths.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
-                    "unable to find low dest backend to fit in paths");
+                    "unable to find low dest backend to fit in paths" + isUrgentInfo);
         }
 
         BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(candFitPaths);
@@ -417,7 +433,7 @@ public class BeLoadRebalancer extends Rebalancer {
         }
 
         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
-                "beload waiting for dest backend slot");
+                "unable to take dest slot" + isUrgentInfo);
     }
 
 }

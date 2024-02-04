@@ -104,6 +104,10 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         return globalClazz == Classification.HIGH;
     }
 
+    public boolean isGlobalLowUsage() {
+        return globalClazz == Classification.LOW;
+    }
+
     public DiskState getDiskState() {
         return diskState;
     }
