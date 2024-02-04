@@ -81,10 +81,10 @@ suite("partition_mv_rewrite_dimension_2_4") {
     );"""
 
     sql """
-    drop table if exists partsupp
+    drop table if exists partsupp_2_4
     """
 
-    sql """CREATE TABLE `partsupp` (
+    sql """CREATE TABLE `partsupp_2_4` (
       `ps_partkey` INT NULL,
       `ps_suppkey` INT NULL,
       `ps_availqty` INT NULL,
@@ -124,7 +124,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     """
 
     sql"""
-    insert into partsupp values 
+    insert into partsupp_2_4 values 
     (1, 1, 1, 99.5, 'yy'),
     (null, 2, 2, 109.2, 'mm'),
     (3, null, 1, 99.5, 'yy'); 
@@ -132,7 +132,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 
     sql """analyze table orders_2_4 with sync;"""
     sql """analyze table lineitem_2_4 with sync;"""
-    sql """analyze table partsupp with sync;"""
+    sql """analyze table partsupp_2_4 with sync;"""
 
     def create_mv_lineitem = { mv_name, mv_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
@@ -304,7 +304,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             from orders_2_4 
             left join lineitem_2_4
             on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
-            left join partsupp on partsupp.ps_partkey = lineitem_2_4.l_orderkey"""
+            left join partsupp_2_4 on partsupp_2_4.ps_partkey = lineitem_2_4.l_orderkey"""
     explain {
         sql("${sql_stmt_4}")
         contains "${mv_name_4}(${mv_name_4})"
@@ -329,7 +329,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     def sql_stmt_5 = """select o_orderdate, o_shippriority, o_comment
             from orders_2_4
             left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
-            left join partsupp on partsupp.ps_partkey = lineitem_2_4.l_orderkey
+            left join partsupp_2_4 on partsupp_2_4.ps_partkey = lineitem_2_4.l_orderkey
             group by
             o_orderdate,
             o_shippriority,
@@ -370,7 +370,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
             from orders_2_4 
             left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
-            left join partsupp on partsupp.ps_partkey = lineitem_2_4.l_orderkey 
+            left join partsupp_2_4 on partsupp_2_4.ps_partkey = lineitem_2_4.l_orderkey 
             group by 
             o_orderdate, 
             o_shippriority, 
@@ -470,7 +470,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
 //            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
 //            from orders_2_4
 //            left join lineitem_2_4 on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey
-//            left join partsupp on partsupp.ps_partkey = lineitem_2_4.l_orderkey
+//            left join partsupp_2_4 on partsupp_2_4.ps_partkey = lineitem_2_4.l_orderkey
 //            where l_shipdate >= "2023-10-15"
 //            group by
 //            o_orderdate,
