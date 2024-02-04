@@ -2,11 +2,6 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
-## v20240129
-
-- Added: wasmtime -> 15.0.1
-- Added: wasmtime-cpp -> 9.0.0
-
 ## 20240112
 
 - Modified: hadoop libhdfs 3.3.4.6
