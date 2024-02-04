@@ -45,8 +45,12 @@ export DORIS_HOME
 exit_flag=0
 (
     echo "#### 1. download doris binary"
+    cd "${teamcity_build_checkoutDir}"
     export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile_result"}"
-    if ! download_oss_file "${pull_request_num}_${commit_id}.tar.gz"; then exit 1; fi
+    if download_oss_file "${pull_request_num}_${commit_id}.tar.gz"; then
+        rm -rf "${teamcity_build_checkoutDir}"/output/*
+        tar -I pigz -xf "${pull_request_num}_${commit_id}.tar.gz"
+    else exit 1; fi
 
     echo "#### 2. try to kill old doris process and clean foundationdb"
     stop_doris
