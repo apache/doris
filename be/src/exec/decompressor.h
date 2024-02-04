@@ -34,6 +34,7 @@
 #endif
 
 #include "common/status.h"
+#include <gen_cpp/PlanNodes_types.h>
 
 namespace doris {
 
@@ -63,6 +64,10 @@ public:
 
 public:
     static Status create_decompressor(CompressType type, Decompressor** decompressor);
+
+    static Status create_decompressor(TFileCompressType::type type, Decompressor** decompressor);
+
+    static Status create_decompressor(TFileFormatType::type type, Decompressor** decompressor);
 
     virtual std::string debug_info();
 
