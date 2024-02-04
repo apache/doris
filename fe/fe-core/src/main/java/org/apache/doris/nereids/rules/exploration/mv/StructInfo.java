@@ -177,8 +177,9 @@ public class StructInfo {
             nodePlan.accept(RELATION_COLLECTOR, nodeRelations);
             relationBuilder.addAll(nodeRelations);
             // every node should only have one relation, this is for LogicalCompatibilityContext
-            relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), (StructInfoNode) node);
-
+            if (!nodeRelations.isEmpty()) {
+                relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), (StructInfoNode) node);
+            }
             // record expressions in node
             if (structInfoNode.getExpressions() != null) {
                 structInfoNode.getExpressions().forEach(expression -> {
