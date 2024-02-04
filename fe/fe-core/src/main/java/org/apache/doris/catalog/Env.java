@@ -1508,6 +1508,10 @@ public class Env {
                 VariableMgr.enableNereidsPlanner();
                 LOG.info("upgrade FE from 1.x to 2.x, set enable_nereids_planner to new default value: true");
             }
+            if (journalVersion <= FeMetaVersion.VERSION_123) {
+                VariableMgr.enableNereidsDml();
+                LOG.info("upgrade FE from 2.0 to 2.1, set enable_nereids_dml to new default value: true");
+            }
         }
 
         getPolicyMgr().createDefaultStoragePolicy();
