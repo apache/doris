@@ -44,7 +44,8 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             LogicalPlan childPlan = agg.child();
             List<FdItem> uniqueFdItems = new ArrayList<>();
             List<FdItem> nonUniqueFdItems = new ArrayList<>();
-            if (!agg.getGroupByExpressions().stream().allMatch(e -> e instanceof SlotReference)) {
+            if (agg.getGroupByExpressions().isEmpty()
+                    || !agg.getGroupByExpressions().stream().allMatch(e -> e instanceof SlotReference)) {
                 return null;
             }
             ImmutableSet<FdItem> fdItems = childPlan.getLogicalProperties().getFdItems();
@@ -170,13 +171,13 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             }
 
             // eliminate outputs keys
+            // TODO: remove outputExprList computing
             List<NamedExpression> outputExprList = new ArrayList<>();
             for (int i = 0; i < agg.getOutputExpressions().size(); i++) {
                 if (rootExprsSet.contains(i)) {
                     outputExprList.add(agg.getOutputExpressions().get(i));
                 }
             }
-
             // find the remained outputExprs list
             List<NamedExpression> remainedOutputExprList = new ArrayList<>();
             for (int i = 0; i < agg.getOutputExpressions().size(); i++) {
@@ -186,7 +187,7 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
                 }
             }
             outputExprList.addAll(remainedOutputExprList);
-            return new LogicalAggregate<>(resultExprs, outputExprList, agg.child());
+            return new LogicalAggregate<>(resultExprs, agg.getOutputExpressions(), agg.child());
         }).toRule(RuleType.ELIMINATE_GROUP_BY_KEY);
     }
 
