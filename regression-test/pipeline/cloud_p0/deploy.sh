@@ -48,18 +48,12 @@ exit_flag=0
     export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile_result"}"
     if ! download_oss_file "${pull_request_num}_${commit_id}.tar.gz"; then exit 1; fi
 
-    echo "#### 1. try to kill old doris process"
+    echo "#### 2. try to kill old doris process and clean foundationdb"
     stop_doris
     install_fdb && clean_fdb "cloud_instance_0"
 
-    echo "#### 2. setup warehouse"
-    #TODO
-    if ! create_warehouse; then exit 1; fi
-    if ! warehouse_add_fe; then exit 1; fi
-    if ! warehouse_add_be; then exit 1; fi
-
     set -e
-    echo "#### 2. copy conf from regression-test/pipeline/cloud_p0/conf/ and modify"
+    echo "#### 3. copy conf from regression-test/pipeline/cloud_p0/conf/ and modify"
     cp -rf "${DORIS_HOME}"/ms/ "${DORIS_HOME}"/recycler/
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/fe_custom.conf "${DORIS_HOME}"/fe/conf/
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
@@ -69,18 +63,16 @@ exit_flag=0
     sed -i "s/^brpc_listen_port = .*/fbrpc_listen_port = 6000/" "${DORIS_HOME}"/recycler/conf/doris_cloud.conf
     print_doris_conf
 
-    echo "#### 3. start Doris"
-    # meta_dir=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe_custom.conf meta_dir)
-    # storage_root_path=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be_custom.conf storage_root_path)
-    # mkdir -p "${meta_dir}"
-    # mkdir -p "${storage_root_path}"
-
+    echo "#### 4. start Doris"
     if ! start_doris_ms; then exit 1; fi
-    if ! start_doris_fe; then exit 1; fi
     if ! start_doris_recycler; then exit 1; fi
+    if ! create_warehouse; then exit 1; fi
+    if ! warehouse_add_fe; then exit 1; fi
+    if ! warehouse_add_be; then exit 1; fi
+    if ! start_doris_fe; then exit 1; fi
     if ! start_doris_be; then exit 1; fi
 
-    echo "#### 4. reset session variables"
+    echo "#### 5. reset session variables"
     if ! reset_doris_session_variables; then exit 1; fi
 )
 exit_flag="$?"
