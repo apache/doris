@@ -46,7 +46,7 @@ exit_flag=0
 (
     echo "#### 1. download doris binary"
     export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile_result"}"
-    if ! download_oss_file "${pull_request_num}_${commit_id}.tar.gz"; then return 1; fi
+    if ! download_oss_file "${pull_request_num}_${commit_id}.tar.gz"; then exit 1; fi
 
     echo "#### 1. try to kill old doris process"
     stop_doris
