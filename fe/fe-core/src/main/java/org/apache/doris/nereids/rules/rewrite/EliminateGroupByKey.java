@@ -38,7 +38,6 @@ import java.util.stream.Collectors;
  * Eliminate group by key based on fd info.
  */
 public class EliminateGroupByKey extends OneRewriteRuleFactory {
-    public static int count = 0;
     @Override
     public Rule build() {
         return logicalAggregate(logicalProject()).then(agg -> {
@@ -51,9 +50,6 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             ImmutableSet<FdItem> fdItems = childPlan.getLogicalProperties().getFdItems();
             if (fdItems.isEmpty()) {
                 return null;
-            }
-            if (count ++ > 0) {
-                //return null;
             }
             List<SlotReference> candiExprs = agg.getGroupByExpressions().stream()
                     .map(SlotReference.class::cast).collect(Collectors.toList());
@@ -111,9 +107,7 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
                         for (int j = 0; j < rootExprs.size(); j++) {
                             leftDomain.add(rootExprs.get(j));
                             boolean isInChild = fdItem.checkExprInChild(rootExprs.get(j), childPlan);
-                            if (isInChild) {
-                                // root expr can be determined by other expr
-                            } else {
+                            if (!isInChild) {
                                 rightDomain.add(rootExprs.get(j));
                             }
                         }
@@ -121,22 +115,16 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
                             int index = findEqualExpr(candiExprs, parentExprs.asList().get(j));
                             if (index != -1) {
                                 rightDomain.add(candiExprs.get(index));
-                                if (eliminateSet.contains(index)) {
-                                    // do nothing
-                                } else {
+                                if (!eliminateSet.contains(index)) {
                                     leftDomain.add(candiExprs.get(index));
                                 }
                             }
                         }
                         // check fd can eliminate new candi expr
                         for (int j = 0; j < candiExprs.size(); j++) {
-                            if (eliminateSet.contains(j)) {
-                                // skip
-                            } else {
+                            if (!eliminateSet.contains(j)) {
                                 boolean isInChild = fdItem.checkExprInChild(candiExprs.get(j), childPlan);
-                                if (!isInChild) {
-                                    // skip
-                                } else {
+                                if (isInChild) {
                                     eliminateSet.add(j);
                                 }
                             }
@@ -163,18 +151,14 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             // other can't be determined expr, add into root exprs directly
             if (eliminateSet.size() < candiExprs.size()) {
                 for (int i = 0; i < candiExprs.size(); i++) {
-                    if (eliminateSet.contains(i)) {
-                        // skip
-                    } else {
+                    if (!eliminateSet.contains(i)) {
                         rootExprsSet.add(i);
                     }
                 }
             }
             rootExprs.clear();
             for (int i = 0; i < candiExprs.size(); i++) {
-                if (!rootExprsSet.contains(i)) {
-                    // skip
-                } else {
+                if (rootExprsSet.contains(i)) {
                     rootExprs.add(candiExprs.get(i));
                 }
             }
@@ -188,9 +172,7 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             // eliminate outputs keys
             List<NamedExpression> outputExprList = new ArrayList<>();
             for (int i = 0; i < agg.getOutputExpressions().size(); i++) {
-                if (!rootExprsSet.contains(i)) {
-                    // skip
-                } else {
+                if (rootExprsSet.contains(i)) {
                     outputExprList.add(agg.getOutputExpressions().get(i));
                 }
             }
@@ -199,15 +181,11 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             List<NamedExpression> remainedOutputExprList = new ArrayList<>();
             for (int i = 0; i < agg.getOutputExpressions().size(); i++) {
                 NamedExpression outputExpr = agg.getOutputExpressions().get(i);
-                if (agg.getGroupByExpressions().contains(outputExpr)) {
-                    // skip
-                } else {
+                if (!agg.getGroupByExpressions().contains(outputExpr)) {
                     remainedOutputExprList.add(outputExpr);
                 }
             }
             outputExprList.addAll(remainedOutputExprList);
-            // TODO: add other columns, such as aggr fields
-            //outputExprList.add(agg.getOutputExpressions().get(agg.getOutputExpressions().size() - 1));
             return new LogicalAggregate<>(resultExprs, outputExprList, agg.child());
         }).toRule(RuleType.ELIMINATE_GROUP_BY_KEY);
     }
