@@ -18,17 +18,14 @@
 package org.apache.doris.job.extensions.mtmv;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -146,6 +143,13 @@ public class MTMVTask extends AbstractTask {
         this.taskContext = Objects.requireNonNull(taskContext);
     }
 
+    // only for test
+    public MTMVTask(MTMV mtmv, MTMVRelation relation, MTMVTaskContext taskContext) {
+        this.mtmv = mtmv;
+        this.relation = relation;
+        this.taskContext = taskContext;
+    }
+
     @Override
     public void run() throws JobException {
         LOG.info("mtmv task run, taskId: {}", super.getTaskId());
@@ -242,7 +246,7 @@ public class MTMVTask extends AbstractTask {
         LOG.info("mtmv task before, taskId: {}", super.getTaskId());
         super.before();
         try {
-            mtmv = getMTMV();
+            mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
         } catch (UserException e) {
             LOG.warn("before task failed:", e);
             throw new JobException(e);
@@ -266,11 +270,6 @@ public class MTMVTask extends AbstractTask {
             }
 
         }
-    }
-
-    private MTMV getMTMV() throws DdlException, MetaNotFoundException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
-        return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
     }
 
     @Override
@@ -297,7 +296,7 @@ public class MTMVTask extends AbstractTask {
         String dbName = "";
         String mvName = "";
         try {
-            MTMV mtmv = getMTMV();
+            MTMV mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
             dbName = mtmv.getQualifiedDbName();
             mvName = mtmv.getName();
         } catch (UserException e) {
@@ -387,7 +386,7 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    private List<Long> calculateNeedRefreshPartitions() throws AnalysisException {
+    public List<Long> calculateNeedRefreshPartitions() throws AnalysisException {
         // check whether the user manually triggers it
         if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
             if (taskContext.isComplete()) {

@@ -17,10 +17,14 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
 
 import java.util.Set;
@@ -40,6 +44,11 @@ public class MTMVUtil {
                 .getDbOrAnalysisException(baseTableInfo.getDbId())
                 .getTableOrAnalysisException(baseTableInfo.getTableId());
         return table;
+    }
+
+    public static MTMV getMTMV(long dbId, long mtmvId) throws DdlException, MetaNotFoundException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
+        return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
     }
 
     /**
