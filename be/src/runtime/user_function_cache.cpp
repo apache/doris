@@ -144,6 +144,8 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
         lib_type = LibType::SO;
     } else if (ends_with(file, ".jar")) {
         lib_type = LibType::JAR;
+    } else if (ends_with(file, ".wat")) {
+        lib_type = LibType::WAT;
     } else {
         return Status::InternalError(
                 "unknown library file format. the file type is not end with xxx.jar or xxx.so : " +
@@ -251,9 +253,10 @@ Status UserFunctionCache::_load_cache_entry(const std::string& url,
 
     if (entry->type == LibType::SO) {
         RETURN_IF_ERROR(_load_cache_entry_internal(entry));
-    } else if (entry->type != LibType::JAR) {
+    } else if (entry->type != LibType::JAR && entry->type != LibType::WAT) {
         return Status::InvalidArgument(
-                "Unsupported lib type! Make sure your lib type is one of 'so' and 'jar'!");
+                "Unsupported lib type! Make sure your lib type is one of 'so' and 'jar' and "
+                "'wat'!");
     }
     return Status::OK();
 }
@@ -356,6 +359,8 @@ std::string UserFunctionCache::_make_lib_file(int64_t function_id, const std::st
     ss << _lib_dir << '/' << shard << '/' << function_id << '.' << checksum;
     if (type == LibType::JAR) {
         ss << '.' << file_name;
+    } else if (type == LibType::WAT) {
+        ss << '.' << file_name;
     } else {
         ss << ".so";
     }
@@ -366,6 +371,14 @@ Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url,
                                       const std::string& checksum, std::string* libpath) {
     std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
     RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, entry, LibType::JAR));
+    *libpath = entry->lib_file;
+    return Status::OK();
+}
+
+Status UserFunctionCache::get_watpath(int64_t fid, const std::string& url,
+                                      const std::string& checksum, std::string* libpath) {
+    std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
+    RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, entry, LibType::WAT));
     *libpath = entry->lib_file;
     return Status::OK();
 }

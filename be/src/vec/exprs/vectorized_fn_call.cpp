@@ -41,6 +41,7 @@
 #include "vec/functions/function_agg_state.h"
 #include "vec/functions/function_java_udf.h"
 #include "vec/functions/function_rpc.h"
+#include "vec/functions/function_wasm.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/util.hpp"
 
@@ -70,6 +71,14 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = FunctionRPC::create(_fn, argument_template, _data_type);
+    } else if (_fn.binary_type == TFunctionBinaryType::WASM_UDF) {
+        if (config::enable_wasm_support) {
+            _function = FunctionWasm::create(_fn, argument_template, _data_type);
+        } else {
+            return Status::InternalError(
+                    "Wasm UDF is not enabled, you can change be config enable_wasm_support to true "
+                    "and restart be.");
+        }
     } else if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         if (config::enable_java_support) {
             _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
