@@ -163,6 +163,9 @@ public class BeLoadRebalancer extends Rebalancer {
                 }
             }
 
+            LOG.debug("high be {}, medium: {}, path high: {}, remainingPaths: {}, chose high disk: {}",
+                    beStat.getBeId(), medium, pathHigh, remainingPaths, choseHighDisk);
+
             if (remainingPaths.isEmpty()) {
                 continue;
             }
