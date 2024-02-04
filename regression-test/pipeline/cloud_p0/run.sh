@@ -4,11 +4,11 @@
 : <<EOF
 #!/bin/bash
 
-if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/run-tpcds.sh ]]; then
+if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/run.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/
-    bash -x run-tpcds.sh
+    bash -x run.sh
 else
-    echo "Build Step file missing: regression-test/pipeline/cloud_p0/run-tpcds.sh" && exit 1
+    echo "Build Step file missing: regression-test/pipeline/cloud_p0/run.sh" && exit 1
 fi
 EOF
 ############################# run.sh content ########################################
