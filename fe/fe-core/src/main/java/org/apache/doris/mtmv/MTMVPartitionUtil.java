@@ -178,6 +178,9 @@ public class MTMVPartitionUtil {
                 continue;
             }
             MTMVRelatedTableIf mtmvRelatedTableIf = (MTMVRelatedTableIf) table;
+            if (!mtmvRelatedTableIf.needAutoRefresh()) {
+                continue;
+            }
             if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE && mtmv
                     .getMvPartitionInfo().getRelatedTableInfo().equals(baseTableInfo)) {
                 PartitionItem item = mtmv.getPartitionInfo().getItemOrAnalysisException(partitionId);
