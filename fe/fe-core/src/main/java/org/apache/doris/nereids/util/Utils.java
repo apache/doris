@@ -256,4 +256,16 @@ public class Utils {
     public static <T> List<T> copyRequiredList(List<T> list) {
         return ImmutableList.copyOf(Objects.requireNonNull(list, "non-null list is required"));
     }
+
+    /**
+     * Check the content if contains chinese or not, if true when contains chinese or false
+     */
+    public static boolean containChinese(String text) {
+        for (char textChar : text.toCharArray()) {
+            if (Character.UnicodeScript.of(textChar) == Character.UnicodeScript.HAN) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
