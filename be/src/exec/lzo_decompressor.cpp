@@ -274,8 +274,14 @@ Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
         return Status::InternalError(ss.str());
     }
 
-    // 6. skip level
-    ++ptr;
+    // 6. unsupported level: 7, 8, 9
+    uint8_t level;
+    ptr = get_uint8(ptr, &level);
+    if (level > 6) {
+        std::stringstream ss;
+        ss << "unsupported lzo level: " << level;
+        return Status::InternalError(ss.str());
+    }
 
     // 7. flags
     uint32_t flags;
