@@ -2779,7 +2779,7 @@ public:
             url_decode(url_val.to_string(), &decoded_url);
 
             StringOP::push_value_string(decoded_url, i, res_chars, res_offsets);
-            decode_url.clear();
+            decoded_url.clear();
         }
 
         block.get_by_position(result).column = std::move(res);
