@@ -223,6 +223,7 @@ void Daemon::memory_maintenance_thread() {
             doris::MemInfo::refresh_allocator_mem();
             if (config::enable_system_metrics) {
                 DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
+                DorisBvarMetrics::instance()->system_metrics()->update_allocator_metrics();
             }
 #endif
 
@@ -339,7 +340,8 @@ void Daemon::calculate_metrics_thread() {
                 // 2. max disk io util
                 DorisMetrics::instance()->system_metrics()->update_max_disk_io_util_percent(
                         lst_disks_io_time, 15);
-
+                DorisBvarMetrics::instance()->system_metrics()->update_max_disk_io_util_percent(
+                        lst_disks_io_time, 15);
                 // update lst map
                 DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
 
@@ -351,6 +353,10 @@ void Daemon::calculate_metrics_thread() {
                 DorisMetrics::instance()->system_metrics()->update_max_network_send_bytes_rate(
                         max_send);
                 DorisMetrics::instance()->system_metrics()->update_max_network_receive_bytes_rate(
+                        max_receive);
+                DorisBvarMetrics::instance()->system_metrics()->update_max_network_send_bytes_rate(
+                        max_send);
+                DorisBvarMetrics::instance()->system_metrics()->update_max_network_receive_bytes_rate(
                         max_receive);
                 // update lst map
                 DorisMetrics::instance()->system_metrics()->get_network_traffic(

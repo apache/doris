@@ -46,6 +46,9 @@ namespace doris {
     name = std::make_shared<BvarAdderMetric<int64_t>>(type, unit, #name, description, group_name, \
                                                       labels, core);
 
+#define INIT_DOUBLE_BVAR_METRIC(name, type, unit, description, group_name, labels, core)           \
+    name = std::make_shared<BvarAdderMetric<double>>(type, unit, #name, description, group_name, \
+                                                      labels, core);
 // /proc/stat: http://www.linuxhowtos.org/System/procstat.htm
 struct CpuBvarMetrics {
     CpuBvarMetrics(std::shared_ptr<BvarMetricEntity> entity, std::string cpu_name) {
@@ -289,6 +292,70 @@ struct NetworkBvarMetrics {
     std::shared_ptr<BvarAdderMetric<int64_t>> network_send_packets;
 };
 
+struct FileDescriptorBvarMetrics {
+    FileDescriptorBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
+        INIT_INT64_BVAR_METRIC(fd_num_limit, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,"", "", Labels(), false);
+        INIT_INT64_BVAR_METRIC(fd_num_used, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(), false);
+        entity->register_metric("fd_num_limit", *fd_num_limit);
+        entity->register_metric("fd_num_used", *fd_num_used);
+    }
+
+    std::shared_ptr<BvarAdderMetric<int64_t>> fd_num_limit;
+    std::shared_ptr<BvarAdderMetric<int64_t>> fd_num_used;
+};
+
+// metrics read from /proc/net/snmp
+struct SnmpBvarMetrics {
+    SnmpBvarMetrics(std::shared_ptr<BvarMetricEntity> entity){
+        INIT_INT64_BVAR_METRIC(snmp_tcp_in_errs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "The number of all problematic TCP packets received", "", Labels(), false)
+        INIT_INT64_BVAR_METRIC(snmp_tcp_retrans_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "All TCP packets retransmitted", "", Labels(), false)
+        INIT_INT64_BVAR_METRIC(snmp_tcp_in_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "All received TCP packets", "", Labels(), false)
+        INIT_INT64_BVAR_METRIC(snmp_tcp_out_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,  "All send TCP packets with RST mark", "", Labels(), false)
+        entity->register_metric("snmp_tcp_in_errs", *snmp_tcp_in_errs);
+        entity->register_metric("snmp_tcp_retrans_segs", *snmp_tcp_retrans_segs);
+        entity->register_metric("snmp_tcp_in_segs", *snmp_tcp_in_segs);
+        entity->register_metric("snmp_tcp_out_segs", *snmp_tcp_out_segs);
+    }
+
+    std::shared_ptr<BvarAdderMetric<int64_t>> snmp_tcp_in_errs;
+    std::shared_ptr<BvarAdderMetric<int64_t>> snmp_tcp_retrans_segs;
+    std::shared_ptr<BvarAdderMetric<int64_t>> snmp_tcp_in_segs;
+    std::shared_ptr<BvarAdderMetric<int64_t>> snmp_tcp_out_segs;
+};
+
+struct LoadAverageBvarMetrics {
+    LoadAverageBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
+        INIT_DOUBLE_BVAR_METRIC(load_average_1_minutes, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,"", "load_average", Labels({{"mode", "1_minutes"}}), false);
+        INIT_DOUBLE_BVAR_METRIC(load_average_5_minutes, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,  "", "load_average", Labels({{"mode", "5_minutes"}}), false);
+        INIT_DOUBLE_BVAR_METRIC(load_average_15_minutes, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,  "", "load_average", Labels({{"mode", "15_minutes"}}), false);
+        entity->register_metric("load_average_1_minutes", *load_average_1_minutes);
+        entity->register_metric("load_average_5_minutes", *load_average_5_minutes);
+        entity->register_metric("load_average_15_minutes", *load_average_15_minutes);
+    }
+
+    std::shared_ptr<BvarAdderMetric<double>> load_average_1_minutes;
+    std::shared_ptr<BvarAdderMetric<double>> load_average_5_minutes;
+    std::shared_ptr<BvarAdderMetric<double>> load_average_15_minutes;
+};
+
+struct ProcBvarMetrics {
+    ProcBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
+        INIT_INT64_BVAR_METRIC(proc_interrupt, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "", "proc", Labels({{"mode", "interrupt"}}), false);
+        INIT_INT64_BVAR_METRIC(proc_ctxt_switch, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "", "proc", Labels({{"mode", "ctxt_switch"}}), false);
+        INIT_INT64_BVAR_METRIC(proc_procs_running, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "", "proc", Labels({{"mode", "procs_running"}}), false);
+        INIT_INT64_BVAR_METRIC(proc_procs_blocked, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "", "proc", Labels({{"mode", "procs_blocked"}}), false);
+        entity->register_metric("proc_interrupt", *proc_interrupt);
+        entity->register_metric("proc_ctxt_switch", *proc_ctxt_switch);
+        entity->register_metric("proc_procs_running", *proc_procs_running);
+        entity->register_metric("proc_procs_blocked", *proc_procs_blocked);
+    }
+
+    std::shared_ptr<BvarAdderMetric<int64_t>> proc_interrupt;
+    std::shared_ptr<BvarAdderMetric<int64_t>> proc_ctxt_switch;
+    std::shared_ptr<BvarAdderMetric<int64_t>> proc_procs_running;
+    std::shared_ptr<BvarAdderMetric<int64_t>> proc_procs_blocked;
+};
+
 std::string SystemBvarMetrics::to_prometheus(const std::string& registry_name) const {
     std::stringstream ss;
     for (auto& entities : entities_map_) {
@@ -314,6 +381,11 @@ SystemBvarMetrics::SystemBvarMetrics(const std::set<std::string>& disk_devices,
     install_memory_metrics();
     install_disk_metrics(disk_devices);
     install_net_metrics(network_interfaces);
+    install_fd_metrics();
+    install_snmp_metrics();
+    install_load_avg_metrics();
+    install_proc_metrics();
+    install_max_metrics();
     update();
 }
 
@@ -338,6 +410,21 @@ void SystemBvarMetrics::update() {
     update_memory_metrics();
     update_disk_metrics();
     update_net_metrics();
+    update_fd_metrics();
+    update_snmp_metrics();
+    update_load_avg_metrics();
+    update_proc_metrics();
+}
+
+void SystemBvarMetrics::install_max_metrics() {
+    auto max_entity = std::make_shared<BvarMetricEntity>("max", BvarMetricType::GAUGE);
+    INIT_INT64_BVAR_METRIC(max_disk_io_util_percent, BvarMetricType::GAUGE, BvarMetricUnit::PERCENT, "", "", Labels(), true)
+    INIT_INT64_BVAR_METRIC(max_network_send_bytes_rate, BvarMetricType::GAUGE, BvarMetricUnit::BYTES,  "", "", Labels(), true)
+    INIT_INT64_BVAR_METRIC(max_network_receive_bytes_rate, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), true)
+    max_entity->register_metric("max_disk_io_util_percent", *max_disk_io_util_percent);
+    max_entity->register_metric("max_network_send_bytes_rate", *max_network_send_bytes_rate);
+    max_entity->register_metric("max_network_receive_bytes_rate", *max_network_receive_bytes_rate);
+    entities_map_["max"].push_back(max_entity);  
 }
 
 void SystemBvarMetrics::install_cpu_metrics() {
@@ -349,6 +436,16 @@ void SystemBvarMetrics::install_cpu_metrics() {
         entities_map_["cpu"].push_back(cpu_entity);
     }
 }
+
+#ifdef BE_TEST
+const char* k_ut_stat_path;
+const char* k_ut_diskstats_path;
+const char* k_ut_net_dev_path;
+const char* k_ut_fd_path;
+const char* k_ut_net_snmp_path;
+const char* k_ut_load_avg_path;
+const char* k_ut_vmstat_path;
+#endif
 
 void SystemBvarMetrics::update_cpu_metrics() {
 #ifdef BE_TEST
@@ -598,6 +695,221 @@ void SystemBvarMetrics::update_net_metrics() {
     fclose(fp);
 }
 
+void SystemBvarMetrics::install_fd_metrics() {
+    auto fd_entity = std::make_shared<BvarMetricEntity>("fd_num", BvarMetricType::GAUGE);
+    fd_metrics_= std::make_shared<FileDescriptorBvarMetrics>(fd_entity);
+    entities_map_["fd_num"].push_back(fd_entity);
+}
+
+void SystemBvarMetrics::update_fd_metrics() {
+#ifdef BE_TEST
+    FILE* fp = fopen(k_ut_fd_path, "r");
+#else
+    FILE* fp = fopen("/proc/sys/fs/file-nr", "r");
+#endif
+    if (fp == nullptr) {
+        char buf[64];
+        LOG(WARNING) << "open /proc/sys/fs/file-nr failed, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+        return;
+    }
+
+    // /proc/sys/fs/file-nr: https://www.kernel.org/doc/Documentation/sysctl/fs.txt
+    // 1 - the number of allocated file handles
+    // 2 - the number of allocated but unused file handles
+    // 3 - the maximum number of file handles
+
+    int64_t values[3];
+    if (getline(&line_ptr_, &line_buf_size_, fp) > 0) {
+        memset(values, 0, sizeof(values));
+        int num = sscanf(line_ptr_, "%" PRId64 " %" PRId64 " %" PRId64, &values[0], &values[1],
+                         &values[2]);
+        if (num == 3) {
+            fd_metrics_->fd_num_limit->set_value(values[2]);
+            fd_metrics_->fd_num_used->set_value(values[0] - values[1]);
+        }
+    }
+
+    if (ferror(fp) != 0) {
+        char buf[64];
+        LOG(WARNING) << "getline failed, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+    }
+    fclose(fp);
+}
+
+void SystemBvarMetrics::install_snmp_metrics() {
+    auto snmp_entity = std::make_shared<BvarMetricEntity>("snmp", BvarMetricType::COUNTER);
+    snmp_metrics_= std::make_shared<SnmpBvarMetrics>(snmp_entity);
+    entities_map_["snmp"].push_back(snmp_entity);
+}
+
+void SystemBvarMetrics::update_snmp_metrics() {
+#ifdef BE_TEST
+    // to mock proc
+    FILE* fp = fopen(k_ut_net_snmp_path, "r");
+#else
+    FILE* fp = fopen("/proc/net/snmp", "r");
+#endif
+    if (fp == nullptr) {
+        char buf[64];
+        LOG(WARNING) << "open /proc/net/snmp failed, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+        return;
+    }
+
+    // We only care about Tcp lines, so skip other lines in front of Tcp line
+    int res = 0;
+    while ((res = getline(&line_ptr_, &line_buf_size_, fp)) > 0) {
+        if (strstr(line_ptr_, "Tcp") != nullptr) {
+            break;
+        }
+    }
+    if (res <= 0) {
+        char buf[64];
+        LOG(WARNING) << "failed to skip lines of /proc/net/snmp, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+        fclose(fp);
+        return;
+    }
+
+    // parse the Tcp header
+    // Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts InCsumErrors
+    std::vector<std::string> headers = strings::Split(line_ptr_, " ");
+    std::unordered_map<std::string, int32_t> header_map;
+    int32_t pos = 0;
+    for (auto& h : headers) {
+        header_map.emplace(h, pos++);
+    }
+
+    // read the metrics of TCP
+    if (getline(&line_ptr_, &line_buf_size_, fp) < 0) {
+        char buf[64];
+        LOG(WARNING) << "failed to skip Tcp header line of /proc/net/snmp, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+        fclose(fp);
+        return;
+    }
+
+    // metric line looks like:
+    // Tcp: 1 200 120000 -1 47849374 38601877 3353843 2320314 276 1033354613 1166025166 825439 12694 23238924 0
+    std::vector<std::string> metrics = strings::Split(line_ptr_, " ");
+    if (metrics.size() != headers.size()) {
+        LOG(WARNING) << "invalid tcp metrics line: " << line_ptr_;
+        fclose(fp);
+        return;
+    }
+    int64_t retrans_segs = atoi64(metrics[header_map["RetransSegs"]]);
+    int64_t in_errs = atoi64(metrics[header_map["InErrs"]]);
+    int64_t in_segs = atoi64(metrics[header_map["InSegs"]]);
+    int64_t out_segs = atoi64(metrics[header_map["OutSegs"]]);
+    snmp_metrics_->snmp_tcp_retrans_segs->set_value(retrans_segs);
+    snmp_metrics_->snmp_tcp_in_errs->set_value(in_errs);
+    snmp_metrics_->snmp_tcp_in_segs->set_value(in_segs);
+    snmp_metrics_->snmp_tcp_out_segs->set_value(out_segs);
+
+    if (ferror(fp) != 0) {
+        char buf[64];
+        LOG(WARNING) << "getline failed, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+    }
+    fclose(fp);
+}
+
+void SystemBvarMetrics::install_load_avg_metrics() {
+    auto load_average_entity = std::make_shared<BvarMetricEntity>("load_average", BvarMetricType::COUNTER);
+    load_average_metrics_= std::make_shared<LoadAverageBvarMetrics>(load_average_entity);
+    entities_map_["load_average"].push_back(load_average_entity);
+}
+
+void SystemBvarMetrics::update_load_avg_metrics() {
+#ifdef BE_TEST
+    FILE* fp = fopen(k_ut_load_avg_path, "r");
+#else
+    FILE* fp = fopen("/proc/loadavg", "r");
+#endif
+    if (fp == nullptr) {
+        char buf[64];
+        LOG(WARNING) << "open /proc/loadavg failed, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+        return;
+    }
+
+    double values[3];
+    if (getline(&line_ptr_, &line_buf_size_, fp) > 0) {
+        memset(values, 0, sizeof(values));
+        int num = sscanf(line_ptr_, "%lf %lf %lf", &values[0], &values[1], &values[2]);
+        if (num == 3) {
+            load_average_metrics_->load_average_1_minutes->set_value(values[0]);
+            load_average_metrics_->load_average_5_minutes->set_value(values[1]);
+            load_average_metrics_->load_average_15_minutes->set_value(values[2]);
+        }
+    }
+
+    if (ferror(fp) != 0) {
+        char buf[64];
+        LOG(WARNING) << "getline failed, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+    }
+    fclose(fp);
+}
+
+void SystemBvarMetrics::install_proc_metrics() {
+    auto proc_entity = std::make_shared<BvarMetricEntity>("proc", BvarMetricType::COUNTER);
+    proc_metrics_= std::make_shared<ProcBvarMetrics>(proc_entity);
+    entities_map_["load_average"].push_back(proc_entity);
+}
+
+void SystemBvarMetrics::update_proc_metrics() {
+#ifdef BE_TEST
+    FILE* fp = fopen(k_ut_stat_path, "r");
+#else
+    FILE* fp = fopen("/proc/stat", "r");
+#endif
+    if (fp == nullptr) {
+        char buf[64];
+        LOG(WARNING) << "open /proc/stat failed, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+        return;
+    }
+
+    uint64_t inter = 0, ctxt = 0, procs_r = 0, procs_b = 0;
+    while (getline(&line_ptr_, &line_buf_size_, fp) > 0) {
+        char* start_pos = nullptr;
+        start_pos = strstr(line_ptr_, "intr ");
+        if (start_pos) {
+            sscanf(start_pos, "intr %" PRIu64, &inter);
+            proc_metrics_->proc_interrupt->set_value(inter);
+        }
+
+        start_pos = strstr(line_ptr_, "ctxt ");
+        if (start_pos) {
+            sscanf(start_pos, "ctxt %" PRIu64, &ctxt);
+            proc_metrics_->proc_ctxt_switch->set_value(ctxt);
+        }
+
+        start_pos = strstr(line_ptr_, "procs_running ");
+        if (start_pos) {
+            sscanf(start_pos, "procs_running %" PRIu64, &procs_r);
+            proc_metrics_->proc_procs_running->set_value(procs_r);
+        }
+
+        start_pos = strstr(line_ptr_, "procs_blocked ");
+        if (start_pos) {
+            sscanf(start_pos, "procs_blocked %" PRIu64, &procs_b);
+            proc_metrics_->proc_procs_blocked->set_value(procs_b);
+        }
+    }
+
+    if (ferror(fp) != 0) {
+        char buf[64];
+        LOG(WARNING) << "getline failed, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+    }
+
+    fclose(fp);
+}
+
 void SystemBvarMetrics::get_metrics_from_proc_vmstat() {
 #ifdef BE_TEST
     FILE* fp = fopen(k_ut_vmstat_path, "r");
@@ -671,4 +983,125 @@ void SystemBvarMetrics::get_cpu_name() {
 
     fclose(fp);
 }
+
+void SystemBvarMetrics::get_disks_io_time(std::map<std::string, int64_t>* map) {
+    map->clear();
+    for (auto& it : disk_metrics_) {
+        map->emplace(it.first, it.second->disk_io_time_ms->get_value());
+    }
+}
+
+int64_t SystemBvarMetrics::get_max_io_util(const std::map<std::string, int64_t>& lst_value,
+                                       int64_t interval_sec) {
+    int64_t max = 0;
+    for (auto& it : disk_metrics_) {
+        int64_t cur = it.second->disk_io_time_ms->get_value();
+        const auto find = lst_value.find(it.first);
+        if (find == lst_value.end()) {
+            continue;
+        }
+        int64_t incr = cur - find->second;
+        if (incr > max) max = incr;
+    }
+    return max / interval_sec / 10;
+}
+
+void SystemBvarMetrics::get_network_traffic(std::map<std::string, int64_t>* send_map,
+                                        std::map<std::string, int64_t>* rcv_map) {
+    send_map->clear();
+    rcv_map->clear();
+    for (auto& it : network_metrics_) {
+        if (it.first == "lo") {
+            continue;
+        }
+        send_map->emplace(it.first, it.second->network_send_bytes->get_value());
+        rcv_map->emplace(it.first, it.second->network_receive_bytes->get_value());
+    }
+}
+
+void SystemBvarMetrics::get_max_net_traffic(const std::map<std::string, int64_t>& lst_send_map,
+                                        const std::map<std::string, int64_t>& lst_rcv_map,
+                                        int64_t interval_sec, int64_t* send_rate,
+                                        int64_t* rcv_rate) {
+    int64_t max_send = 0;
+    int64_t max_rcv = 0;
+    for (auto& it : network_metrics_) {
+        int64_t cur_send = it.second->network_send_bytes->get_value();
+        int64_t cur_rcv = it.second->network_receive_bytes->get_value();
+
+        const auto find_send = lst_send_map.find(it.first);
+        if (find_send != lst_send_map.end()) {
+            int64_t incr = cur_send - find_send->second;
+            if (incr > max_send) max_send = incr;
+        }
+        const auto find_rcv = lst_rcv_map.find(it.first);
+        if (find_rcv != lst_rcv_map.end()) {
+            int64_t incr = cur_rcv - find_rcv->second;
+            if (incr > max_rcv) max_rcv = incr;
+        }
+    }
+
+    *send_rate = max_send / interval_sec;
+    *rcv_rate = max_rcv / interval_sec;
+}
+
+void SystemBvarMetrics::update_max_disk_io_util_percent(const std::map<std::string, int64_t>& lst_value,
+                                                    int64_t interval_sec) {
+    max_disk_io_util_percent->set_value(get_max_io_util(lst_value, interval_sec));
+}
+
+void SystemBvarMetrics::update_max_network_send_bytes_rate(int64_t max_send_bytes_rate) {
+    max_network_send_bytes_rate->set_value(max_send_bytes_rate);
+}
+
+void SystemBvarMetrics::update_max_network_receive_bytes_rate(int64_t max_receive_bytes_rate) {
+    max_network_receive_bytes_rate->set_value(max_receive_bytes_rate);
+}
+
+void SystemBvarMetrics::update_allocator_metrics() {
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+    LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
+#elif defined(USE_JEMALLOC)
+    memory_metrics_->memory_jemalloc_allocated_bytes->set_value(
+            MemInfo::get_je_metrics("stats.allocated"));
+    memory_metrics_->memory_jemalloc_active_bytes->set_value(
+            MemInfo::get_je_metrics("stats.active"));
+    memory_metrics_->memory_jemalloc_metadata_bytes->set_value(
+            MemInfo::get_je_metrics("stats.metadata"));
+    memory_metrics_->memory_jemalloc_resident_bytes->set_value(
+            MemInfo::get_je_metrics("stats.resident"));
+    memory_metrics_->memory_jemalloc_mapped_bytes->set_value(
+            MemInfo::get_je_metrics("stats.mapped"));
+    memory_metrics_->memory_jemalloc_retained_bytes->set_value(
+            MemInfo::get_je_metrics("stats.retained"));
+    memory_metrics_->memory_jemalloc_tcache_bytes->set_value(
+            MemInfo::get_je_all_arena_metrics("tcache_bytes"));
+    memory_metrics_->memory_jemalloc_pactive_num->set_value(
+            MemInfo::get_je_all_arena_metrics("pactive"));
+    memory_metrics_->memory_jemalloc_pdirty_num->set_value(
+            MemInfo::get_je_all_arena_metrics("pdirty"));
+    memory_metrics_->memory_jemalloc_pmuzzy_num->set_value(
+            MemInfo::get_je_all_arena_metrics("pmuzzy"));
+    memory_metrics_->memory_jemalloc_dirty_purged_num->set_value(
+            MemInfo::get_je_all_arena_metrics("dirty_purged"));
+    memory_metrics_->memory_jemalloc_muzzy_purged_num->set_value(
+            MemInfo::get_je_all_arena_metrics("muzzy_purged"));
+#else
+    memory_metrics_->memory_tcmalloc_allocated_bytes->set_value(
+            MemInfo::get_tc_metrics("generic.total_physical_bytes"));
+    memory_metrics_->memory_tcmalloc_total_thread_cache_bytes->set_value(
+            MemInfo::allocator_cache_mem());
+    memory_metrics_->memory_tcmalloc_central_cache_free_bytes->set_value(
+            MemInfo::get_tc_metrics("tcmalloc.central_cache_free_bytes"));
+    memory_metrics_->memory_tcmalloc_transfer_cache_free_bytes->set_value(
+            MemInfo::get_tc_metrics("tcmalloc.transfer_cache_free_bytes"));
+    memory_metrics_->memory_tcmalloc_thread_cache_free_bytes->set_value(
+            MemInfo::get_tc_metrics("tcmalloc.thread_cache_free_bytes"));
+    memory_metrics_->memory_tcmalloc_pageheap_free_bytes->set_value(
+            MemInfo::get_tc_metrics("tcmalloc.pageheap_free_bytes"));
+    memory_metrics_->memory_tcmalloc_pageheap_unmapped_bytes->set_value(
+            MemInfo::get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"));
+#endif
+}
+
 } // namespace doris
