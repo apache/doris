@@ -1022,7 +1022,7 @@ public class Config extends ConfigBase {
 
     // when run urgent disk balance, shuffle the top large tablets
     @ConfField(mutable = true, masterOnly = true)
-    public static double urgent_balance_shuffle_large_tablet_percentage = 0.1;
+    public static double urgent_balance_shuffle_large_tablet_percentage = 0.01;
 
     @ConfField(mutable = true, masterOnly = true)
     public static double urgent_balance_pick_large_tablet_num_threshold = 1000;
