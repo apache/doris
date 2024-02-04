@@ -2757,8 +2757,6 @@ public:
 
                         const ColumnNumbers& arguments, size_t result,
                         size_t input_rows_count) const override {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& null_map_data = null_map->get_data();
 
         auto res = ColumnString::create();
         auto& res_offsets = res->get_offsets();
@@ -2774,10 +2772,6 @@ public:
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map_data[i]) {
-                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                continue;
-            }
 
             auto source = url_col->get_data_at(i);
             StringRef url_val(const_cast<char*>(source.data), source.size);
