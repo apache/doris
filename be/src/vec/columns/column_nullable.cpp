@@ -313,6 +313,15 @@ void ColumnNullable::insert_indices_from(const IColumn& src, const uint32_t* ind
     _need_update_has_null = true;
 }
 
+void ColumnNullable::insert_indices_from_not_has_null(const IColumn& src,
+                                                      const uint32_t* indices_begin,
+                                                      const uint32_t* indices_end) {
+    const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
+    get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin,
+                                            indices_end);
+    _get_null_map_column().resize(get_nested_column().size());
+}
+
 void ColumnNullable::insert(const Field& x) {
     if (x.is_null()) {
         get_nested_column().insert_default();

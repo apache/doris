@@ -23,6 +23,7 @@
 #include "runtime/thread_context.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
 #include "vec/columns/column_filter_helper.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vhash_join_node.h"
 
@@ -57,7 +58,20 @@ ProcessHashTableProbe<JoinOpType, Parent>::ProcessHashTableProbe(Parent* parent,
           _right_col_idx((_is_right_semi_anti && !_have_other_join_conjunct)
                                  ? 0
                                  : _parent->left_table_data_types().size()),
-          _right_col_len(_parent->right_table_data_types().size()) {}
+          _right_col_len(_parent->right_table_data_types().size()) {
+    _right_fast_nullable.resize(_right_output_slot_flags->size());
+    for (int i = 0; i < _right_col_len; i++) {
+        const auto& column = *_build_block->safe_get_by_position(i).column;
+        if ((*_right_output_slot_flags)[i] && column.is_nullable()) {
+            const auto& nullable = assert_cast<const ColumnNullable&>(column);
+            _right_fast_nullable[i] = !simd::contain_byte(nullable.get_null_map_data().data() + 1,
+                                                          nullable.size() - 1, 1);
+
+        } else {
+            _right_fast_nullable[i] = false;
+        }
+    }
+}
 
 template <int JoinOpType, typename Parent>
 void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
@@ -79,8 +93,14 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
             if (output_slot_flags[i]) {
-                mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
-                                                              _build_indexs.data() + size);
+                if (_right_fast_nullable[i]) {
+                    assert_cast<ColumnNullable*>(mcol[i + _right_col_idx].get())
+                            ->insert_indices_from_not_has_null(column, _build_indexs.data(),
+                                                               _build_indexs.data() + size);
+                } else {
+                    mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
+                                                                  _build_indexs.data() + size);
+                }
             } else {
                 mcol[i + _right_col_idx]->insert_many_defaults(size);
             }
