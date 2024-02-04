@@ -20,7 +20,7 @@ source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/g
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 
 # shellcheck source=/dev/null
-# upload_doris_log_to_oss
+# upload_doris_log_to_oss, download_oss_file
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
 # shellcheck source=/dev/null
 # stop_doris, install_fdb, clean_fdb, print_doris_conf,
@@ -44,10 +44,13 @@ DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 exit_flag=0
 (
+    echo "#### 1. download doris binary"
+    export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile_result"}"
+    if ! download_oss_file "${pull_request_num}_${commit_id}.tar.gz"; then return 1; fi
+
     echo "#### 1. try to kill old doris process"
     stop_doris
-    install_fdb
-    clean_fdb
+    install_fdb && clean_fdb "cloud_instance_0"
 
     echo "#### 2. setup warehouse"
     #TODO
@@ -76,9 +79,6 @@ exit_flag=0
     if ! start_doris_fe; then exit 1; fi
     if ! start_doris_recycler; then exit 1; fi
     if ! start_doris_be; then exit 1; fi
-
-
-
 
     echo "#### 4. reset session variables"
     if ! reset_doris_session_variables; then exit 1; fi

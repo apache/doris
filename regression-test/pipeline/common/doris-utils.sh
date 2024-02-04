@@ -530,3 +530,92 @@ print_doris_conf() {
     fi
     echo -e "INFO: ----------------------------------------\n\n\n\n"
 }
+
+function create_warehouse() {
+    if [[ -z ${COS_ak} || -z ${COS_sk} ]]; then
+        echo "ERROR: env COS_ak and COS_sk are required." && return 1
+    fi
+    if curl "127.0.0.1:5000/MetaService/http/create_instance?token=greedisgood9999" -d "{
+        \"instance_id\": \"cloud_instance_0\",
+        \"name\":\"cloud_instance_0\",
+        \"user_id\":\"user-id\",
+        \"obj_info\": {
+            \"provider\": \"COS\",
+            \"region\": \"ap-beijing\",
+            \"bucket\": \"doris-build-1308700295\",
+            \"prefix\": \"ci\",
+            \"endpoint\": \"cos.ap-beijing.myqcloud.com\",
+            \"external_endpoint\": \"cos.ap-beijing.myqcloud.com\",
+            \"ak\": \"${COS_ak}\",
+            \"sk\": \"${COS_sk}\"
+        }
+    }"; then
+        echo
+    else
+        return 1
+    fi
+}
+
+function warehouse_add_fe() {
+    local ret
+    if curl "127.0.0.1:5000/MetaService/http/add_cluster?token=greedisgood9999" -d "{
+        \"instance_id\": \"cloud_instance_0\",
+        \"cluster\":{
+            \"type\":\"SQL\",
+            \"cluster_name\":\"RESERVED_CLUSTER_NAME_FOR_SQL_SERVER\",
+            \"cluster_id\":\"RESERVED_CLUSTER_ID_FOR_SQL_SERVER\",
+            \"nodes\":[
+                {
+                    \"cloud_unique_id\":\"cloud_unique_id_sql_server00\",
+                    \"ip\":\"127.0.0.1\",
+                    \"edit_log_port\":\"9010\",
+                    \"node_type\":\"FE_MASTER\"
+                }
+            ]
+        }
+    }"; then
+        # check
+        if ret=$(curl "127.0.0.1:5000/MetaService/http/get_cluster?token=greedisgood9999" -d "{
+            \"instance_id\": \"cloud_instance_0\",
+            \"cloud_unique_id\":\"cloud_unique_id_sql_server00\",
+            \"cluster_name\":\"RESERVED_CLUSTER_NAME_FOR_SQL_SERVER\",
+            \"cluster_id\":\"RESERVED_CLUSTER_ID_FOR_SQL_SERVER\"
+        }"); then
+            echo -e "warehouse_add_fe:\n${ret}"
+        fi
+    else
+        return 1
+    fi
+
+}
+
+function warehouse_add_be() {
+    local ret
+    if curl "127.0.0.1:5000/MetaService/http/add_cluster?token=greedisgood9999" -d "{
+        \"instance_id\": \"cloud_instance_0\",
+        \"cluster\":{
+            \"type\":\"COMPUTE\",
+            \"cluster_name\":\"cluster_name0\",
+            \"cluster_id\":\"cluster_id0\",
+            \"nodes\":[
+                {
+                    \"cloud_unique_id\":\"cloud_unique_id_compute_node0\",
+                    \"ip\":\"127.0.0.1\",
+                    \"heartbeat_port\":\"9050\"
+                }
+            ]
+        }
+    }"; then
+        # check
+        if ret=$(curl "127.0.0.1:5000/MetaService/http/get_cluster?token=greedisgood9999" -d "{
+            \"instance_id\": \"cloud_instance_0\",
+            \"cloud_unique_id\":\"cloud_unique_id_compute_node0\",
+            \"cluster_name\":\"cluster_name0\",
+            \"cluster_id\":\"cluster_id0\"
+        }"); then
+            echo -e "warehouse_add_be:\n${ret}"
+        fi
+    else
+        return 1
+    fi
+}
