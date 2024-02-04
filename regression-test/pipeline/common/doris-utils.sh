@@ -53,7 +53,8 @@ function set_doris_conf_value() {
 
 function start_doris_ms() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if ! "${DORIS_HOME}"/ms/bin/start.sh --meta-service --daemonized; then
+    cd "${DORIS_HOME}"/ms || return 1
+    if ! ./bin/start.sh --meta-service --daemonized; then
         echo "ERROR: start doris meta-service failed." && return 1
     fi
     local i=1
@@ -71,7 +72,8 @@ function start_doris_ms() {
 
 function start_doris_recycler() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if ! "${DORIS_HOME}"/recycler/bin/start.sh --recycler --daemonized; then
+    cd "${DORIS_HOME}"/recycler || return 1
+    if ! ./bin/start.sh --recycler --daemonized; then
         echo "ERROR: start doris recycler failed." && return 1
     fi
     local i=1
