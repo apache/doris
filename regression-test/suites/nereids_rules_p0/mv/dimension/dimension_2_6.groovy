@@ -81,10 +81,10 @@ suite("partition_mv_rewrite_dimension_2_6") {
     );"""
 
     sql """
-    drop table if exists partsupp
+    drop table if exists partsupp_2_6
     """
 
-    sql """CREATE TABLE `partsupp` (
+    sql """CREATE TABLE `partsupp_2_6` (
       `ps_partkey` INT NULL,
       `ps_suppkey` INT NULL,
       `ps_availqty` INT NULL,
@@ -124,7 +124,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
     """
 
     sql"""
-    insert into partsupp values 
+    insert into partsupp_2_6 values 
     (1, 1, 1, 99.5, 'yy'),
     (null, 2, 2, 109.2, 'mm'),
     (3, null, 1, 99.5, 'yy'); 
@@ -132,7 +132,7 @@ suite("partition_mv_rewrite_dimension_2_6") {
 
     sql """analyze table orders_2_6 with sync;"""
     sql """analyze table lineitem_2_6 with sync;"""
-    sql """analyze table partsupp with sync;"""
+    sql """analyze table partsupp_2_6 with sync;"""
 
     def create_mv_lineitem = { mv_name, mv_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
