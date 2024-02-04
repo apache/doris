@@ -1803,7 +1803,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         try {
             List<TPipelineWorkloadGroup> tWorkloadGroupList = null;
-            if (Config.enable_workload_group) {
+            // mysql load request not carry user info, need fix it later.
+            boolean hasUserName = !StringUtils.isEmpty(ctx.getQualifiedUser());
+            if (Config.enable_workload_group && hasUserName) {
                 tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ctx);
             }
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
