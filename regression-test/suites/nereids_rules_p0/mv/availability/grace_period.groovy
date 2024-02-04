@@ -254,7 +254,7 @@ suite("grace_period") {
             o_orderdate,
             l_partkey,
             l_suppkey""",
-            10,
+            15,
             "l_shipdate")
 
     sql """
@@ -294,7 +294,43 @@ suite("grace_period") {
         """)
         contains("${mv_partition_allow_staleness_name}(${mv_partition_allow_staleness_name})")
     }
-    Thread.sleep(10000);
+    sql "SET enable_materialized_view_rewrite=false"
+    // allow 10s staleness when partition table, and query use the partition changed, should success,
+    // but disable materialized view rewrite, should fail
+    explain {
+        sql("""
+        select l_shipdate, o_orderdate, l_partkey,
+        l_suppkey, sum(o_totalprice) as sum_total
+        from lineitem_partition
+        left join orders_partition on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+        where l_shipdate = '2023-10-17'
+        group by
+        l_shipdate,
+        o_orderdate,
+        l_partkey,
+        l_suppkey;
+        """)
+        notContains("${mv_partition_allow_staleness_name}(${mv_partition_allow_staleness_name})")
+    }
+    // allow 10s staleness when partition table, and query doesn't use the partition changed,
+    // but disable materialized view rewrite, should fail
+    explain {
+        sql("""
+        select l_shipdate, o_orderdate, l_partkey,
+        l_suppkey, sum(o_totalprice) as sum_total
+        from lineitem_partition
+        left join orders_partition on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+        where l_shipdate = '2023-10-18'
+        group by
+        l_shipdate,
+        o_orderdate,
+        l_partkey,
+        l_suppkey;
+        """)
+        notContains("${mv_partition_allow_staleness_name}(${mv_partition_allow_staleness_name})")
+    }
+    sql "SET enable_materialized_view_rewrite=true"
+    Thread.sleep(15000);
     // after 10s when partition table, and query use the partition changed, should fail
     explain {
         sql("""
@@ -332,8 +368,6 @@ suite("grace_period") {
 
 
 
-
-
     def mv_un_partition_allow_staleness_name = "mv_un_partition_allow_staleness"
     create_un_partition_mv(mv_un_partition_allow_staleness_name,
             """
@@ -346,7 +380,7 @@ suite("grace_period") {
             o_orderdate,
             l_partkey,
             l_suppkey""",
-            10)
+            15)
 
     sql """
     insert into lineitem_partition values 
@@ -384,7 +418,41 @@ suite("grace_period") {
         """)
         contains("${mv_un_partition_allow_staleness_name}(${mv_un_partition_allow_staleness_name})")
     }
-    Thread.sleep(10000);
+    sql "SET enable_materialized_view_rewrite=false"
+    // allow 10s staleness when un partition table, but disable materialized view rewrite, should fail
+    explain {
+        sql("""
+        select l_shipdate, o_orderdate, l_partkey,
+        l_suppkey, sum(o_totalprice) as sum_total
+        from lineitem_partition
+        left join orders_partition on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+        where l_shipdate = '2023-10-17'
+        group by
+        l_shipdate,
+        o_orderdate,
+        l_partkey,
+        l_suppkey;
+        """)
+        notContains("${mv_un_partition_allow_staleness_name}(${mv_un_partition_allow_staleness_name})")
+    }
+    // allow 10s staleness when un partition table, but disable materialized view rewrite, should fail
+    explain {
+        sql("""
+        select l_shipdate, o_orderdate, l_partkey,
+        l_suppkey, sum(o_totalprice) as sum_total
+        from lineitem_partition
+        left join orders_partition on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+        where l_shipdate = '2023-10-18'
+        group by
+        l_shipdate,
+        o_orderdate,
+        l_partkey,
+        l_suppkey;
+        """)
+        notContains("${mv_un_partition_allow_staleness_name}(${mv_un_partition_allow_staleness_name})")
+    }
+    sql "SET enable_materialized_view_rewrite=true"
+    Thread.sleep(15000);
     // after 10s when un partition table, and query use the partition changed, should fail
     explain {
         sql("""
