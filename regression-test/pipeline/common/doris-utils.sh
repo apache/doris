@@ -459,10 +459,11 @@ archive_doris_logs() {
         archive_content="${archive_content} be/storage/error_log"
     fi
 
+    # shellcheck disable=SC2086
     if tar -I pigz \
         --directory "${DORIS_HOME}" \
         -cf "${DORIS_HOME}/${archive_name}" \
-        "${archive_content}"; then
+        ${archive_content}; then
         echo "${DORIS_HOME}/${archive_name}"
     else
         return 1

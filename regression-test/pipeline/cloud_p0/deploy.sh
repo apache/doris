@@ -3,7 +3,6 @@
 ########################### Teamcity Build Step: Command Line #######################
 : <<EOF
 #!/bin/bash
-export DEBUG=true
 
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/deploy.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0
@@ -83,6 +82,7 @@ exit_flag=0
     echo -e "\n\ntuned session variables:\n$(cat "${session_variables_file}")\n\n"
     set_doris_session_variables_from_file "${session_variables_file}"
     # record session variables
+    set +x
     show_session_variables &>"${DORIS_HOME}"/session_variables
 )
 exit_flag="$?"
