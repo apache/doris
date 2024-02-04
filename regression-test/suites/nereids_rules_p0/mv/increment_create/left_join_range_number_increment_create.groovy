@@ -24,10 +24,10 @@ suite("left_join_range_number_increment_create") {
     sql "SET enable_nereids_timeout = false"
 
     sql """
-    drop table if exists orders
+    drop table if exists orders_left_3
     """
 
-    sql """CREATE TABLE `orders` (
+    sql """CREATE TABLE `orders_left_3` (
       `o_orderkey` BIGINT not NULL,
       `o_custkey` INT NULL,
       `o_orderstatus` VARCHAR(1) NULL,
@@ -52,10 +52,10 @@ suite("left_join_range_number_increment_create") {
     );"""
 
     sql """
-    drop table if exists lineitem
+    drop table if exists lineitem_left_3
     """
 
-    sql """CREATE TABLE `lineitem` (
+    sql """CREATE TABLE `lineitem_left_3` (
       `l_orderkey` BIGINT not NULL,
       `l_linenumber` INT NULL,
       `l_partkey` INT NULL,
@@ -86,7 +86,7 @@ suite("left_join_range_number_increment_create") {
     );"""
 
     sql """
-    insert into orders values 
+    insert into orders_left_3 values 
     (2, 1, 'o', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (1, null, 'k', 109.2, 'c','d',2, 'mm', '2023-10-17'),
     (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-19'),
@@ -100,7 +100,7 @@ suite("left_join_range_number_increment_create") {
     """
 
     sql """
-    insert into lineitem values 
+    insert into lineitem_left_3 values 
     (2, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
@@ -110,8 +110,8 @@ suite("left_join_range_number_increment_create") {
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
     """
 
-    sql """analyze table orders with sync;"""
-    sql """analyze table lineitem with sync;"""
+    sql """analyze table orders_left_3 with sync;"""
+    sql """analyze table lineitem_left_3 with sync;"""
 
     def mv_name = "mv_left_range_number"
     def partition_by_part_col = "l_orderkey"
@@ -181,63 +181,63 @@ suite("left_join_range_number_increment_create") {
 
     def primary_tb_change = {
         sql """
-        insert into lineitem values 
+        insert into lineitem_left_3 values 
         (2, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
         """
     }
     def slave_tb_change = {
         sql"""
-        insert into orders values 
+        insert into orders_left_3 values 
         (2, 5, 'ok', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'); 
         """
     }
 
     // no window func + on partition col
     def mv_sql_1 = """select l_shipdate, l_orderkey, count(l_shipdate), count(l_orderkey)
-        from lineitem
-        left join orders
-        on lineitem.l_shipdate = orders.o_orderdate
+        from lineitem_left_3
+        left join orders_left_3
+        on lineitem_left_3.l_shipdate = orders_left_3.o_orderdate
         group by l_shipdate, l_orderkey"""
 
     def mv_sql_3 = """select l_shipdate, l_orderkey, o_orderdate, o_orderkey   
-        from lineitem
-        left join orders
-        on lineitem.l_shipdate = orders.o_orderdate
+        from lineitem_left_3
+        left join orders_left_3
+        on lineitem_left_3.l_shipdate = orders_left_3.o_orderdate
         """
 
     // no window func + on not partition col
     def mv_sql_4 = """select l_shipdate, l_orderkey, count(l_shipdate), count(l_orderkey)
-        from lineitem 
-        left join orders 
-        on lineitem.l_orderkey = orders.o_orderkey 
+        from lineitem_left_3 
+        left join orders_left_3 
+        on lineitem_left_3.l_orderkey = orders_left_3.o_orderkey 
         group by l_shipdate, l_orderkey"""
 
     def mv_sql_6 = """select l_shipdate, l_orderkey, o_orderdate, o_orderkey   
-        from lineitem
-        left join orders
-        on lineitem.l_orderkey = orders.o_orderkey
+        from lineitem_left_3
+        left join orders_left_3
+        on lineitem_left_3.l_orderkey = orders_left_3.o_orderkey
         """
 
     // window func
     def mv_sql_7 = """select l_shipdate, l_orderkey, O_ORDERDATE, 
-        count(orders.O_ORDERDATE) over (partition by lineitem.L_SHIPDATE order by lineitem.L_ORDERKEY) as window_count 
-        from lineitem 
-        left join orders 
-        on lineitem.l_orderkey = orders.o_orderkey 
+        count(orders_left_3.O_ORDERDATE) over (partition by lineitem_left_3.L_SHIPDATE order by lineitem_left_3.L_ORDERKEY) as window_count 
+        from lineitem_left_3 
+        left join orders_left_3 
+        on lineitem_left_3.l_orderkey = orders_left_3.o_orderkey 
         group by l_shipdate, l_orderkey, O_ORDERDATE"""
 
     def mv_sql_8 = """select l_shipdate, l_orderkey, O_ORDERDATE,
-        count(orders.O_ORDERDATE) over (partition by lineitem.l_orderkey order by lineitem.l_orderkey) as window_count
-        from lineitem
-        left join orders
-        on lineitem.l_orderkey = orders.o_orderkey
+        count(orders_left_3.O_ORDERDATE) over (partition by lineitem_left_3.l_orderkey order by lineitem_left_3.l_orderkey) as window_count
+        from lineitem_left_3
+        left join orders_left_3
+        on lineitem_left_3.l_orderkey = orders_left_3.o_orderkey
         group by l_shipdate, l_orderkey, O_ORDERDATE"""
 
     def mv_sql_9 = """select l_shipdate, l_orderkey, O_ORDERDATE, 
-        count(orders.O_ORDERDATE) over (order by lineitem.l_orderkey) as window_count 
-        from lineitem 
-        left join orders 
-        on lineitem.l_orderkey = orders.o_orderkey 
+        count(orders_left_3.O_ORDERDATE) over (order by lineitem_left_3.l_orderkey) as window_count 
+        from lineitem_left_3 
+        left join orders_left_3 
+        on lineitem_left_3.l_orderkey = orders_left_3.o_orderkey 
         group by l_shipdate, l_orderkey, O_ORDERDATE"""
 
 

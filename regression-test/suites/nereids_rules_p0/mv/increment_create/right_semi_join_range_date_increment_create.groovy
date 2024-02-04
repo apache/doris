@@ -24,10 +24,10 @@ suite("right_semi_join_range_date_increment_create") {
     sql "SET enable_nereids_timeout = false"
 
     sql """
-    drop table if exists orders
+    drop table if exists orders_right_semi_2
     """
 
-    sql """CREATE TABLE `orders` (
+    sql """CREATE TABLE `orders_right_semi_2` (
       `o_orderkey` BIGINT NULL,
       `o_custkey` INT NULL,
       `o_orderstatus` VARCHAR(1) NULL,
@@ -47,10 +47,10 @@ suite("right_semi_join_range_date_increment_create") {
     );"""
 
     sql """
-    drop table if exists lineitem
+    drop table if exists lineitem_right_semi_2
     """
 
-    sql """CREATE TABLE `lineitem` (
+    sql """CREATE TABLE `lineitem_right_semi_2` (
       `l_orderkey` BIGINT NULL,
       `l_linenumber` INT NULL,
       `l_partkey` INT NULL,
@@ -77,7 +77,7 @@ suite("right_semi_join_range_date_increment_create") {
     );"""
 
     sql """
-    insert into orders values 
+    insert into orders_right_semi_2 values 
     (null, 1, 'o', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (1, null, 'k', 109.2, 'c','d',2, 'mm', '2023-10-17'),
     (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-19'),
@@ -91,7 +91,7 @@ suite("right_semi_join_range_date_increment_create") {
     """
 
     sql """
-    insert into lineitem values 
+    insert into lineitem_right_semi_2 values 
     (null, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
@@ -101,8 +101,8 @@ suite("right_semi_join_range_date_increment_create") {
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
     """
 
-    sql """analyze table orders with sync;"""
-    sql """analyze table lineitem with sync;"""
+    sql """analyze table orders_right_semi_2 with sync;"""
+    sql """analyze table lineitem_right_semi_2 with sync;"""
 
 
     def mv_name = "mv_right_semi_range_date"
@@ -172,63 +172,63 @@ suite("right_semi_join_range_date_increment_create") {
 
     def primary_tb_change = {
         sql """
-        insert into lineitem values 
+        insert into lineitem_right_semi_2 values 
         (2, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
         """
     }
     def slave_tb_change = {
         sql"""
-        insert into orders values 
+        insert into orders_right_semi_2 values 
         (2, 5, 'ok', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'); 
         """
     }
 
     // no window func + on partition col
     def mv_sql_1 = """select o_custkey, o_totalprice, o_orderdate, o_orderkey, 1 
-        from lineitem
-        right join orders
-        on lineitem.l_shipdate = orders.o_orderdate
+        from lineitem_right_semi_2
+        right join orders_right_semi_2
+        on lineitem_right_semi_2.l_shipdate = orders_right_semi_2.o_orderdate
         group by o_custkey, o_totalprice, o_orderdate, o_orderkey"""
 
     def mv_sql_3 = """select o_custkey, o_totalprice, o_orderdate, o_orderkey, 1 
-        from lineitem
-        right join orders
-        on lineitem.l_shipdate = orders.o_orderdate
+        from lineitem_right_semi_2
+        right join orders_right_semi_2
+        on lineitem_right_semi_2.l_shipdate = orders_right_semi_2.o_orderdate
         """
 
     // no window func + on not partition col
     def mv_sql_4 = """select o_custkey, o_totalprice, o_orderdate, o_orderkey, 1 
-        from lineitem 
-        right join orders 
-        on lineitem.l_orderkey = orders.o_orderkey 
+        from lineitem_right_semi_2 
+        right join orders_right_semi_2 
+        on lineitem_right_semi_2.l_orderkey = orders_right_semi_2.o_orderkey 
         group by o_custkey, o_totalprice, o_orderdate, o_orderkey"""
 
     def mv_sql_6 = """select o_custkey, o_totalprice, o_orderdate, o_orderkey, 1   
-        from lineitem
-        right join orders
-        on lineitem.l_orderkey = orders.o_orderkey 
+        from lineitem_right_semi_2
+        right join orders_right_semi_2
+        on lineitem_right_semi_2.l_orderkey = orders_right_semi_2.o_orderkey 
         """
 
     // window func
     def mv_sql_10 = """select o_custkey, o_totalprice, O_ORDERDATE, o_orderkey, 
-        count(orders.O_ORDERDATE) over (partition by orders.O_ORDERDATE order by orders.o_orderkey) as window_count 
-        from lineitem 
-        right join orders 
-        on lineitem.l_orderkey = orders.o_orderkey 
+        count(orders_right_semi_2.O_ORDERDATE) over (partition by orders_right_semi_2.O_ORDERDATE order by orders_right_semi_2.o_orderkey) as window_count 
+        from lineitem_right_semi_2 
+        right join orders_right_semi_2 
+        on lineitem_right_semi_2.l_orderkey = orders_right_semi_2.o_orderkey 
         group by o_custkey, o_totalprice, O_ORDERDATE, o_orderkey"""
 
     def mv_sql_11 = """select o_custkey, o_totalprice, O_ORDERDATE, o_orderkey, 
-        count(orders.O_ORDERDATE) over (partition by orders.o_orderkey order by orders.o_orderkey) as window_count
-        from lineitem
-        right join orders
-        on lineitem.l_orderkey = orders.o_orderkey
+        count(orders_right_semi_2.O_ORDERDATE) over (partition by orders_right_semi_2.o_orderkey order by orders_right_semi_2.o_orderkey) as window_count
+        from lineitem_right_semi_2
+        right join orders_right_semi_2
+        on lineitem_right_semi_2.l_orderkey = orders_right_semi_2.o_orderkey
         group by o_custkey, o_totalprice, O_ORDERDATE, o_orderkey"""
 
     def mv_sql_12 = """select o_custkey, o_totalprice, O_ORDERDATE, o_orderkey, 
-        count(orders.O_ORDERDATE) over (order by orders.o_orderkey) as window_count 
-        from lineitem 
-        right join orders 
-        on lineitem.l_orderkey = orders.o_orderkey 
+        count(orders_right_semi_2.O_ORDERDATE) over (order by orders_right_semi_2.o_orderkey) as window_count 
+        from lineitem_right_semi_2 
+        right join orders_right_semi_2 
+        on lineitem_right_semi_2.l_orderkey = orders_right_semi_2.o_orderkey 
         group by o_custkey, o_totalprice, O_ORDERDATE, o_orderkey"""
 
     def compare_res = { def stmt ->

@@ -24,10 +24,10 @@ suite("cross_join_range_date_increment_create") {
     sql "SET enable_nereids_timeout = false"
 
     sql """
-    drop table if exists orders
+    drop table if exists orders_cross_2
     """
 
-    sql """CREATE TABLE `orders` (
+    sql """CREATE TABLE `orders_cross_2` (
       `o_orderkey` BIGINT NULL,
       `o_custkey` INT NULL,
       `o_orderstatus` VARCHAR(1) NULL,
@@ -47,10 +47,10 @@ suite("cross_join_range_date_increment_create") {
     );"""
 
     sql """
-    drop table if exists lineitem
+    drop table if exists lineitem_cross_2
     """
 
-    sql """CREATE TABLE `lineitem` (
+    sql """CREATE TABLE `lineitem_cross_2` (
       `l_orderkey` BIGINT NULL,
       `l_linenumber` INT NULL,
       `l_partkey` INT NULL,
@@ -77,7 +77,7 @@ suite("cross_join_range_date_increment_create") {
     );"""
 
     sql """
-    insert into orders values 
+    insert into orders_cross_2 values 
     (null, 1, 'o', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (1, null, 'k', 109.2, 'c','d',2, 'mm', '2023-10-17'),
     (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-19'),
@@ -91,7 +91,7 @@ suite("cross_join_range_date_increment_create") {
     """
 
     sql """
-    insert into lineitem values 
+    insert into lineitem_cross_2 values 
     (null, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
@@ -101,8 +101,8 @@ suite("cross_join_range_date_increment_create") {
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
     """
 
-    sql """analyze table orders with sync;"""
-    sql """analyze table lineitem with sync;"""
+    sql """analyze table orders_cross_2 with sync;"""
+    sql """analyze table lineitem_cross_2 with sync;"""
 
 
     def mv_name = "mv_cross_range_date"
@@ -172,75 +172,75 @@ suite("cross_join_range_date_increment_create") {
 
     def primary_tb_change = {
         sql """
-        insert into lineitem values 
+        insert into lineitem_cross_2 values 
         (2, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
         """
     }
     def slave_tb_change = {
         sql"""
-        insert into orders values 
+        insert into orders_cross_2 values 
         (2, 5, 'ok', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'); 
         """
     }
 
     // no window func + on partition col
     def mv_sql_1 = """select l_shipdate, l_orderkey, o_orderdate, o_orderkey, 1 
-        from lineitem
-        cross join orders
+        from lineitem_cross_2
+        cross join orders_cross_2
         group by l_shipdate, l_orderkey, o_orderdate, o_orderkey"""
 
     def mv_sql_3 = """select l_shipdate, l_orderkey, o_orderdate, o_orderkey, 1 
-        from lineitem
-        cross join orders
+        from lineitem_cross_2
+        cross join orders_cross_2
         """
 
     // no window func + on not partition col
     def mv_sql_4 = """select l_shipdate, l_orderkey, o_orderdate, o_orderkey, 1 
-        from lineitem 
-        cross join orders 
+        from lineitem_cross_2 
+        cross join orders_cross_2 
         group by l_shipdate, l_orderkey, o_orderdate, o_orderkey"""
 
     def mv_sql_6 = """select l_shipdate, l_orderkey, o_orderdate, o_orderkey, 1   
-        from lineitem
-        cross join orders
+        from lineitem_cross_2
+        cross join orders_cross_2
         """
 
     // window func + left col
     def mv_sql_7 = """select l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey, 
-        count(orders.O_ORDERDATE) over (partition by lineitem.L_SHIPDATE order by lineitem.L_ORDERKEY) as window_count 
-        from lineitem 
-        cross join orders 
+        count(orders_cross_2.O_ORDERDATE) over (partition by lineitem_cross_2.L_SHIPDATE order by lineitem_cross_2.L_ORDERKEY) as window_count 
+        from lineitem_cross_2 
+        cross join orders_cross_2 
         group by l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey"""
 
     def mv_sql_8 = """select l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey, 
-        count(orders.O_ORDERDATE) over (partition by lineitem.l_orderkey order by lineitem.l_orderkey) as window_count
-        from lineitem
-        cross join orders
+        count(orders_cross_2.O_ORDERDATE) over (partition by lineitem_cross_2.l_orderkey order by lineitem_cross_2.l_orderkey) as window_count
+        from lineitem_cross_2
+        cross join orders_cross_2
         group by l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey"""
 
     def mv_sql_9 = """select l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey, 
-        count(orders.O_ORDERDATE) over (order by lineitem.l_orderkey) as window_count 
-        from lineitem 
-        cross join orders 
+        count(orders_cross_2.O_ORDERDATE) over (order by lineitem_cross_2.l_orderkey) as window_count 
+        from lineitem_cross_2 
+        cross join orders_cross_2 
         group by l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey"""
 
     // window func + right col
     def mv_sql_10 = """select l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey, 
-        count(orders.O_ORDERDATE) over (partition by orders.O_ORDERDATE order by lineitem.L_ORDERKEY) as window_count 
-        from lineitem 
-        cross join orders 
+        count(orders_cross_2.O_ORDERDATE) over (partition by orders_cross_2.O_ORDERDATE order by lineitem_cross_2.L_ORDERKEY) as window_count 
+        from lineitem_cross_2 
+        cross join orders_cross_2 
         group by l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey"""
 
     def mv_sql_11 = """select l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey, 
-        count(orders.O_ORDERDATE) over (partition by orders.o_orderkey order by lineitem.l_orderkey) as window_count
-        from lineitem
-        cross join orders
+        count(orders_cross_2.O_ORDERDATE) over (partition by orders_cross_2.o_orderkey order by lineitem_cross_2.l_orderkey) as window_count
+        from lineitem_cross_2
+        cross join orders_cross_2
         group by l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey"""
 
     def mv_sql_12 = """select l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey, 
-        count(orders.O_ORDERDATE) over (order by lineitem.l_orderkey) as window_count 
-        from lineitem 
-        cross join orders 
+        count(orders_cross_2.O_ORDERDATE) over (order by lineitem_cross_2.l_orderkey) as window_count 
+        from lineitem_cross_2 
+        cross join orders_cross_2 
         group by l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey"""
 
     def compare_res = { def stmt ->
