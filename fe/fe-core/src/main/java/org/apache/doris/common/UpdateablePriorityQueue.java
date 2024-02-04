@@ -14,39 +14,14 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/execution/resourcegroups/UpdateablePriorityQueue.java
+// and modified by Doris
 
-package org.apache.doris.spi;
+package org.apache.doris.common;
 
-import org.apache.doris.planner.external.SplitWeight;
-
-import java.util.List;
-
-/**
- * Split interface. e.g. Tablet for Olap Table.
- */
-public interface Split {
-
-    String[] getHosts();
-
-    Object getInfo();
-
-    default SplitWeight getSplitWeight() {
-        return SplitWeight.standard();
-    }
-
-    default boolean isRemotelyAccessible() {
-        return true;
-    }
-
-    String getPathString();
-
-    long getStart();
-
-    long getLength();
-
-    List<String> getAlternativeHosts();
-
-    void setAlternativeHosts(List<String> alternativeHosts);
-
+interface UpdateablePriorityQueue<E>
+        extends Queue<E>, Iterable<E> {
+    boolean addOrUpdate(E element, long priority);
 }
 
