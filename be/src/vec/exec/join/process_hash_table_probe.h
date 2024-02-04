@@ -82,7 +82,7 @@ struct ProcessHashTableProbe {
     // in hash table
     template <typename HashTableType>
     Status process_data_in_hashtable(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
-                                     Block* output_block, bool* eos);
+                                     Block* output_block, bool* eos, bool is_mark_join);
 
     /// For null aware join with other conjuncts, if the probe key of one row on left side is null,
     /// we should make this row match with all rows in build side.
