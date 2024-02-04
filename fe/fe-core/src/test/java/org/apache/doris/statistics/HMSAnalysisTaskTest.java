@@ -235,7 +235,7 @@ public class HMSAnalysisTaskTest {
                         + "          SUBSTRING(CAST(MAX(`hour`) AS STRING), 1, 1024) AS `max`,"
                         + "          COUNT(1) * 4 AS `data_size`,"
                         + "          NOW() AS `update_time`"
-                        + "  FROM `hms`.`default`.`test`", sql);
+                        + "  FROM `hms`.`default`.`test` ", sql);
             }
         };
 

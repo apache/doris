@@ -164,6 +164,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         commonParams.put("sampleHints", getSampleHint());
         commonParams.put("limit", "");
         commonParams.put("scaleFactor", "1");
+        commonParams.put("index", "");
         if (col != null) {
             commonParams.put("type", col.getType().toString());
         }
