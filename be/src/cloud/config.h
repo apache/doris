@@ -31,7 +31,7 @@ DECLARE_String(meta_service_endpoint);
 // Set the underlying connection type to pooled.
 DECLARE_Bool(meta_service_connection_pooled);
 DECLARE_mInt64(meta_service_connection_pool_size);
-// A connection will expire after a random time during [base, 2*base], so that  the BE
+// A connection will expire after a random time during [base, 2*base], so that the BE
 // has a chance to connect to a new RS. Set zero to disable it.
 DECLARE_mInt32(meta_service_connection_age_base_minutes);
 // Rebuild the idle connections after the timeout exceeds. Set zero to disable it.
@@ -48,7 +48,7 @@ DECLARE_mInt32(tablet_sync_interval_s);
 
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);
-// For cloud read/write seperate mode
+// For cloud read/write separate mode
 DECLARE_mInt64(base_compaction_freeze_interval_s);
 DECLARE_mInt64(cu_compaction_freeze_interval_s);
 DECLARE_mInt64(cumu_compaction_interval_s);

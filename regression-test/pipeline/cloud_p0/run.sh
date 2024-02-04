@@ -3,7 +3,7 @@
 ########################### Teamcity Build Step: Command Line #######################
 : <<EOF
 #!/bin/bash
-export PATH=/usr/local/software/apache-maven-3.6.3/bin:${PATH}
+export PATH=/usr/local/software/jdk1.8.0_131/bin:/usr/local/software/apache-maven-3.6.3/bin:${PATH}
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/run.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/
     bash -x run.sh
