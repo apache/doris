@@ -624,8 +624,17 @@ public class BackendLoadStatistic {
         info.add(String.valueOf(isAvailable));
         long used = totalUsedCapacityMap.getOrDefault(medium, 0L);
         long total = totalCapacityMap.getOrDefault(medium, 0L);
+        Classification maxDiskClass = null;
+        if (hasAvailPathWithGlobalClazz(medium, Classification.HIGH)) {
+            maxDiskClass = Classification.HIGH;
+        } else if (hasAvailPathWithGlobalClazz(medium, Classification.LOW)) {
+            maxDiskClass = Classification.LOW;
+        } else if (hasAvailPathWithGlobalClazz(medium, Classification.MID)) {
+            maxDiskClass = Classification.MID;
+        }
         info.add(String.valueOf(used));
         info.add(String.valueOf(total));
+        info.add(maxDiskClass != null ? maxDiskClass.name() : "");
         info.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(used * 100
                 / (double) total)));
         info.add(String.valueOf(totalReplicaNumMap.getOrDefault(medium, 0L)));
