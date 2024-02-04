@@ -56,7 +56,7 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                     //boolean unique = child.getLogicalProperties().getFunctionalDependencies()
                     //        .isUniqueAndNotNull(groupby);
                     ImmutableSet<FdItem> fdItems = child.getLogicalProperties().getFdItems();
-                    boolean unique = fdItems.stream().anyMatch(e -> e.getParentExprs()
+                    boolean unique = !groupby.isEmpty() && fdItems.stream().anyMatch(e -> e.getParentExprs()
                             .containsAll(groupby) && e.isUnique() && !e.isCandidate());
                     if (!unique) {
                         return null;
