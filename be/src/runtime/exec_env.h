@@ -56,6 +56,7 @@ class MemTracker;
 class StorageEngine;
 class ResultBufferMgr;
 class ResultQueueMgr;
+class RuntimeQueryStatiticsMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class StreamLoadExecutor;
@@ -112,6 +113,10 @@ public:
         return _pipeline_task_group_scheduler;
     }
     taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
+
+    RuntimeQueryStatiticsMgr* runtime_query_statistics_mgr() {
+        return _runtime_query_statistics_mgr;
+    }
 
     // using template to simplify client cache management
     template <typename T>
@@ -261,6 +266,7 @@ private:
     BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
+    RuntimeQueryStatiticsMgr* _runtime_query_statistics_mgr = nullptr;
 };
 
 template <>

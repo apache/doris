@@ -55,14 +55,10 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.stream_sink) {
             return Status::InternalError("Missing data stream sink.");
         }
-        bool send_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
         // TODO: figure out good buffer size based on size of output row
-        sink->reset(new vectorized::VDataStreamSender(
-                state, pool, params.sender_id, row_desc, thrift_sink.stream_sink,
-                params.destinations, 16 * 1024, send_query_statistics_with_every_batch));
+        sink->reset(new vectorized::VDataStreamSender(state, pool, params.sender_id, row_desc,
+                                                      thrift_sink.stream_sink, params.destinations,
+                                                      16 * 1024));
         // RETURN_IF_ERROR(sender->prepare(state->obj_pool(), thrift_sink.stream_sink));
         break;
     }
@@ -82,20 +78,14 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         }
 
         // TODO: figure out good buffer size based on size of output row
-        bool send_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
         // Result file sink is not the top sink
         if (params.__isset.destinations && params.destinations.size() > 0) {
             sink->reset(new doris::vectorized::VResultFileSink(
                     pool, params.sender_id, row_desc, thrift_sink.result_file_sink,
-                    params.destinations, 16 * 1024, send_query_statistics_with_every_batch,
-                    output_exprs, desc_tbl));
+                    params.destinations, 16 * 1024, output_exprs, desc_tbl));
         } else {
             sink->reset(new doris::vectorized::VResultFileSink(
-                    pool, row_desc, thrift_sink.result_file_sink, 16 * 1024,
-                    send_query_statistics_with_every_batch, output_exprs));
+                    pool, row_desc, thrift_sink.result_file_sink, 16 * 1024, output_exprs));
         }
         break;
     }
@@ -192,14 +182,10 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.stream_sink) {
             return Status::InternalError("Missing data stream sink.");
         }
-        bool send_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
         // TODO: figure out good buffer size based on size of output row
-        sink->reset(new vectorized::VDataStreamSender(
-                state, pool, local_params.sender_id, row_desc, thrift_sink.stream_sink,
-                params.destinations, 16 * 1024, send_query_statistics_with_every_batch));
+        sink->reset(new vectorized::VDataStreamSender(state, pool, local_params.sender_id, row_desc,
+                                                      thrift_sink.stream_sink, params.destinations,
+                                                      16 * 1024));
         // RETURN_IF_ERROR(sender->prepare(state->obj_pool(), thrift_sink.stream_sink));
         break;
     }
@@ -219,20 +205,14 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         }
 
         // TODO: figure out good buffer size based on size of output row
-        bool send_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
         // Result file sink is not the top sink
         if (params.__isset.destinations && params.destinations.size() > 0) {
             sink->reset(new doris::vectorized::VResultFileSink(
                     pool, local_params.sender_id, row_desc, thrift_sink.result_file_sink,
-                    params.destinations, 16 * 1024, send_query_statistics_with_every_batch,
-                    output_exprs, desc_tbl));
+                    params.destinations, 16 * 1024, output_exprs, desc_tbl));
         } else {
             sink->reset(new doris::vectorized::VResultFileSink(
-                    pool, row_desc, thrift_sink.result_file_sink, 16 * 1024,
-                    send_query_statistics_with_every_batch, output_exprs));
+                    pool, row_desc, thrift_sink.result_file_sink, 16 * 1024, output_exprs));
         }
         break;
     }
