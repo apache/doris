@@ -32,7 +32,7 @@ import org.apache.doris.thrift.TStatusCode;
 import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
-import org.apache.hadoop.util.Lists;
+import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
