@@ -55,7 +55,7 @@ public class QueryResult {
     }
 
     public int columnCount() {
-        return metadata().columnCount();
+        return metadata != null ? metadata().columnCount() : 0;
     }
 
     /**
@@ -93,11 +93,11 @@ public class QueryResult {
     }
 
     public Metadata metadata() {
-        return metadata.get();
+        return metadata != null ? metadata.get() : null;
     }
 
     public int jdbcType(int columnIndex) {
-        return metadata().jdbcType(columnIndex);
+        return metadata != null ? metadata().jdbcType(columnIndex) : 0;
     }
 
     public void close() {

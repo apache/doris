@@ -1095,7 +1095,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
             if (sig.type == Signal.Type.VALIDATION) {
                 error(((PlValidationException) sig.exception).getCtx(), sig.exception.getMessage());
             } else if (sig.type == Signal.Type.SQLEXCEPTION) {
-                console.printError("Unhandled exception in HPL/SQL. " + ExceptionUtils.getStackTrace(sig.exception));
+                console.printError("Unhandled exception in PL/SQL. " + ExceptionUtils.getStackTrace(sig.exception));
             } else if (sig.type == Signal.Type.UNSUPPORTED_OPERATION) {
                 console.printError(sig.value == null ? "Unsupported operation" : sig.value);
             } else if (sig.exception != null) {

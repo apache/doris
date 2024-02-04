@@ -136,30 +136,32 @@ public class Stmt {
                 }
             } else if (ctx instanceof Doris_statementContext) { // only from visitStatement
                 // Print all results for standalone Statement.
-                resultListener.onMetadata(query.metadata());
-                int cols = query.columnCount();
-                if (trace) {
-                    trace(ctx, "Standalone statement executed: " + cols + " columns in the result set");
-                }
-                while (query.next()) {
-                    if (resultListener instanceof PlsqlResult) { // if running from mysql clent
-                        resultListener.onMysqlRow(query.mysqlRow());
-                    } else { // if running from plsql.sh
-                        Object[] row = new Object[cols]; // TODO if there is a large amount of data?
-                        for (int i = 0; i < cols; i++) {
-                            row[i] = query.column(i, Object.class);
-                            if (i > 0) {
-                                console.print("\t");
-                            }
-                            console.print(String.valueOf(row[i]));
-                        }
-                        console.printLine("");
-                        exec.incRowCount();
-
-                        resultListener.onRow(row);
+                if (query.metadata() != null) {
+                    resultListener.onMetadata(query.metadata());
+                    int cols = query.columnCount();
+                    if (trace) {
+                        trace(ctx, "Standalone statement executed: " + cols + " columns in the result set");
                     }
+                    while (query.next()) {
+                        if (resultListener instanceof PlsqlResult) { // if running from mysql clent
+                            resultListener.onMysqlRow(query.mysqlRow());
+                        } else { // if running from plsql.sh
+                            Object[] row = new Object[cols]; // TODO if there is a large amount of data?
+                            for (int i = 0; i < cols; i++) {
+                                row[i] = query.column(i, Object.class);
+                                if (i > 0) {
+                                    console.print("\t");
+                                }
+                                console.print(String.valueOf(row[i]));
+                            }
+                            console.printLine("");
+                            exec.incRowCount();
+
+                            resultListener.onRow(row);
+                        }
+                    }
+                    resultListener.onEof();
                 }
-                resultListener.onEof();
             } else { // Scalar subquery, such as visitExpr
                 trace(ctx, "Scalar subquery executed, first row and first column fetched only");
                 if (query.next()) {
@@ -566,8 +568,7 @@ public class Stmt {
     /**
      * GET DIAGNOSTICS EXCEPTION statement
      */
-    public Integer getDiagnosticsException(
-            Get_diag_stmt_exception_itemContext ctx) {
+    public Integer getDiagnosticsException(Get_diag_stmt_exception_itemContext ctx) {
         trace(ctx, "GET DIAGNOSTICS EXCEPTION");
         Signal signal = exec.signalPeek();
         if (signal == null || (signal != null && signal.type != Signal.Type.SQLEXCEPTION)) {
