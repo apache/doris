@@ -117,6 +117,8 @@ public class BeLoadRebalancer extends Rebalancer {
         }
         LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
 
+        List<String> alternativeTabletInfos = Lists.newArrayList();
+
         // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
         // so in clone ut recycleBin need to set to null.
         CatalogRecycleBin recycleBin = null;
@@ -188,6 +190,10 @@ public class BeLoadRebalancer extends Rebalancer {
                     continue;
                 }
 
+                if (alternativeTablets.stream().anyMatch(tabletCtx -> tabletId == tabletCtx.getTabletId())) {
+                    continue;
+                }
+
                 Replica replica = invertedIndex.getReplica(tabletId, beStat.getBeId());
                 if (replica == null) {
                     continue;
@@ -221,6 +227,9 @@ public class BeLoadRebalancer extends Rebalancer {
                     tabletCtx.setPriority(isUrgent ? Priority.NORMAL : Priority.LOW);
 
                     alternativeTablets.add(tabletCtx);
+                    alternativeTabletInfos.add("{ tabletId=" + tabletId + ", beId=" + beStat.getBeId()
+                            + ", pathHash=" + replica.getPathHash()
+                            + ", replicaLocalSize=" + replica.getDataSize() + " }");
                     if (--numOfLowPaths <= 0) {
                         // enough
                         break OUTER;
@@ -239,8 +248,7 @@ public class BeLoadRebalancer extends Rebalancer {
 
         if (!alternativeTablets.isEmpty()) {
             LOG.info("select alternative tablets, medium: {}, is urgent: {}, num: {}, detail: {}",
-                    medium, isUrgent, alternativeTablets.size(),
-                    alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
+                    medium, isUrgent, alternativeTablets.size(), alternativeTabletInfos);
         }
         return alternativeTablets;
     }
