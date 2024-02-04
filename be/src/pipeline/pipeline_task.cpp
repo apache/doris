@@ -213,15 +213,30 @@ Status PipelineTask::execute(bool* eos) {
     if (!_opened) {
         {
             SCOPED_RAW_TIMER(&time_spent);
-            auto st = _open();
-            if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
+            // if _open_status is not ok, could know have execute open function,
+            // now execute open again, so need excluding PIP_WAIT_FOR_RF and PIP_WAIT_FOR_SC error out.
+            if (!_open_status.ok() && !_open_status.is<ErrorCode::PIP_WAIT_FOR_RF>() &&
+                !_open_status.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
+                return _open_status;
+            }
+            // here execute open and not check dependency(eg: the second start rpc arrival)
+            // so if open have some error, and return error status directly, the query will be cancel.
+            // and then the rpc arrival will not found the query as have been canceled and remove.
+            _open_status = _open();
+            if (_open_status.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_RF);
                 return Status::OK();
-            } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
+            } else if (_open_status.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
                 return Status::OK();
             }
-            RETURN_IF_ERROR(st);
+            //if status is not ok, and have dependency to push back to queue again.
+            if (!_open_status.ok() && has_dependency()) {
+                set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
+                return Status::OK();
+            }
+            // if not ok and no dependency, return error to cancel.
+            RETURN_IF_ERROR(_open_status);
         }
         if (has_dependency()) {
             set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
@@ -273,6 +288,9 @@ Status PipelineTask::execute(bool* eos) {
                 break;
             }
         }
+    }
+    if (*eos) { // now only join node/set operation node have add_dependency, and join probe could start when the join sink is eos
+        _finish_p_dependency();
     }
 
     return Status::OK();
@@ -360,10 +378,6 @@ void PipelineTask::set_state(PipelineTaskState state) {
         } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
             _wait_bf_watcher.start();
         }
-    }
-
-    if (state == PipelineTaskState::FINISHED) {
-        _finish_p_dependency();
     }
 
     _cur_state = state;
