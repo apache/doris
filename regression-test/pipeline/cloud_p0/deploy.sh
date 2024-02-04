@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-############################### Build Step: Command Line ############################
+########################### Teamcity Build Step: Command Line #######################
 : <<EOF
 #!/bin/bash
 export DEBUG=true
@@ -77,8 +77,13 @@ exit_flag=0
     if ! start_doris_be; then exit 1; fi
     if ! check_doris_ready; then exit 1; fi
 
-    echo "#### 5. reset session variables"
+    echo "#### 5. set session variables"
     if ! reset_doris_session_variables; then exit 1; fi
+    session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/cloud_p0/conf/session_variables.sql"
+    echo -e "\n\ntuned session variables:\n$(cat "${session_variables_file}")\n\n"
+    set_doris_session_variables_from_file "${session_variables_file}"
+    # record session variables
+    show_session_variables &>"${DORIS_HOME}"/session_variables
 )
 exit_flag="$?"
 

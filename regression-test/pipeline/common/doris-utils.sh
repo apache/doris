@@ -382,37 +382,14 @@ get_session_variable() {
     fi
 }
 
-set_session_variables_from_file() {
-    usage="
-    usage:
-        set_session_variables_from_file FILE
-        FILE content lile '
-        session_variable_key session_variable_value
-        ...
-        '
-    "
+show_session_variables() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if [[ -z "$1" ]]; then echo "${usage}" && return 1; else sv_file="$1"; fi
-
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
-    cl="mysql -h127.0.0.1 -P${query_port} -uroot "
-
-    ret=0
-    while read -r sv; do
-        if [[ "${sv}" == "#"* ]]; then continue; fi
-        k=$(echo "${sv}" | awk '{print $1}')
-        v=$(echo "${sv}" | awk '{print $2}' | tr '[:upper:]' '[:lower:]')
-        if ${cl} -e"set global ${k}=${v};"; then
-            if [[ "$(get_session_variable "${k}" | tr '[:upper:]' '[:lower:]')" == "${v}" ]]; then
-                echo "INFO:      set global ${k}=${v};"
-            else
-                echo "ERROR:     set global ${k}=${v};" && ret=1
-            fi
-        else
-            ret=1
-        fi
-    done <"${sv_file}"
-    return "${ret}"
+    if mysql -h127.0.0.1 -P"${query_port}" -uroot -e"show session variables;"; then
+        return
+    else
+        return 1
+    fi
 }
 
 set_session_variable() {
@@ -453,39 +430,72 @@ function reset_doris_session_variables() {
     fi
 }
 
+function set_doris_session_variables_from_file() {
+    # set session variables from file
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    session_variables_file="$1"
+    if [[ -z ${session_variables_file} ]]; then echo "ERROR: session_variables_file required" && return 1; fi
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    if mysql -h127.0.0.1 -P"${query_port}" -uroot -e"source ${session_variables_file};"; then
+        echo "INFO: set session variables from file ${session_variables_file}, succeed"
+    else
+        echo "ERROR: set session variables from file ${session_variables_file}, failed" && return 1
+    fi
+}
+
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
-    if [[ -d "${DORIS_HOME}"/ms && -d "${DORIS_HOME}"/recycler/ ]]; then
+    archive_content="regression-test/log fe/conf fe/log be/conf be/log session_variables"
+    if [[ -d "${DORIS_HOME}"/ms ]]; then
         cp -rf /var/log/foundationdb "${DORIS_HOME}"/foundationdb/log
-        if tar -I pigz \
-            --directory "${DORIS_HOME}" \
-            -cf "${DORIS_HOME}/${archive_name}" \
-            fe/conf \
-            fe/log \
-            be/conf \
-            be/log \
-            ms/conf \
-            ms/log \
-            recycler/conf \
-            recycler/log \
-            foundationdb/log; then
-            echo "${DORIS_HOME}/${archive_name}"
-        else
-            return 1
-        fi
+        archive_content="${archive_content} ms/conf ms/log foundationdb/log"
+    fi
+    if [[ -d "${DORIS_HOME}"/recycler ]]; then
+        archive_content="${archive_content} recycler/conf recycler/log"
+    fi
+    if [[ -d "${DORIS_HOME}"/be/storage/error_log ]]; then
+        archive_content="${archive_content} be/storage/error_log"
+    fi
+
+    if tar -I pigz \
+        --directory "${DORIS_HOME}" \
+        -cf "${DORIS_HOME}/${archive_name}" \
+        "${archive_content}"; then
+        echo "${DORIS_HOME}/${archive_name}"
     else
-        if tar -I pigz \
-            --directory "${DORIS_HOME}" \
-            -cf "${DORIS_HOME}/${archive_name}" \
-            fe/conf \
-            fe/log \
-            be/conf \
-            be/log; then
-            echo "${DORIS_HOME}/${archive_name}"
-        else
+        return 1
+    fi
+}
+
+archive_doris_coredump() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    archive_name="$1"
+    if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
+    be_pid="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
+    if [[ -z "${be_id}" ]]; then echo "ERROR: can not find be id from ${DORIS_HOME}/be/bin/be.pid" && return 1; fi
+    if corename=$(find /var/lib/apport/coredump/ -type f -name "core.*${be_pid}.*"); then
+        initial_size=$(stat -c %s "${corename}")
+        while true; do
+            sleep 2
+            current_size=$(stat -c %s "${corename}")
+            if [[ ${initial_size} -eq ${current_size} ]]; then
+                break
+            else
+                initial_size=${current_size}
+            fi
+        done
+        file_size=$(stat -c %s "${corename}")
+        if ((file_size > 85899345920)); then
+            echo "coredump size ${file_size} over 80G, not upload"
             return 1
+        else
+            #压缩core文件
+            mv "${corename}" "${DORIS_HOME}"/be/lib/
+            cd "${DORIS_HOME}"/be/lib/ || return 1
+            tar -I pigz -cf core.tar.gz be/lib/doris_be "be/lib/$(basename "${corename}")" >/dev/null
+            echo "$(pwd)/core.tar.gz"
         fi
     fi
 }
@@ -624,4 +634,8 @@ function warehouse_add_be() {
     else
         return 1
     fi
+}
+
+function check_if_need_gcore() {
+    echo
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Build Step: Command Line
+########################### Teamcity Build Step: Command Line #######################
 : <<EOF
 #!/bin/bash
 
@@ -16,7 +16,6 @@ else
     echo "Build Step file missing: regression-test/pipeline/cloud_p0/prepare.sh" && exit 1
 fi
 EOF
-
 #####################################################################################
 ## prepare.sh content ##
 
