@@ -174,7 +174,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
                 need_null_map_for_probe && ignore_null &&
                         (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
                          JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ||
-                         JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN || is_mark_join));
+                         JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                         (is_mark_join && JoinOpType != doris::TJoinOp::RIGHT_SEMI_JOIN)));
     }
 
     auto& mcol = mutable_block.mutable_columns();
@@ -253,7 +254,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
     output_block->swap(mutable_block.to_block());
 
-    if constexpr (is_mark_join) {
+    if constexpr (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
         return do_mark_join_conjuncts<with_other_conjuncts>(
                 output_block, hash_table_ctx.hash_table->get_bucket_size());
     } else if constexpr (with_other_conjuncts) {
@@ -572,11 +573,20 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
 template <int JoinOpType, typename Parent>
 template <typename HashTableType>
 Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
-        HashTableType& hash_table_ctx, MutableBlock& mutable_block, Block* output_block,
-        bool* eos) {
+        HashTableType& hash_table_ctx, MutableBlock& mutable_block, Block* output_block, bool* eos,
+        bool is_mark_join) {
     SCOPED_TIMER(_probe_process_hashtable_timer);
     auto& mcol = mutable_block.mutable_columns();
-    *eos = hash_table_ctx.hash_table->template iterate_map<JoinOpType>(_build_indexs);
+    if (is_mark_join) {
+        std::unique_ptr<ColumnFilterHelper> mark_column =
+                std::make_unique<ColumnFilterHelper>(*mcol[mcol.size() - 1]);
+        *eos = hash_table_ctx.hash_table->template iterate_map<JoinOpType, true>(_build_indexs,
+                                                                                 mark_column.get());
+    } else {
+        *eos = hash_table_ctx.hash_table->template iterate_map<JoinOpType, false>(_build_indexs,
+                                                                                  nullptr);
+    }
+
     auto block_size = _build_indexs.size();
 
     if (block_size) {
@@ -661,7 +671,7 @@ struct ExtractType<T(U)> {
     template Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable<         \
             ExtractType<void(T)>::Type>(ExtractType<void(T)>::Type & hash_table_ctx,              \
                                         MutableBlock & mutable_block, Block * output_block,       \
-                                        bool* eos)
+                                        bool* eos, bool is_mark_join);
 
 #define INSTANTIATION_FOR1(JoinOpType, Parent)                                \
     template struct ProcessHashTableProbe<JoinOpType, Parent>;                \
