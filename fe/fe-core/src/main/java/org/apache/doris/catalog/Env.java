@@ -2144,7 +2144,7 @@ public class Env {
 
     public long loadPlsqlProcedure(DataInputStream in, long checksum) throws IOException {
         plsqlManager = PlsqlManager.read(in);
-        LOG.info("finished replay plsql stored from image");
+        LOG.info("finished replay plsql procedure from image");
         return checksum;
     }
 
@@ -2949,10 +2949,6 @@ public class Env {
             }
         }
         return null;
-    }
-
-    public boolean checkFeHost(String host) {
-        return frontends.values().stream().anyMatch(fe -> fe.getHost().equals(host));
     }
 
     public Frontend getFeByName(String name) {

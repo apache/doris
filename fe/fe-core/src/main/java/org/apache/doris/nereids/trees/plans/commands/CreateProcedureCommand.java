@@ -52,7 +52,7 @@ public class CreateProcedureCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        ctx.getPlsqlQueryExecutor().getExec().functions.removeCached(name);
+        ctx.getPlSqlOperation().getExec().functions.removeCached(name);
         client.addPlsqlStoredProcedure(name, ctx.getCurrentCatalog().getName(), ctx.getDatabase(),
                 ctx.getQualifiedUser(),
                 source, isForce);

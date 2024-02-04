@@ -69,7 +69,7 @@ public class PlsqlQueryExecutor implements QueryExecutor {
             for (int i = 0; i < columns.size(); i++) {
                 PrimitiveType primitiveType = types.get(i).getPrimitiveType();
                 MysqlColType mysqlColType = primitiveType.toMysqlType();
-                colMeta.add(new ColumnMeta(columns.get(i), mysqlColType.getTypeName(), Integer.MIN_VALUE,
+                colMeta.add(new ColumnMeta(columns.get(i), mysqlColType.getName(), Integer.MIN_VALUE,
                         types.get(i)));
             }
             return new Metadata(colMeta);

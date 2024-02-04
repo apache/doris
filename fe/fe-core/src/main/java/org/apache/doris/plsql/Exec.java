@@ -725,11 +725,6 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         }
         sql.add("ADD JAR " + dir + plsqlJarName);
         sql.add("ADD JAR " + dir + "antlr4-runtime-4.5.jar");
-        if (!conf.getLocation().equals("")) {
-            sql.add("ADD FILE " + conf.getLocation());
-        } else {
-            sql.add("ADD FILE " + dir + Conf.SITE_XML);
-        }
         if (dotPlsqlrcExists) {
             sql.add("ADD FILE " + dir + Conf.DOT_PLSQLRC);
         }
@@ -946,7 +941,6 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         PLParser parser = newParser(tokens);
         ParseTree tree = parser.program();
         if (trace) {
-            console.printError("Configuration file: " + conf.getLocation());
             console.printError("Parser tree: " + tree.toStringTree(parser));
         }
         return tree;

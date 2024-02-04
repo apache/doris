@@ -21,7 +21,9 @@ package org.apache.doris.catalog;
 // TYPE codes are defined in the file 'mysql/include/mysql_com.h' enum enum_field_types
 // which is also demostrated in
 // http://dev.mysql.com/doc/internals/en/com-query-response.html
-// typeName from https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-reference-type-conversions.html
+// Name from https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-reference-type-conversions.html
+// In plsql/Var.defineType(), Plsql Var type will be found through the Mysql type name string.
+// TODO, supports the correspondence between Doris type and Plsql Var.
 public enum MysqlColType {
     MYSQL_TYPE_DECIMAL(0, "DECIMAL", "DECIMAL"),
     MYSQL_TYPE_TINY(1, "TINYINT", "TINY INT"),
@@ -56,16 +58,16 @@ public enum MysqlColType {
     MYSQL_TYPE_GEOMETRY(255, "GEOMETRY", "GEOMETRY"),
     MYSQL_TYPE_MAP(400, "MAP", "MAP");
 
-    private MysqlColType(int code, String typeName, String desc) {
+    private MysqlColType(int code, String name, String desc) {
         this.code = code;
-        this.typeName = typeName;
+        this.name = name;
         this.desc = desc;
     }
 
     // used in network
     private int code;
 
-    private String typeName;
+    private String name;
 
     private String desc;
 
@@ -73,8 +75,8 @@ public enum MysqlColType {
         return code;
     }
 
-    public String getTypeName() {
-        return typeName;
+    public String getName() {
+        return name;
     }
 
     @Override

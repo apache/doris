@@ -24,7 +24,6 @@ import org.apache.doris.plsql.Exec.OnError;
 
 import org.apache.hadoop.conf.Configuration;
 
-import java.net.URL;
 import java.util.HashMap;
 
 /**
@@ -32,7 +31,6 @@ import java.util.HashMap;
  */
 public class Conf extends Configuration {
 
-    public static final String SITE_XML = "plsql-site.xml";
     public static final String DOT_PLSQLRC = ".plsqlrc";
     public static final String PLSQLRC = "plsqlrc";
     public static final String PLSQL_LOCALS_SQL = "plsql_locals.sql";
@@ -157,17 +155,5 @@ public class Conf extends Configuration {
      * Load parameters
      */
     public void init() {
-        addResource(SITE_XML);
-    }
-
-    /**
-     * Get the location of the configuration file
-     */
-    public String getLocation() {
-        URL url = getResource(SITE_XML);
-        if (url != null) {
-            return url.toString();
-        }
-        return "";
     }
 }

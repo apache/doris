@@ -32,6 +32,7 @@ public abstract class CallFunc {
     public static CallFunc getFunc(ConnectContext ctx, UserIdentity user, UnboundFunction unboundFunction) {
         String funcName = unboundFunction.getName().toUpperCase();
         switch (funcName) {
+            // TODO, built-in functions require a separate management
             case "EXECUTE_STMT": // Call built-in functions first
                 return CallExecuteStmtFunc.create(user, unboundFunction.getArguments());
             default:

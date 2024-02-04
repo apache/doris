@@ -40,7 +40,7 @@ public class CallProcedure extends CallFunc {
      * Create a CallFunc
      */
     public static CallFunc create(ConnectContext ctx, String source) {
-        PlSqlOperation plSqlOperation = ctx.getPlsqlQueryExecutor();
+        PlSqlOperation plSqlOperation = ctx.getPlSqlOperation();
         return new CallProcedure(plSqlOperation, ctx, source);
     }
 

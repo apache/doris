@@ -30,6 +30,8 @@ public class AutoCloseConnectContext implements AutoCloseable {
     }
 
     public void call() {
+        // try (AutoCloseConnectContext autoCloseCtx = new AutoCloseConnectContext(context)) {
+        // will report autoCloseCtx is not used, so call an empty method.
     }
 
     @Override

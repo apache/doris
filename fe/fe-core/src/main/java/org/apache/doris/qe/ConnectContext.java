@@ -794,7 +794,7 @@ public class ConnectContext {
         return executor;
     }
 
-    public PlSqlOperation getPlsqlQueryExecutor() {
+    public PlSqlOperation getPlSqlOperation() {
         if (plSqlOperation == null) {
             plSqlOperation = new PlSqlOperation();
         }

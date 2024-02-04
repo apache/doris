@@ -2948,9 +2948,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TPlsqlStoredProcedureResult result = new TPlsqlStoredProcedureResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-        if (!Env.getCurrentEnv().checkFeHost(getClientAddrAsString())) {
-            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
-            status.addToErrorMsgs("addPlsqlStoredProcedure only accepts requests from fe.");
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to addPlsqlStoredProcedure:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
             return result;
         }
 
@@ -2976,11 +2978,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TPlsqlStoredProcedureResult result = new TPlsqlStoredProcedureResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-        if (!Env.getCurrentEnv().checkFeHost(getClientAddrAsString())) {
-            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
-            status.addToErrorMsgs("dropPlsqlStoredProcedure only accepts requests from fe.");
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to dropPlsqlStoredProcedure:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
             return result;
         }
+
         if (!request.isSetPlsqlProcedureKey()) {
             status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
             status.addToErrorMsgs("missing stored key.");
@@ -2997,11 +3002,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TPlsqlPackageResult result = new TPlsqlPackageResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-        if (!Env.getCurrentEnv().checkFeHost(getClientAddrAsString())) {
-            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
-            status.addToErrorMsgs("addPlsqlPackage only accepts requests from fe.");
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to addPlsqlPackage:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
             return result;
         }
+
         if (!request.isSetPlsqlPackage()) {
             status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
             status.addToErrorMsgs("missing plsql package.");
@@ -3024,11 +3032,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TPlsqlPackageResult result = new TPlsqlPackageResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-        if (!Env.getCurrentEnv().checkFeHost(getClientAddrAsString())) {
-            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
-            status.addToErrorMsgs("dropPlsqlPackage only accepts requests from fe.");
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to dropPlsqlPackage:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
             return result;
         }
+
         if (!request.isSetPlsqlProcedureKey()) {
             status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
             status.addToErrorMsgs("missing stored key.");
