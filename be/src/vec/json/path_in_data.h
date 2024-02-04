@@ -81,6 +81,12 @@ public:
     void to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const;
     void from_protobuf(const segment_v2::ColumnPathInfo& pb);
 
+    bool operator<(const PathInData& rhs) const {
+        return std::lexicographical_compare(
+                parts.begin(), parts.end(), rhs.parts.begin(), rhs.parts.end(),
+                [](const auto& a, const auto& b) { return a.key < b.key; });
+    }
+
 private:
     /// Creates full path from parts.
     void build_path(const Parts& other_parts);

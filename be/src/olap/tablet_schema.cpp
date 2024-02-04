@@ -617,6 +617,13 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     if (!_column_path.empty()) {
         // CHECK_GT(_parent_col_unique_id, 0);
         _column_path.to_protobuf(column->mutable_column_path_info(), _parent_col_unique_id);
+        // Update unstable information for variant columns. Some of the fields in the tablet schema
+        // are irrelevant for variant sub-columns, but retaining them may lead to an excessive growth
+        // in the number of tablet schema cache entries.
+        if (_type == FieldType::OLAP_FIELD_TYPE_STRING) {
+            column->set_length(INT_MAX);
+        }
+        column->set_index_length(0);
     }
     for (auto& col : _sparse_cols) {
         ColumnPB* sparse_column = column->add_sparse_columns();
