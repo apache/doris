@@ -454,6 +454,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _num_segment += rowset->num_segments();
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
+
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
@@ -570,7 +571,7 @@ Status BaseBetaRowsetWriter::build(RowsetSharedPtr& rowset) {
 
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(),
                                    "too many segments when build new rowset");
-    _build_rowset_meta(_rowset_meta);
+    RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta, true));
 
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
@@ -615,7 +616,8 @@ void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
     VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
 }
 
-void BaseBetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta) {
+Status BaseBetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta,
+                                                bool check_segment_num) {
     int64_t num_rows_written = 0;
     int64_t total_data_size = 0;
     int64_t total_index_size = 0;
@@ -640,8 +642,19 @@ void BaseBetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
     }
 
-    rowset_meta->set_num_segments(_num_seg());
-    // TODO(zhangzhengyu): key_bounds.size() should equal num_seg, but currently not always
+    auto segment_num = _num_seg();
+    if (check_segment_num) {
+        auto segments_encoded_key_bounds_size = segments_encoded_key_bounds.size();
+        if (segments_encoded_key_bounds_size != segment_num) {
+            return Status::InternalError(
+                    "segments_encoded_key_bounds_size should  equal to _num_seg, "
+                    "segments_encoded_key_bounds_size "
+                    "is: {}, _num_seg is: {}",
+                    segments_encoded_key_bounds_size, segment_num);
+        }
+    }
+
+    rowset_meta->set_num_segments(segment_num);
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
@@ -656,15 +669,23 @@ void BaseBetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset
     } else {
         rowset_meta->set_rowset_state(VISIBLE);
     }
+
+    return Status::OK();
 }
 
 Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
+    Status status;
     std::shared_ptr<RowsetMeta> rowset_meta_ = std::make_shared<RowsetMeta>();
     rowset_meta_->init(_rowset_meta.get());
-    _build_rowset_meta(rowset_meta_);
 
-    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
-                                               rowset_meta_, &rowset_ptr);
+    status = _build_rowset_meta(rowset_meta_);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to build rowset meta, res=" << status;
+        return status;
+    }
+
+    status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, rowset_meta_,
+                                          &rowset_ptr);
     DBUG_EXECUTE_IF("BaseBetaRowsetWriter::_build_tmp.create_rowset_failed",
                     { status = Status::InternalError("create rowset failed"); });
     if (!status.ok()) {
