@@ -30,10 +30,10 @@ struct CpuBvarMetrics;
 struct MemoryBvarMetrics;
 struct DiskBvarMetrics;
 struct NetworkBvarMetrics;
-struct FileDescriptorMetrics;
-struct SnmpMetrics;
-struct LoadAverageMetrics;
-struct ProcMetrics;
+struct FileDescriptorBvarMetrics;
+struct SnmpBvarMetrics;
+struct LoadAverageBvarMetrics;
+struct ProcBvarMetrics;
 
 class SystemBvarMetrics {
 public:
@@ -46,7 +46,31 @@ public:
 
     // update metrics
     void update();
+    
+    void get_disks_io_time(std::map<std::string, int64_t>* map);
+    int64_t get_max_io_util(const std::map<std::string, int64_t>& lst_value, int64_t interval_sec);
 
+    void get_network_traffic(std::map<std::string, int64_t>* send_map,
+                             std::map<std::string, int64_t>* rcv_map);
+    void get_max_net_traffic(const std::map<std::string, int64_t>& lst_send_map,
+                             const std::map<std::string, int64_t>& lst_rcv_map,
+                             int64_t interval_sec, int64_t* send_rate, int64_t* rcv_rate);
+
+    void update_max_disk_io_util_percent(const std::map<std::string, int64_t>& lst_value,
+                                         int64_t interval_sec);
+    void update_max_network_send_bytes_rate(int64_t max_send_bytes_rate);
+    void update_max_network_receive_bytes_rate(int64_t max_receive_bytes_rate);
+    void update_allocator_metrics();
+    
+    //for UT
+    CpuBvarMetrics* cpu_metrics(const std::string&name) { return cpu_metrics_[name]; }
+    MemoryBvarMetrics* memory_metrics() { return memory_metric_.get(); }
+    DiskBvarMetrics* disk_metrics(const std::string& name) { return disk_metric_[name]; }
+    NetworkBvarMetrics* network_metrics(const std::string& name) { return network_metric_[name]; }
+    FileDescriptorBvarMetrics* fd_metrics() { return fd_metrics_.get(); }
+    SnmpBvarMetrics* snmp_metrics() { return snmp_metrics_.get(); }
+    LoadAverageBvarMetrics* load_average_metrics() { return load_average_metrics_.get(); }
+    ProcBvarMetrics* proc_metrics() { return proc_metrics_.get(); }
 private:
     void install_cpu_metrics();
     // On Intel(R) Xeon(R) CPU E5-2450 0 @ 2.10GHz;
@@ -59,22 +83,44 @@ private:
     void install_disk_metrics(const std::set<std::string>& disk_devices);
     void update_disk_metrics();
 
+    void install_net_metrics(const std::vector<std::string>& interfaces);
+    void update_net_metrics();
+
+    void install_fd_metrics();
+    void update_fd_metrics();
+
+    void install_snmp_metrics();
+    void update_snmp_metrics();
+
+    void install_load_avg_metrics();
+    void update_load_avg_metrics();
+
+    void install_proc_metrics();
+    void update_proc_metrics();
+
     void get_metrics_from_proc_vmstat();
     void get_cpu_name();
 
-    void install_net_metrics(const std::vector<std::string>& interfaces);
-    void update_net_metrics();
+    void install_max_metrics();
 
 private:
     std::map<std::string, CpuBvarMetrics*> cpu_metrics_;
     std::shared_ptr<MemoryBvarMetrics> memory_metrics_;
     std::map<std::string, DiskBvarMetrics*> disk_metrics_;
     std::map<std::string, NetworkBvarMetrics*> network_metrics_;
+    std::shared_ptr<FileDescriptorBvarMetrics> fd_metrics_;
+    std::shared_ptr<SnmpBvarMetrics> snmp_metrics_;
+    std::shared_ptr<LoadAverageBvarMetrics> load_average_metrics_;
+    std::shared_ptr<ProcBvarMetrics> proc_metrics_;
 
     std::vector<std::string> cpu_names_;
     int proc_net_dev_version_ = 0;
     char* line_ptr_ = nullptr;
     size_t line_buf_size_ = 0;
     std::unordered_map<std::string, std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
+
+    std::shared_ptr<BvarAdderMetric<int64_t>> max_disk_io_util_percent = nullptr;
+    std::shared_ptr<BvarAdderMetric<int64_t>> max_network_send_bytes_rate = nullptr;
+    std::shared_ptr<BvarAdderMetric<int64_t>> max_network_receive_bytes_rate = nullptr;
 };
 } // namespace doris

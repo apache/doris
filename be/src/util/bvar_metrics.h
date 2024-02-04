@@ -101,6 +101,7 @@ public:
     T get_value();
     void increment(T value);
     void set_value(T value);
+    void reset() { adder_->reset(); }
 
     std::string to_prometheus(const std::string& registry_name) const override;
     std::string label_string() const;

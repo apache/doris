@@ -220,7 +220,7 @@ public:
             const std::vector<std::string>& network_interfaces = std::vector<std::string>());
 
     void register_entity(BvarMetricEntity entity);
-    // SystemBvarMetrics* get_system_bvar_metrics() { return system_metrics_.get(); }
+    SystemBvarMetrics* system_metrics() { return system_metrics_.get(); }
 
     std::string to_prometheus() const;
 

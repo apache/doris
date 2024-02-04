@@ -136,5 +136,7 @@ template void BvarMetricEntity::register_metric(const std::string& name,
                                                 BvarAdderMetric<int64_t> metric);
 template void BvarMetricEntity::register_metric(const std::string& name,
                                                 BvarAdderMetric<uint64_t> metric);
+template void BvarMetricEntity::register_metric(const std::string& name,
+                                                BvarAdderMetric<double> metric);
 // template void BvarMetricEntity::register_metric(const std::string& name, T metric)
 } // namespace doris
