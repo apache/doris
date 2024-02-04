@@ -78,7 +78,7 @@ import org.apache.doris.nereids.PLParser.If_plsql_stmtContext;
 import org.apache.doris.nereids.PLParser.If_tsql_stmtContext;
 import org.apache.doris.nereids.PLParser.Include_stmtContext;
 import org.apache.doris.nereids.PLParser.Int_numberContext;
-import org.apache.doris.nereids.PLParser.LabelContext;
+import org.apache.doris.nereids.PLParser.Label_stmtContext;
 import org.apache.doris.nereids.PLParser.Leave_stmtContext;
 import org.apache.doris.nereids.PLParser.Map_object_stmtContext;
 import org.apache.doris.nereids.PLParser.NamedExpressionSeqContext;
@@ -1159,6 +1159,10 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
     @Override
     public Integer visitDoris_statement(Doris_statementContext ctx) {
         Integer rc = exec.stmt.statement(ctx);
+        if (rc != 0) {
+            printExceptions();
+            throw new RuntimeException(exec.signalPeek().getValue());
+        }
         // Sometimes the query results are not returned to the mysql client,
         // such as declare result; select … into result;
         resultListener.onFinalize();
@@ -2094,11 +2098,11 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
      * Label
      */
     @Override
-    public Integer visitLabel(LabelContext ctx) {
+    public Integer visitLabel_stmt(Label_stmtContext ctx) {
         if (ctx.IDENTIFIER() != null) {
             exec.labels.push(ctx.IDENTIFIER().toString());
         } else {
-            String label = ctx.LABEL().getText();
+            String label = ctx.LABEL_PL().getText();
             if (label.endsWith(":")) {
                 label = label.substring(0, label.length() - 1);
             }

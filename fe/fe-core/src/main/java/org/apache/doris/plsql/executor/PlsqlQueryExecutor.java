@@ -49,8 +49,13 @@ public class PlsqlQueryExecutor implements QueryExecutor {
             ConnectProcessor processor = new MysqlConnectProcessor(context);
             processor.executeQuery(MysqlCommand.COM_QUERY, sql);
             StmtExecutor executor = context.getExecutor();
-            return new QueryResult(new DorisRowResult(executor.getCoord(), executor.getColumns(),
-                    executor.getReturnTypes()), () -> metadata(executor), processor, null);
+            if (executor.getParsedStmt().getResultExprs() != null) {
+                return new QueryResult(new DorisRowResult(executor.getCoord(), executor.getColumns(),
+                        executor.getReturnTypes()), () -> metadata(executor), processor, null);
+            } else {
+                return new QueryResult(new DorisRowResult(executor.getCoord(), executor.getColumns(), null),
+                        null, processor, null);
+            }
         } catch (Exception e) {
             return new QueryResult(null, () -> new Metadata(Collections.emptyList()), null, e);
         }

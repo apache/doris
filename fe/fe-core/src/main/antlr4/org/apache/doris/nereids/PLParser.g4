@@ -118,7 +118,7 @@ stmt :
      | values_into_stmt
      | while_stmt
      | unconditional_loop_stmt
-     | label
+     | label_stmt
      | host_pl
      | null_stmt
      | expr_stmt
@@ -327,7 +327,7 @@ package_body_item :
     ;
 
 create_procedure_stmt :
-      (ALTER | CREATE (OR REPLACE)? | REPLACE)? (PROCEDURE | PROC) ident_pl create_routine_params? create_routine_options? (AS | IS)? declare_block_inplace? label? procedure_block (ident_pl SEMICOLON)?
+      (ALTER | CREATE (OR REPLACE)? | REPLACE)? (PROCEDURE | PROC) ident_pl create_routine_params? create_routine_options? (AS | IS)? declare_block_inplace? label_stmt? procedure_block (ident_pl SEMICOLON)?
     ;
 
 create_routine_params :
@@ -508,8 +508,8 @@ for_range_stmt :        // FOR (Integer range) statement
        FOR IDENTIFIER IN REVERSE? expr DOT2 expr ((BY | STEP) expr)? LOOP block END LOOP
      ;
 
-label :
-       LABEL
+label_stmt :
+       LABEL_PL
      | LT LT IDENTIFIER GT GT
      ;
 

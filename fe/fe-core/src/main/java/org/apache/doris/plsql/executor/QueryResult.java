@@ -37,7 +37,7 @@ public class QueryResult {
 
     public QueryResult(RowResult rows, Supplier<Metadata> metadata, ConnectProcessor processor, Exception exception) {
         this.rows = rows;
-        this.metadata = memoize(metadata);
+        this.metadata = metadata != null ? memoize(metadata) : null;
         this.processor = processor;
         this.exception = exception;
     }

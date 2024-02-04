@@ -19,6 +19,9 @@
 
 lexer grammar PLLexer;
 
+// Notice: If syntax parser fails and the exception error is lexer token mismatch,
+// check whether have conflict between PLLexer and DorisLexer,
+// or the PLLexer.tokens file is not updated.
 import DorisLexer;
 
 // Lexer rules
@@ -187,9 +190,6 @@ YES: 'YES';
 //Functionswithspecificsyntax
 ACTIVITY_COUNT: 'ACTIVITY_COUNT';
 CUME_DIST: 'CUME_DIST';
-CURRENT_DATE: 'CURRENT_DATE';
-CURRENT_TIMESTAMP: 'CURRENT_TIMESTAMP';
-CURRENT_USER: 'CURRENT_USER';
 DENSE_RANK: 'DENSE_RANK';
 FIRST_VALUE: 'FIRST_VALUE';
 LAG: 'LAG';
@@ -211,6 +211,6 @@ VARIANCE: 'VARIANCE';
 
 DOT2: '..';
 
-LABEL
+LABEL_PL
     : ([a-zA-Z] | DIGIT | '_')* ':'
     ;

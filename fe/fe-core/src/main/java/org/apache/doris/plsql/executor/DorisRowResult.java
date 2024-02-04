@@ -52,7 +52,7 @@ public class DorisRowResult implements RowResult {
         this.coord = coord;
         this.columnNames = columnNames;
         this.dorisTypes = dorisTypes;
-        this.current = new Object[columnNames.size()];
+        this.current = columnNames != null ? new Object[columnNames.size()] : null;
         this.isLazyLoading = false;
         this.eof = false;
     }
