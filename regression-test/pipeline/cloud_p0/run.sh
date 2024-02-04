@@ -3,13 +3,12 @@
 ########################### Teamcity Build Step: Command Line #######################
 : <<EOF
 #!/bin/bash
-export DEBUG=true
 
-if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-tpcds.sh ]]; then
-    cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
+if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/run-tpcds.sh ]]; then
+    cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/
     bash -x run-tpcds.sh
 else
-    echo "Build Step file missing: regression-test/pipeline/performance/run-tpcds.sh" && exit 1
+    echo "Build Step file missing: regression-test/pipeline/cloud_p0/run-tpcds.sh" && exit 1
 fi
 EOF
 ############################# run.sh content ########################################
