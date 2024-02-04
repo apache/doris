@@ -46,6 +46,7 @@
 #include "util/binary_cast.hpp"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -69,6 +70,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
 
     TQueryGlobals query_globals = params.query_globals;
     _query_id = params.query_id;
+    LOG(INFO) << "fold_query_id: " << print_id(_query_id);
     // init
     RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
