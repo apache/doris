@@ -1031,7 +1031,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1051,7 +1050,7 @@ public:
         for (int i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            auto col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
+            const auto* col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
             offsets_list[i] = &col_str->get_offsets();
             chars_list[i] = &col_str->get_chars();
         }
@@ -1084,8 +1083,8 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             int current_length = 0;
             for (size_t j = 0; j < offsets_list.size(); ++j) {
-                auto& current_offsets = *offsets_list[j];
-                auto& current_chars = *chars_list[j];
+                const auto& current_offsets = *offsets_list[j];
+                const auto& current_chars = *chars_list[j];
 
                 int size = current_offsets[i] - current_offsets[i - 1];
                 if (size > 0) {
@@ -1432,6 +1431,103 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        DCHECK_EQ(arguments.size(), 2);
+        auto res = ColumnString::create();
+
+        ColumnPtr argument_ptr[2];
+        argument_ptr[0] =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        argument_ptr[1] = block.get_by_position(arguments[1]).column;
+
+        if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
+            if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
+                vector_vector(col1->get_chars(), col1->get_offsets(), col2->get_data(),
+                              res->get_chars(), res->get_offsets(),
+                              context->state()->repeat_max_num());
+                block.replace_by_position(result, std::move(res));
+                return Status::OK();
+            } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
+                DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
+                int repeat = 0;
+                repeat = std::min<int>(col2_const->get_int(0), context->state()->repeat_max_num());
+
+                if (repeat <= 0) {
+                    res->insert_many_defaults(input_rows_count);
+                } else {
+                    vector_const(col1->get_chars(), col1->get_offsets(), repeat, res->get_chars(),
+                                 res->get_offsets());
+                }
+                block.replace_by_position(result, std::move(res));
+                return Status::OK();
+            }
+        }
+
+        return Status::RuntimeError("repeat function get error param: {}, {}",
+                                    argument_ptr[0]->get_name(), argument_ptr[1]->get_name());
+    }
+
+    void vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                       const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
+                       ColumnString::Offsets& res_offsets, const int repeat_max_num) const {
+        size_t input_row_size = offsets.size();
+
+        fmt::memory_buffer buffer;
+        res_offsets.resize(input_row_size);
+        for (ssize_t i = 0; i < input_row_size; ++i) {
+            buffer.clear();
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t size = offsets[i] - offsets[i - 1];
+            int repeat = 0;
+            repeat = std::min<int>(repeats[i], repeat_max_num);
+
+            if (repeat <= 0) {
+                StringOP::push_empty_string(i, res_data, res_offsets);
+            } else {
+                for (int j = 0; j < repeat; ++j) {
+                    buffer.append(raw_str, raw_str + size);
+                }
+                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
+                                            res_data, res_offsets);
+            }
+        }
+    }
+
+    // TODO: 1. use pmr::vector<char> replace fmt_buffer may speed up the code
+    //       2. abstract the `vector_vector` and `vector_const`
+    //       3. rethink we should use `DEFAULT_MAX_STRING_SIZE` to bigger here
+    void vector_const(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                      int repeat, ColumnString::Chars& res_data,
+                      ColumnString::Offsets& res_offsets) const {
+        size_t input_row_size = offsets.size();
+
+        fmt::memory_buffer buffer;
+        res_offsets.resize(input_row_size);
+        for (ssize_t i = 0; i < input_row_size; ++i) {
+            buffer.clear();
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t size = offsets[i] - offsets[i - 1];
+
+            for (int j = 0; j < repeat; ++j) {
+                buffer.append(raw_str, raw_str + size);
+            }
+            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
+                                        res_offsets);
+        }
+    }
+};
+
+class FunctionStringRepeatOld : public IFunction {
+public:
+    static constexpr auto name = "repeat";
+    static FunctionPtr create() { return std::make_shared<FunctionStringRepeatOld>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1545,7 +1641,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1687,8 +1782,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -2003,7 +2096,7 @@ public:
 class FunctionSubstringIndexOld : public IFunction {
 public:
     static constexpr auto name = "substring_index";
-    static FunctionPtr create() { return std::make_shared<FunctionSubstringIndex>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionSubstringIndexOld>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 3; }
 
@@ -2160,7 +2253,6 @@ public:
         return Status::OK();
     }
 };
-
 class FunctionSplitByString : public IFunction {
 public:
     static constexpr auto name = "split_by_string";
@@ -2205,17 +2297,17 @@ public:
         dest_offsets.reserve(0);
 
         NullMapType* dest_nested_null_map = nullptr;
-        ColumnNullable* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
+        auto* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
         dest_nested_column = dest_nullable_col->get_nested_column_ptr();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
-        auto col_left = check_and_get_column<ColumnString>(src_column.get());
+        const auto* col_left = check_and_get_column<ColumnString>(src_column.get());
         if (!col_left) {
             return Status::InternalError("Left operator of function {} can not be {}", get_name(),
                                          src_column_type->get_name());
         }
 
-        auto col_right = check_and_get_column<ColumnString>(right_column.get());
+        const auto* col_right = check_and_get_column<ColumnString>(right_column.get());
         if (!col_right) {
             return Status::InternalError("Right operator of function {} can not be {}", get_name(),
                                          right_column_type->get_name());
@@ -2245,7 +2337,7 @@ private:
                                      const StringRef& delimiter_ref, IColumn& dest_nested_column,
                                      ColumnArray::Offsets64& dest_offsets,
                                      NullMapType* dest_nested_null_map) const {
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(0);
@@ -2312,7 +2404,7 @@ private:
                          const ColumnString& delimiter_column, IColumn& dest_nested_column,
                          ColumnArray::Offsets64& dest_offsets,
                          NullMapType* dest_nested_null_map) const {
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(0);
@@ -2369,7 +2461,7 @@ private:
                                       IColumn& dest_nested_column,
                                       ColumnArray::Offsets64& dest_offsets,
                                       NullMapType* dest_nested_null_map) const {
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(0);
@@ -2659,7 +2751,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
