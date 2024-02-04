@@ -19,6 +19,7 @@
 
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/store/IndexInput.h>
+#include <gen_cpp/olap_file.pb.h>
 
 #include <map>
 #include <memory>
@@ -27,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "io/fs/file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 

@@ -195,7 +195,7 @@ Status InvertedIndexFileReader::index_file_exist(const TabletIndex* index_meta, 
 
 void InvertedIndexFileReader::debug_file_entries() {
     for (auto& index : _indices_entries) {
-        LOG(INFO) << "index_id:" << index.first;
+        LOG(INFO) << "index_id:" << index.first.first;
         auto* index_entries = index.second.get();
         for (auto& entry : (*index_entries)) {
             ReaderFileEntry* file_entry = entry.second;

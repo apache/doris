@@ -19,6 +19,7 @@
 
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/store/IndexInput.h>
+#include <gen_cpp/olap_file.pb.h>
 
 #include <string>
 #include <utility>

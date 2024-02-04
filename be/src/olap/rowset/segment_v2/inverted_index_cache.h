@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <memory>
+#include <roaring/roaring.hh>
 #include <string>
 
 #include "common/config.h"
