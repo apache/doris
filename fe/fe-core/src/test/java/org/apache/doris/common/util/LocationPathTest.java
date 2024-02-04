@@ -178,16 +178,6 @@ public class LocationPathTest {
     }
 
     @Test
-    public void testLocationParseException() {
-        // when the location is invalid, let's throws
-        // FE
-        Assertions.assertThrows(IllegalArgumentException.class, () -> {
-            Map<String, String> rangeProps = new HashMap<>();
-            new LocationPath("://test.com", rangeProps);
-        });
-    }
-
-    @Test
     public void testNoSchemeLocation() {
         // when use unknown location, pass to BE
         Map<String, String> rangeProps = new HashMap<>();

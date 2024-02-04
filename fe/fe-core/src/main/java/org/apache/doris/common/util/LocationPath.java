@@ -40,8 +40,8 @@ import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.Map;
 
 public class LocationPath {
@@ -70,6 +70,10 @@ public class LocationPath {
         VIEWFS,
         UNKNOWN,
         NOSCHEME // no scheme info
+    }
+
+    private LocationPath(String location) {
+        this(location, new HashMap<>());
     }
 
     public LocationPath(String location, Map<String, String> props) {
@@ -185,7 +189,6 @@ public class LocationPath {
         if (scheme.isEmpty()) {
             try {
                 Paths.get(location);
-                scheme = "";
             } catch (InvalidPathException exception) {
                 throw new IllegalArgumentException("Fail to parse scheme, invalid location: " + location);
             }
