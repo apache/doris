@@ -97,9 +97,9 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.ColStatsData;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.InvalidateStatsTarget;
-import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.query.QueryStats;
@@ -185,6 +185,7 @@ import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
@@ -1091,6 +1092,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
+        } else {
+            checkToken(request.getToken());
         }
 
         // check label
@@ -1112,9 +1115,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.tbl, TableType.OLAP);
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
+        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, clientIp);
+        if (request.isSetToken()) {
+            txnCoord.isFromInternal = true;
+        }
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
-                new TxnCoordinator(TxnSourceType.BE, clientIp),
+                txnCoord,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());
@@ -1795,14 +1802,29 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ctx.setThreadLocalInfo();
 
         try {
+            List<TPipelineWorkloadGroup> tWorkloadGroupList = null;
+            // mysql load request not carry user info, need fix it later.
+            boolean hasUserName = !StringUtils.isEmpty(ctx.getQualifiedUser());
+            if (Config.enable_workload_group && hasUserName) {
+                tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ctx);
+            }
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result, ctx);
+                if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
+                    result.params.setWorkloadGroups(tWorkloadGroupList);
+                }
                 return result;
             } else {
                 if (Config.enable_pipeline_load) {
                     result.setPipelineParams(pipelineStreamLoadPutImpl(request));
+                    if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
+                        result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
+                    }
                 } else {
                     result.setParams(streamLoadPutImpl(request, result));
+                    if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
+                        result.params.setWorkloadGroups(tWorkloadGroupList);
+                    }
                 }
             }
         } catch (UserException e) {
@@ -3047,11 +3069,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TStatus updateStatsCache(TUpdateFollowerStatsCacheRequest request) throws TException {
         StatisticsCacheKey k = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
-        List<ResultRow> rows = request.statsRows.stream()
-                .map(s -> GsonUtils.GSON.fromJson(s, ResultRow.class))
-                .collect(Collectors.toList());
-        ColumnStatistic c = ColumnStatistic.fromResultRow(rows);
-        if (c != ColumnStatistic.UNKNOWN) {
+        ColStatsData data = GsonUtils.GSON.fromJson(request.colStatsData, ColStatsData.class);
+        ColumnStatistic c = data.toColumnStatistic();
+        if (c == ColumnStatistic.UNKNOWN) {
+            Env.getCurrentEnv().getStatisticsCache().invalidate(k.tableId, k.idxId, k.colName);
+        } else {
             Env.getCurrentEnv().getStatisticsCache().updateColStatsCache(k.tableId, k.idxId, k.colName, c);
         }
         // Return Ok anyway

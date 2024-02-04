@@ -612,8 +612,8 @@ predicate
 valueExpression
     : primaryExpression                                                                      #valueExpressionDefault
     | operator=(SUBTRACT | PLUS | TILDE) valueExpression                                     #arithmeticUnary
-    | left=valueExpression operator=(ASTERISK | SLASH | MOD) right=valueExpression           #arithmeticBinary
-    | left=valueExpression operator=(PLUS | SUBTRACT | DIV | HAT | PIPE | AMPERSAND)
+    | left=valueExpression operator=(ASTERISK | SLASH | MOD | DIV) right=valueExpression     #arithmeticBinary
+    | left=valueExpression operator=(PLUS | SUBTRACT | HAT | PIPE | AMPERSAND)
                            right=valueExpression                                             #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     | operator=(BITAND | BITOR | BITXOR) LEFT_PAREN left = valueExpression
@@ -670,6 +670,12 @@ primaryExpression
                 (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
                 | unitsAmount=valueExpression)
             RIGHT_PAREN                                                                        #array_range
+    | name=CURRENT_DATE                                                                        #currentDate
+    | name=CURRENT_TIME                                                                        #currentTime
+    | name=CURRENT_TIMESTAMP                                                                   #currentTimestamp
+    | name=LOCALTIME                                                                           #localTime
+    | name=LOCALTIMESTAMP                                                                      #localTimestamp
+    | name=CURRENT_USER                                                                        #currentUser
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS dataType RIGHT_PAREN                                  #cast
@@ -955,7 +961,10 @@ nonReserved
     | CREATION
     | CRON
     | CURRENT_CATALOG
+    | CURRENT_DATE
+    | CURRENT_TIME
     | CURRENT_TIMESTAMP
+    | CURRENT_USER
     | DATA
     | DATE
     | DATE_ADD
@@ -1044,6 +1053,8 @@ nonReserved
     | LINES
     | LINK
     | LOCAL
+    | LOCALTIME
+    | LOCALTIMESTAMP
     | LOCATION
     | LOCK
     | LOGICAL

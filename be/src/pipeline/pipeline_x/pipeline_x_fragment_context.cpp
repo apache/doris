@@ -1312,8 +1312,7 @@ Status PipelineXFragmentContext::send_report(bool done) {
              TUniqueId(), _backend_num, _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2),
-             nullptr},
+                       std::placeholders::_2)},
             std::dynamic_pointer_cast<PipelineXFragmentContext>(shared_from_this()));
 }
 

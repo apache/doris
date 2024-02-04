@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
@@ -43,7 +44,8 @@ public class ReplicasProcNode implements ProcNodeInterface {
             .add("BackendId").add("Version").add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
             .add("SchemaHash").add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State").add("IsBad")
             .add("IsUserDrop")
-            .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
+            .add("VersionCount").add("PathHash").add("Path")
+            .add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
             .add("CooldownMetaId").add("QueryHits").build();
 
     private long tabletId;
@@ -84,6 +86,16 @@ public class ReplicasProcNode implements ProcNodeInterface {
             String metaUrl = String.format("http://" + hostPort + "/api/meta/header/%d", tabletId);
             String compactionUrl = String.format("http://" + hostPort + "/api/compaction/show?tablet_id=%d", tabletId);
 
+            String path = "";
+            if (be != null) {
+                DiskInfo diskInfo = be.getDisks().values().stream()
+                        .filter(disk -> disk.getPathHash() == replica.getPathHash())
+                        .findFirst().orElse(null);
+                if (diskInfo != null) {
+                    path = diskInfo.getRootPath();
+                }
+            }
+
             String cooldownMetaId = "";
             if (replica.getCooldownMetaId() != null) {
                 cooldownMetaId = replica.getCooldownMetaId().toString();
@@ -107,6 +119,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                         String.valueOf(replica.isUserDrop()),
                                         String.valueOf(replica.getVersionCount()),
                                         String.valueOf(replica.getPathHash()),
+                                        path,
                                         metaUrl,
                                         compactionUrl,
                                         String.valueOf(tablet.getCooldownConf().first),

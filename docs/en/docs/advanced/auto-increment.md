@@ -48,7 +48,7 @@ Doris ensures that the values generated on the auto-increment column are dense, 
 
 ## Syntax
 
-To use auto-increment columns, you need to add the `AUTO_INCREMENT` attribute to the corresponding column during table creation ([CREATE-TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE)).
+To use auto-increment columns, you need to add the `AUTO_INCREMENT` attribute to the corresponding column during table creation ([CREATE-TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE)). To manually specify the starting value for an auto-increment column, you can do so by using the `AUTO_INCREMENT(start_value)` statement when creating the table. If not specified, the default starting value is 1.
 
 ### Examples
 
@@ -65,7 +65,21 @@ To use auto-increment columns, you need to add the `AUTO_INCREMENT` attribute to
   "replication_allocation" = "tag.location.default: 3"
   );
 
-2. Creating a Duplicate table with one value column as an auto-increment column:
+2. Creating a Duplicate table with one key column as an auto-increment column, and set start value is 100:
+
+  ```sql
+  CREATE TABLE `demo`.`tbl` (
+        `id` BIGINT NOT NULL AUTO_INCREMENT(100),
+        `value` BIGINT NOT NULL
+  ) ENGINE=OLAP
+  DUPLICATE KEY(`id`)
+  DISTRIBUTED BY HASH(`id`) BUCKETS 10
+  PROPERTIES (
+  "replication_allocation" = "tag.location.default: 3"
+  );
+  ```
+
+3. Creating a Duplicate table with one value column as an auto-increment column:
 
   ```sql
   CREATE TABLE `demo`.`tbl` (
@@ -81,7 +95,7 @@ To use auto-increment columns, you need to add the `AUTO_INCREMENT` attribute to
   );
   ```
 
-3. Creating a Unique tbl table with one key column as an auto-increment column:
+4. Creating a Unique tbl table with one key column as an auto-increment column:
 
   ```sql
   CREATE TABLE `demo`.`tbl` (
@@ -97,7 +111,7 @@ To use auto-increment columns, you need to add the `AUTO_INCREMENT` attribute to
   );
   ```
 
-4. Creating a Unique tbl table with one value column as an auto-increment column:
+5. Creating a Unique tbl table with one value column as an auto-increment column:
 
   ```sql
   CREATE TABLE `demo`.`tbl` (
@@ -117,6 +131,7 @@ To use auto-increment columns, you need to add the `AUTO_INCREMENT` attribute to
 - Only Duplicate model tables and Unique model tables can contain auto-increment columns.
 - A table can contain at most one auto-increment column.
 - The type of the auto-increment column must be BIGINT and must be NOT NULL.
+- The manually specified starting value for an auto-increment column must be greater than or equal to 0.
 
 ## Usage
 
@@ -149,9 +164,9 @@ mysql> select * from tbl order by id;
 +------+-------+-------+
 | id   | name  | value |
 +------+-------+-------+
-|    0 | Bob   |    10 |
-|    1 | Alice |    20 |
-|    2 | Jack  |    30 |
+|    1 | Bob   |    10 |
+|    2 | Alice |    20 |
+|    3 | Jack  |    30 |
 +------+-------+-------+
 3 rows in set (0.05 sec)
 ```
@@ -173,11 +188,11 @@ mysql> select * from tbl order by id;
 +------+-------+-------+
 | id   | name  | value |
 +------+-------+-------+
-|    0 | Bob   |    10 |
-|    1 | Alice |    20 |
-|    2 | Jack  |    30 |
-|    3 | Tom   |    40 |
-|    4 | John  |    50 |
+|    1 | Bob   |    10 |
+|    2 | Alice |    20 |
+|    3 | Jack  |    30 |
+|    4 | Tom   |    40 |
+|    5 | John  |    50 |
 +------+-------+-------+
 5 rows in set (0.04 sec)
 ```
@@ -193,13 +208,13 @@ mysql> select * from tbl order by id;
 +------+---------+-------+
 | id   | name    | value |
 +------+---------+-------+
-|    0 | Bob     |    10 |
-|    1 | Alice   |    20 |
-|    2 | Jack    |    30 |
-|    3 | Tom     |    40 |
-|    4 | John    |    50 |
-|    5 | Doris   |    60 |
-|    6 | Nereids |    70 |
+|    1 | Bob     |    10 |
+|    2 | Alice   |    20 |
+|    3 | Jack    |    30 |
+|    4 | Tom     |    40 |
+|    5 | John    |    50 |
+|    6 | Doris   |    60 |
+|    7 | Nereids |    70 |
 +------+---------+-------+
 7 rows in set (0.04 sec)
 ```

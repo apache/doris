@@ -79,6 +79,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
@@ -126,6 +127,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
@@ -383,6 +385,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
@@ -666,6 +669,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(atan, context);
     }
 
+    default R visitAtan2(Atan2 atan2, C context) {
+        return visitScalarFunction(atan2, context);
+    }
+
     default R visitBin(Bin bin, C context) {
         return visitScalarFunction(bin, context);
     }
@@ -852,6 +859,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCos(Cos cos, C context) {
         return visitScalarFunction(cos, context);
+    }
+
+    default R visitCosh(Cosh cosh, C context) {
+        return visitScalarFunction(cosh, context);
     }
 
     default R visitCosineDistance(CosineDistance cosineDistance, C context) {
@@ -1884,6 +1895,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitTan(Tan tan, C context) {
         return visitScalarFunction(tan, context);
+    }
+
+    default R visitTanh(Tanh tanh, C context) {
+        return visitScalarFunction(tanh, context);
     }
 
     default R visitTimeDiff(TimeDiff timeDiff, C context) {

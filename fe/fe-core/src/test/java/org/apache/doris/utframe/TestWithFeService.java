@@ -188,6 +188,10 @@ public abstract class TestWithFeService {
         return 1;
     }
 
+    protected boolean needDiffHost() {
+        return false;
+    }
+
     // Help to create a mocked ConnectContext.
     public static ConnectContext createDefaultCtx() throws IOException {
         return createCtx(UserIdentity.ROOT, "127.0.0.1");

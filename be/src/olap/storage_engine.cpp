@@ -148,7 +148,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
-          _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
           _stream_load_recorder(nullptr),
           _create_tablet_idx_lru_cache(
@@ -478,10 +477,12 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
             if ((_available_storage_medium_type_count == 1 ||
                  data_dir->storage_medium() == storage_medium) &&
                 !data_dir->reach_capacity_limit(0)) {
+                double usage = data_dir->get_usage(0);
                 DirInfo dir_info;
                 dir_info.data_dir = data_dir;
+                dir_info.usage = usage;
                 dir_info.available_level = 0;
-                usages.push_back(data_dir->get_usage(0));
+                usages.push_back(usage);
                 dir_infos.push_back(dir_info);
             }
         }
@@ -512,7 +513,7 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
         }
     }
     for (auto& dir_info : dir_infos) {
-        double usage = dir_info.data_dir->get_usage(0);
+        double usage = dir_info.usage;
         for (size_t i = 1; i < level_min_usages.size() && usage >= level_min_usages[i]; i++) {
             dir_info.available_level++;
         }

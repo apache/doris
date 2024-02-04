@@ -96,6 +96,10 @@ import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
+import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
+import org.apache.doris.mtmv.MTMVTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
@@ -126,6 +130,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
+import com.google.gson.ReflectionAccessFilter;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
@@ -244,6 +249,12 @@ public class GsonUtils {
                     .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName())
                     .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName());
 
+    private static RuntimeTypeAdapterFactory<MTMVSnapshotIf> mtmvSnapshotTypeAdapterFactory =
+            RuntimeTypeAdapterFactory.of(MTMVSnapshotIf.class, "clazz")
+                    .registerSubtype(MTMVMaxTimestampSnapshot.class, MTMVMaxTimestampSnapshot.class.getSimpleName())
+                    .registerSubtype(MTMVTimestampSnapshot.class, MTMVTimestampSnapshot.class.getSimpleName())
+                    .registerSubtype(MTMVVersionSnapshot.class, MTMVVersionSnapshot.class.getSimpleName());
+
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")
             .registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
@@ -300,6 +311,7 @@ public class GsonUtils {
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
                     new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
+            .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
@@ -317,6 +329,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
+            .registerTypeAdapterFactory(mtmvSnapshotTypeAdapterFactory)
             .registerTypeAdapterFactory(constraintTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())

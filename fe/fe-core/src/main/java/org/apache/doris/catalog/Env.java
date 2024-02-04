@@ -69,7 +69,6 @@ import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
-import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
@@ -179,6 +178,7 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
@@ -425,7 +425,7 @@ public class Env {
 
     private JournalObservable journalObservable;
 
-    private SystemInfoService systemInfo;
+    protected SystemInfoService systemInfo;
     private HeartbeatMgr heartbeatMgr;
     private TabletInvertedIndex tabletInvertedIndex;
     private ColocateTableIndex colocateTableIndex;
@@ -1506,6 +1506,10 @@ public class Env {
                 // similar reason as above, need to upgrade enable_nereids_planner to true
                 VariableMgr.enableNereidsPlanner();
                 LOG.info("upgrade FE from 1.x to 2.x, set enable_nereids_planner to new default value: true");
+            }
+            if (journalVersion <= FeMetaVersion.VERSION_123) {
+                VariableMgr.enableNereidsDml();
+                LOG.info("upgrade FE from 2.0 to 2.1, set enable_nereids_dml to new default value: true");
             }
         }
 
@@ -4999,27 +5003,6 @@ public class Env {
         this.alter.getClusterHandler().cancel(stmt);
     }
 
-    public void checkCloudClusterPriv(String clusterName) throws DdlException {
-        // check resource usage privilege
-        if (!Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
-                clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-            throw new DdlException("USAGE denied to user "
-                    + ConnectContext.get().getQualifiedUser() + "'@'" + ConnectContext.get().getRemoteIP()
-                    + "' for cloud cluster '" + clusterName + "'", ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
-        }
-
-        if (!Env.getCurrentSystemInfo().getCloudClusterNames().contains(clusterName)) {
-            LOG.debug("current instance does not have a cluster name :{}", clusterName);
-            throw new DdlException(String.format("Cluster %s not exist", clusterName),
-                    ErrorCode.ERR_CLOUD_CLUSTER_ERROR);
-        }
-    }
-
-    public static void waitForAutoStart(final String clusterName) throws DdlException {
-        // TODO: merge from cloud.
-        throw new DdlException("Env.waitForAutoStart unimplemented");
-    }
-
     // Switch catalog of this sesseion.
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
         CatalogIf catalogIf = catalogMgr.getCatalogNullable(catalogName);
@@ -6002,10 +5985,12 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation) {
+    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation,
+            Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots) {
         AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ADD_TASK);
         alter.setTask(task);
         alter.setRelation(relation);
+        alter.setPartitionSnapshots(partitionSnapshots);
         this.alter.processAlterMTMV(alter, false);
     }
 

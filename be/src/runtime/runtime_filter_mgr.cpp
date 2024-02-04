@@ -116,7 +116,7 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
         }
     }
 
-    // TODO: make the two case as one case to judge
+    // TODO: union the remote opt and global two case as one case to one judge
     bool remote_opt_or_global =
             (desc.__isset.opt_remote_rf && desc.opt_remote_rf && desc.has_remote_targets &&
              desc.type == TRuntimeFilterType::BLOOM) ||

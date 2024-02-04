@@ -693,7 +693,8 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(ExecNode
     OperatorBuilderPtr sink_builder =
             std::make_shared<SetSinkOperatorBuilder<is_intersect>>(node->id(), node);
     RETURN_IF_ERROR(build_pipeline->set_sink_builder(sink_builder));
-
+    std::vector<PipelinePtr> all_pipelines;
+    all_pipelines.emplace_back(build_pipeline);
     for (int child_id = 1; child_id < node->children_count(); ++child_id) {
         auto probe_pipeline = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(child_id), probe_pipeline));
@@ -701,6 +702,9 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(ExecNode
                 std::make_shared<SetProbeSinkOperatorBuilder<is_intersect>>(node->id(), child_id,
                                                                             node);
         RETURN_IF_ERROR(probe_pipeline->set_sink_builder(probe_sink_builder));
+        //eg: These sinks must be completed one by one in order, child(1) must wait child(0) build finish
+        probe_pipeline->add_dependency(all_pipelines[child_id - 1]);
+        all_pipelines.emplace_back(probe_pipeline);
     }
 
     OperatorBuilderPtr source_builder =
@@ -938,8 +942,7 @@ Status PipelineFragmentContext::send_report(bool done) {
              [this](auto&& PH1) { return update_status(std::forward<decltype(PH1)>(PH1)); },
              [this](auto&& PH1, auto&& PH2) {
                  cancel(std::forward<decltype(PH1)>(PH1), std::forward<decltype(PH2)>(PH2));
-             },
-             _query_ctx->get_query_statistics()},
+             }},
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 

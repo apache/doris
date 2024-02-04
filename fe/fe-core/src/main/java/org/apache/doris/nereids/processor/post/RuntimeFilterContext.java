@@ -18,11 +18,9 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -37,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
-import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -97,10 +94,6 @@ public class RuntimeFilterContext {
 
     public List<RuntimeFilter> prunedRF = Lists.newArrayList();
 
-    public final List<Plan> needRfPlans = Lists.newArrayList();
-
-    private final IdGenerator<RuntimeFilterId> generator = RuntimeFilterId.createGenerator();
-
     // exprId of target to runtime filter.
     private final Map<ExprId, List<RuntimeFilter>> targetExprIdToFilter = Maps.newHashMap();
 
@@ -128,19 +121,10 @@ public class RuntimeFilterContext {
 
     private final Map<Plan, EffectiveSrcType> effectiveSrcNodes = Maps.newHashMap();
 
-    // cte to related joins map which can extract common runtime filter to cte inside
-    private final Map<CTEId, Set<PhysicalHashJoin>> cteToJoinsMap = Maps.newLinkedHashMap();
-
-    // cte candidates which can be pushed into common runtime filter into from outside
-    private final Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> cteRFPushDownMap = Maps.newLinkedHashMap();
-
     private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newLinkedHashMap();
 
     // cte whose runtime filter has been extracted
     private final Set<CTEId> processedCTE = Sets.newHashSet();
-
-    // cte whose outer runtime filter has been pushed down into
-    private final Set<CTEId> pushedDownCTE = Sets.newHashSet();
 
     private final SessionVariable sessionVariable;
 
@@ -189,20 +173,8 @@ public class RuntimeFilterContext {
         return cteProducerMap;
     }
 
-    public Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> getCteRFPushDownMap() {
-        return cteRFPushDownMap;
-    }
-
-    public Map<CTEId, Set<PhysicalHashJoin>> getCteToJoinsMap() {
-        return cteToJoinsMap;
-    }
-
     public Set<CTEId> getProcessedCTE() {
         return processedCTE;
-    }
-
-    public Set<CTEId> getPushedDownCTE() {
-        return pushedDownCTE;
     }
 
     public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
@@ -230,14 +202,6 @@ public class RuntimeFilterContext {
                             rf.getTargetScans().get(i).removeAppliedRuntimeFilter(rf);
                         }
                     }
-                    // for (Slot target : rf.getTargetSlots()) {
-                    //     if (target.getExprId().equals(targetId)) {
-                    //         Pair<PhysicalRelation, Slot> pair = aliasTransferMap.get(target);
-                    //         if (pair != null) {
-                    //             pair.first.removeAppliedRuntimeFilter(rf);
-                    //         }
-                    //     }
-                    // }
                     iter.remove();
                     prunedRF.add(rf);
                 }

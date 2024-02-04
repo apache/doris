@@ -38,9 +38,11 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h" // variant column
 #include "vec/core/block.h"
+#include "vec/core/columns_with_type_and_name.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -111,8 +113,10 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(
-            vectorized::schema_util::parse_and_encode_variant_columns(block, variant_column_pos));
+    vectorized::schema_util::ParseContext ctx;
+    ctx.record_raw_json_column = _context->original_tablet_schema->store_row_column();
+    RETURN_IF_ERROR(vectorized::schema_util::parse_and_encode_variant_columns(
+            block, variant_column_pos, ctx));
 
     // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
     //     static     extracted
@@ -173,6 +177,13 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         static_cast<vectorized::ColumnObject*>(obj.get())->add_sub_column(
                 {}, root->data.get_finalized_column_ptr()->assume_mutable(),
                 root->data.get_least_common_type());
+
+        // // set for rowstore
+        if (_context->original_tablet_schema->store_row_column()) {
+            static_cast<vectorized::ColumnObject*>(obj.get())->set_rowstore_column(
+                    object_column.get_rowstore_column());
+        }
+
         vectorized::ColumnPtr result = obj->get_ptr();
         if (is_nullable) {
             const auto& null_map = assert_cast<const vectorized::ColumnNullable&>(*column_ref)

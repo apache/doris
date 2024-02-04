@@ -22,6 +22,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
@@ -61,11 +62,12 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                 throw new MetaNotFoundException("cluster name is empty");
             }
 
-            this.cloudClusterId = Env.getCurrentSystemInfo().getCloudClusterIdByName(clusterName);
+            this.cloudClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getCloudClusterIdByName(clusterName);
             if (!Strings.isNullOrEmpty(context.getSessionVariable().getCloudCluster())) {
                 clusterName = context.getSessionVariable().getCloudCluster();
                 this.cloudClusterId =
-                        Env.getCurrentSystemInfo().getCloudClusterIdByName(clusterName);
+                    ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdByName(clusterName);
             }
             if (Strings.isNullOrEmpty(this.cloudClusterId)) {
                 LOG.warn("cluster id is empty, cluster name {}", clusterName);
@@ -77,7 +79,8 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
 
     private AutoCloseConnectContext buildConnectContext() throws UserException {
         cloudClusterId = sessionVariables.get(CLOUD_CLUSTER_ID);
-        String clusterName = Env.getCurrentSystemInfo().getClusterNameByClusterId(cloudClusterId);
+        String clusterName =  ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getClusterNameByClusterId(cloudClusterId);
         if (Strings.isNullOrEmpty(clusterName)) {
             LOG.warn("cluster name is empty, cluster id is {}", cloudClusterId);
             throw new UserException("cluster name is empty, cluster id is: " + cloudClusterId);

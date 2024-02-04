@@ -432,9 +432,8 @@ public:
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
     DataDistribution required_data_distribution() const override {
-        if (_col_distribute_ids.empty() || OperatorX<LocalStateType>::ignore_data_distribution()) {
-            // 1. `_col_distribute_ids` is empty means storage distribution is not effective, so we prefer to do local shuffle.
-            // 2. `ignore_data_distribution()` returns true means we ignore the distribution.
+        if (OperatorX<LocalStateType>::ignore_data_distribution()) {
+            // `ignore_data_distribution()` returns true means we ignore the distribution.
             return {ExchangeType::NOOP};
         }
         return {ExchangeType::BUCKET_HASH_SHUFFLE};
@@ -477,7 +476,6 @@ protected:
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
-    std::vector<int> _col_distribute_ids;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
     TPushAggOp::type _push_down_agg_type;

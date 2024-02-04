@@ -1361,8 +1361,12 @@ public class FunctionCallExpr extends Expr {
      * @throws AnalysisException
      */
     public void analyzeImplForDefaultValue(Type type) throws AnalysisException {
-        fn = new Function(getBuiltinFunction(fnName.getFunction(), new Type[0],
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF));
+        Type[] childTypes = new Type[children.size()];
+        for (int i = 0; i < children.size(); i++) {
+            childTypes[i] = children.get(i).type;
+        }
+        fn = new Function(
+                getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF));
         fn.setReturnType(type);
         this.type = type;
         for (int i = 0; i < children.size(); ++i) {
@@ -2467,8 +2471,8 @@ public class FunctionCallExpr extends Expr {
         String dbName = fnName.analyzeDb(analyzer);
         if (!Strings.isNullOrEmpty(dbName)) {
             // check operation privilege
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
+            if (!analyzer.isReplay() && !Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    dbName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
             }
             // TODO(gaoxin): ExternalDatabase not implement udf yet.

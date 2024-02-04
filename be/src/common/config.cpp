@@ -589,7 +589,7 @@ DEFINE_Int32(memory_max_alignment, "16");
 // memtable insert memory tracker will multiply input block size with this ratio
 DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
 // max write buffer size before flush, default 200MB
-DEFINE_mInt64(write_buffer_size, "104857600");
+DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
 // max parallel flush task per memtable writer
@@ -767,6 +767,8 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 DEFINE_Bool(share_delta_writers, "true");
 // timeout for open load stream rpc in ms
 DEFINE_Int64(open_load_stream_timeout_ms, "60000"); // 60s
+// enable write background when using brpc stream
+DEFINE_mBool(enable_brpc_stream_write_background, "true");
 
 // brpc streaming max_buf_size in bytes
 DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
@@ -801,6 +803,9 @@ DEFINE_mInt32(segment_compression_threshold_kb, "256");
 
 // The connection timeout when connecting to external table such as odbc table.
 DEFINE_mInt32(external_table_connect_timeout_sec, "30");
+
+// Time to clean up useless JDBC connection pool cache
+DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
@@ -887,7 +892,7 @@ DEFINE_mInt64(small_column_size_buffer, "100");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
-DEFINE_mInt32(bloom_filter_predicate_check_row_num, "204800");
+DEFINE_mInt32(rf_predicate_check_row_num, "204800");
 
 // cooldown task configs
 DEFINE_Int32(cooldown_thread_num, "5");

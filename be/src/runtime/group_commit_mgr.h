@@ -22,6 +22,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -170,6 +171,8 @@ public:
                                       const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version);
+    std::promise<Status> debug_promise;
+    std::future<Status> debug_future = debug_promise.get_future();
 
 private:
     ExecEnv* _exec_env = nullptr;

@@ -24,7 +24,6 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -120,9 +119,13 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalOlapScan[" + relationId.asInt() + "]" + getGroupIdWithPrefix(),
-                "qualified", Utils.qualifiedName(qualifier, table.getName()),
-                "stats", statistics, "fr", getMutableState(AbstractPlan.FRAGMENT_ID)
+        StringBuilder builder = new StringBuilder();
+        if (!getAppliedRuntimeFilters().isEmpty()) {
+            getAppliedRuntimeFilters()
+                    .stream().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
+        }
+        return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + "]" + getGroupIdWithPrefix(),
+                "stats", statistics, "RFs", builder
         );
     }
 

@@ -30,7 +30,7 @@ suite("query44") {
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
-    sql 'set dump_nereids_memo=true'
+    sql 'set dump_nereids_memo=false'
     def ds = """select  asceding.rnk, i1.i_product_name best_performing, i2.i_product_name worst_performing
 from(select *
      from (select item_sk,rank() over (order by rank_col asc) rnk
