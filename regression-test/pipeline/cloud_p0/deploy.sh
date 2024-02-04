@@ -75,6 +75,7 @@ exit_flag=0
     if ! warehouse_add_be; then exit 1; fi
     if ! start_doris_fe; then exit 1; fi
     if ! start_doris_be; then exit 1; fi
+    if ! check_doris_ready; then exit 1; fi
 
     echo "#### 5. reset session variables"
     if ! reset_doris_session_variables; then exit 1; fi

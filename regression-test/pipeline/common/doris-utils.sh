@@ -148,18 +148,22 @@ function add_doris_be_to_fe() {
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     heartbeat_service_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf heartbeat_service_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
-    if ${cl} -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:${heartbeat_service_port}';"; then echo; else echo; fi
+    if ${cl} -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:${heartbeat_service_port}';"; then echo; else return 1; fi
+    check_doris_ready
+}
 
+function check_doris_ready() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     i=1
     while [[ $((i++)) -lt 60 ]]; do
         if be_ready_count=$(${cl} -e 'show backends\G' | grep -c 'Alive: true') &&
             [[ ${be_ready_count} -eq 1 ]]; then
-            echo -e "INFO: add doris be success, be version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
+            echo -e "INFO: Doris cluster ready, be version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
         else
-            echo 'Wait for Backends ready, sleep 2 seconds ...' && sleep 2
+            echo 'Wait for backends ready, sleep 2 seconds ...' && sleep 2
         fi
     done
-    if [[ ${i} -ge 60 ]]; then echo "ERROR: Add Doris Backend Failed after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Doris cluster not ready after 2 mins wait..." && return 1; fi
 
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
