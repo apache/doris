@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContain
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -59,6 +60,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 .when(join -> check(swapType, join))
                 .whenNot(LogicalJoin::hasDistributeHint)
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
+                .whenNot(join -> JoinUtils.isNullAwareMarkJoin(join))
                 .then(join -> {
                     LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(join.getJoinType().swap(),
                             join.right(), join.left(), null);

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -30,7 +31,9 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * <ul>
@@ -64,7 +67,8 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                     if (containsType == ContainsType.ALL) {
                         return null;
                     }
-
+                    List<NamedExpression> topProjects = topSemiJoin.getOutput().stream()
+                            .map(slot -> (NamedExpression) slot).collect(Collectors.toList());
                     if (containsType == ContainsType.LEFT) {
                         /*-
                          *     topSemiJoin                    project
@@ -84,7 +88,7 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
 
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(a, c);
                         Plan newTopJoin = bottomJoin.withChildren(newBottomSemiJoin, b);
-                        return project.withChildren(newTopJoin);
+                        return project.withProjectsAndChild(topProjects, newTopJoin);
                     } else {
                         /*-
                          *     topSemiJoin                  project
@@ -104,7 +108,7 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
 
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(b, c);
                         Plan newTopJoin = bottomJoin.withChildren(a, newBottomSemiJoin);
-                        return project.withChildren(newTopJoin);
+                        return project.withProjectsAndChild(topProjects, newTopJoin);
                     }
                 }).toRule(RuleType.TRANSPOSE_LOGICAL_SEMI_JOIN_LOGICAL_JOIN_PROJECT);
     }
