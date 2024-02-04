@@ -2770,14 +2770,16 @@ public:
             return Status::InternalError("Not supported input argument type");
         }
 
+        std::string decoded_url;
+
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto source = url_col->get_data_at(i);
             StringRef url_val(const_cast<char*>(source.data), source.size);
 
-            std::string decoded_url;
             url_decode(url_val.to_string(), &decoded_url);
 
             StringOP::push_value_string(decoded_url, i, res_chars, res_offsets);
+            decode_url.clear();
         }
 
         block.get_by_position(result).column = std::move(res);
