@@ -7,8 +7,8 @@
 set -x
 pwd
 rm -rf ../.old/*
-set +x
 
+teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/prepare.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/
     bash prepare.sh
