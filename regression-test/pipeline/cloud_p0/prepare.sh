@@ -27,6 +27,13 @@ if ${DEBUG:-false}; then
     target_branch="master"
 fi
 
+# shellcheck source=/dev/null
+# stop_doris, clean_fdb, install_fdb
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
+# shellcheck source=/dev/null
+# check_oss_file_exist
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
+
 echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
 if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 1; fi
@@ -81,11 +88,9 @@ if ! [[ -d "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/ &&
     echo "ERROR: depending files missing" && exit 1
 fi
 
-# shellcheck source=/dev/null
-# stop_doris, clean_fdb, install_fdb
-source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
-
 echo "#### 3. try to kill old doris process"
+DORIS_HOME="${teamcity_build_checkoutDir}/output"
+export DORIS_HOME
 stop_doris
 
 echo "#### 4. prepare fundationdb"
@@ -93,8 +98,5 @@ install_fdb
 clean_fdb
 
 echo "#### 5. check if binary package ready"
-# shellcheck source=/dev/null
-# check_oss_file_exist
-source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
 export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile_result"}"
 if ! check_oss_file_exist "${pull_request_num}_${commit_id_from_trigger}.tar.gz"; then return 1; fi

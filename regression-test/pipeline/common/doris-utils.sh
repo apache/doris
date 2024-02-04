@@ -165,6 +165,7 @@ function add_doris_be_to_fe() {
 }
 
 function stop_doris() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh; fi
     if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh; fi
     if "${DORIS_HOME}"/fe/bin/stop_fe.sh &&
