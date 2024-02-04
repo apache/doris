@@ -3,7 +3,7 @@
 ########################### Teamcity Build Step: Command Line #######################
 : <<EOF
 #!/bin/bash
-
+export PATH=/usr/local/software/apache-maven-3.6.3/bin:${PATH}
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/run.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/
     bash -x run.sh
@@ -55,8 +55,7 @@ run() {
         --times "${repeat_times_from_trigger:-1}" \
         -parallel 14 \
         -suiteParallel 14 \
-        -actionParallel 2 \
-        -g P0; then
+        -actionParallel 2; then
         echo
     else
         # regression 测试跑完后输出的汇总信息，Test 1961 suites, failed 1 suites, fatal 0 scripts, skipped 0 scripts
@@ -80,7 +79,7 @@ run() {
 export -f run
 # 设置超时时间（以分为单位）
 timeout_minutes=$((${repeat_times_from_trigger:-1} * 90))m
-timeout "${timeout_minutes}" bash -c run
+timeout "${timeout_minutes}" bash -cx run
 exit_flag="$?"
 
 echo "#### 5. check if need backup doris logs"
