@@ -343,7 +343,8 @@
                                 "sql-manual/sql-functions/array-functions/arrays-overlap",
                                 "sql-manual/sql-functions/array-functions/array-count",
                                 "sql-manual/sql-functions/array-functions/countequal",
-                                "sql-manual/sql-functions/array-functions/element-at"
+                                "sql-manual/sql-functions/array-functions/element-at",
+                                "sql-manual/sql-functions/array-functions/sequence"
                             ]
                         },
                         {
