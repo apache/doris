@@ -2757,7 +2757,6 @@ public:
 
                         const ColumnNumbers& arguments, size_t result,
                         size_t input_rows_count) const override {
-
         auto res = ColumnString::create();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
@@ -2772,7 +2771,6 @@ public:
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-
             auto source = url_col->get_data_at(i);
             StringRef url_val(const_cast<char*>(source.data), source.size);
 
