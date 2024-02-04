@@ -94,6 +94,8 @@ public interface TableIf {
 
     List<Column> getBaseSchema();
 
+    List<Column> getSchemaAllIndexes(boolean full);
+
     default List<Column> getBaseSchemaOrEmpty() {
         try {
             return getBaseSchema();

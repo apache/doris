@@ -191,4 +191,7 @@ public class AnalysisJob {
         }
     }
 
+    public AnalysisInfo getJobInfo() {
+        return jobInfo;
+    }
 }
