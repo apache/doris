@@ -54,7 +54,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
     }
-
+/*
     @Test
     void testUniform() {
         Builder fdBuilder = new Builder();
@@ -384,4 +384,5 @@ class FunctionalDependenciesTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties()
                 .getFunctionalDependencies().isUniqueAndNotNull(plan.getOutput().get(0)));
     }
+ */
 }

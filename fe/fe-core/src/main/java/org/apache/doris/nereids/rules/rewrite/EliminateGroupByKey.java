@@ -38,6 +38,7 @@ import java.util.stream.Collectors;
  * Eliminate group by key based on fd info.
  */
 public class EliminateGroupByKey extends OneRewriteRuleFactory {
+    public static int count = 0;
     @Override
     public Rule build() {
         return logicalAggregate(logicalProject()).then(agg -> {
@@ -50,6 +51,9 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             ImmutableSet<FdItem> fdItems = childPlan.getLogicalProperties().getFdItems();
             if (fdItems.isEmpty()) {
                 return null;
+            }
+            if (count ++ > 0) {
+                //return null;
             }
             List<SlotReference> candiExprs = agg.getGroupByExpressions().stream()
                     .map(SlotReference.class::cast).collect(Collectors.toList());
@@ -190,8 +194,20 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
                     outputExprList.add(agg.getOutputExpressions().get(i));
                 }
             }
+
+            // find the remained outputExprs list
+            List<NamedExpression> remainedOutputExprList = new ArrayList<>();
+            for (int i = 0; i < agg.getOutputExpressions().size(); i++) {
+                NamedExpression outputExpr = agg.getOutputExpressions().get(i);
+                if (agg.getGroupByExpressions().contains(outputExpr)) {
+                    // skip
+                } else {
+                    remainedOutputExprList.add(outputExpr);
+                }
+            }
+            outputExprList.addAll(remainedOutputExprList);
             // TODO: add other columns, such as aggr fields
-            outputExprList.add(agg.getOutputExpressions().get(agg.getOutputExpressions().size() - 1));
+            //outputExprList.add(agg.getOutputExpressions().get(agg.getOutputExpressions().size() - 1));
             return new LogicalAggregate<>(resultExprs, outputExprList, agg.child());
         }).toRule(RuleType.ELIMINATE_GROUP_BY_KEY);
     }
