@@ -65,6 +65,7 @@ struct ColumnWriterOptions {
     uint16_t gram_bf_size;
     std::vector<TabletIndex> indexes;
     TabletIndex inverted_index;
+    InvertedIndexFileWriter* inverted_index_file_writer;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()

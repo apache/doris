@@ -42,6 +42,7 @@
 #include "olap/row_cursor.h"                      // RowCursor // IWYU pragma: keep
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -221,13 +222,9 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
             // variant and jsonb type skip write index
             opts.indexes.clear();
         }
+        opts.inverted_index_file_writer = _inverted_index_file_writer.get();
         for (auto index : opts.indexes) {
-            if (!skip_inverted_index &&
-                index.index_type() ==
-                        IndexType::
-                                INVERTED) { // need to set here, because index will not always get the right storage format, we need to get it from schema for consistency.
-                index.set_inverted_index_storage_format(
-                        _tablet_schema->get_inverted_index_storage_format());
+            if (!skip_inverted_index && index.index_type() == IndexType::INVERTED) {
                 opts.inverted_index = index;
                 opts.need_inverted_index = true;
                 // TODO support multiple inverted index
@@ -1132,31 +1129,7 @@ Status SegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
     }
-    if (_tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V2) {
-        try {
-            auto segment_file_dir = _file_writer->path().parent_path().native();
-            auto segment_file_name = _file_writer->path().filename().native();
-
-            auto index_compound_writer = std::make_unique<DorisMultiIndexCompoundWriter>(
-                    _file_writer->fs(), segment_file_dir, segment_file_name);
-            std::vector<std::pair<int64_t, std::string>> index_ids;
-            for (auto& index : _tablet_schema->indexes()) {
-                auto index_id = index.index_id();
-                auto index_suffix = index.get_index_suffix();
-                index_ids.emplace_back(index_id, index_suffix);
-            }
-            auto st = index_compound_writer->initialize(index_ids);
-            if (!st.ok()) {
-                LOG(ERROR) << "DorisMultiIndexCompoundWriter init error:" << st.msg();
-                return st;
-            }
-            index_compound_writer->writeCompoundFile();
-        } catch (CLuceneError& err) {
-            LOG(ERROR) << "clucene error when _write_inverted_index:" << err.what();
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError SegmentWriter::_write_inverted_index: {}", err.what());
-        }
-    }
+    RETURN_IF_ERROR(_inverted_index_file_writer->close());
     return Status::OK();
 }
 

@@ -40,11 +40,12 @@ class Field;
 class TabletIndex;
 
 namespace segment_v2 {
+class InvertedIndexFileWriter;
 
 class InvertedIndexColumnWriter {
 public:
     static Status create(const Field* field, std::unique_ptr<InvertedIndexColumnWriter>* res,
-                         const std::string& segment_file_name, const std::string& dir,
+                         InvertedIndexFileWriter* index_file_writer,
                          const TabletIndex* inverted_index, const io::FileSystemSPtr& fs);
     virtual Status init() = 0;
 

@@ -66,6 +66,7 @@ namespace segment_v2 {
 class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
+class InvertedIndexFileReader;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
@@ -245,6 +246,8 @@ private:
     // Segment may be destructed after StorageEngine, in order to exit gracefully.
     std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
     std::mutex _open_lock;
+    // inverted index file reader
+    std::unique_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
 };
 
 } // namespace segment_v2

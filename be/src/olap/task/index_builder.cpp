@@ -206,12 +206,13 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);
                 std::unique_ptr<Field> field(FieldFactory::create(column));
-                auto index_meta = output_rowset_schema->get_inverted_index(column);
+                //auto index_meta = output_rowset_schema->get_inverted_index(column);
                 std::unique_ptr<segment_v2::InvertedIndexColumnWriter> inverted_index_builder;
                 try {
-                    RETURN_IF_ERROR(segment_v2::InvertedIndexColumnWriter::create(
+                    // TODO: make it right.
+                    /*RETURN_IF_ERROR(segment_v2::InvertedIndexColumnWriter::create(
                             field.get(), &inverted_index_builder, segment_filename, segment_dir,
-                            index_meta, fs));
+                            index_meta, fs));*/
                 } catch (const std::exception& e) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                             "CLuceneError occured: {}", e.what());

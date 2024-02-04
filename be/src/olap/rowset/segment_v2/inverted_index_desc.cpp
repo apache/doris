@@ -51,8 +51,8 @@ std::string InvertedIndexDescriptor::inverted_index_file_path(
                        suffix);
 }
 
-std::string InvertedIndexDescriptor::get_index_file_name(const std::string& segment_path) {
-    return StripSuffixString(segment_path, segment_suffix) + index_suffix;
+std::string InvertedIndexDescriptor::get_index_file_name(const std::string& segment_file_name) {
+    return StripSuffixString(segment_file_name, segment_suffix) + index_suffix;
 }
 
 std::string InvertedIndexDescriptor::local_inverted_index_path_segcompacted(

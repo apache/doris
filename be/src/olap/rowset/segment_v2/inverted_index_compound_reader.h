@@ -30,7 +30,11 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include "io/fs/file_system.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 
 class CLuceneError;
 
@@ -41,7 +45,7 @@ class RAMDirectory;
 } // namespace lucene
 
 namespace doris {
-
+class TabletIndex;
 namespace segment_v2 {
 
 class ReaderFileEntry : LUCENE_BASE {
@@ -110,22 +114,6 @@ public:
     static const char* getClassName();
     const char* getObjectName() const override;
     CL_NS(store)::IndexInput* getDorisIndexInput();
-};
-
-class DorisMultiIndexCompoundReader {
-public:
-    // Map to hold the file entries for each index ID.
-    using IndicesEntriesMap = std::map<int64_t, std::unique_ptr<EntriesType>>;
-
-    DorisMultiIndexCompoundReader(lucene::store::Directory* dir, const char* name,
-                                  int32_t readBufferSize);
-
-    DorisCompoundReader* open(int64_t index_id, CLuceneError& err, int32_t bufferSize = -1);
-    void debug_file_entries();
-
-private:
-    IndicesEntriesMap _indices_entries;
-    std::unique_ptr<CL_NS(store)::IndexInput> stream;
 };
 
 } // namespace segment_v2

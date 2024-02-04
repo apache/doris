@@ -1035,8 +1035,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         _num_columns++;
     }
 
-    for (auto& index : index->indexes) {
-        _indexes.emplace_back(*index);
+    for (auto& i : index->indexes) {
+        _indexes.emplace_back(*i);
     }
 
     if (has_bf_columns) {

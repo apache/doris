@@ -41,6 +41,7 @@
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
@@ -82,6 +83,10 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
     RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
     std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, std::move(tablet_schema)));
     segment->_file_reader = std::move(file_reader);
+    segment->_inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+            file_reader->fs(), file_reader->path().parent_path(),
+            file_reader->path().filename().native(),
+            tablet_schema->get_inverted_index_storage_format());
     RETURN_IF_ERROR(segment->_open());
     *output = std::move(segment);
     return Status::OK();
@@ -102,6 +107,9 @@ Segment::~Segment() {
 }
 
 Status Segment::_open() {
+    bool open_idx_file_cache = true;
+    RETURN_IF_ERROR(_inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                      open_idx_file_cache));
     SegmentFooterPB footer;
     RETURN_IF_ERROR(_parse_footer(&footer));
     RETURN_IF_ERROR(_create_column_readers(footer));
@@ -517,7 +525,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             return Status::OK();
         }
         ColumnIterator* it;
-        RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+        RETURN_IF_ERROR(sub_node->data.reader->new_iterator(&it));
         iter->reset(it);
         return Status::OK();
     }
@@ -629,7 +637,8 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             std::unique_ptr<InvertedIndexIterator>* iter) {
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
-        RETURN_IF_ERROR(reader->new_inverted_index_iterator(index_meta, read_options, iter));
+        RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader.get(),
+                                                            index_meta, read_options, iter));
         return Status::OK();
     }
     return Status::OK();
