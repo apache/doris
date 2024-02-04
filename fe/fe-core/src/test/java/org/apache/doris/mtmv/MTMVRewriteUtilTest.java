@@ -50,6 +50,8 @@ public class MTMVRewriteUtilTest {
     private MTMVStatus status;
     @Mocked
     private MTMVPartitionUtil mtmvPartitionUtil;
+    @Mocked
+    private MTMVUtil mtmvUtil;
     private long currentTimeMills = 3L;
 
     @Before

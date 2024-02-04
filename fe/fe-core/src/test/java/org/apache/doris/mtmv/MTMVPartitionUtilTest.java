@@ -17,6 +17,8 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -31,6 +33,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.List;
 import java.util.Set;
 
 public class MTMVPartitionUtilTest {
@@ -76,7 +79,6 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = mtmvPartitionInfo;
 
-                // TODO: 2024/2/2 follow base table
                 mtmvPartitionInfo.getPartitionType();
                 minTimes = 0;
                 result = MTMVPartitionType.SELF_MANAGE;
@@ -108,6 +110,22 @@ public class MTMVPartitionUtilTest {
                 relation.getBaseTables();
                 minTimes = 0;
                 result = baseTables;
+
+                baseOlapTable.needAutoRefresh();
+                minTimes = 0;
+                result = true;
+
+                baseOlapTable.getPartitionSnapshot(anyLong);
+                minTimes = 0;
+                result = baseSnapshotIf;
+
+                baseOlapTable.getPartitionName(anyLong);
+                minTimes = 0;
+                result = "p1";
+
+                refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any);
+                minTimes = 0;
+                result = true;
             }
         };
     }
@@ -119,7 +137,7 @@ public class MTMVPartitionUtilTest {
     }
 
     @Test
-    public void testIsMTMVSyncSnapshotNotEqual() {
+    public void testIsMTMVSyncNotSync() {
         new Expectations() {
             {
                 refreshSnapshot.equalsWithBaseTable(anyString, anyLong, (MTMVSnapshotIf) any);
@@ -129,5 +147,41 @@ public class MTMVPartitionUtilTest {
         };
         boolean mtmvSync = MTMVPartitionUtil.isMTMVSync(mtmv);
         Assert.assertFalse(mtmvSync);
+    }
+
+    @Test
+    public void testIsSyncWithPartition() throws AnalysisException {
+        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
+        Assert.assertTrue(isSyncWithPartition);
+    }
+
+    @Test
+    public void testIsSyncWithPartitionNotSync() throws AnalysisException {
+        new Expectations() {
+            {
+                refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any);
+                minTimes = 0;
+                result = false;
+            }
+        };
+        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
+        Assert.assertFalse(isSyncWithPartition);
+    }
+
+    @Test
+    public void testGeneratePartitionName() {
+        List<List<PartitionValue>> inValues = Lists.newArrayList();
+        inValues.add(Lists.newArrayList(new PartitionValue("value11"), new PartitionValue("value12")));
+        inValues.add(Lists.newArrayList(new PartitionValue("value21"), new PartitionValue("value22")));
+        PartitionKeyDesc inDesc = PartitionKeyDesc.createIn(inValues);
+        String inName = MTMVPartitionUtil.generatePartitionName(inDesc);
+        Assert.assertEquals("p_value11_value12_value21_value22", inName);
+
+        PartitionKeyDesc rangeDesc = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue(1L)),
+                Lists.newArrayList(new PartitionValue(2L))
+        );
+        String rangeName = MTMVPartitionUtil.generatePartitionName(rangeDesc);
+        Assert.assertEquals("p_1_2", rangeName);
     }
 }

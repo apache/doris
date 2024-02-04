@@ -235,7 +235,7 @@ public class MTMVPartitionUtil {
      * @return
      * @throws AnalysisException
      */
-    private static boolean isSyncWithPartition(MTMV mtmv, Long mtmvPartitionId,
+    public static boolean isSyncWithPartition(MTMV mtmv, Long mtmvPartitionId,
             MTMVRelatedTableIf relatedTable,
             Long relatedPartitionId) throws AnalysisException {
         if (!relatedTable.needAutoRefresh()) {
@@ -255,7 +255,7 @@ public class MTMVPartitionUtil {
      * @param desc
      * @return
      */
-    private static String generatePartitionName(PartitionKeyDesc desc) {
+    public static String generatePartitionName(PartitionKeyDesc desc) {
         String partitionName = "p_";
         partitionName += desc.toSql().trim().replaceAll("\\(|\\)|\\-|\\[|\\]|'|\\s+", "")
                 .replaceAll("\\(|\\)|\\,|\\[|\\]", "_");
