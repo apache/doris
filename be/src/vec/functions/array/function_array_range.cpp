@@ -183,15 +183,14 @@ private:
             auto idx = start[row];
             auto end_row = end[row];
             auto step_row = step[row];
-            int offset = dest_offsets.back();
             auto args_null_map_row = args_null_map[row];
             if constexpr (std::is_same_v<SourceDataType, Int32>) {
                 if (args_null_map_row || idx < 0 || end_row < 0 || step_row < 0) {
-                    nested_column.push_back(0);
-                    dest_offsets.push_back(offset + 1);
-                    dest_nested_null_map.push_back(1);
-                    args_null_map_row = 1;
+                    args_null_map[row] = 1;
+                    dest_offsets.push_back(dest_offsets.back());
+                    continue;
                 } else {
+                    int offset = dest_offsets.back();
                     while (idx < end[row]) {
                         nested_column.push_back(idx);
                         dest_nested_null_map.push_back(0);
@@ -207,11 +206,11 @@ private:
                 bool is_null = !idx_0.is_valid_date();
                 bool is_end_row_invalid = !end_row_cast.is_valid_date();
                 if (args_null_map_row || step_row < 0 || is_null || is_end_row_invalid) {
-                    nested_column.push_back(0);
-                    dest_offsets.push_back(offset + 1);
-                    dest_nested_null_map.push_back(1);
-                    args_null_map_row = 1;
+                    args_null_map[row] = 1;
+                    dest_offsets.push_back(dest_offsets.back());
+                    continue;
                 } else {
+                    int offset = dest_offsets.back();
                     using UNIT = std::conditional_t<std::is_same_v<TimeUnitOrVoid, void>,
                                                     std::integral_constant<TimeUnit, TimeUnit::DAY>,
                                                     TimeUnitOrVoid>;

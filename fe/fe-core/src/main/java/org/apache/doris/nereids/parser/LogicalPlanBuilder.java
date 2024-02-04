@@ -1703,8 +1703,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             throw new ParseException("Unsupported time unit: " + ctx.unit
                     + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
-        } else {
+        } else if (ctx.unitsAmount != null) {
             return new ArrayRange(start, end, step);
+        } else if (ctx.end != null) {
+            return new ArrayRange(start, end);
+        } else {
+            return new ArrayRange(start);
         }
     }
 
