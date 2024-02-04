@@ -352,10 +352,12 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private String normalizeLocation(String location) {
         Map<String, String> props = source.getCatalog().getProperties();
-        LocationPath locationPath = new LocationPath(location, props, true);
+        LocationPath locationPath = new LocationPath(location, props);
         String icebergCatalogType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
         if ("hadoop".equalsIgnoreCase(icebergCatalogType)) {
-            if (locationPath.getLocationType() == LocationPath.LocationType.UNKNOWN) {
+            // if no scheme info, fill will HADOOP_FS_NAME
+            // if no HADOOP_FS_NAME, then should be local file system
+            if (locationPath.getLocationType() == LocationPath.LocationType.NOSCHEME) {
                 String fsName = props.get(HdfsResource.HADOOP_FS_NAME);
                 if (fsName != null) {
                     location = fsName + location;
