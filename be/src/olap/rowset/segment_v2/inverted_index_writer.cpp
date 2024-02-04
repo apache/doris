@@ -184,32 +184,38 @@ public:
         _dir.reset(DorisCompoundDirectoryFactory::getDirectory(
                 _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir));
 
-        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
-            _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
-            _analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
-        } else if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
-            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-        } else if (_parser_type == InvertedIndexParserType::PARSER_CHINESE) {
-            auto chinese_analyzer = _CLNEW lucene::analysis::LanguageBasedAnalyzer();
-            chinese_analyzer->setLanguage(L"chinese");
-            chinese_analyzer->initDict(config::inverted_index_dict_path);
-            auto mode = get_parser_mode_string_from_properties(_index_meta->properties());
-            if (mode == INVERTED_INDEX_PARSER_FINE_GRANULARITY) {
-                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
+        try {
+            if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
+                _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
+                _analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
+            } else if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
+                _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
+            } else if (_parser_type == InvertedIndexParserType::PARSER_CHINESE) {
+                auto chinese_analyzer = _CLNEW lucene::analysis::LanguageBasedAnalyzer();
+                chinese_analyzer->setLanguage(L"chinese");
+                chinese_analyzer->initDict(config::inverted_index_dict_path);
+                auto mode = get_parser_mode_string_from_properties(_index_meta->properties());
+                if (mode == INVERTED_INDEX_PARSER_FINE_GRANULARITY) {
+                    chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
+                } else {
+                    chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
+                }
+                _analyzer.reset(chinese_analyzer);
             } else {
-                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
+                // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
+                _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
             }
-            _analyzer.reset(chinese_analyzer);
-        } else {
-            // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
-            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
+            auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
+            if (lowercase == "true") {
+                _analyzer->set_lowercase(true);
+            } else if (lowercase == "false") {
+                _analyzer->set_lowercase(false);
+            }
+        } catch (CLuceneError& e) {
+            return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "inverted index create analyzer failed: {}", e.what());
         }
-        auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
-        if (lowercase == "true") {
-            _analyzer->set_lowercase(true);
-        } else if (lowercase == "false") {
-            _analyzer->set_lowercase(false);
-        }
+
         _index_writer = std::make_unique<lucene::index::IndexWriter>(_dir.get(), _analyzer.get(),
                                                                      create, true);
         _index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
