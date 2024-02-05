@@ -142,7 +142,7 @@ public class BeLoadRebalancer extends Rebalancer {
                 continue;
             }
 
-            boolean choseHighDisk = isUrgent && beStat.hasAvailPathWithGlobalClazz(medium, Classification.HIGH);
+            boolean choseHighDisk = isUrgent && beStat.getMaxDiskClazz(medium) == Classification.HIGH;
 
             // for each path, we try to select at most BALANCE_SLOT_NUM_FOR_PATH tablets
             Map<Long, Integer> remainingPaths = Maps.newHashMap();
@@ -229,6 +229,16 @@ public class BeLoadRebalancer extends Rebalancer {
 
                     if (recycleBin != null && recycleBin.isRecyclePartition(tabletMeta.getDbId(),
                             tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
+                        continue;
+                    }
+
+                    boolean isFit = lowBEs.stream().anyMatch(be -> be.isFit(replica.getDataSize(),
+                            medium, null, false) == BalanceStatus.OK);
+                    if (!isFit) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("tablet {} with size {} medium {} not fit in low backends",
+                                    tabletId, replica.getDataSize(), medium);
+                        }
                         continue;
                     }
 
@@ -352,10 +362,9 @@ public class BeLoadRebalancer extends Rebalancer {
 
                 // no replica on this low load backend
                 // 1. check if this clone task can make the cluster more balance.
-                List<RootPathLoadStatistic> availPaths = Lists.newArrayList();
-                BalanceStatus bs;
-                if ((bs = beStat.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), availPaths,
-                        false /* not supplement */)) != BalanceStatus.OK) {
+                BalanceStatus bs = beStat.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), null,
+                        false /* not supplement */);
+                if (bs != BalanceStatus.OK) {
                     LOG.debug("tablet not fit in BE {}, reason: {}, {}",
                             beStat.getBeId(), bs.getErrMsgs(), isUrgentInfo);
                     continue;

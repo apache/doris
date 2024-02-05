@@ -168,6 +168,7 @@ public class BackendLoadStatistic {
     private Map<TStorageMedium, Long> totalReplicaNumMap = Maps.newHashMap();
     private Map<TStorageMedium, LoadScore> loadScoreMap = Maps.newHashMap();
     private Map<TStorageMedium, Classification> clazzMap = Maps.newHashMap();
+    private Map<TStorageMedium, Classification> maxDiskClazzMap = Maps.newHashMap();
     private List<RootPathLoadStatistic> pathStatistics = Lists.newArrayList();
 
     public BackendLoadStatistic(long beId, Tag tag, SystemInfoService infoService,
@@ -227,6 +228,14 @@ public class BackendLoadStatistic {
 
     public Classification getClazz(TStorageMedium medium) {
         return clazzMap.getOrDefault(medium, Classification.INIT);
+    }
+
+    public void setMaxDiskClazz(TStorageMedium medium, Classification clazz) {
+        this.maxDiskClazzMap.put(medium, clazz);
+    }
+
+    public Classification getMaxDiskClazz(TStorageMedium medium) {
+        return maxDiskClazzMap.getOrDefault(medium, Classification.INIT);
     }
 
     public void init() throws LoadBalanceException {
@@ -432,14 +441,19 @@ public class BackendLoadStatistic {
 
             BalanceStatus bStatus = pathStatistic.isFit(tabletSize, isSupplement);
             if (!bStatus.ok()) {
-                status.addErrMsgs(bStatus.getErrMsgs());
+                if (status != BalanceStatus.OK) {
+                    status.addErrMsgs(bStatus.getErrMsgs());
+                }
                 continue;
             }
 
-            result.add(pathStatistic);
+            if (result != null) {
+                result.add(pathStatistic);
+            }
+            status = BalanceStatus.OK;
         }
 
-        return result.isEmpty() ? status : BalanceStatus.OK;
+        return status;
     }
 
     /**
@@ -624,17 +638,9 @@ public class BackendLoadStatistic {
         info.add(String.valueOf(isAvailable));
         long used = totalUsedCapacityMap.getOrDefault(medium, 0L);
         long total = totalCapacityMap.getOrDefault(medium, 0L);
-        Classification maxDiskClass = null;
-        if (hasAvailPathWithGlobalClazz(medium, Classification.HIGH)) {
-            maxDiskClass = Classification.HIGH;
-        } else if (hasAvailPathWithGlobalClazz(medium, Classification.LOW)) {
-            maxDiskClass = Classification.LOW;
-        } else if (hasAvailPathWithGlobalClazz(medium, Classification.MID)) {
-            maxDiskClass = Classification.MID;
-        }
         info.add(String.valueOf(used));
         info.add(String.valueOf(total));
-        info.add(maxDiskClass != null ? maxDiskClass.name() : "");
+        info.add(getMaxDiskClazz(medium).name());
         info.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(used * 100
                 / (double) total)));
         info.add(String.valueOf(totalReplicaNumMap.getOrDefault(medium, 0L)));
@@ -642,7 +648,7 @@ public class BackendLoadStatistic {
         info.add(String.valueOf(loadScore.capacityCoefficient));
         info.add(String.valueOf(loadScore.getReplicaNumCoefficient()));
         info.add(String.valueOf(loadScore.score));
-        info.add(clazzMap.getOrDefault(medium, Classification.INIT).name());
+        info.add(getClazz(medium).name());
         return info;
     }
 

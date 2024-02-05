@@ -146,7 +146,7 @@ public class LoadStatisticForTag {
         // classify all backends
         for (TStorageMedium medium : TStorageMedium.values()) {
             classifyBackendByLoad(medium);
-            classifyBackendDiskGlobalUsages(medium);
+            classifyBackendByMaxDiskUsage(medium);
         }
 
         // sort be stats by mix load score
@@ -248,7 +248,23 @@ public class LoadStatisticForTag {
                 medium, avgLoadScore, lowCounter, midCounter, highCounter);
     }
 
-    private void classifyBackendDiskGlobalUsages(TStorageMedium medium) {
+    private void classifyBackendByMaxDiskUsage(TStorageMedium medium) {
+        calcDiskGlobalUsages(medium);
+        Classification[] clazzs = { Classification.HIGH, Classification.LOW, Classification.MID };
+        for (BackendLoadStatistic beStat : beLoadStatistics) {
+            if (!beStat.hasMedium(medium)) {
+                continue;
+            }
+            for (Classification clazz : clazzs) {
+                if (beStat.hasAvailPathWithGlobalClazz(medium, clazz)) {
+                    beStat.setMaxDiskClazz(medium, clazz);
+                    break;
+                }
+            }
+        }
+    }
+
+    private void calcDiskGlobalUsages(TStorageMedium medium) {
         double urgentDiffUsageThreshold;
         if (Config.be_rebalancer_fuzzy_test) {
             urgentDiffUsageThreshold = 0;
@@ -451,12 +467,18 @@ public class LoadStatisticForTag {
             if (!beStat.isAvailable()) {
                 continue;
             }
-            if (beStat.hasAvailPathWithGlobalClazz(medium, Classification.HIGH)) {
-                highBEs.add(beStat);
-            } else if (beStat.hasAvailPathWithGlobalClazz(medium, Classification.LOW)) {
-                lowBEs.add(beStat);
-            } else if (beStat.hasAvailPathWithGlobalClazz(medium, Classification.MID)) {
-                midBEs.add(beStat);
+            switch (beStat.getMaxDiskClazz(medium)) {
+                case LOW:
+                    lowBEs.add(beStat);
+                    break;
+                case MID:
+                    midBEs.add(beStat);
+                    break;
+                case HIGH:
+                    highBEs.add(beStat);
+                    break;
+                default:
+                    break;
             }
         }
 
