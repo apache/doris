@@ -52,9 +52,6 @@ public:
 
     virtual void update_statistics(PipelineTask* task, int64_t time_spent) {}
 
-    virtual void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
-                                     taskgroup::TGPTEntityPtr entity) = 0;
-
     int cores() const { return _core_size; }
 
 protected:
@@ -152,11 +149,6 @@ public:
         task->inc_runtime_ns(time_spent);
         _prio_task_queue_list[task->get_core_id()].inc_sub_queue_runtime(task->get_queue_level(),
                                                                          time_spent);
-    }
-
-    void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
-                             taskgroup::TGPTEntityPtr entity) override {
-        LOG(FATAL) << "update_tg_cpu_share not implemented";
     }
 
 private:
