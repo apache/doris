@@ -158,8 +158,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                             // the most right deep buildNode from rfsToPushDown is used as buildNode for pushDown rf
                             // since the srcExpr are the same, all buildNodes of rfToPushDown are in the same tree path
                             // the longest ancestors means its corresponding rf build node is the most right deep one.
-                            RuntimeFilter rightDeep = rfsToPushDown.get(0);
-                            List<RuntimeFilter> rightDeepAccompanies = Lists.newArrayList();
+                            List<RuntimeFilter> rightDeepRfs = Lists.newArrayList();
                             List<Plan> rightDeepAncestors = rfsToPushDown.get(0).getBuilderNode().getAncestors();
                             int rightDeepAncestorsSize = rightDeepAncestors.size();
                             RuntimeFilter leftTop = rfsToPushDown.get(0);
@@ -169,12 +168,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                 int currentAncestorsSize = ancestors.size();
                                 if (currentAncestorsSize >= rightDeepAncestorsSize) {
                                     if (currentAncestorsSize == rightDeepAncestorsSize) {
-                                        rightDeepAccompanies.add(rf);
+                                        rightDeepRfs.add(rf);
                                     } else {
                                         rightDeepAncestorsSize = currentAncestorsSize;
                                         rightDeepAncestors = ancestors;
-                                        rightDeep = rf;
-                                        rightDeepAccompanies.clear();
+                                        rightDeepRfs.clear();
                                     }
                                 }
                                 if (currentAncestorsSize < leftTopAncestorsSize) {
@@ -205,7 +203,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                 break;
                             }
 
-                            for (RuntimeFilter rfToPush : rightDeepAccompanies) {
+                            for (RuntimeFilter rfToPush : rightDeepRfs) {
                                 Expression rightDeepTargetExpressionOnCTE = null;
                                 int targetCount = rfToPush.getTargetExpressions().size();
                                 for (int i = 0; i < targetCount; i++) {
