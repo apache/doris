@@ -37,6 +37,8 @@ target_link_libraries(meta_tool
 install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
 install(TARGETS meta_tool DESTINATION ${OUTPUT_DIR}/lib/)
 
+add_definitions(-DBE_META_TOOL)
+
 if (NOT OS_MACOSX)
 # Meta tool never need debug info
 add_custom_command(TARGET meta_tool POST_BUILD

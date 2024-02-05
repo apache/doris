@@ -38,9 +38,11 @@
 #include "olap/options.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
+#include "runtime/memory/cache_manager.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 
@@ -150,8 +152,19 @@ Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
         return Status::InternalError("parse root path failed");
     }
 
-    std::unique_ptr<DataDir> p(
-            new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium));
+    doris::config::tablet_map_shard_size = 256;
+    doris::config::txn_map_shard_size = 1024;
+    doris::config::txn_shard_size = 1024;
+    doris::config::partition_disk_index_lru_size = 10000;
+    doris::config::delete_bitmap_agg_cache_capacity = 104857600;
+
+    doris::ExecEnv::GetInstance()->set_cache_manager(doris::CacheManager::create_global_instance());
+    doris::ExecEnv::GetInstance()->set_dummy_lru_cache(std::make_shared<doris::DummyLRUCache>());
+
+    std::unique_ptr<doris::StorageEngine> _engine =
+            std::make_unique<doris::StorageEngine>(doris::EngineOptions {});
+    std::unique_ptr<DataDir> p(new (std::nothrow) DataDir(
+            *_engine.get(), path.path, path.capacity_bytes, path.storage_medium));
     if (p == nullptr) {
         std::cout << "new data dir failed" << std::endl;
         return Status::InternalError("new data dir failed");

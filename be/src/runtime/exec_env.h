@@ -207,7 +207,7 @@ public:
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
     WalManager* wal_mgr() { return _wal_manager.get(); }
-#ifdef BE_TEST
+#if defined(BE_TEST) || defined(BE_META_TOOL)
     void set_ready() { this->_s_ready = true; }
     void set_not_ready() { this->_s_ready = false; }
     void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
