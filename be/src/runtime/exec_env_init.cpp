@@ -303,9 +303,6 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 
     auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
     _with_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGSchePool");
-    _with_group_task_scheduler = new pipeline::TaskScheduler(this, _with_group_block_scheduler,
-                                                             tg_queue, "PipeGSchePool", nullptr);
-    RETURN_IF_ERROR(_with_group_task_scheduler->start());
     RETURN_IF_ERROR(_with_group_block_scheduler->start());
 
     _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGBlockSche");
@@ -543,7 +540,6 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_without_group_block_scheduler.get());
     SAFE_STOP(_without_group_task_scheduler);
     SAFE_SHUTDOWN(_with_group_block_scheduler.get());
-    SAFE_STOP(_with_group_task_scheduler);
     // stop pipline step 2, cgroup execution
     SAFE_SHUTDOWN(_global_block_scheduler.get());
     SAFE_STOP(_task_group_manager);
@@ -611,7 +607,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_task_group_manager);
-    SAFE_DELETE(_with_group_task_scheduler);
     SAFE_DELETE(_without_group_task_scheduler);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);

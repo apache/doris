@@ -43,65 +43,6 @@ const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
 const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
 const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
 
-template <typename QueueType>
-TaskGroupEntity<QueueType>::TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type)
-        : _tg(tg), _type(type), _version(tg->version()), _cpu_share(tg->cpu_share()) {
-    _task_queue = new QueueType();
-}
-
-template <typename QueueType>
-TaskGroupEntity<QueueType>::~TaskGroupEntity() {
-    delete _task_queue;
-}
-
-template <typename QueueType>
-QueueType* TaskGroupEntity<QueueType>::task_queue() {
-    return _task_queue;
-}
-
-template <typename QueueType>
-void TaskGroupEntity<QueueType>::incr_runtime_ns(uint64_t runtime_ns) {
-    auto v_time = runtime_ns / _cpu_share;
-    _vruntime_ns += v_time;
-}
-
-template <typename QueueType>
-void TaskGroupEntity<QueueType>::adjust_vruntime_ns(uint64_t vruntime_ns) {
-    VLOG_DEBUG << "adjust " << debug_string() << "vtime to " << vruntime_ns;
-    _vruntime_ns = vruntime_ns;
-}
-
-template <typename QueueType>
-size_t TaskGroupEntity<QueueType>::task_size() const {
-    return _task_queue->size();
-}
-
-template <typename QueueType>
-uint64_t TaskGroupEntity<QueueType>::cpu_share() const {
-    return _cpu_share;
-}
-
-template <typename QueueType>
-uint64_t TaskGroupEntity<QueueType>::task_group_id() const {
-    return _tg->id();
-}
-
-template <typename QueueType>
-void TaskGroupEntity<QueueType>::check_and_update_cpu_share(const TaskGroupInfo& tg_info) {
-    if (tg_info.version > _version) {
-        _cpu_share = tg_info.cpu_share;
-        _version = tg_info.version;
-    }
-}
-
-template <typename QueueType>
-std::string TaskGroupEntity<QueueType>::debug_string() const {
-    return fmt::format("TGE[id = {}, name = {}-{}, cpu_share = {}, task size: {}, v_time:{} ns]",
-                       _tg->id(), _tg->name(), _type, cpu_share(), task_size(), _vruntime_ns);
-}
-
-template class TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
-
 TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
         : _id(tg_info.id),
           _name(tg_info.name),
@@ -145,8 +86,6 @@ void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
             return;
         }
     }
-    ExecEnv::GetInstance()->pipeline_task_group_scheduler()->task_queue()->update_tg_cpu_share(
-            tg_info, &_task_entity);
 }
 
 int64_t TaskGroup::memory_used() {
