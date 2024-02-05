@@ -120,6 +120,7 @@ import org.apache.doris.plsql.functions.FunctionMisc;
 import org.apache.doris.plsql.functions.FunctionRegistry;
 import org.apache.doris.plsql.functions.FunctionString;
 import org.apache.doris.plsql.functions.InMemoryFunctionRegistry;
+import org.apache.doris.plsql.metastore.PlsqlMetaClient;
 import org.apache.doris.plsql.objects.DbmOutput;
 import org.apache.doris.plsql.objects.DbmOutputClass;
 import org.apache.doris.plsql.objects.Method;
@@ -133,7 +134,6 @@ import org.apache.doris.plsql.objects.UtlFileClass;
 import org.apache.doris.plsql.packages.DorisPackageRegistry;
 import org.apache.doris.plsql.packages.InMemoryPackageRegistry;
 import org.apache.doris.plsql.packages.PackageRegistry;
-import org.apache.doris.plsql.metastore.PlsqlMetaClient;
 
 import com.google.common.collect.ImmutableList;
 import org.antlr.v4.runtime.ANTLRInputStream;

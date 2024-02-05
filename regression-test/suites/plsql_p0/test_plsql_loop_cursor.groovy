@@ -33,7 +33,7 @@ suite("test_plsql_loop_cursor") {
     sql """call procedure_insert(222, "plsql222")"""
     sql """call procedure_insert(333, "plsql333")"""
     sql """call procedure_insert(111, "plsql333")"""
-    qt_select "select * from ${tableName}"
+    qt_select "select sum(id), count(1) from ${tableName}"
 
     sql """
         CREATE OR REPLACE PROCEDURE procedure_cursor_select(IN id_arg INT, IN name_arg STRING) 
