@@ -46,6 +46,37 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
             pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", this);
     _runtime_filter_mgr.reset(
             new RuntimeFilterMgr(TUniqueId(), RuntimeFilterParamsContext::create(this)));
+
+    timeout_second = query_options.execution_timeout;
+
+    bool has_query_mem_tracker = query_options.__isset.mem_limit && (query_options.mem_limit > 0);
+    int64_t bytes_limit = has_query_mem_tracker ? query_options.mem_limit : -1;
+    if (bytes_limit > MemInfo::mem_limit()) {
+        VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+                    << " exceeds process memory limit of "
+                    << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
+                    << ". Using process memory limit instead";
+        bytes_limit = MemInfo::mem_limit();
+    }
+    if (query_options.query_type == TQueryType::SELECT) {
+        query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                MemTrackerLimiter::Type::QUERY, fmt::format("Query#Id={}", print_id(_query_id)),
+                bytes_limit);
+    } else if (query_options.query_type == TQueryType::LOAD) {
+        query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", print_id(_query_id)),
+                bytes_limit);
+    } else { // EXTERNAL
+        query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                MemTrackerLimiter::Type::LOAD, fmt::format("External#Id={}", print_id(_query_id)),
+                bytes_limit);
+    }
+    if (query_options.__isset.is_report_success && query_options.is_report_success) {
+        query_mem_tracker->enable_print_log_usage();
+    }
+
+    register_memory_statistics();
+    register_cpu_statistics();
 }
 
 QueryContext::~QueryContext() {
@@ -64,7 +95,7 @@ QueryContext::~QueryContext() {
     }
     if (_task_group) {
         _task_group->remove_mem_tracker_limiter(query_mem_tracker);
-        _exec_env->task_group_manager()->remove_query_from_group(_task_group->id(), _query_id);
+        _task_group->remove_query(_query_id);
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));

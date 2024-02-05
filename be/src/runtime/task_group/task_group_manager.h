@@ -69,9 +69,19 @@ public:
                              vectorized::SimplifiedScanScheduler** scan_sched,
                              ThreadPool** non_pipe_thread_pool);
 
-    Status add_query_to_group(uint64_t tg_id, TUniqueId query_id, TaskGroupPtr* tg_ptr);
-
-    void remove_query_from_group(uint64_t tg_id, TUniqueId query_id);
+    TaskGroupPtr get_task_group(uint64_t tg_id) {
+        std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
+        auto tg_iter = _task_groups.find(tg_id);
+        if (tg_iter != _task_groups.end()) {
+            if (tg_iter->second->is_shutdown()) {
+                LOG(INFO) << "workload group " << tg_id << " is shutdown";
+                return nullptr;
+            }
+            return tg_iter->second;
+        } else {
+            return nullptr;
+        }
+    }
 
 private:
     std::shared_mutex _group_mutex;
