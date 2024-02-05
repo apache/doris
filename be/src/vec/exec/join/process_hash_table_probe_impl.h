@@ -87,13 +87,24 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
     constexpr auto probe_all =
             JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
 
+    bool build_index_has_null = false;
+    // Dispose right tuple is null flags columns
+    if (probe_all && !have_other_join_conjunct) {
+        _tuple_is_null_right_flags->resize(size);
+        auto* __restrict null_data = _tuple_is_null_right_flags->data();
+        for (int i = 0; i < size; ++i) {
+            null_data[i] = _build_indexs[i] == 0;
+        }
+        build_index_has_null = simd::contain_byte(null_data, size, 1);
+    }
+
     if ((!is_semi_anti_join || have_other_join_conjunct ||
          (is_mark_join && !_parent->_mark_join_conjuncts.empty())) &&
         size) {
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
             if (output_slot_flags[i]) {
-                if (_right_fast_nullable[i]) {
+                if (_right_fast_nullable[i] && !build_index_has_null) {
                     assert_cast<ColumnNullable*>(mcol[i + _right_col_idx].get())
                             ->insert_indices_from_not_has_null(column, _build_indexs.data(),
                                                                _build_indexs.data() + size);
@@ -104,15 +115,6 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
             } else {
                 mcol[i + _right_col_idx]->insert_many_defaults(size);
             }
-        }
-    }
-
-    // Dispose right tuple is null flags columns
-    if (probe_all && !have_other_join_conjunct) {
-        _tuple_is_null_right_flags->resize(size);
-        auto* __restrict null_data = _tuple_is_null_right_flags->data();
-        for (int i = 0; i < size; ++i) {
-            null_data[i] = _build_indexs[i] == 0;
         }
     }
 }

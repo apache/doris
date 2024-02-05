@@ -296,11 +296,14 @@ void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t 
 
 void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
-    _get_null_map_column().insert_range_from(*nullable_col.null_map, start, length);
-    get_nested_column().insert_range_from(*nullable_col.nested_column, start, length);
     const auto& src_null_map_data = nullable_col.get_null_map_data();
-    _has_null = has_null();
-    _has_null |= simd::contain_byte(src_null_map_data.data() + start, length, 1);
+    if (simd::contain_byte(src_null_map_data.data() + start, length, 1)) {
+        _get_null_map_column().insert_range_from(*nullable_col.null_map, start, length);
+        get_nested_column().insert_range_from(*nullable_col.nested_column, start, length);
+        _has_null = true;
+    } else {
+        insert_range_from_not_nullable(*nullable_col.nested_column, start, length);
+    }
 }
 
 void ColumnNullable::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
