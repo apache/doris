@@ -144,7 +144,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private Set<RuntimeFilterId> targetRuntimeFilterIds;
 
     // has colocate plan node
-    private boolean hasColocatePlanNode = false;
+    protected boolean hasColocatePlanNode = false;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
