@@ -21,6 +21,8 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -153,6 +155,19 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, logicalProperties, children.get(0));
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies fd = child(0).getLogicalProperties().getFunctionalDependencies();
+        if (getLimit() == 1) {
+            Builder builder = new Builder();
+            List<Slot> output = outputSupplier.get();
+            output.forEach(builder::addUniformSlot);
+            output.forEach(builder::addUniqueSlot);
+            fd = builder.build();
+        }
+        return fd;
     }
 
     @Override

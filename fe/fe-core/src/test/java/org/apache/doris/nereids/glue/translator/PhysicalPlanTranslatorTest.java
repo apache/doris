@@ -64,7 +64,9 @@ public class PhysicalPlanTranslatorTest {
         t1Output.add(col1);
         t1Output.add(col2);
         t1Output.add(col3);
-        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output, () -> ImmutableSet.of());
+        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output,
+                () -> FunctionalDependencies.EMPTY_FUNC_DEPS,
+                () -> ImmutableSet.of());
         PhysicalOlapScan scan = new PhysicalOlapScan(StatementScopeIdGenerator.newRelationId(), t1, qualifier, t1.getBaseIndexId(),
                 Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
                 ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty());

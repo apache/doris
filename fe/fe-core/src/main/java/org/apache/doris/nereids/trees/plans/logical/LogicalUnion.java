@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -182,6 +183,16 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     @Override
     public LogicalUnion pruneOutputs(List<NamedExpression> prunedOutputs) {
         return withNewOutputs(prunedOutputs);
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        if (qualifier != Qualifier.DISTINCT) {
+            return FunctionalDependencies.EMPTY_FUNC_DEPS;
+        }
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+        return builder.build();
     }
 
     @Override

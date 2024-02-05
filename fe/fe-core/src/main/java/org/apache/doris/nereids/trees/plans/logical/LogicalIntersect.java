@@ -119,6 +119,20 @@ public class LogicalIntersect extends LogicalSetOperation {
     }
 
     @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        for (Plan child : children) {
+            builder.addFunctionalDependencies(
+                    child.getLogicalProperties().getFunctionalDependencies());
+            replaceSlotInFuncDeps(builder, child.getOutput(), outputSupplier.get());
+        }
+        if (qualifier == Qualifier.DISTINCT) {
+            builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+        }
+        return builder.build();
+    }
+
+    @Override
     public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
         Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();

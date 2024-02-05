@@ -90,18 +90,18 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     void testMergeGroup() {
         Group srcGroup = new Group(new GroupId(2), new GroupExpression(new FakePlan()),
-                new LogicalProperties(ArrayList::new, () -> ImmutableSet.of()));
+                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS, () -> ImmutableSet.of()));
         Group dstGroup = new Group(new GroupId(3), new GroupExpression(new FakePlan()),
-                new LogicalProperties(ArrayList::new, () -> ImmutableSet.of()));
+                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS, () -> ImmutableSet.of()));
 
         FakePlan fakePlan = new FakePlan();
         GroupExpression srcParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(srcGroup));
         Group srcParentGroup = new Group(new GroupId(0), srcParentExpression,
-                new LogicalProperties(ArrayList::new, () -> ImmutableSet.of()));
+                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS, () -> ImmutableSet.of()));
         srcParentGroup.setBestPlan(srcParentExpression, Cost.zeroV1(), PhysicalProperties.ANY);
         GroupExpression dstParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(dstGroup));
         Group dstParentGroup = new Group(new GroupId(1), dstParentExpression,
-                new LogicalProperties(ArrayList::new, () -> ImmutableSet.of()));
+                new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS, () -> ImmutableSet.of()));
 
         Memo memo = new Memo();
         Map<GroupId, Group> groups = Deencapsulation.getField(memo, "groups");

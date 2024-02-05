@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.properties.FdItem;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
@@ -30,6 +31,20 @@ import java.util.function.Supplier;
  * Propagate fd, keep children's fd
  */
 public interface PropagateFuncDeps extends LogicalPlan {
+    @Override
+    default FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        if (children().size() == 1) {
+            // Note when changing function dependencies, we always clone it.
+            // So it's safe to return a reference
+            return child(0).getLogicalProperties().getFunctionalDependencies();
+        }
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        children().stream()
+                .map(p -> p.getLogicalProperties().getFunctionalDependencies())
+                .forEach(builder::addFunctionalDependencies);
+        return builder.build();
+    }
+
     @Override
     default ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
         if (children().size() == 1) {

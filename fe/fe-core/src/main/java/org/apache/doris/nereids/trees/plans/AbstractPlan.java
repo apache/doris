@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -173,13 +174,13 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             return UnboundLogicalProperties.INSTANCE;
         } else {
             Supplier<List<Slot>> outputSupplier = Suppliers.memoize(this::computeOutput);
-            //Supplier<FunctionalDependencies> fdSupplier = () -> this instanceof LogicalPlan
-            //        ? ((LogicalPlan) this).computeFuncDeps(outputSupplier)
-            //        : FunctionalDependencies.EMPTY_FUNC_DEPS;
+            Supplier<FunctionalDependencies> fdSupplier = () -> this instanceof LogicalPlan
+                    ? ((LogicalPlan) this).computeFuncDeps(outputSupplier)
+                    : FunctionalDependencies.EMPTY_FUNC_DEPS;
             Supplier<ImmutableSet<FdItem>> fdItemsSupplier = () -> this instanceof LogicalPlan
                     ? ((LogicalPlan) this).computeFdItems(outputSupplier)
                     : ImmutableSet.of();
-            return new LogicalProperties(outputSupplier, fdItemsSupplier);
+            return new LogicalProperties(outputSupplier, fdSupplier, fdItemsSupplier);
         }
     }
 

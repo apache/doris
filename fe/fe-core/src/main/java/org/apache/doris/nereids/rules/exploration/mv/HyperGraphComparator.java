@@ -186,7 +186,7 @@ public class HyperGraphComparator {
                 return false;
             }
             return JoinUtils.canEliminateByLeft(joinEdge.getJoin(),
-                    rigthPlan.getLogicalProperties().getFdItems());
+                    rigthPlan.getLogicalProperties().getFunctionalDependencies());
         }
         // eliminate by pk fk
         if (joinEdge.getJoinType().isInnerJoin()) {

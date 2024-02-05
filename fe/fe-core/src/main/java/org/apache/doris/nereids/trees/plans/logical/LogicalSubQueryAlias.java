@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -34,7 +35,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -159,6 +162,19 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression, logicalProperties,
                 children.get(0));
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies
+                .Builder(child(0).getLogicalProperties().getFunctionalDependencies());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> outputs = outputSupplier.get();
+        for (int i = 0; i < outputs.size(); i++) {
+            replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
+        }
+        builder.replace(replaceMap);
+        return builder.build();
     }
 
     @Override

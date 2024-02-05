@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.FdItem;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -328,6 +329,20 @@ public class JoinUtils {
 
         Map<Slot, Slot> primaryToForeignKey = mapPrimaryToForeign(equalSet, foreignKey);
         return context.satisfyConstraint(primaryToForeignKey);
+    }
+
+    /**
+     * can this join be eliminated by its left child
+     */
+    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, FunctionalDependencies rightFuncDeps) {
+        if (join.getJoinType().isLeftOuterJoin()) {
+            Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
+            if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {
+                return false;
+            }
+            return rightFuncDeps.isUnique(njHashKeys.second);
+        }
+        return false;
     }
 
     /**

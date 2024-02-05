@@ -21,11 +21,14 @@ import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -38,6 +41,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.json.JSONObject;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -222,6 +226,28 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         properties.put("IsDistinct", isDistinct);
         logicalProject.put("Properties", properties);
         return logicalProject;
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies childFuncDeps = child().getLogicalProperties().getFunctionalDependencies();
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder(childFuncDeps);
+        builder.pruneSlots(new HashSet<>(outputSupplier.get()));
+        projects.stream().filter(Alias.class::isInstance).forEach(proj -> {
+            if (proj.child(0).isConstant()) {
+                builder.addUniformSlot(proj.toSlot());
+            } else if (proj.child(0) instanceof Uuid) {
+                builder.addUniqueSlot(proj.toSlot());
+            } else if (ExpressionUtils.isInjective(proj.child(0))) {
+                ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
+                if (childFuncDeps.isUnique(inputs)) {
+                    builder.addUniqueSlot(proj.toSlot());
+                } else if (childFuncDeps.isUniform(inputs)) {
+                    builder.addUniformSlot(proj.toSlot());
+                }
+            }
+        });
+        return builder.build();
     }
 
     @Override
