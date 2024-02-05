@@ -144,6 +144,31 @@ public class PolicyMgr implements Writable {
     }
 
     /**
+     * Create policy through http api.
+     **/
+    public void addPolicy(Policy policy) throws UserException {
+        writeLock();
+        try {
+            boolean storagePolicyExists = false;
+            if (PolicyTypeEnum.STORAGE == policy.getType()) {
+                // The name of the storage policy remains globally unique until it is renamed by user.
+                // So we could just compare the policy name to check if there are redundant ones.
+                // Otherwise two storage policy share one same name but with different resource name
+                // will not be filtered. See github #25025 for more details.
+                storagePolicyExists = getPoliciesByType(PolicyTypeEnum.STORAGE)
+                        .stream().anyMatch(p -> p.getPolicyName().equals(policy.getPolicyName()));
+            }
+            if (storagePolicyExists || existPolicy(policy)) {
+                throw new DdlException("the policy " + policy.getPolicyName() + " already create");
+            }
+            unprotectedAdd(policy);
+            Env.getCurrentEnv().getEditLog().logCreatePolicy(policy);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
      * Drop policy through stmt.
      **/
     public void dropPolicy(DropPolicyStmt stmt) throws DdlException, AnalysisException {
