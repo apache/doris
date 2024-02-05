@@ -319,7 +319,7 @@ void ColumnNullable::insert_indices_from_not_has_null(const IColumn& src,
     const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
     get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin,
                                             indices_end);
-    _get_null_map_column().resize(get_nested_column().size());
+    _get_null_map_column().insert_many_defaults(indices_end - indices_begin);
 }
 
 void ColumnNullable::insert(const Field& x) {
