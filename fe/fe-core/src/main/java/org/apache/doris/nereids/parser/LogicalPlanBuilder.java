@@ -2507,8 +2507,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // AUTO_INCREMENT default 1.
                 autoIncInitValue = Long.valueOf(1);
             }
-        } else {
-            autoIncInitValue = Long.valueOf(-1);
         }
         return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, autoIncInitValue, defaultValue,
                 onUpdateDefaultValue, comment);
