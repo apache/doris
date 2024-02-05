@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import com.google.common.collect.ImmutableSet;
 
 /**
- * FdItem
+ * Function dependence items.
  */
 public class FdItem {
     private ImmutableSet<SlotReference> parentExprs;

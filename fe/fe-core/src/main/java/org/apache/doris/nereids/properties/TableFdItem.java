@@ -34,7 +34,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * TableFdItem
+ * Table level function dependence items.
  */
 public class TableFdItem extends FdItem {
 

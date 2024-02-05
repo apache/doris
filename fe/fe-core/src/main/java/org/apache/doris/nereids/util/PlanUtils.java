@@ -111,7 +111,7 @@ public class PlanUtils {
     }
 
     /**
-     * getTableSet
+     * get table set from plan root.
      */
     public static ImmutableSet<TableIf> getTableSet(LogicalPlan plan) {
         Set<LogicalCatalogRelation> tableSet = new HashSet<>();

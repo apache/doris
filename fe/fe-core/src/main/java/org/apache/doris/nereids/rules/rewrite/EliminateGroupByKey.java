@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -35,12 +36,16 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Eliminate group by key based on fd info.
+ * Eliminate group by key based on fd item information.
  */
 public class EliminateGroupByKey extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalAggregate(logicalProject()).then(agg -> {
+            Set<Integer> enableNereidsRules = ConnectContext.get().getSessionVariable().getEnableNereidsRules();
+            if (!enableNereidsRules.contains(RuleType.ELIMINATE_GROUP_BY_KEY.type())) {
+                return null;
+            }
             LogicalPlan childPlan = agg.child();
             List<FdItem> uniqueFdItems = new ArrayList<>();
             List<FdItem> nonUniqueFdItems = new ArrayList<>();
@@ -192,11 +197,11 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
     }
 
     /**
-     * findEqualExpr
+     * find the equal expr index from expr list.
      */
-    public int findEqualExpr(List<SlotReference> candiExprs, SlotReference expr) {
-        for (int i = 0; i < candiExprs.size(); i++) {
-            if (candiExprs.get(i).equals(expr)) {
+    public int findEqualExpr(List<SlotReference> exprList, SlotReference expr) {
+        for (int i = 0; i < exprList.size(); i++) {
+            if (exprList.get(i).equals(expr)) {
                 return i;
             }
         }

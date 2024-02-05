@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import com.google.common.collect.ImmutableSet;
 
 /**
- * ExprFdItem
+ * Expression level function dependence items.
  */
 public class ExprFdItem extends FdItem {
     private ImmutableSet<SlotReference> childExprs;

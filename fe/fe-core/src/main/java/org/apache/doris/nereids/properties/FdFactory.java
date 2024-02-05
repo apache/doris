@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import com.google.common.collect.ImmutableSet;
 
 /**
- * FdFactory
+ * Function dependence building factory.
  */
 public class FdFactory {
 
