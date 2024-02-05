@@ -17,18 +17,31 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.jobs.executor.AbstractBatchJobExecutor;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.EliminateSort;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+
+import com.google.common.collect.Lists;
+
+import java.util.stream.Collectors;
 
 /**
  * The cache for materialized view cache
@@ -62,13 +75,27 @@ public class MTMVCache {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
         Plan originPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+        // change result sink to table sink for eliminate sort
         Plan mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
             @Override
-            public Plan visit(Plan plan, Object context) {
-                if (plan instanceof LogicalResultSink) {
-                    return ((LogicalResultSink<Plan>) plan).child();
-                }
-                return super.visit(plan, context);
+            public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Object context) {
+                return new LogicalOlapTableSink<>(new Database(), mtmv, mtmv.getBaseSchema(),
+                        mtmv.getPartitionIds(),
+                        logicalResultSink.getOutput()
+                                .stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                        mtmv.isPartitionedTable(), DMLCommandType.NONE, logicalResultSink.child());
+            }
+        }, null);
+        // eliminate sort under table sink, because sort is useless for materialized view
+        planner.getCascadesContext().setRewritePlan(mvPlan);
+        Rewriter rewriter = Rewriter.getCteChildrenRewriter(planner.getCascadesContext(),
+                Lists.newArrayList(AbstractBatchJobExecutor.custom(RuleType.ELIMINATE_SORT, EliminateSort::new)));
+        rewriter.execute();
+        // eliminate logicalTableSink
+        mvPlan = planner.getCascadesContext().getRewritePlan().accept(new DefaultPlanRewriter<Object>() {
+            @Override
+            public Plan visitLogicalTableSink(LogicalTableSink<? extends Plan> logicalTableSink, Object context) {
+                return logicalTableSink.child().accept(this, context);
             }
         }, null);
         return new MTMVCache(mvPlan, originPlan);
