@@ -652,10 +652,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
             OlapScan olapScan = (OlapScan) catalogRelation;
-            idxId = olapScan.getSelectedIndexId();
+            if (olapScan.getTable().getBaseIndexId() != olapScan.getSelectedIndexId()) {
+                idxId = olapScan.getSelectedIndexId();
+            }
         }
         for (SlotReference slotReference : slotSet) {
-            String colName = slotReference.getName();
+            String colName = slotReference.getColumn().isPresent()
+                    ? slotReference.getColumn().get().getName()
+                    : slotReference.getName();
             boolean shouldIgnoreThisCol = StatisticConstants.shouldIgnoreCol(table, slotReference.getColumn().get());
 
             if (colName == null) {
