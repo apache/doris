@@ -49,8 +49,9 @@ TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& tas
     return new_task_group;
 }
 
-void TaskGroupManager::get_resource_groups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
-                                           std::vector<TaskGroupPtr>* task_groups) {
+void TaskGroupManager::get_related_taskgroups(
+        const std::function<bool(const TaskGroupPtr& ptr)>& pred,
+        std::vector<TaskGroupPtr>* task_groups) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     for (const auto& [id, task_group] : _task_groups) {
         if (pred(task_group)) {
