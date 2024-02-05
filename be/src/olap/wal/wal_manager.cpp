@@ -401,9 +401,13 @@ Status WalManager::update_wal_dir_pre_allocated(const std::string& wal_dir,
 }
 
 Status WalManager::_update_wal_dir_info_thread() {
+    int i = 0;
     while (!_stop.load()) {
         static_cast<void>(_wal_dirs_info->update_all_wal_dir_limit());
         static_cast<void>(_wal_dirs_info->update_all_wal_dir_used());
+        if (++i == 100) {
+            LOG(INFO) << "Scheduled(every 10s) WAL info: " << get_wal_dirs_info_string();
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     return Status::OK();
