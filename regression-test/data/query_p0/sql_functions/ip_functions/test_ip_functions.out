@@ -213,3 +213,18 @@ true
 
 -- !sql --
 \N
+
+-- !sql --
+::ffff:192.168.0.1
+
+-- !sql --
+::ffff:10.0.5.9
+
+-- !sql --
+::ffff:192.168.0.1
+
+-- !sql --
+::
+
+-- !sql --
+ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff

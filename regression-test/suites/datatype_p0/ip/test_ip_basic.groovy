@@ -19,10 +19,12 @@
 suite("test_ip_basic") {
     sql """ DROP TABLE IF EXISTS t0 """
     sql """ DROP TABLE IF EXISTS t1 """
+    sql """ DROP TABLE IF EXISTS t2 """
 
     sql """ SET enable_nereids_planner=true """
     sql """ SET enable_fallback_to_original_planner=false """
 
+    // create table t0
     sql """
         CREATE TABLE `t0` (
           `id` int,
@@ -36,6 +38,7 @@ suite("test_ip_basic") {
         );
         """
 
+    // create table t1
     sql """
         CREATE TABLE `t1` (
           `id` int,
@@ -49,6 +52,21 @@ suite("test_ip_basic") {
         );
         """
 
+    // create table t2
+    sql """
+        CREATE TABLE `t2` (
+          `id` int,
+          `ip_v4` ipv4,
+          `ip_v6` ipv6
+        ) ENGINE=OLAP
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "enable_duplicate_without_keys_by_default" = "true"
+        );
+        """
+
+    // insert data into t0
     sql """
         insert into t0 values
         (0, NULL, NULL),
@@ -64,6 +82,7 @@ suite("test_ip_basic") {
         (4, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff');
         """
 
+    // insert data into t1
     sql """
         insert into t1 values
         (0, NULL, NULL),
@@ -78,6 +97,22 @@ suite("test_ip_basic") {
         (4, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'),
         (4, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff');
         """
+
+    // insert data into t2
+    streamLoad {
+        db 'regression_test_datatype_p0_ip'
+        table 't2'
+
+        set 'column_separator', ','
+
+        file 'test_data/test.csv'
+
+        time 10000 // limit inflight 10s
+
+        // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
+    }
+
+    sql """sync"""
 
     // order by
     qt_sql1 "select ip_v4 from t0 order by ip_v4"
@@ -101,6 +136,12 @@ suite("test_ip_basic") {
     // join and group by
     qt_sql14 "select t0.ip_v4, count(*) as cnt from t0 join t1 on t0.ip_v4=t1.ip_v4 and t0.ip_v6=t1.ip_v6 group by t0.ip_v4 order by cnt"
 
+    // order by
+    qt_sql15 "select ip_v4 from t2 order by ip_v4"
+    qt_sql16 "select ip_v6 from t2 order by ip_v6"
+    qt_sql17 "select ip_v4, ip_v6 from t2 order by ip_v4, ip_v6 limit 20 offset 50"
+
     sql "DROP TABLE t0"
     sql "DROP TABLE t1"
+    sql "DROP TABLE t2"
 }
