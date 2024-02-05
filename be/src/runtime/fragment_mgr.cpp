@@ -660,8 +660,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                           << ((int)config::enable_cgroup_cpu_soft_limit);
             } else {
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << " carried group info but can not find group in be, reason: "
-                          << ret.to_string();
+                          << " carried group info but can not find group in be";
             }
         }
 
@@ -673,8 +672,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             if (search == _query_ctx_map.end()) {
                 _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
                 LOG(INFO) << "Register query/load memory tracker, query/load id: "
-                          << print_id(query_ctx->query_id())
-                          << " limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
+                          << print_id(query_ctx->query_id()) << " limit: "
+                          << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
             } else {
                 // Already has a query fragments context, use it
                 query_ctx = search->second;

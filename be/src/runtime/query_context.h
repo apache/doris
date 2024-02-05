@@ -209,6 +209,8 @@ public:
 
     ThreadPool* get_non_pipe_exec_thread_pool();
 
+    int64_t mem_limit() { return _bytes_limit; }
+
 public:
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
@@ -242,6 +244,7 @@ private:
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
+    int64_t _bytes_limit = 0;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.

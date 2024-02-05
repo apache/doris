@@ -50,26 +50,26 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
     timeout_second = query_options.execution_timeout;
 
     bool has_query_mem_tracker = query_options.__isset.mem_limit && (query_options.mem_limit > 0);
-    int64_t bytes_limit = has_query_mem_tracker ? query_options.mem_limit : -1;
-    if (bytes_limit > MemInfo::mem_limit()) {
-        VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+    int64_t _bytes_limit = has_query_mem_tracker ? query_options.mem_limit : -1;
+    if (_bytes_limit > MemInfo::mem_limit()) {
+        VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(_bytes_limit, TUnit::BYTES)
                     << " exceeds process memory limit of "
                     << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
                     << ". Using process memory limit instead";
-        bytes_limit = MemInfo::mem_limit();
+        _bytes_limit = MemInfo::mem_limit();
     }
     if (query_options.query_type == TQueryType::SELECT) {
         query_mem_tracker = std::make_shared<MemTrackerLimiter>(
                 MemTrackerLimiter::Type::QUERY, fmt::format("Query#Id={}", print_id(_query_id)),
-                bytes_limit);
+                _bytes_limit);
     } else if (query_options.query_type == TQueryType::LOAD) {
         query_mem_tracker = std::make_shared<MemTrackerLimiter>(
                 MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", print_id(_query_id)),
-                bytes_limit);
+                _bytes_limit);
     } else { // EXTERNAL
         query_mem_tracker = std::make_shared<MemTrackerLimiter>(
                 MemTrackerLimiter::Type::LOAD, fmt::format("External#Id={}", print_id(_query_id)),
-                bytes_limit);
+                _bytes_limit);
     }
     if (query_options.__isset.is_report_success && query_options.is_report_success) {
         query_mem_tracker->enable_print_log_usage();
