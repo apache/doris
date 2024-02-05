@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -52,6 +53,8 @@ public class RuntimeFilter {
     private final List<PhysicalRelation> targetScans = Lists.newArrayList();
 
     private final boolean bloomFilterSizeCalculatedByNdv;
+
+    private int waitTimeMs = 1000;
 
     /**
      * constructor
@@ -95,6 +98,9 @@ public class RuntimeFilter {
         this.tMinMaxType = tMinMaxType;
         builderNode.addRuntimeFilter(this);
         this.targetScans.add(scan);
+        if (ConnectContext.get() != null) {
+            waitTimeMs = ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs();
+        }
     }
 
     public TMinMaxRuntimeFilterType gettMinMaxType() {
@@ -172,10 +178,21 @@ public class RuntimeFilter {
                 .append(" ").append(getSrcExpr().toSql()).append("->[").append(
                         targetExpressions.stream().map(expr -> expr.toSql()).collect(Collectors.joining(",")))
                 .append("]");
+        if (waitTimeMs == 0) {
+            sb.append(" noWait");
+        }
         return sb.toString();
     }
 
     public boolean isBloomFilterSizeCalculatedByNdv() {
         return bloomFilterSizeCalculatedByNdv;
+    }
+
+    public int getWaitTimeMs() {
+        return waitTimeMs;
+    }
+
+    public void setWaitTimeMs(int waitTimeMs) {
+        this.waitTimeMs = waitTimeMs;
     }
 }

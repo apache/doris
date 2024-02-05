@@ -112,6 +112,8 @@ public final class RuntimeFilter {
 
     private boolean bloomFilterSizeCalculatedByNdv = false;
 
+    private int waitTimeMs = 1000;
+
     /**
      * Internal representation of a runtime filter target.
      */
@@ -160,6 +162,9 @@ public final class RuntimeFilter {
         this.tMinMaxRuntimeFilterType = tMinMaxRuntimeFilterType;
         computeNdvEstimate();
         calculateFilterSize(filterSizeLimits);
+        if (ConnectContext.get() != null) {
+            waitTimeMs = ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs();
+        }
     }
 
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
@@ -175,9 +180,12 @@ public final class RuntimeFilter {
             JoinNodeBase node, Expr srcExpr, List<Expr> origTargetExprs,
             List<Map<TupleId, List<SlotId>>> targetSlots,
             RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
-        return new RuntimeFilter(nereidsFilter.getId(), node, srcExpr, nereidsFilter.getExprOrder(), origTargetExprs,
+        RuntimeFilter rf = new RuntimeFilter(nereidsFilter.getId(), node,
+                srcExpr, nereidsFilter.getExprOrder(), origTargetExprs,
                 targetSlots, nereidsFilter.getType(), filterSizeLimits, nereidsFilter.getBuildSideNdv(),
                 nereidsFilter.gettMinMaxType());
+        rf.waitTimeMs = nereidsFilter.getWaitTimeMs();
+        return rf;
     }
 
     @Override
@@ -723,6 +731,9 @@ public final class RuntimeFilter {
             } else {
                 filterStr.append(" -> ");
                 filterStr.append(getTargetExpr(targetNodeId).toSql());
+                if (waitTimeMs == 0) {
+                    filterStr.append(" no_wait");
+                }
             }
         }
         return filterStr.toString();

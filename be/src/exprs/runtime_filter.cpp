@@ -1068,7 +1068,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
 bool IRuntimeFilter::await() {
     DCHECK(is_consumer());
     auto execution_timeout = _state->execution_timeout * 1000;
-    auto runtime_filter_wait_time_ms = _state->runtime_filter_wait_time_ms;
+    auto runtime_filter_wait_time_ms = _rf_wait_time_ms;
     // bitmap filter is precise filter and only filter once, so it must be applied.
     int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
                                     ? execution_timeout
@@ -1216,6 +1216,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     _has_remote_target = desc->has_remote_targets;
     _expr_order = desc->expr_order;
     _opt_remote_rf = desc->__isset.opt_remote_rf && desc->opt_remote_rf;
+    if (desc->__isset.wait_time_ms) {
+        _rf_wait_time_ms = desc->wait_time_ms;
+    }
     vectorized::VExprContextSPtr build_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
 

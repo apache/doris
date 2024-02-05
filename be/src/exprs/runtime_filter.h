@@ -415,7 +415,7 @@ protected:
     const int64_t registration_time_;
     /// runtime filter wait time will be ignored if wait_infinitely is true
     const bool _wait_infinitely;
-    const int32_t _rf_wait_time_ms;
+    int32_t _rf_wait_time_ms;
 
     const bool _enable_pipeline_exec;
 

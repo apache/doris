@@ -121,6 +121,8 @@ public class RuntimeFilterGeneratorTest {
                 result = 1048576;
                 ConnectContext.get().getSessionVariable().getRuntimeBloomFilterSize();
                 result = 2097152;
+                ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs();
+                result = 1000;
             }
         };
     }

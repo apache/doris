@@ -1188,6 +1188,7 @@ struct TRuntimeFilterDesc {
   // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and 
   // ignore bloom_filter_size_bytes
   14: optional bool bloom_filter_size_calculated_by_ndv;
+  15: optional i32 wait_time_ms;
 }
 
 
