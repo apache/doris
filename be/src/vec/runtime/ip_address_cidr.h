@@ -28,13 +28,14 @@ class IPAddressVariant {
 public:
     explicit IPAddressVariant(std::string_view address_str) {
         vectorized::Int64 v4 = 0;
-        if (vectorized::parseIPv4whole(address_str.begin(), address_str.end(),
-                                       reinterpret_cast<unsigned char*>(&v4))) {
+        if (vectorized::parse_ipv4_whole(address_str.begin(), address_str.end(),
+                                         reinterpret_cast<unsigned char*>(&v4))) {
             _addr = static_cast<vectorized::UInt32>(v4);
         } else {
             _addr = IPv6AddrType();
-            if (!vectorized::parseIPv6whole(address_str.begin(), address_str.end(),
-                                            std::get<IPv6AddrType>(_addr).data())) {
+            // parse ipv6 in little-endian
+            if (!vectorized::parse_ipv6_whole(address_str.begin(), address_str.end(),
+                                              std::get<IPv6AddrType>(_addr).data())) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Neither IPv4 nor IPv6 address: '{}'",
                                 address_str);
             }
@@ -72,13 +73,14 @@ bool match_ipv4_subnet(uint32_t addr, uint32_t cidr_addr, uint8_t prefix) {
     return (addr & mask) == (cidr_addr & mask);
 }
 
+// ipv6 liitle-endian input
 bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
     if (prefix > IPV6_BINARY_LENGTH * 8U) {
         prefix = IPV6_BINARY_LENGTH * 8U;
     }
-    size_t i = 0;
+    size_t i = IPV6_BINARY_LENGTH - 1;
 
-    for (; prefix >= 8; ++i, prefix -= 8) {
+    for (; prefix >= 8; --i, prefix -= 8) {
         if (addr[i] != cidr_addr[i]) {
             return false;
         }

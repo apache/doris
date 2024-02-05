@@ -94,4 +94,10 @@ suite("test_ip_functions", "arrow_flight_sql") {
     qt_sql "SELECT is_ipv4_mapped(inet6_aton(''));"
     qt_sql "SELECT is_ipv4_mapped(inet6_aton(NULL));"
     qt_sql "SELECT is_ipv4_mapped(inet6_aton('KK'));"
+
+    qt_sql "SELECT ipv6_num_to_string(ipv6_string_to_num('192.168.0.1'));"
+    qt_sql "SELECT ipv6_num_to_string(ipv6_string_to_num('::ffff:10.0.5.9'));"
+    qt_sql "SELECT ipv6_num_to_string(ipv6_string_to_num('::ffff:c0a8:0001'));"
+    qt_sql "SELECT ipv6_num_to_string(ipv6_string_to_num('::'));"
+    qt_sql "SELECT ipv6_num_to_string(ipv6_string_to_num('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'));"
 }
