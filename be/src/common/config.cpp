@@ -775,7 +775,7 @@ DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
 // brpc streaming messages_in_batch
 DEFINE_Int32(load_stream_messages_in_batch, "128");
 // brpc streaming StreamWait seconds on EAGAIN
-DEFINE_Int32(load_stream_eagain_wait_seconds, "60");
+DEFINE_Int32(load_stream_eagain_wait_seconds, "600");
 // max tasks per flush token in load stream
 DEFINE_Int32(load_stream_flush_token_max_tasks, "15");
 // max wait flush token time in load stream
