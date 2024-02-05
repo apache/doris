@@ -277,6 +277,7 @@ Status WalTable::_replay_one_txn_with_stremaload(int64_t wal_id, const std::stri
               msg.find("LabelAlreadyUsedException") != msg.npos;
 #else
     success = k_stream_load_exec_status.ok();
+    auto st = Status::OK();
 #endif
     return success ? Status::OK() : st;
 }

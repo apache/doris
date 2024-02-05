@@ -299,7 +299,7 @@ Status WalManager::_scan_wals(const std::string& wal_path) {
             count += res.size();
         }
     }
-    LOG(INFO) << "Finish list all wals, size:" << count;
+    LOG(INFO) << "Finish list wal_dir=" << wal_path << ", wal count=" << count;
     return Status::OK();
 }
 
