@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.ProcedureNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.plsql.metastore.PlsqlMetaClient;
 import org.apache.doris.qe.ConnectContext;
@@ -27,26 +28,27 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Objects;
+
 /**
  * create table procedure
  */
 @Developing
 public class CreateProcedureCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(CreateProcedureCommand.class);
-
-    private PlsqlMetaClient client;
-    private final String name;
-    private final String source;
+    private final ProcedureNameInfo procedureName;
+    private final String source; // Original SQL, from LogicalPlanBuilder.getOriginSql()
     private final boolean isForce;
+    private final PlsqlMetaClient client;
 
     /**
      * constructor
      */
-    public CreateProcedureCommand(String name, String source, boolean isForce) {
+    public CreateProcedureCommand(ProcedureNameInfo procedureName, String source, boolean isForce) {
         super(PlanType.CREATE_PROCEDURE_COMMAND);
         this.client = new PlsqlMetaClient();
-        this.name = name;
-        this.source = source;
+        this.procedureName = Objects.requireNonNull(procedureName, "procedureName is null");
+        this.source = Objects.requireNonNull(source, "source is null");
         this.isForce = isForce;
     }
 
@@ -54,10 +56,9 @@ public class CreateProcedureCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // TODO, removeCached needs to be synchronized to all Observer FEs.
         // Even if it is always executed on the Master FE, it still has to deal with Master switching.
-        ctx.getPlSqlOperation().getExec().functions.removeCached(name);
-        client.addPlsqlStoredProcedure(name, ctx.getCurrentCatalog().getName(), ctx.getDatabase(),
-                ctx.getQualifiedUser(),
-                source, isForce);
+        ctx.getPlSqlOperation().getExec().functions.removeCached(procedureName.toString());
+        client.addPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(), procedureName.getDb(),
+                ctx.getQualifiedUser(), source, isForce);
     }
 
     @Override

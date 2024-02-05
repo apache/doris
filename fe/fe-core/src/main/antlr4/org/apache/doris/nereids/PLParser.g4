@@ -188,7 +188,7 @@ break_stmt :
      ;
 
 call_stmt :
-       CALL (expr_dot | expr_func | ident_pl)
+       CALL (expr_dot | expr_func | multipartIdentifier)
      ;
 
 declare_stmt :          // Declaration statement
@@ -291,7 +291,7 @@ dtype_default :
      ;
 
 create_function_stmt :
-      (ALTER | CREATE (OR REPLACE)? | REPLACE)? FUNCTION ident_pl create_routine_params? create_function_return (AS | IS)? declare_block_inplace? single_block_stmt
+      (ALTER | CREATE (OR REPLACE)? | REPLACE) FUNCTION multipartIdentifier create_routine_params? create_function_return (AS | IS)? declare_block_inplace? single_block_stmt
     ;
 
 create_function_return :
@@ -299,7 +299,7 @@ create_function_return :
      ;
 
 create_package_stmt :
-      (ALTER | CREATE (OR REPLACE)? | REPLACE)? PACKAGE ident_pl (AS | IS) package_spec END (ident_pl SEMICOLON)?
+      (ALTER | CREATE (OR REPLACE)? | REPLACE) PACKAGE multipartIdentifier (AS | IS) package_spec END (ident_pl SEMICOLON)?
     ;
 
 package_spec :
@@ -313,7 +313,7 @@ package_spec_item :
     ;
 
 create_package_body_stmt :
-      (ALTER | CREATE (OR REPLACE)? | REPLACE)? PACKAGE BODY ident_pl (AS | IS) package_body END (ident_pl SEMICOLON)?
+      (ALTER | CREATE (OR REPLACE)? | REPLACE) PACKAGE BODY multipartIdentifier (AS | IS) package_body END (ident_pl SEMICOLON)?
     ;
 
 package_body :
@@ -327,7 +327,7 @@ package_body_item :
     ;
 
 create_procedure_stmt :
-      (ALTER | CREATE (OR REPLACE)? | REPLACE)? (PROCEDURE | PROC) ident_pl create_routine_params? create_routine_options? (AS | IS)? declare_block_inplace? label_stmt? procedure_block (ident_pl SEMICOLON)?
+      (ALTER | CREATE (OR REPLACE)? | REPLACE) (PROCEDURE | PROC) multipartIdentifier create_routine_params? create_routine_options? (AS | IS)? declare_block_inplace? label_stmt? procedure_block (ident_pl SEMICOLON)?
     ;
 
 create_routine_params :

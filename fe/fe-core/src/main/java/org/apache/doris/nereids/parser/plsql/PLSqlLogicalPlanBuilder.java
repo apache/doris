@@ -18,17 +18,29 @@
 package org.apache.doris.nereids.parser.plsql;
 
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
+import org.apache.doris.nereids.PLParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.LogicalPlanBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.plsql.Var;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
+import org.antlr.v4.runtime.RuleContext;
+
+import java.util.List;
+
 /**
  * Extends from {@link org.apache.doris.nereids.parser.LogicalPlanBuilder},
  * just focus on the difference between these query syntax.
  */
 public class PLSqlLogicalPlanBuilder extends LogicalPlanBuilder {
+
+    public List<String> visitMultipartIdentifier(MultipartIdentifierContext ctx) {
+        return ctx.parts.stream()
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
+    }
 
     @Override
     public Expression visitColumnReference(ColumnReferenceContext ctx) {

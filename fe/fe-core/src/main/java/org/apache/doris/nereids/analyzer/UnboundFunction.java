@@ -38,14 +38,10 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     private final String dbName;
     private final String name;
     private final boolean isDistinct;
-    private final String source;
+    private final String source; // Original SQL, from LogicalPlanBuilder.getOriginSql()
 
     public UnboundFunction(String name, List<Expression> arguments) {
         this(null, name, false, arguments, null);
-    }
-
-    public UnboundFunction(String name, List<Expression> arguments, String source) {
-        this(null, name, false, arguments, source);
     }
 
     public UnboundFunction(String dbName, String name, List<Expression> arguments) {

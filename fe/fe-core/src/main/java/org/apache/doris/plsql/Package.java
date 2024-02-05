@@ -109,9 +109,11 @@ public class Package {
             if (c.declare_stmt_item() != null) {
                 visit(c);
             } else if (c.create_function_stmt() != null) {
-                func.put(c.create_function_stmt().ident_pl().getText().toUpperCase(), c.create_function_stmt());
+                func.put(c.create_function_stmt().multipartIdentifier().getText().toUpperCase(),
+                        c.create_function_stmt());
             } else if (c.create_procedure_stmt() != null) {
-                proc.put(c.create_procedure_stmt().ident_pl(0).getText().toUpperCase(), c.create_procedure_stmt());
+                proc.put(c.create_procedure_stmt().multipartIdentifier().getText().toUpperCase(),
+                        c.create_procedure_stmt());
             }
         }
     }

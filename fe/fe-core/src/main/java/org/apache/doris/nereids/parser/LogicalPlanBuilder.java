@@ -380,6 +380,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ProcedureNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
@@ -3248,20 +3249,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Object visitCallProcedure(CallProcedureContext ctx) {
-        String functionName = ctx.functionName.getText();
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        ProcedureNameInfo procedureName = new ProcedureNameInfo(nameParts);
         List<Expression> arguments = ctx.expression().stream()
                 .<Expression>map(this::typedVisit)
                 .collect(ImmutableList.toImmutableList());
-        UnboundFunction unboundFunction = new UnboundFunction(functionName, arguments, getOriginSql(ctx));
+        UnboundFunction unboundFunction = new UnboundFunction(procedureName.getDb(), procedureName.getName(),
+                true, arguments, getOriginSql(ctx));
         return new CallCommand(unboundFunction);
     }
 
     @Override
     public LogicalPlan visitCreateProcedure(CreateProcedureContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        ProcedureNameInfo procedureName = new ProcedureNameInfo(nameParts);
         return ParserUtils.withOrigin(ctx, () -> {
             LogicalPlan createProcedurePlan;
-            String name = ctx.identifier().getText().toUpperCase();
-            createProcedurePlan = new CreateProcedureCommand(name, getOriginSql(ctx), ctx.REPLACE() != null);
+            createProcedurePlan = new CreateProcedureCommand(procedureName, getOriginSql(ctx),
+                    ctx.REPLACE() != null);
             return createProcedurePlan;
         });
     }

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.PLParser.Create_procedure_stmtContext;
 import org.apache.doris.nereids.PLParser.Expr_func_paramsContext;
 import org.apache.doris.nereids.PLParserBaseVisitor;
 import org.apache.doris.nereids.parser.CaseInsensitiveStream;
+import org.apache.doris.nereids.trees.plans.commands.info.ProcedureNameInfo;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.Scope;
 import org.apache.doris.plsql.Var;
@@ -44,11 +45,11 @@ import java.util.Map;
 import java.util.Optional;
 
 public class DorisFunctionRegistry implements FunctionRegistry {
-    private Exec exec;
-    private boolean trace;
-    private PlsqlMetaClient client;
-    private BuiltinFunctions builtinFunctions;
-    private Map<String, ParserRuleContext> cache = new HashMap<>();
+    private final Exec exec;
+    private final boolean trace;
+    private final PlsqlMetaClient client;
+    private final BuiltinFunctions builtinFunctions;
+    private final Map<String, ParserRuleContext> cache = new HashMap<>();
 
     public DorisFunctionRegistry(Exec e, PlsqlMetaClient client, BuiltinFunctions builtinFunctions) {
         this.exec = e;
@@ -127,7 +128,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
             HashMap<String, Var> out, ArrayList<Var> actualParams) {
         if (procCtx instanceof Create_function_stmtContext) {
             Create_function_stmtContext func = (Create_function_stmtContext) procCtx;
-            InMemoryFunctionRegistry.setCallParameters(func.ident_pl().getText(), ctx, actualParams,
+            InMemoryFunctionRegistry.setCallParameters(func.multipartIdentifier().getText(), ctx, actualParams,
                     func.create_routine_params(), null, exec);
             if (func.declare_block_inplace() != null) {
                 exec.visit(func.declare_block_inplace());
@@ -135,7 +136,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
             exec.visit(func.single_block_stmt());
         } else {
             Create_procedure_stmtContext proc = (Create_procedure_stmtContext) procCtx;
-            InMemoryFunctionRegistry.setCallParameters(proc.ident_pl(0).getText(), ctx, actualParams,
+            InMemoryFunctionRegistry.setCallParameters(proc.multipartIdentifier().getText(), ctx, actualParams,
                     proc.create_routine_params(), out, exec);
             exec.visit(proc.procedure_block());
         }
@@ -170,31 +171,33 @@ public class DorisFunctionRegistry implements FunctionRegistry {
 
     @Override
     public void addUserFunction(Create_function_stmtContext ctx) {
-        String name = ctx.ident_pl().getText().toUpperCase();
-        if (builtinFunctions.exists(name)) {
-            exec.info(ctx, name + " is a built-in function which cannot be redefined.");
+        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+                exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
+        if (builtinFunctions.exists(procedureName.toString())) {
+            exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be redefined.");
             return;
         }
-        trace(ctx, "CREATE FUNCTION " + name);
-        saveInCache(name, ctx);
-        saveStoredProc(name, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
+        trace(ctx, "CREATE FUNCTION " + procedureName.toString());
+        saveInCache(procedureName.toString(), ctx);
+        saveStoredProc(procedureName, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
     }
 
     @Override
     public void addUserProcedure(Create_procedure_stmtContext ctx) {
-        String name = ctx.ident_pl(0).getText().toUpperCase();
-        if (builtinFunctions.exists(name)) {
-            exec.info(ctx, name + " is a built-in function which cannot be redefined.");
+        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+                exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
+        if (builtinFunctions.exists(procedureName.toString())) {
+            exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be redefined.");
             return;
         }
-        trace(ctx, "CREATE PROCEDURE " + name);
-        saveInCache(name, ctx);
-        saveStoredProc(name, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
+        trace(ctx, "CREATE PROCEDURE " + procedureName.toString());
+        saveInCache(procedureName.toString(), ctx);
+        saveStoredProc(procedureName, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
     }
 
-    private void saveStoredProc(String name, String source, boolean isForce) {
-        client.addPlsqlStoredProcedure(name, ConnectContext.get().getCurrentCatalog().getName(),
-                ConnectContext.get().getDatabase(),
+    private void saveStoredProc(ProcedureNameInfo procedureName, String source, boolean isForce) {
+        client.addPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
+                procedureName.getDb(),
                 ConnectContext.get().getQualifiedUser(), source, isForce);
     }
 

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.PLParser.Create_routine_param_itemContext;
 import org.apache.doris.nereids.PLParser.Create_routine_paramsContext;
 import org.apache.doris.nereids.PLParser.ExprContext;
 import org.apache.doris.nereids.PLParser.Expr_func_paramsContext;
+import org.apache.doris.nereids.trees.plans.commands.info.ProcedureNameInfo;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.Scope;
 import org.apache.doris.plsql.Var;
@@ -224,28 +225,30 @@ public class InMemoryFunctionRegistry implements FunctionRegistry {
 
     @Override
     public void addUserFunction(Create_function_stmtContext ctx) {
-        String name = ctx.ident_pl().getText().toUpperCase();
-        if (builtinFunctions.exists(name)) {
-            exec.info(ctx, name + " is a built-in function which cannot be redefined.");
+        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+                exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
+        if (builtinFunctions.exists(procedureName.toString())) {
+            exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be redefined.");
             return;
         }
         if (trace) {
-            trace(ctx, "CREATE FUNCTION " + name);
+            trace(ctx, "CREATE FUNCTION " + procedureName.toString());
         }
-        funcMap.put(name.toUpperCase(), ctx);
+        funcMap.put(procedureName.toString(), ctx);
     }
 
     @Override
     public void addUserProcedure(Create_procedure_stmtContext ctx) {
-        String name = ctx.ident_pl(0).getText().toUpperCase();
-        if (builtinFunctions.exists(name)) {
-            exec.info(ctx, name + " is a built-in function which cannot be redefined.");
+        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+                exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
+        if (builtinFunctions.exists(procedureName.toString())) {
+            exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be redefined.");
             return;
         }
         if (trace) {
-            trace(ctx, "CREATE PROCEDURE " + name);
+            trace(ctx, "CREATE PROCEDURE " + procedureName.toString());
         }
-        procMap.put(name.toUpperCase(), ctx);
+        procMap.put(procedureName.toString(), ctx);
     }
 
     /**

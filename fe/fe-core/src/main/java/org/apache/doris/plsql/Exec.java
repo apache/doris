@@ -81,6 +81,7 @@ import org.apache.doris.nereids.PLParser.Int_numberContext;
 import org.apache.doris.nereids.PLParser.Label_stmtContext;
 import org.apache.doris.nereids.PLParser.Leave_stmtContext;
 import org.apache.doris.nereids.PLParser.Map_object_stmtContext;
+import org.apache.doris.nereids.PLParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.PLParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.PLParser.Null_constContext;
 import org.apache.doris.nereids.PLParser.Open_stmtContext;
@@ -103,6 +104,7 @@ import org.apache.doris.nereids.parser.CaseInsensitiveStream;
 import org.apache.doris.nereids.parser.ParserUtils;
 import org.apache.doris.nereids.parser.plsql.PLSqlLogicalPlanBuilder;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.commands.info.ProcedureNameInfo;
 import org.apache.doris.plsql.Var.Type;
 import org.apache.doris.plsql.exception.PlValidationException;
 import org.apache.doris.plsql.exception.QueryException;
@@ -238,7 +240,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
     boolean trace = false;
     boolean info = true;
     boolean offline = false;
-    PLSqlLogicalPlanBuilder logicalPlanBuilder;
+    public PLSqlLogicalPlanBuilder logicalPlanBuilder;
 
     public Exec() {
         exec = this;
@@ -1376,16 +1378,18 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
      */
     @Override
     public Integer visitCreate_package_stmt(Create_package_stmtContext ctx) {
-        String name = ctx.ident_pl(0).getText().toUpperCase();
+        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+                exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
         if (exec.packageLoading) {
-            exec.currentPackageDecl = new Package(name, exec, builtinFunctions);
-            exec.packages.put(name, exec.currentPackageDecl);
+            exec.currentPackageDecl = new Package(procedureName.toString(), exec, builtinFunctions);
+            exec.packages.put(procedureName.toString(), exec.currentPackageDecl);
             exec.currentPackageDecl.createSpecification(ctx);
             exec.currentPackageDecl = null;
         } else {
             trace(ctx, "CREATE PACKAGE");
-            exec.packages.remove(name);
-            exec.packageRegistry.createPackageHeader(name, getFormattedText(ctx), ctx.REPLACE() != null);
+            exec.packages.remove(procedureName.toString());
+            exec.packageRegistry.createPackageHeader(procedureName.toString(), getFormattedText(ctx),
+                    ctx.REPLACE() != null);
         }
         return 0;
     }
@@ -1396,20 +1400,22 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
     @Override
     public Integer visitCreate_package_body_stmt(
             Create_package_body_stmtContext ctx) {
-        String name = ctx.ident_pl(0).getText().toUpperCase();
+        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+                exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
         if (exec.packageLoading) {
-            exec.currentPackageDecl = exec.packages.get(name);
+            exec.currentPackageDecl = exec.packages.get(procedureName.toString());
             if (exec.currentPackageDecl == null) {
-                exec.currentPackageDecl = new Package(name, exec, builtinFunctions);
+                exec.currentPackageDecl = new Package(procedureName.toString(), exec, builtinFunctions);
                 exec.currentPackageDecl.setAllMembersPublic(true);
-                exec.packages.put(name, exec.currentPackageDecl);
+                exec.packages.put(procedureName.toString(), exec.currentPackageDecl);
             }
             exec.currentPackageDecl.createBody(ctx);
             exec.currentPackageDecl = null;
         } else {
             trace(ctx, "CREATE PACKAGE BODY");
-            exec.packages.remove(name);
-            exec.packageRegistry.createPackageBody(name, getFormattedText(ctx), ctx.REPLACE() != null);
+            exec.packages.remove(procedureName.toString());
+            exec.packageRegistry.createPackageBody(procedureName.toString(), getFormattedText(ctx),
+                    ctx.REPLACE() != null);
         }
         return 0;
     }
@@ -1580,9 +1586,21 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         return functionCall(ctx, ctx.ident_pl(), ctx.expr_func_params());
     }
 
+    private int functionCall(ParserRuleContext ctx, MultipartIdentifierContext ident,
+            Expr_func_paramsContext params) {
+        List<String> nameParts = logicalPlanBuilder.visitMultipartIdentifier(ident);
+        ProcedureNameInfo procedureName = new ProcedureNameInfo(nameParts);
+        // TODO, suuport use dbName, catalogName.
+        return functionCall(ctx, procedureName.getName(), params);
+    }
+
     private int functionCall(ParserRuleContext ctx, Ident_plContext ident,
             Expr_func_paramsContext params) {
-        String name = ident.getText();
+        return functionCall(ctx, ident.getText(), params);
+    }
+
+    private int functionCall(ParserRuleContext ctx, String name,
+            Expr_func_paramsContext params) {
         name = name.toUpperCase();
         Package packCallContext = exec.getPackageCallContext();
         ArrayList<String> qualified = exec.meta.splitIdentifier(name);
@@ -1812,8 +1830,8 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
                 functionCall(ctx, ctx.expr_func().ident_pl(), ctx.expr_func().expr_func_params());
             } else if (ctx.expr_dot() != null) {
                 visitExpr_dot(ctx.expr_dot());
-            } else if (ctx.ident_pl() != null) {
-                functionCall(ctx, ctx.ident_pl(), null);
+            } else if (ctx.multipartIdentifier() != null) {
+                functionCall(ctx, ctx.multipartIdentifier(), null);
             }
         } finally {
             exec.inCallStmt = false;

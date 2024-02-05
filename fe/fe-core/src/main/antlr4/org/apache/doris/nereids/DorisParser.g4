@@ -35,8 +35,8 @@ singleStatement
 
 statement
     : statementBase # statementBaseAlias
-    | CALL functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
-    | (ALTER | CREATE (OR REPLACE)? | REPLACE)? (PROCEDURE | PROC) identifier LEFT_PAREN .*? RIGHT_PAREN .*? #createProcedure
+    | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
+    | (ALTER | CREATE (OR REPLACE)? | REPLACE) (PROCEDURE | PROC) name=multipartIdentifier LEFT_PAREN .*? RIGHT_PAREN .*? #createProcedure
     ;
 
 statementBase
