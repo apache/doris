@@ -27,11 +27,14 @@
 #include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/runtime_state.h"
-<<<<<<< HEAD
 #include "util/debug_points.h"
+<<<<<<< HEAD
 =======
 #include "util/doris_bvar_metrics.h"
 >>>>>>> 4e08424c1e (clang-format)
+=======
+#include "util/doris_bvar_metrics.h"
+>>>>>>> 6565331992 (Delete error code)
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_finder.h"
@@ -39,8 +42,11 @@
 namespace doris {
 
 namespace vectorized {
+<<<<<<< HEAD
 bvar::Adder<int64_t> g_group_commit_load_rows("doris_group_commit_load_rows");
 bvar::Adder<int64_t> g_group_commit_load_bytes("doris_group_commit_load_bytes");
+=======
+>>>>>>> 6565331992 (Delete error code)
 
 GroupCommitBlockSink::GroupCommitBlockSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                            const std::vector<TExpr>& texprs, Status* status)
@@ -52,9 +58,13 @@ GroupCommitBlockSink::GroupCommitBlockSink(ObjectPool* pool, const RowDescriptor
 
 GroupCommitBlockSink::~GroupCommitBlockSink() {
     if (_load_block_queue) {
+<<<<<<< HEAD
         _remove_estimated_wal_bytes();
         _load_block_queue->remove_load_id(_load_id);
         _load_block_queue->group_commit_load_count.fetch_add(1);
+=======
+        _load_block_queue->remove_load_id(_load_id);
+>>>>>>> 6565331992 (Delete error code)
     }
 }
 
@@ -126,7 +136,10 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
         RETURN_IF_ERROR(_add_blocks(state, true));
     }
     if (_load_block_queue) {
+<<<<<<< HEAD
         _remove_estimated_wal_bytes();
+=======
+>>>>>>> 6565331992 (Delete error code)
         _load_block_queue->remove_load_id(_load_id);
     }
     // wait to wal
@@ -151,6 +164,7 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
         return status;
     }
     SCOPED_TIMER(_profile->total_time_counter());
+<<<<<<< HEAD
 
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
@@ -170,6 +184,26 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
         _partitions.assign(rows, nullptr);
         _filter_bitmap.Reset(rows);
 
+=======
+    // update incrementally so that FE can get the progress.
+    // the real 'num_rows_load_total' will be set when sink being closed.
+    state->update_num_rows_load_total(rows);
+    state->update_num_bytes_load_total(bytes);
+    DorisMetrics::instance()->load_rows->increment(rows);
+    DorisMetrics::instance()->load_bytes->increment(bytes);
+    DorisBvarMetrics::instance()->load_rows->increment(rows);
+    DorisBvarMetrics::instance()->load_bytes->increment(bytes);
+    std::shared_ptr<vectorized::Block> block;
+    bool has_filtered_rows = false;
+    RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
+            state, input_block, block, _output_vexpr_ctxs, rows, has_filtered_rows));
+    _has_filtered_rows = false;
+    if (!_vpartition->is_auto_partition()) {
+        //reuse vars for find_partition
+        _partitions.assign(rows, nullptr);
+        _filter_bitmap.Reset(rows);
+
+>>>>>>> 6565331992 (Delete error code)
         for (int index = 0; index < rows; index++) {
             _vpartition->find_partition(block.get(), index, _partitions[index]);
         }
@@ -252,20 +286,30 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
                     _db_id, _table_id, _base_schema_version, load_id, _load_block_queue,
                     _state->be_exec_version()));
             if (_group_commit_mode == TGroupCommitMode::ASYNC_MODE) {
+<<<<<<< HEAD
                 size_t estimated_wal_bytes =
                         _calculate_estimated_wal_bytes(is_blocks_contain_all_load_data);
                 _group_commit_mode =
                         _load_block_queue->has_enough_wal_disk_space(estimated_wal_bytes)
                                 ? TGroupCommitMode::ASYNC_MODE
                                 : TGroupCommitMode::SYNC_MODE;
+=======
+                size_t pre_allocated = _pre_allocated(is_blocks_contain_all_load_data);
+                _group_commit_mode = _load_block_queue->has_enough_wal_disk_space(pre_allocated)
+                                             ? TGroupCommitMode::ASYNC_MODE
+                                             : TGroupCommitMode::SYNC_MODE;
+>>>>>>> 6565331992 (Delete error code)
                 if (_group_commit_mode == TGroupCommitMode::SYNC_MODE) {
                     LOG(INFO) << "Load id=" << print_id(_state->query_id())
                               << ", use group commit label=" << _load_block_queue->label
                               << " will not write wal because wal disk space usage reach max "
                                  "limit. Detail info: "
                               << _state->exec_env()->wal_mgr()->get_wal_dirs_info_string();
+<<<<<<< HEAD
                 } else {
                     _estimated_wal_bytes = estimated_wal_bytes;
+=======
+>>>>>>> 6565331992 (Delete error code)
                 }
             }
             _state->set_import_label(_load_block_queue->label);
@@ -282,7 +326,10 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
     _blocks.clear();
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
         if (_load_block_queue) {
+<<<<<<< HEAD
             _remove_estimated_wal_bytes();
+=======
+>>>>>>> 6565331992 (Delete error code)
             _load_block_queue->remove_load_id(_load_id);
         }
         if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
@@ -298,7 +345,11 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
     return Status::OK();
 }
 
+<<<<<<< HEAD
 size_t GroupCommitBlockSink::_calculate_estimated_wal_bytes(bool is_blocks_contain_all_load_data) {
+=======
+size_t GroupCommitBlockSink::_pre_allocated(bool is_blocks_contain_all_load_data) {
+>>>>>>> 6565331992 (Delete error code)
     size_t blocks_size = 0;
     for (auto block : _blocks) {
         blocks_size += block->bytes();
@@ -309,6 +360,7 @@ size_t GroupCommitBlockSink::_calculate_estimated_wal_bytes(bool is_blocks_conta
                                                              : _state->content_length());
 }
 
+<<<<<<< HEAD
 void GroupCommitBlockSink::_remove_estimated_wal_bytes() {
     if (_estimated_wal_bytes == 0) {
         return;
@@ -331,5 +383,7 @@ void GroupCommitBlockSink::_remove_estimated_wal_bytes() {
     }
 };
 
+=======
+>>>>>>> 6565331992 (Delete error code)
 } // namespace vectorized
 } // namespace doris
