@@ -29,7 +29,8 @@ suite("query85") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
-    sql 'set dump_nereids_memo=true'
+    sql 'set runtime_filter_type=8'
+    sql 'set dump_nereids_memo=false'
     def ds = """select  substr(r_reason_desc,1,20)
        ,avg(ws_quantity)
        ,avg(wr_refunded_cash)

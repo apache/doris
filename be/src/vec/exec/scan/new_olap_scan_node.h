@@ -63,8 +63,6 @@ public:
     friend class doris::pipeline::OlapScanOperator;
 
     Status prepare(RuntimeState* state) override;
-    Status collect_query_statistics(QueryStatistics* statistics) override;
-    Status collect_query_statistics(QueryStatistics* statistics, int sender_id) override;
 
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
@@ -131,6 +129,7 @@ private:
     RuntimeProfile::Counter* _num_disks_accessed_counter = nullptr;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
+    RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;

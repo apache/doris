@@ -89,7 +89,7 @@ public:
     // Set eos to true if there is no more data to read.
     // And if eos is true, the block returned must be nullptr.
     virtual Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block,
-                                        bool* eos, int id, bool wait = true);
+                                        bool* eos, int id);
 
     [[nodiscard]] Status validate_block_schema(Block* block);
 
@@ -160,6 +160,9 @@ public:
     virtual void reschedule_scanner_ctx();
     void stop_scanners(RuntimeState* state);
 
+    int32_t get_max_thread_num() const { return _max_thread_num; }
+    void set_max_thread_num(int32_t num) { _max_thread_num = num; }
+
     // the unique id of this context
     std::string ctx_id;
     TUniqueId _query_id;
@@ -175,7 +178,6 @@ protected:
                    int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
                    pipeline::ScanLocalStateBase* local_state,
                    std::shared_ptr<pipeline::ScanDependency> dependency);
-    virtual void _dispose_coloate_blocks_not_in_queue() {}
 
     void _set_scanner_done();
 
@@ -251,7 +253,7 @@ protected:
     const int64_t _max_bytes_in_queue;
 
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
-    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr; // used for cpu hard limit
+    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr;
     // List "scanners" saves all "unfinished" scanners.
     // The scanner scheduler will pop scanners from this list, run scanner,
     // and then if the scanner is not finished, will be pushed back to this list.

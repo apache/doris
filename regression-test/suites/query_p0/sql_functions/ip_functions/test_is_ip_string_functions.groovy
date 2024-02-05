@@ -37,8 +37,8 @@ suite("test_is_ip_string_functions") {
     sql "insert into test_is_ip_string values(3, '.', '2001:1b70:a1:610::b102:2')"
     sql "insert into test_is_ip_string values(4, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffffg')"
 
-    qt_sql1 "select isipv4string(ip_v4) from test_is_ip_string order by id"
-    qt_sql2 "select isipv6string(ip_v6) from test_is_ip_string order by id"
+    qt_sql1 "select is_ipv4_string(ip_v4) from test_is_ip_string order by id"
+    qt_sql2 "select is_ipv6_string(ip_v6) from test_is_ip_string order by id"
 
     sql "DROP TABLE test_is_ip_string"
 }

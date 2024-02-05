@@ -141,13 +141,19 @@ public class Utils {
         }
 
         for (int i = 0; i < variables.length - 1; i += 2) {
-            stringBuilder.append(variables[i]).append("=").append(variables[i + 1]);
-            if (i < variables.length - 2) {
-                stringBuilder.append(", ");
+            if (! "".equals(toStringOrNull(variables[i + 1]))) {
+                if (i != 0) {
+                    stringBuilder.append(", ");
+                }
+                stringBuilder.append(toStringOrNull(variables[i])).append("=").append(toStringOrNull(variables[i + 1]));
             }
         }
 
         return stringBuilder.append(" )").toString();
+    }
+
+    private static String toStringOrNull(Object obj) {
+        return obj == null ? "null" : obj.toString();
     }
 
     /**
@@ -276,5 +282,17 @@ public class Utils {
             name = name.replace("$", "_");
         }
         return CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, name);
+    }
+
+    /**
+     * Check the content if contains chinese or not, if true when contains chinese or false
+     */
+    public static boolean containChinese(String text) {
+        for (char textChar : text.toCharArray()) {
+            if (Character.UnicodeScript.of(textChar) == Character.UnicodeScript.HAN) {
+                return true;
+            }
+        }
+        return false;
     }
 }

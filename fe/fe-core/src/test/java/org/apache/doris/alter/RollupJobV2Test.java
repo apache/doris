@@ -59,7 +59,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -86,8 +86,8 @@ public class RollupJobV2Test {
     private static String fileName = "./RollupJobV2Test";
 
     private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
-    private static GlobalTransactionMgr masterTransMgr;
-    private static GlobalTransactionMgr slaveTransMgr;
+    private static GlobalTransactionMgrIface masterTransMgr;
+    private static GlobalTransactionMgrIface slaveTransMgr;
     private static Env masterEnv;
     private static Env slaveEnv;
 

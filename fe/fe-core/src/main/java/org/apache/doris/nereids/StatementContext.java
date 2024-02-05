@@ -28,8 +28,10 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -44,7 +46,9 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -72,7 +76,13 @@ public class StatementContext {
     private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
-    private boolean isOtherJoinReorder = false;
+
+    // hasUnknownColStats true if any column stats in the tables used by this sql is unknown
+    // the algorithm to derive plan when column stats are unknown is implemented in cascading framework, not in dphyper.
+    // And hence, when column stats are unknown, even if the tables used by a sql is more than
+    // MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, join reorder should choose cascading framework.
+    // Thus hasUnknownColStats has higher priority than isDpHyp
+    private boolean hasUnknownColStats = false;
 
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
@@ -93,6 +103,19 @@ public class StatementContext {
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
+    // Root Slot -> Paths -> Sub-column Slots
+    private final Map<Slot, Map<List<String>, SlotReference>> subColumnSlotRefMap
+            = Maps.newHashMap();
+
+    // Map from rewritten slot to original expr
+    private final Map<Slot, Expression> subColumnOriginalExprMap = Maps.newHashMap();
+
+    // Map from original expr to rewritten slot
+    private final Map<Expression, Slot> originalExprToRewrittenSubColumn = Maps.newHashMap();
+
+    // Map slot to its relation, currently used in SlotReference to find its original
+    // Relation for example LogicalOlapScan
+    private final Map<Slot, Relation> slotToRelation = Maps.newHashMap();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -143,20 +166,67 @@ public class StatementContext {
         return joinCount;
     }
 
+    public Set<SlotReference> getAllPathsSlots() {
+        Set<SlotReference> allSlotReferences = Sets.newHashSet();
+        for (Map<List<String>, SlotReference> slotReferenceMap : subColumnSlotRefMap.values()) {
+            allSlotReferences.addAll(slotReferenceMap.values());
+        }
+        return allSlotReferences;
+    }
+
+    public Expression getOriginalExpr(SlotReference rewriteSlot) {
+        return subColumnOriginalExprMap.getOrDefault(rewriteSlot, null);
+    }
+
+    public Slot getRewrittenSlotRefByOriginalExpr(Expression originalExpr) {
+        return originalExprToRewrittenSubColumn.getOrDefault(originalExpr, null);
+    }
+
+    /**
+     * Add a slot ref attached with paths in context to avoid duplicated slot
+     */
+    public void addPathSlotRef(Slot root, List<String> paths, SlotReference slotRef, Expression originalExpr) {
+        subColumnSlotRefMap.computeIfAbsent(root, k -> Maps.newTreeMap(new Comparator<List<String>>() {
+            @Override
+            public int compare(List<String> lst1, List<String> lst2) {
+                Iterator<String> it1 = lst1.iterator();
+                Iterator<String> it2 = lst2.iterator();
+                while (it1.hasNext() && it2.hasNext()) {
+                    int result = it1.next().compareTo(it2.next());
+                    if (result != 0) {
+                        return result;
+                    }
+                }
+                return Integer.compare(lst1.size(), lst2.size());
+            }
+        }));
+        subColumnSlotRefMap.get(root).put(paths, slotRef);
+        subColumnOriginalExprMap.put(slotRef, originalExpr);
+        originalExprToRewrittenSubColumn.put(originalExpr, slotRef);
+    }
+
+    public SlotReference getPathSlot(Slot root, List<String> paths) {
+        Map<List<String>, SlotReference> pathsSlotsMap = subColumnSlotRefMap.getOrDefault(root, null);
+        if (pathsSlotsMap == null) {
+            return null;
+        }
+        return pathsSlotsMap.getOrDefault(paths, null);
+    }
+
+    public void addSlotToRelation(Slot slot, Relation relation) {
+        slotToRelation.put(slot, relation);
+    }
+
+    public Relation getRelationBySlot(Slot slot) {
+        return slotToRelation.getOrDefault(slot, null);
+    }
+
     public boolean isDpHyp() {
         return isDpHyp;
     }
 
     public void setDpHyp(boolean dpHyp) {
         isDpHyp = dpHyp;
-    }
-
-    public boolean isOtherJoinReorder() {
-        return isOtherJoinReorder;
-    }
-
-    public void setOtherJoinReorder(boolean otherJoinReorder) {
-        isOtherJoinReorder = otherJoinReorder;
     }
 
     public ExprId getNextExprId() {
@@ -187,6 +257,13 @@ public class StatementContext {
             supplier = cacheSupplier;
         }
         return supplier.get();
+    }
+
+    /**
+     * Some value of the cacheKey may change, invalid cache when value change
+     */
+    public synchronized void invalidCache(String cacheKey) {
+        contextCacheMap.remove(cacheKey);
     }
 
     public ColumnAliasGenerator getColumnAliasGenerator() {
@@ -253,5 +330,13 @@ public class StatementContext {
 
     public void addJoinFilters(Collection<Expression> newJoinFilters) {
         this.joinFilters.addAll(newJoinFilters);
+    }
+
+    public boolean isHasUnknownColStats() {
+        return hasUnknownColStats;
+    }
+
+    public void setHasUnknownColStats(boolean hasUnknownColStats) {
+        this.hasUnknownColStats = hasUnknownColStats;
     }
 }

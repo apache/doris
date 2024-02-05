@@ -67,7 +67,7 @@ public:
                             const std::function<void(RuntimeState*, Status*)>& call_back,
                             const report_status_callback& report_status_cb);
 
-    virtual ~PipelineFragmentContext();
+    ~PipelineFragmentContext() override;
 
     PipelinePtr add_pipeline();
 
@@ -89,7 +89,7 @@ public:
 
     int32_t next_operator_builder_id() { return _next_operator_builder_id++; }
 
-    Status prepare(const doris::TPipelineFragmentParams& request, const size_t idx);
+    Status prepare(const doris::TPipelineFragmentParams& request, size_t idx);
 
     virtual Status prepare(const doris::TPipelineFragmentParams& request) {
         return Status::InternalError("Pipeline fragment context do not implement prepare");
@@ -150,10 +150,6 @@ public:
 
     uint64_t create_time() const { return _create_time; }
 
-    void set_query_statistics(std::shared_ptr<QueryStatistics> query_statistics) {
-        _query_statistics = query_statistics;
-    }
-
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
@@ -162,7 +158,6 @@ protected:
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
     virtual void _close_fragment_instance();
     void _init_next_report_time();
-    void _set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
     // Id of this query
     TUniqueId _query_id;
@@ -230,17 +225,9 @@ protected:
 
 private:
     static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
-    std::shared_ptr<QueryStatistics> _dml_query_statistics() {
-        if (_query_statistics && _query_statistics->collect_dml_statistics()) {
-            return _query_statistics;
-        }
-        return nullptr;
-    }
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     uint64_t _create_time;
-
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 } // namespace pipeline
 } // namespace doris

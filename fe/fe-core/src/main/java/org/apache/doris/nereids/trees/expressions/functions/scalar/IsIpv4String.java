@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
@@ -33,23 +33,23 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function IsIpv4String
+ * scalar function is_ipv4_string
  */
 public class IsIpv4String extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE));
 
     public IsIpv4String(Expression arg0) {
-        super("isipv4string", arg0);
+        super("is_ipv4_string", arg0);
     }
 
     @Override
     public IsIpv4String withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
-                "isipv4string accept 1 args, but got %s (%s)",
+                "is_ipv4_string accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
         return new IsIpv4String(children.get(0));

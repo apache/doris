@@ -93,7 +93,7 @@ POST /api/debug_point/add/{debug_point_name}[?timeout=<int>&execute=<int>]
 ### Query Parameters
 
 * `debug_point_name`
-    Debug point name. Required.
+    Debug point name. Mandatory parameter.
 
 * `timeout`
     Timeout in seconds. When timeout, the debug point will be deactivated. Default is -1, never timeout. Optional.
@@ -219,7 +219,7 @@ DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed",
 ### Query Parameters
 
 * `debug_point_name`
-    Debug point name. Require.
+    Debug point name. Mandatory parameter.
     
 
 

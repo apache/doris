@@ -36,6 +36,8 @@ import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TBackendInfo;
 import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
+import org.apache.doris.thrift.TCheckPreCacheRequest;
+import org.apache.doris.thrift.TCheckPreCacheResponse;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TDiskTrashInfo;
@@ -46,11 +48,15 @@ import org.apache.doris.thrift.TExportState;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TGetTopNHotPartitionsRequest;
+import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPreCacheAsyncRequest;
+import org.apache.doris.thrift.TPreCacheAsyncResponse;
 import org.apache.doris.thrift.TPublishTopicRequest;
 import org.apache.doris.thrift.TPublishTopicResult;
 import org.apache.doris.thrift.TQueryIngestBinlogRequest;
@@ -67,12 +73,16 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TStreamLoadRecordResult;
+import org.apache.doris.thrift.TSyncLoadForTabletsRequest;
+import org.apache.doris.thrift.TSyncLoadForTabletsResponse;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletStatResult;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TWarmUpTabletsRequest;
+import org.apache.doris.thrift.TWarmUpTabletsResponse;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -411,8 +421,33 @@ public class MockedBackendFactory {
         }
 
         @Override
+        public TPreCacheAsyncResponse preCacheAsync(TPreCacheAsyncRequest request) throws TException {
+            return new TPreCacheAsyncResponse();
+        }
+
+        @Override
+        public TCheckPreCacheResponse checkPreCache(TCheckPreCacheRequest request) throws TException {
+            return new TCheckPreCacheResponse();
+        }
+
+        @Override
         public TIngestBinlogResult ingestBinlog(TIngestBinlogRequest ingestBinlogRequest) throws TException {
             return null;
+        }
+
+        @Override
+        public TSyncLoadForTabletsResponse syncLoadForTablets(TSyncLoadForTabletsRequest request) throws TException {
+            return new TSyncLoadForTabletsResponse();
+        }
+
+        @Override
+        public TGetTopNHotPartitionsResponse getTopNHotPartitions(TGetTopNHotPartitionsRequest request) throws TException {
+            return new TGetTopNHotPartitionsResponse();
+        }
+
+        @Override
+        public TWarmUpTabletsResponse warmUpTablets(TWarmUpTabletsRequest request) throws TException {
+            return new TWarmUpTabletsResponse();
         }
 
         @Override

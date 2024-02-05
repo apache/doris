@@ -67,20 +67,25 @@ TaskGroupPtr TaskGroupManager::get_task_group_by_id(uint64_t tg_id) {
     return nullptr;
 }
 
-bool TaskGroupManager::set_cg_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr) {
-    std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
-    if (_tg_sche_map.find(tg_id) != _tg_sche_map.end()) {
-        query_ctx_ptr->set_task_scheduler(_tg_sche_map.at(tg_id).get());
-    } else {
-        return false;
+void TaskGroupManager::get_query_scheduler(uint64_t tg_id,
+                                           doris::pipeline::TaskScheduler** exec_sched,
+                                           vectorized::SimplifiedScanScheduler** scan_sched,
+                                           ThreadPool** non_pipe_thread_pool) {
+    std::shared_lock<std::shared_mutex> r_lock(_task_scheduler_lock);
+    auto tg_sche_it = _tg_sche_map.find(tg_id);
+    if (tg_sche_it != _tg_sche_map.end()) {
+        *exec_sched = tg_sche_it->second.get();
     }
 
-    if (_tg_scan_sche_map.find(tg_id) != _tg_scan_sche_map.end()) {
-        query_ctx_ptr->set_scan_task_scheduler(_tg_scan_sche_map.at(tg_id).get());
-    } else {
-        return false;
+    auto tg_scan_sche_it = _tg_scan_sche_map.find(tg_id);
+    if (tg_scan_sche_it != _tg_scan_sche_map.end()) {
+        *scan_sched = tg_scan_sche_it->second.get();
     }
-    return true;
+
+    auto non_pipe_thread_pool_iter = _non_pipe_thread_pool_map.find(tg_id);
+    if (non_pipe_thread_pool_iter != _non_pipe_thread_pool_map.end()) {
+        *non_pipe_thread_pool = non_pipe_thread_pool_iter->second.get();
+    }
 }
 
 Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info,
@@ -137,7 +142,23 @@ Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_i
         }
     }
 
-    // step 4 update cgroup cpu if needed
+    // step 4: init non-pipe scheduler
+    if (_non_pipe_thread_pool_map.find(tg_id) == _non_pipe_thread_pool_map.end()) {
+        std::unique_ptr<ThreadPool> thread_pool = nullptr;
+        auto ret = ThreadPoolBuilder("nonPip_" + tg_name)
+                           .set_min_threads(1)
+                           .set_max_threads(config::fragment_pool_thread_num_max)
+                           .set_max_queue_size(config::fragment_pool_queue_size)
+                           .set_cgroup_cpu_ctl(cg_cu_ctl_ptr)
+                           .build(&thread_pool);
+        if (!ret.ok()) {
+            LOG(INFO) << "create non-pipline thread pool failed";
+        } else {
+            _non_pipe_thread_pool_map.emplace(tg_id, std::move(thread_pool));
+        }
+    }
+
+    // step 5: update cgroup cpu if needed
     if (enable_cpu_hard_limit) {
         if (cpu_hard_limit > 0) {
             _cgroup_ctl_map.at(tg_id)->update_cpu_hard_limit(cpu_hard_limit);
@@ -159,57 +180,72 @@ Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_i
 }
 
 void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
-    // stop task sche may cost some time, so it should not be locked
-    std::set<doris::pipeline::TaskScheduler*> task_sche_to_del;
-    std::set<vectorized::SimplifiedScanScheduler*> scan_task_sche_to_del;
+    int64_t begin_time = MonotonicMillis();
+    // 1 get delete group without running queries
     std::set<uint64_t> deleted_tg_ids;
     {
-        std::shared_lock<std::shared_mutex> read_lock(_task_scheduler_lock);
-        for (auto iter = _tg_sche_map.begin(); iter != _tg_sche_map.end(); iter++) {
+        std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
+        for (auto iter = _task_groups.begin(); iter != _task_groups.end(); iter++) {
             uint64_t tg_id = iter->first;
+            auto* task_group_ptr = iter->second.get();
             if (used_wg_id.find(tg_id) == used_wg_id.end()) {
-                task_sche_to_del.insert(_tg_sche_map[tg_id].get());
-                deleted_tg_ids.insert(tg_id);
-            }
-        }
-
-        for (auto iter = _tg_scan_sche_map.begin(); iter != _tg_scan_sche_map.end(); iter++) {
-            uint64_t tg_id = iter->first;
-            if (used_wg_id.find(tg_id) == used_wg_id.end()) {
-                scan_task_sche_to_del.insert(_tg_scan_sche_map[tg_id].get());
+                task_group_ptr->shutdown();
+                // only when no query running in task group, its resource can be released in BE
+                if (task_group_ptr->query_num() == 0) {
+                    deleted_tg_ids.insert(tg_id);
+                }
             }
         }
     }
-    // 1 stop all threads
-    for (auto* ptr1 : task_sche_to_del) {
+
+    // 2 stop active thread
+    std::vector<doris::pipeline::TaskScheduler*> task_sched_to_stop;
+    std::vector<vectorized::SimplifiedScanScheduler*> scan_task_sched_to_stop;
+    std::vector<ThreadPool*> non_pip_thread_pool_to_stop;
+    {
+        std::shared_lock<std::shared_mutex> read_lock(_task_scheduler_lock);
+        for (uint64_t tg_id : deleted_tg_ids) {
+            if (_tg_sche_map.find(tg_id) != _tg_sche_map.end()) {
+                task_sched_to_stop.emplace_back(_tg_sche_map.at(tg_id).get());
+            }
+            if (_tg_scan_sche_map.find(tg_id) != _tg_scan_sche_map.end()) {
+                scan_task_sched_to_stop.emplace_back(_tg_scan_sche_map.at(tg_id).get());
+            }
+            if (_non_pipe_thread_pool_map.find(tg_id) != _non_pipe_thread_pool_map.end()) {
+                non_pip_thread_pool_to_stop.emplace_back(_non_pipe_thread_pool_map.at(tg_id).get());
+            }
+        }
+    }
+    for (auto* ptr1 : task_sched_to_stop) {
         ptr1->stop();
     }
-    for (auto* ptr2 : scan_task_sche_to_del) {
+    for (auto* ptr2 : scan_task_sched_to_stop) {
         ptr2->stop();
     }
-    // 2 release resource in memory
+    for (auto& ptr3 : non_pip_thread_pool_to_stop) {
+        ptr3->shutdown();
+        ptr3->wait();
+    }
+
+    // 3 release resource in memory
     {
         std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
         for (uint64_t tg_id : deleted_tg_ids) {
             _tg_sche_map.erase(tg_id);
             _tg_scan_sche_map.erase(tg_id);
             _cgroup_ctl_map.erase(tg_id);
+            _non_pipe_thread_pool_map.erase(tg_id);
         }
     }
 
     {
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
-        for (auto iter = _task_groups.begin(); iter != _task_groups.end();) {
-            uint64_t tg_id = iter->first;
-            if (used_wg_id.find(tg_id) == used_wg_id.end()) {
-                iter = _task_groups.erase(iter);
-            } else {
-                iter++;
-            }
+        for (uint64_t tg_id : deleted_tg_ids) {
+            _task_groups.erase(tg_id);
         }
     }
 
-    // 3 clear cgroup dir
+    // 4 clear cgroup dir
     // NOTE(wb) currently we use rmdir to delete cgroup path,
     // this action may be failed until task file is cleared which means all thread are stopped.
     // So the first time to rmdir a cgroup path may failed.
@@ -234,7 +270,37 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
             }
         }
     }
-    LOG(INFO) << "finish clear unused cgroup path";
+    int64_t time_cost_ms = MonotonicMillis() - begin_time;
+    LOG(INFO) << "finish clear unused task group, time cost: " << time_cost_ms
+              << "ms, deleted group size:" << deleted_tg_ids.size();
+}
+
+Status TaskGroupManager::add_query_to_group(uint64_t tg_id, TUniqueId query_id,
+                                            TaskGroupPtr* tg_ptr) {
+    std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
+    auto tg_iter = _task_groups.find(tg_id);
+    if (tg_iter != _task_groups.end()) {
+        if (tg_iter->second->is_shutdown()) {
+            return Status::InternalError<false>("workload group {} is shutdown.", tg_id);
+        }
+        tg_iter->second->add_query(query_id);
+        *tg_ptr = tg_iter->second;
+        return Status::OK();
+    } else {
+        return Status::InternalError<false>("can not find workload group {}.", tg_id);
+    }
+}
+
+void TaskGroupManager::remove_query_from_group(uint64_t tg_id, TUniqueId query_id) {
+    std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
+    auto tg_iter = _task_groups.find(tg_id);
+    if (tg_iter != _task_groups.end()) {
+        tg_iter->second->remove_query(query_id);
+    } else {
+        //NOTE: This should never happen
+        LOG(INFO) << "can not find task group when remove query, tg:" << tg_id
+                  << ", query_id:" << print_id(query_id);
+    }
 }
 
 void TaskGroupManager::stop() {
@@ -243,6 +309,9 @@ void TaskGroupManager::stop() {
     }
     for (auto& task_sche : _tg_scan_sche_map) {
         task_sche.second->stop();
+    }
+    for (auto& no_pip_sche : _non_pipe_thread_pool_map) {
+        no_pip_sche.second->shutdown();
     }
 }
 

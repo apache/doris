@@ -165,7 +165,6 @@ Status S3FileWriter::_abort() {
     }
     // we need to reclaim the memory
     if (_pending_buf) {
-        _pending_buf->on_finish();
         _pending_buf = nullptr;
     }
     LOG(INFO) << "S3FileWriter::abort, path: " << _path.native();
@@ -206,12 +205,12 @@ Status S3FileWriter::close() {
     // it might be one file less than 5MB, we do upload here
     if (_pending_buf != nullptr) {
         if (_upload_id.empty()) {
-            auto buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+            auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
             DCHECK(buf != nullptr);
             buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
         }
         _countdown_event.add_count();
-        _pending_buf->submit();
+        RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
         _pending_buf = nullptr;
     }
     DBUG_EXECUTE_IF("s3_file_writer::close", {
@@ -277,7 +276,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                                 return std::make_unique<FileBlocksHolder>(std::move(holder));
                             });
                 }
-                _pending_buf = builder.build();
+                RETURN_IF_ERROR(builder.build(&_pending_buf));
             }
             // we need to make sure all parts except the last one to be 5MB or more
             // and shouldn't be larger than buf
@@ -300,7 +299,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                 }
                 _cur_part_num++;
                 _countdown_event.add_count();
-                _pending_buf->submit();
+                RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
                 _pending_buf = nullptr;
             }
             _bytes_appended += data_size_to_append;
@@ -337,16 +336,20 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
                     "injected error",
                     _bucket, _path.native(), part_num, _upload_id);
             LOG_WARNING(s.to_string());
-            buf.set_val(s);
+            buf.set_status(std::move(s));
             return;
         }
     });
     if (!upload_part_outcome.IsSuccess()) {
-        _st = s3fs_error(upload_part_outcome.GetError(),
-                         fmt::format("failed to upload part {}, part_num={}, upload_id={}",
-                                     _path.native(), part_num, _upload_id));
-        LOG(WARNING) << _st;
-        buf.set_val(_st);
+        auto s = Status::IOError(
+                "failed to upload part (bucket={}, key={}, part_num={}, up_load_id={}): {}, "
+                "exception {}, error code {}",
+                _bucket, _path.native(), part_num, _upload_id,
+                upload_part_outcome.GetError().GetMessage(),
+                upload_part_outcome.GetError().GetExceptionName(),
+                upload_part_outcome.GetError().GetResponseCode());
+        LOG_WARNING(s.to_string());
+        buf.set_status(std::move(s));
         return;
     }
     s3_bytes_written_total << buf.get_size();
@@ -434,12 +437,12 @@ Status S3FileWriter::finalize() {
         // if we only need to upload one file less than 5MB, we can just
         // call PutObject to reduce the network IO
         if (_upload_id.empty()) {
-            auto buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+            auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
             DCHECK(buf != nullptr);
             buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
         }
         _countdown_event.add_count();
-        _pending_buf->submit();
+        RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
         _pending_buf = nullptr;
     }
     _wait_until_finish("finalize");
@@ -457,7 +460,7 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     request.SetContentType("application/octet-stream");
     DBUG_EXECUTE_IF("s3_file_writer::_put_object", {
         _st = Status::InternalError("failed to put object");
-        buf.set_val(_st);
+        buf.set_status(_st);
         LOG(WARNING) << _st;
         return;
     });
@@ -467,7 +470,7 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         _st = s3fs_error(response.GetError(), fmt::format("failed to put object {}, upload_id={}",
                                                           _path.native(), _upload_id));
         LOG(WARNING) << _st;
-        buf.set_val(_st);
+        buf.set_status(_st);
         return;
     }
     _bytes_written += buf.get_size();

@@ -40,7 +40,10 @@ public:
         TABLET_VERSION_CACHE = 10,
         LAST_SUCCESS_CHANNEL_CACHE = 11,
         COMMON_OBJ_LRU_CACHE = 12,
-        FOR_UT = 13
+        FOR_UT = 13,
+        TABLET_SCHEMA_CACHE = 14,
+        CREATE_TABLET_RR_IDX_CACHE = 15,
+        CLOUD_TABLET_CACHE = 16,
     };
 
     static std::string type_string(CacheType type) {
@@ -73,6 +76,12 @@ public:
             return "CommonObjLRUCache";
         case CacheType::FOR_UT:
             return "ForUT";
+        case CacheType::TABLET_SCHEMA_CACHE:
+            return "TabletSchemaCache";
+        case CacheType::CREATE_TABLET_RR_IDX_CACHE:
+            return "CreateTabletRRIdxCache";
+        case CacheType::CLOUD_TABLET_CACHE:
+            return "CloudTabletCache";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }

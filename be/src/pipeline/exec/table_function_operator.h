@@ -96,6 +96,10 @@ public:
                local_state._child_source_state != SourceState::FINISHED;
     }
 
+    DataDistribution required_data_distribution() const override {
+        return {ExchangeType::PASSTHROUGH};
+    }
+
     Status push(RuntimeState* state, vectorized::Block* input_block,
                 SourceState source_state) const override {
         auto& local_state = get_local_state(state);

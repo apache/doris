@@ -29,11 +29,12 @@ struct bufferevent_rate_limit_group;
 namespace doris {
 
 class ExecEnv;
+class StorageEngine;
 class HttpRequest;
 
 class DownloadBinlogAction : public HttpHandler {
 public:
-    DownloadBinlogAction(ExecEnv* exec_env,
+    DownloadBinlogAction(ExecEnv* exec_env, StorageEngine& engine,
                          std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group);
     virtual ~DownloadBinlogAction() = default;
 
@@ -44,6 +45,7 @@ private:
 
 private:
     ExecEnv* _exec_env;
+    StorageEngine& _engine;
     std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group;
 };
 

@@ -42,12 +42,15 @@ import java.util.Map;
  */
 public class Profile {
     private static final Logger LOG = LogManager.getLogger(Profile.class);
+    private static final int MergedProfileLevel = 1;
     private RuntimeProfile rootProfile;
     private SummaryProfile summaryProfile;
     private AggregatedProfile aggregatedProfile;
     private ExecutionProfile executionProfile;
     private boolean isFinished;
     private Map<Integer, String> planNodeMap;
+
+    private int profileLevel = 3;
 
     public Profile(String name, boolean isEnable) {
         this.rootProfile = new RuntimeProfile(name);
@@ -86,6 +89,7 @@ public class Profile {
             rootProfile.setIsPipelineX(isPipelineX);
             ProfileManager.getInstance().pushProfile(this);
             this.isFinished = isFinished;
+            this.profileLevel = profileLevel;
         } catch (Throwable t) {
             LOG.warn("update profile failed", t);
             throw t;
@@ -105,15 +109,21 @@ public class Profile {
         // add summary to builder
         summaryProfile.prettyPrint(builder);
         LOG.info(builder.toString());
-        builder.append("\n MergedProfile \n");
-        aggregatedProfile.getAggregatedFragmentsProfile(planNodeMap).prettyPrint(builder, "     ");
+        if (this.profileLevel == MergedProfileLevel) {
+            try {
+                builder.append("\n MergedProfile \n");
+                aggregatedProfile.getAggregatedFragmentsProfile(planNodeMap).prettyPrint(builder, "     ");
+            } catch (Throwable aggProfileException) {
+                LOG.warn("build merged simple profile failed", aggProfileException);
+                builder.append("build merged simple profile failed");
+            }
+        }
         try {
             builder.append("\n");
             executionProfile.getExecutionProfile().prettyPrint(builder, "");
-            LOG.info(builder.toString());
         } catch (Throwable aggProfileException) {
-            LOG.warn("build merged simple profile failed", aggProfileException);
-            builder.append("build merged simple profile failed");
+            LOG.warn("build profile failed", aggProfileException);
+            builder.append("build  profile failed");
         }
         return builder.toString();
     }

@@ -29,6 +29,7 @@ suite("query8") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
+    sql 'set runtime_filter_type=8'
     def ds = """select  s_store_name
       ,sum(ss_net_profit)
  from store_sales

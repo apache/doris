@@ -54,7 +54,7 @@ class TTabletInfo;
 // please uniformly name the method in "xxx_unlocked()" mode
 class TabletManager {
 public:
-    TabletManager(int32_t tablet_map_lock_shard_size);
+    TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size);
     ~TabletManager();
 
     bool check_tablet_id_exist(TTabletId tablet_id);
@@ -225,6 +225,8 @@ private:
         tablet_map_t tablet_map;
         std::set<int64_t> tablets_under_clone;
     };
+
+    StorageEngine& _engine;
 
     // TODO: memory size of TabletSchema cannot be accurately tracked.
     // trace the memory use by meta of tablet

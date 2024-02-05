@@ -143,8 +143,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx) {
     if (ctx->done()) {
         return Status::EndOfFile("ScannerContext is done");
     }
-    //LOG(WARNING) << "yyyy " << Status::InternalError("Too many scheduled");
-    //LOG(WARNING) << "yyyy " << ctx->debug_string();
     ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
     if (!_pending_queues[ctx->queue_idx]->blocking_put(ctx)) {
         return Status::InternalError("failed to submit scanner context to scheduler");
@@ -176,11 +174,10 @@ void ScannerScheduler::_schedule_thread(int queue_id) {
 void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
-        LOG(WARNING) << "could not lock task execution context, query " << ctx->debug_string()
-                     << " maybe finished";
+        LOG(INFO) << "could not lock task execution context, query " << ctx->debug_string()
+                  << " maybe finished";
         return;
     }
-    //LOG(INFO) << "yyyy scheduled, query " << ctx->debug_string() << " maybe finished";
     MonotonicStopWatch watch;
     watch.reset();
     watch.start();
@@ -213,6 +210,8 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         while (iter != this_run.end()) {
             std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
             if (scanner_delegate == nullptr) {
+                // Has to ++, or there is a dead loop
+                iter++;
                 continue;
             }
             scanner_delegate->_scanner->start_wait_worker_timer();
@@ -220,7 +219,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 this->_scanner_scan(this, ctx, scanner_ref);
             });
             if (s.ok()) {
-                this_run.erase(iter++);
+                iter++;
             } else {
                 ctx->set_status_on_error(s);
                 break;
@@ -230,6 +229,8 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         while (iter != this_run.end()) {
             std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
             if (scanner_delegate == nullptr) {
+                // Has to ++, or there is a dead loop
+                iter++;
                 continue;
             }
             scanner_delegate->_scanner->start_wait_worker_timer();
@@ -259,7 +260,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 ret = _remote_scan_thread_pool->offer(task);
             }
             if (ret) {
-                this_run.erase(iter++);
+                iter++;
             } else {
                 ctx->set_status_on_error(
                         Status::InternalError("failed to submit scanner to scanner pool"));
@@ -331,8 +332,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
     // judge if we need to yield. So we record all raw data read in this round
     // scan, if this exceeds row number or bytes threshold, we yield this thread.
     std::vector<vectorized::BlockUPtr> blocks;
-    int64_t raw_rows_read = scanner->get_rows_read();
-    int64_t raw_rows_threshold = raw_rows_read + config::doris_scanner_row_num;
     int64_t raw_bytes_read = 0;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     int num_rows_in_block = 0;
@@ -346,11 +345,10 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
     auto should_do_scan = [&, batch_size = state->batch_size(),
                            time = state->wait_full_block_schedule_times()]() {
-        if (raw_bytes_read < raw_bytes_threshold && raw_rows_read < raw_rows_threshold) {
+        if (raw_bytes_read < raw_bytes_threshold) {
             return true;
         } else if (num_rows_in_block < batch_size) {
-            return raw_bytes_read < raw_bytes_threshold * time &&
-                   raw_rows_read < raw_rows_threshold * time;
+            return raw_bytes_read < raw_bytes_threshold * time;
         }
         return false;
     };
@@ -399,7 +397,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
                 blocks.push_back(std::move(block));
             }
         }
-        raw_rows_read = scanner->get_rows_read();
     } // end for while
 
     // if we failed, check status.

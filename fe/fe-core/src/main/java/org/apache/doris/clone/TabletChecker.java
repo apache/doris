@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
@@ -280,7 +281,7 @@ public class TabletChecker extends MasterDaemon {
                 continue;
             }
 
-            if (db.isMysqlCompatibleDatabase()) {
+            if (db instanceof MysqlCompatibleDatabase) {
                 continue;
             }
 

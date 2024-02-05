@@ -137,63 +137,7 @@ suite("test_nested_complex_switch", "query") {
         sql "DROP TABLE IF EXISTS ${testTable_m}"
         sql "DROP TABLE IF EXISTS ${testTable_a}"
         sql "DROP TABLE IF EXISTS ${testTable_s}"
-        sql "ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'true')"
 
-        // map
-        test {
-            sql sql_m_s
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported data type: MAP<TEXT,STRUCT<f1:TINYINT>>"
-        }
-
-        test {
-            sql sql_m_a
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported data type: MAP<ARRAY<INT>,TEXT>"
-        }
-
-        test {
-            sql sql_m_m
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported data type: MAP<TEXT,MAP<TEXT,INT>>"
-        }
-
-        // array
-        test {
-            sql sql_a_s
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported data type: ARRAY<STRUCT<f1:TINYINT>>"
-        }
-
-
-        test {
-            sql sql_a_m
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported data type: ARRAY<MAP<TEXT,INT>>"
-        }
-
-        // struct
-        test {
-            sql sql_s_s
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported"
-        }
-
-        test {
-            sql sql_s_a
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported"
-        }
-
-        test {
-            sql sql_s_m
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported"
-        }
-
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable_m}")
-        try_sql("DROP TABLE IF EXISTS ${testTable_a}")
-        try_sql("DROP TABLE IF EXISTS ${testTable_s}")
-    }
-
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable_m}"
-        sql "DROP TABLE IF EXISTS ${testTable_a}"
-        sql "DROP TABLE IF EXISTS ${testTable_s}"
-        sql "ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"
 
 
         // map

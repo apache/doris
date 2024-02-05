@@ -43,8 +43,8 @@ Suppose our table DDL is as follows:
 ```sql
 CREATE TABLE `DAILY_TRADE_VALUE`
 (
-    `TRADE_DATE`              datev2 NULL COMMENT '交易日期',
-    `TRADE_ID`                varchar(40) NULL COMMENT '交易编号',
+    `TRADE_DATE`              datev2 NOT NULL COMMENT '交易日期',
+    `TRADE_ID`                varchar(40) NOT NULL COMMENT '交易编号',
     ......
 )
 UNIQUE KEY(`TRADE_DATE`, `TRADE_ID`)
@@ -142,9 +142,10 @@ When building a table, use the following syntax to populate [CREATE-TABLE](../..
 ### Using constraints
 
 1. Currently the AUTO RANGE PARTITION function supports only one partition column;
-2. In AUTO RANGE PARTITION, the partition function supports only `date_trunc` and the partition column supports only `DATEV2` or `DATETIMEV2` format;
+2. In AUTO RANGE PARTITION, the partition function supports only `date_trunc` and the partition column supports only `DATE` or `DATETIME` type;
 3. In AUTO LIST PARTITION, function calls are not supported. Partitioned columns support `BOOLEAN`, `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `LARGEINT`, `DATE`, `DATETIME`, `CHAR`, `VARCHAR` data-types, and partitioned values are enum values.
 4. In AUTO LIST PARTITION, a separate new PARTITION is created for each fetch of a partition column for which the corresponding partition does not currently exist.
+5. The partition column for AUTO PARTITION must be a NOT NULL column.
 
 ## Sample Scenarios
 
@@ -153,8 +154,8 @@ In the example in the Usage Scenarios section, the table DDL can be rewritten af
 ```sql
 CREATE TABLE `DAILY_TRADE_VALUE`
 (
-    `TRADE_DATE`              datev2 NULL,
-    `TRADE_ID`                varchar(40) NULL,
+    `TRADE_DATE`              datev2 NOT NULL,
+    `TRADE_ID`                varchar(40) NOT NULL,
     ......
 )
 UNIQUE KEY(`TRADE_DATE`, `TRADE_ID`)
@@ -190,6 +191,64 @@ mysql> show partitions from `DAILY_TRADE_VALUE`;
 ```
 
 A partition created by the AUTO PARTITION function has the exact same functional properties as a manually created partition.
+
+## Coupled with dynamic partitioning
+
+AUTO PARTITION is supported on the same table as [DYNAMIC PARTITION](./dynamic-partition). for example:
+
+```sql
+CREATE TABLE tbl3
+(
+    k1 DATETIME NOT NULL,
+    col1 int 
+)
+AUTO PARTITION BY RANGE date_trunc(`k1`, 'year') ()
+DISTRIBUTED BY HASH(k1)
+PROPERTIES
+(
+    "replication_num" = "1",
+    "dynamic_partition.create_history_partition"="true",
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "year",
+    "dynamic_partition.start" = "-2",
+    "dynamic_partition.end" = "2",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "8"
+); 
+```
+
+When the two functions are used in combination, neither of their original functions is affected and they still act on the entire table. The behavior includes but is not limited to:
+
+1. regardless of the creation method, the expired historical partitions will be periodically cleaned up or transferred to cold storage according to the rules specified by the DYNAMIC PARTITION properties
+2. partition ranges cannot overlap or conflict. If a new partition range that needs to be created by DYNAMIC PARTITION has already been covered by an automatically or manually created partition, the partition creation will fail without affecting the business process.
+
+The principle is that AUTO PARTITION is only a complementary means introduced to the creation of partitions, and that a partition, whether created manually, by AUTO PARTITION, or by DYNAMIC PARTITION, will be governed by DYNAMIC PARTITION functions.
+
+### Constraint
+
+In order to simplify the behavioral pattern of combine two partition methods, when the AUTO PARTITION and DYNAMIC PARTITION are both used, the **partition intervals of the two must be consistent** or the table creating will fail:
+
+```sql
+mysql > CREATE TABLE tbl3
+        (
+            k1 DATETIME NOT NULL,
+            col1 int 
+        )
+        AUTO PARTITION BY RANGE date_trunc(`k1`, 'year') ()
+        DISTRIBUTED BY HASH(k1)
+        PROPERTIES
+        (
+            "replication_num" = "1",
+            "dynamic_partition.create_history_partition"="true",
+            "dynamic_partition.enable" = "true",
+            "dynamic_partition.time_unit" = "HOUR",
+            "dynamic_partition.start" = "-2",
+            "dynamic_partition.end" = "2",
+            "dynamic_partition.prefix" = "p",
+            "dynamic_partition.buckets" = "8"
+        ); 
+ERROR 1105 (HY000): errCode = 2, detailMessage = errCode = 2, detailMessage = If support auto partition and dynamic partition at same time, they must have the same interval unit.
+```
 
 ## caveat
 

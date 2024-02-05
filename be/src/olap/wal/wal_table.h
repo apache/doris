@@ -47,7 +47,7 @@ private:
 
     Status _replay_wal_internal(const std::string& wal);
     Status _parse_wal_path(const std::string& wal, int64_t& wal_id, std::string& label);
-    Status _try_abort_txn(int64_t db_id, int64_t wal_id);
+    Status _try_abort_txn(int64_t db_id, std::string& label);
     Status _get_column_info(int64_t db_id, int64_t tb_id,
                             std::map<int64_t, std::string>& column_info_map);
 

@@ -31,7 +31,8 @@ under the License.
 `VARCHAR STRLEFT (VARCHAR str, INT len)`
 
 
-It returns the left part of a string of specified length, length is char length not the byte size. Another alias for this function is [left](./left.md).
+It returns the left part of a string of specified length, length is char length not the byte size. Another alias for this function is `left`.
+If the function parameters contain a NULL value, the function will always return NULL. If the integer parameter is less than or equal to 0, it will return an empty value.
 
 ### example
 
@@ -42,6 +43,24 @@ mysql> select strleft("Hello doris",5);
 +------------------------+
 | Hello                  |
 +------------------------+
+mysql> select strleft("Hello doris",-5);
++----------------------------+
+| strleft('Hello doris', -5) |
++----------------------------+
+|                            |
++----------------------------+
+mysql> select strleft("Hello doris",NULL);
++------------------------------+
+| strleft('Hello doris', NULL) |
++------------------------------+
+| NULL                         |
++------------------------------+
+mysql> select strleft(NULL,3);
++------------------+
+| strleft(NULL, 3) |
++------------------+
+| NULL             |
++------------------+
 ```
 ### keywords
-    STRLEFT
+    STRLEFT, LEFT

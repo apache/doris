@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -39,7 +40,9 @@ public class Ipv6NumToString extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE));
+            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(IPv6Type.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE).args(IPv6Type.INSTANCE));
 
     public Ipv6NumToString(Expression arg0) {
         super("ipv6_num_to_string", arg0);

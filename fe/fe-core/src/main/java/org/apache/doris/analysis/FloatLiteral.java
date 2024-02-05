@@ -35,7 +35,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.text.NumberFormat;
 
-public class FloatLiteral extends LiteralExpr {
+public class FloatLiteral extends NumericLiteralExpr {
     private double value;
 
     public FloatLiteral() {

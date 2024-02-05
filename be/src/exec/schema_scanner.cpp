@@ -44,6 +44,7 @@
 #include "exec/schema_scanner/schema_views_scanner.h"
 #include "olap/hll.h"
 #include "runtime/define_primitive_type.h"
+#include "util/string_util.h"
 #include "util/types.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -310,6 +311,14 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
     }
     return Status::OK();
+}
+
+std::string SchemaScanner::get_db_from_full_name(const std::string& full_name) {
+    std::vector<std::string> part = split(full_name, ".");
+    if (part.size() == 2) {
+        return part[1];
+    }
+    return full_name;
 }
 
 } // namespace doris

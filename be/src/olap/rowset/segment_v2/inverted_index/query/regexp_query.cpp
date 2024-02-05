@@ -24,10 +24,19 @@
 
 namespace doris::segment_v2 {
 
-RegexpQuery::RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher)
-        : _searcher(searcher), query(searcher->getReader()) {}
+RegexpQuery::RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
+                         const TQueryOptions& query_options)
+        : _searcher(searcher),
+          _max_expansions(query_options.inverted_index_max_expansions),
+          _query(searcher, query_options) {}
 
-void RegexpQuery::add(const std::wstring& field_name, const std::string& pattern) {
+void RegexpQuery::add(const std::wstring& field_name, const std::vector<std::string>& patterns) {
+    if (patterns.size() != 1) {
+        _CLTHROWA(CL_ERR_IllegalArgument, "RegexpQuery::add: terms size != 1");
+    }
+
+    const std::string& pattern = patterns[0];
+
     hs_database_t* database = nullptr;
     hs_compile_error_t* compile_err = nullptr;
     hs_scratch_t* scratch = nullptr;
@@ -94,11 +103,11 @@ void RegexpQuery::add(const std::wstring& field_name, const std::string& pattern
         return;
     }
 
-    query.add(field_name, terms);
+    _query.add(field_name, terms);
 }
 
 void RegexpQuery::search(roaring::Roaring& roaring) {
-    query.search(roaring);
+    _query.search(roaring);
 }
 
 } // namespace doris::segment_v2

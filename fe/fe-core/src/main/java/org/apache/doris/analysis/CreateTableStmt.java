@@ -35,6 +35,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -97,7 +98,7 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("broker");
     }
 
-    // if auto bucket auto bucket enable, rewrite distribution bucket num &&
+    // if auto bucket enable, rewrite distribution bucket num &&
     // set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
     private static Map<String, String> maybeRewriteByAutoBucket(DistributionDesc distributionDesc,
             Map<String, String> properties) throws AnalysisException {
@@ -285,7 +286,7 @@ public class CreateTableStmt extends DdlStmt {
         FeNameFormat.checkTableName(tableName.getTbl());
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-
+        InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
@@ -493,8 +494,8 @@ public class CreateTableStmt extends DdlStmt {
 
         if (engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             // before analyzing partition, handle the replication allocation info
-            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(tableName.getCtl(), tableName.getDb(),
-                    properties);
+            properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(tableName.getCtl(),
+                    tableName.getDb(), properties);
             // analyze partition
             if (partitionDesc != null) {
                 if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc) {

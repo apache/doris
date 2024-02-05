@@ -133,11 +133,6 @@ public class CreateViewTest {
         Assert.assertEquals(1, view4.getFullSchema().size());
         Assert.assertNotNull(view4.getColumn("s1"));
 
-        View view5 = (View) db.getTableOrDdlException("view5");
-        Assert.assertTrue(view5.getDdlSql().contains("hour"));
-        Assert.assertTrue(view5.getDdlSql().contains("now"));
-        Assert.assertTrue(view5.getDdlSql().contains("curdate"));
-
         View view6 = (View) db.getTableOrDdlException("view6");
         Assert.assertEquals(4, view6.getFullSchema().size());
         Assert.assertNotNull(view6.getColumn("k1"));
@@ -190,7 +185,7 @@ public class CreateViewTest {
         alter1 = (View) db.getTableOrDdlException("alter1");
         Assert.assertEquals(
                 "WITH test1_cte(w1, w2) AS (SELECT `k1`, `k2` FROM `test`.`tbl1`) "
-                        + "SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `test1_cte` WHERE `w1` > 10 GROUP BY `w1` "
+                        + "SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `test1_cte` WHERE (`w1` > 10) GROUP BY `w1` "
                         + "ORDER BY `w1` ASC NULLS FIRST",
                 alter1.getInlineViewDef());
     }

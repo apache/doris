@@ -172,9 +172,9 @@ public interface CatalogIf<T extends DatabaseIf> {
     }
 
     // Return a copy of all db collection.
-    public Collection<DatabaseIf<? extends TableIf>> getAllDbs();
+    Collection<DatabaseIf<? extends TableIf>> getAllDbs();
 
-    public boolean enableAutoAnalyze();
+    boolean enableAutoAnalyze();
 
-    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb();
+    ConcurrentHashMap<Long, DatabaseIf> getIdToDb();
 }

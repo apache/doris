@@ -33,6 +33,7 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -44,9 +45,11 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
@@ -90,6 +93,8 @@ public interface TableIf {
     List<Column> getFullSchema();
 
     List<Column> getBaseSchema();
+
+    List<Column> getSchemaAllIndexes(boolean full);
 
     default List<Column> getBaseSchemaOrEmpty() {
         try {
@@ -162,7 +167,7 @@ public interface TableIf {
     void write(DataOutput out) throws IOException;
 
     // Don't use it outside due to its thread-unsafe, use get specific constraints instead.
-    default Map<String, Constraint> getConstraintsMap() {
+    default Map<String, Constraint> getConstraintsMapUnsafe() {
         throw new RuntimeException(String.format("Not implemented constraint for table %s. "
                 + "And the function can't be called outside, consider get specific function "
                 + "like getForeignKeyConstraints/getPrimaryKeyConstraints/getUniqueConstraints.", this));
@@ -171,7 +176,7 @@ public interface TableIf {
     default Set<ForeignKeyConstraint> getForeignKeyConstraints() {
         readLock();
         try {
-            return getConstraintsMap().values().stream()
+            return getConstraintsMapUnsafe().values().stream()
                     .filter(ForeignKeyConstraint.class::isInstance)
                     .map(ForeignKeyConstraint.class::cast)
                     .collect(ImmutableSet.toImmutableSet());
@@ -182,10 +187,21 @@ public interface TableIf {
         }
     }
 
+    default Map<String, Constraint> getConstraintsMap() {
+        readLock();
+        try {
+            return ImmutableMap.copyOf(getConstraintsMapUnsafe());
+        } catch (Exception ignored) {
+            return ImmutableMap.of();
+        } finally {
+            readUnlock();
+        }
+    }
+
     default Set<PrimaryKeyConstraint> getPrimaryKeyConstraints() {
         readLock();
         try {
-            return getConstraintsMap().values().stream()
+            return getConstraintsMapUnsafe().values().stream()
                     .filter(PrimaryKeyConstraint.class::isInstance)
                     .map(PrimaryKeyConstraint.class::cast)
                     .collect(ImmutableSet.toImmutableSet());
@@ -199,7 +215,7 @@ public interface TableIf {
     default Set<UniqueConstraint> getUniqueConstraints() {
         readLock();
         try {
-            return getConstraintsMap().values().stream()
+            return getConstraintsMapUnsafe().values().stream()
                     .filter(UniqueConstraint.class::isInstance)
                     .map(UniqueConstraint.class::cast)
                     .collect(ImmutableSet.toImmutableSet());
@@ -224,25 +240,27 @@ public interface TableIf {
         }
     }
 
-    default void addUniqueConstraint(String name, ImmutableList<String> columns) {
+    default Constraint addUniqueConstraint(String name, ImmutableList<String> columns) {
         writeLock();
         try {
-            Map<String, Constraint> constraintMap = getConstraintsMap();
+            Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
             UniqueConstraint uniqueConstraint =  new UniqueConstraint(name, ImmutableSet.copyOf(columns));
             checkConstraintNotExistence(name, uniqueConstraint, constraintMap);
             constraintMap.put(name, uniqueConstraint);
+            return uniqueConstraint;
         } finally {
             writeUnlock();
         }
     }
 
-    default void addPrimaryKeyConstraint(String name, ImmutableList<String> columns) {
+    default Constraint addPrimaryKeyConstraint(String name, ImmutableList<String> columns) {
         writeLock();
         try {
-            Map<String, Constraint> constraintMap = getConstraintsMap();
+            Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
             PrimaryKeyConstraint primaryKeyConstraint = new PrimaryKeyConstraint(name, ImmutableSet.copyOf(columns));
             checkConstraintNotExistence(name, primaryKeyConstraint, constraintMap);
             constraintMap.put(name, primaryKeyConstraint);
+            return primaryKeyConstraint;
         } finally {
             writeUnlock();
         }
@@ -251,7 +269,7 @@ public interface TableIf {
     default void updatePrimaryKeyForForeignKey(PrimaryKeyConstraint requirePrimaryKey, TableIf referencedTable) {
         referencedTable.writeLock();
         try {
-            Optional<Constraint> primaryKeyConstraint = referencedTable.getConstraintsMap().values().stream()
+            Optional<Constraint> primaryKeyConstraint = referencedTable.getConstraintsMapUnsafe().values().stream()
                     .filter(requirePrimaryKey::equals)
                     .findFirst();
             if (!primaryKeyConstraint.isPresent()) {
@@ -265,11 +283,11 @@ public interface TableIf {
         }
     }
 
-    default void addForeignConstraint(String name, ImmutableList<String> columns,
+    default Constraint addForeignConstraint(String name, ImmutableList<String> columns,
             TableIf referencedTable, ImmutableList<String> referencedColumns) {
         writeLock();
         try {
-            Map<String, Constraint> constraintMap = getConstraintsMap();
+            Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
             ForeignKeyConstraint foreignKeyConstraint =
                     new ForeignKeyConstraint(name, columns, referencedTable, referencedColumns);
             checkConstraintNotExistence(name, foreignKeyConstraint, constraintMap);
@@ -277,15 +295,35 @@ public interface TableIf {
                     foreignKeyConstraint.getReferencedColumnNames());
             updatePrimaryKeyForForeignKey(requirePrimaryKey, referencedTable);
             constraintMap.put(name, foreignKeyConstraint);
+            return foreignKeyConstraint;
         } finally {
             writeUnlock();
         }
     }
 
-    default void dropConstraint(String name) {
+    default void replayAddConstraint(Constraint constraint) {
+        if (constraint instanceof UniqueConstraint) {
+            UniqueConstraint uniqueConstraint = (UniqueConstraint) constraint;
+            this.addUniqueConstraint(constraint.getName(),
+                    ImmutableList.copyOf(uniqueConstraint.getUniqueColumnNames()));
+        } else if (constraint instanceof PrimaryKeyConstraint) {
+            PrimaryKeyConstraint primaryKeyConstraint = (PrimaryKeyConstraint) constraint;
+            this.addPrimaryKeyConstraint(primaryKeyConstraint.getName(),
+                    ImmutableList.copyOf(primaryKeyConstraint.getPrimaryKeyNames()));
+        } else if (constraint instanceof ForeignKeyConstraint) {
+            ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
+            this.addForeignConstraint(foreignKey.getName(),
+                    ImmutableList.copyOf(foreignKey.getForeignKeyNames()),
+                    foreignKey.getReferencedTable(),
+                    ImmutableList.copyOf(foreignKey.getReferencedColumnNames()));
+        }
+    }
+
+    default Constraint dropConstraint(String name) {
+        Constraint dropConstraint;
         writeLock();
         try {
-            Map<String, Constraint> constraintMap = getConstraintsMap();
+            Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
             if (!constraintMap.containsKey(name)) {
                 throw new AnalysisException(
                         String.format("Unknown constraint %s on table %s.", name, this.getName()));
@@ -296,17 +334,23 @@ public interface TableIf {
                 ((PrimaryKeyConstraint) constraint).getForeignTables()
                         .forEach(t -> t.dropFKReferringPK(this, (PrimaryKeyConstraint) constraint));
             }
+            dropConstraint = constraint;
         } finally {
             writeUnlock();
         }
+        return dropConstraint;
     }
 
     default void dropFKReferringPK(TableIf table, PrimaryKeyConstraint constraint) {
         writeLock();
         try {
-            Map<String, Constraint> constraintMap = getConstraintsMap();
-            constraintMap.entrySet().removeIf(e -> e.getValue() instanceof ForeignKeyConstraint
-                    && ((ForeignKeyConstraint) e.getValue()).isReferringPK(table, constraint));
+            Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
+            Set<String> fkName = constraintMap.entrySet().stream()
+                    .filter(e -> e.getValue() instanceof ForeignKeyConstraint
+                    && ((ForeignKeyConstraint) e.getValue()).isReferringPK(table, constraint))
+                    .map(Entry::getKey)
+                    .collect(Collectors.toSet());
+            fkName.forEach(constraintMap::remove);
         } finally {
             writeUnlock();
         }
@@ -339,7 +383,7 @@ public interface TableIf {
                 case OLAP:
                     return "Doris";
                 case SCHEMA:
-                    return "MEMORY";
+                    return "SYSTEM VIEW";
                 case INLINE_VIEW:
                     return "InlineView";
                 case VIEW:
@@ -379,16 +423,16 @@ public interface TableIf {
             }
         }
 
+        // Refer to https://dev.mysql.com/doc/refman/8.0/en/information-schema-tables-table.html
         public String toMysqlType() {
             switch (this) {
-                case OLAP:
-                    return "BASE TABLE";
                 case SCHEMA:
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
                 case MATERIALIZED_VIEW:
                     return "VIEW";
+                case OLAP:
                 case MYSQL:
                 case ODBC:
                 case BROKER:
@@ -402,7 +446,7 @@ public interface TableIf {
                 case ES_EXTERNAL_TABLE:
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
-                    return "EXTERNAL TABLE";
+                    return "BASE TABLE";
                 default:
                     return null;
             }

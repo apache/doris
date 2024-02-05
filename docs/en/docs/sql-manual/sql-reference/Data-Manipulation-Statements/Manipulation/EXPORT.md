@@ -140,7 +140,7 @@ The bottom layer of the `Export` statement actually executes the `select...outfi
     AWS_ACCESS_KEY
     AWS_SECRET_KEY
     AWS_REGION
-    use_path_stype: (optional) default false . The S3 SDK uses the virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the use_path_style parameter to force the use of path style access method.
+    use_path_style: (optional) default false . The S3 SDK uses the virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the use_path_style parameter to force the use of path style access method.
   ```
 
 ### Example

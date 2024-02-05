@@ -46,13 +46,14 @@ class TProcessor;
 namespace doris {
 
 HeartbeatServer::HeartbeatServer(TMasterInfo* master_info)
-        : _master_info(master_info), _fe_epoch(0) {
-    _olap_engine = StorageEngine::instance();
+        : _engine(ExecEnv::GetInstance()->storage_engine()),
+          _master_info(master_info),
+          _fe_epoch(0) {
     _be_epoch = GetCurrentTimeMicros() / 1000;
 }
 
 void HeartbeatServer::init_cluster_id() {
-    _master_info->cluster_id = _olap_engine->effective_cluster_id();
+    _master_info->cluster_id = _engine.effective_cluster_id();
 }
 
 void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
@@ -96,7 +97,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     if (_master_info->cluster_id == -1) {
         LOG(INFO) << "get first heartbeat. update cluster id";
         // write and update cluster id
-        RETURN_IF_ERROR(_olap_engine->set_cluster_id(master_info.cluster_id));
+        RETURN_IF_ERROR(_engine.set_cluster_id(master_info.cluster_id));
 
         _master_info->cluster_id = master_info.cluster_id;
         LOG(INFO) << "record cluster id. host: " << master_info.network_address.hostname
@@ -200,8 +201,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
             _master_info->__set_token(master_info.token);
             LOG(INFO) << "get token. token: " << _master_info->token;
         } else if (_master_info->token != master_info.token) {
-            return Status::InternalError("invalid token. local_token: {}, token: {}",
-                                         _master_info->token, master_info.token);
+            return Status::InternalError("invalid token");
         }
     }
 
@@ -229,7 +229,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
-        _olap_engine->notify_listeners();
+        _engine.notify_listeners();
     }
 
     return Status::OK();

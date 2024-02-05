@@ -69,7 +69,10 @@ public class FunctionalDependencies {
     }
 
     public boolean isUniqueAndNotNull(Set<Slot> slotSet) {
-        return slotSet.stream().noneMatch(Slot::nullable) && isUnique(slotSet);
+        Set<Slot> notNullSlotSet = slotSet.stream()
+                .filter(s -> !s.nullable())
+                .collect(ImmutableSet.toImmutableSet());
+        return isUnique(notNullSlotSet);
     }
 
     public boolean isUniformAndNotNull(Slot slot) {

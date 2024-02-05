@@ -91,6 +91,8 @@ public:
         offsets_column->clear();
     }
 
+    ColumnPtr convert_to_full_column_if_const() const override;
+
     MutableColumnPtr clone_resized(size_t size) const override;
 
     Field operator[](size_t n) const override;

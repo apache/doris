@@ -50,7 +50,7 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
             case TASKS:
                 return TasksTableValuedFunction.getColumnIndexFromColumnName(columnName, params);
             case QUERIES:
-                return QueriesTableValuedFunction.getColumnIndexFromColumnName(columnName);
+                return ActiveQueriesTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case WORKLOAD_SCHED_POLICY:
                 return WorkloadSchedPolicyTableValuedFunction.getColumnIndexFromColumnName(columnName);
             default:

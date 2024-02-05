@@ -18,12 +18,8 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminCopyTabletStmt;
-import org.apache.doris.analysis.AdminDiagnoseTabletStmt;
-import org.apache.doris.analysis.AdminShowConfigStmt;
-import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
-import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
-import org.apache.doris.analysis.AdminShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.DescribeStmt;
+import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.LimitElement;
@@ -42,6 +38,7 @@ import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnHistStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
+import org.apache.doris.analysis.ShowConfigStmt;
 import org.apache.doris.analysis.ShowConvertLSCStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
@@ -77,6 +74,8 @@ import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
 import org.apache.doris.analysis.ShowQueryStatsStmt;
+import org.apache.doris.analysis.ShowReplicaDistributionStmt;
+import org.apache.doris.analysis.ShowReplicaStatusStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
@@ -96,6 +95,7 @@ import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
+import org.apache.doris.analysis.ShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.ShowTabletsBelongStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowTrashDiskStmt;
@@ -211,7 +211,7 @@ import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUnit;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
@@ -242,6 +242,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -370,11 +371,11 @@ public class ShowExecutor {
             handleShowTrash();
         } else if (stmt instanceof ShowTrashDiskStmt) {
             handleShowTrashDisk();
-        } else if (stmt instanceof AdminShowReplicaStatusStmt) {
+        } else if (stmt instanceof ShowReplicaStatusStmt) {
             handleAdminShowTabletStatus();
-        } else if (stmt instanceof AdminShowReplicaDistributionStmt) {
+        } else if (stmt instanceof ShowReplicaDistributionStmt) {
             handleAdminShowTabletDistribution();
-        } else if (stmt instanceof AdminShowConfigStmt) {
+        } else if (stmt instanceof ShowConfigStmt) {
             handleAdminShowConfig();
         } else if (stmt instanceof ShowSmallFilesStmt) {
             handleShowSmallFiles();
@@ -408,9 +409,9 @@ public class ShowExecutor {
             handleShowTableCreation();
         } else if (stmt instanceof ShowLastInsertStmt) {
             handleShowLastInsert();
-        } else if (stmt instanceof AdminShowTabletStorageFormatStmt) {
+        } else if (stmt instanceof ShowTabletStorageFormatStmt) {
             handleAdminShowTabletStorageFormat();
-        } else if (stmt instanceof AdminDiagnoseTabletStmt) {
+        } else if (stmt instanceof DiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
         } else if (stmt instanceof ShowCreateMaterializedViewStmt) {
             handleShowCreateMaterializedView();
@@ -1016,7 +1017,9 @@ public class ShowExecutor {
     private void handleShowColumn() throws AnalysisException {
         ShowColumnStmt showStmt = (ShowColumnStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(showStmt.getDb());
+        String ctl = showStmt.getCtl();
+        DatabaseIf db = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(ctl)
+                .getDbOrAnalysisException(showStmt.getDb());
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
@@ -1031,7 +1034,7 @@ public class ShowExecutor {
                     continue;
                 }
                 final String columnName = col.getName();
-                final String columnType = col.getOriginType().toString();
+                final String columnType = col.getOriginType().toString().toLowerCase(Locale.ROOT);
                 final String isAllowNull = col.isAllowNull() ? "YES" : "NO";
                 final String isKey = col.isKey() ? "YES" : "NO";
                 final String defaultValue = col.getDefaultValue();
@@ -1068,18 +1071,23 @@ public class ShowExecutor {
     private void handleShowIndex() throws AnalysisException {
         ShowIndexStmt showStmt = (ShowIndexStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
-        OlapTable table = db.getOlapTableOrAnalysisException(showStmt.getTableName().getTbl());
-        table.readLock();
-        try {
-            List<Index> indexes = table.getIndexes();
-            for (Index index : indexes) {
-                rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
-                        "", String.join(",", index.getColumns()), "", "", "", "",
-                        "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+        DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(showStmt.getTableName().getCtl())
+                .getDbOrAnalysisException(showStmt.getDbName());
+        if (db instanceof Database) {
+            OlapTable table = db.getOlapTableOrAnalysisException(showStmt.getTableName().getTbl());
+            table.readLock();
+            try {
+                List<Index> indexes = table.getIndexes();
+                for (Index index : indexes) {
+                    rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
+                            "", String.join(",", index.getColumns()), "", "", "", "",
+                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString(),
+                            String.valueOf(index.getIndexId())));
+                }
+            } finally {
+                table.readUnlock();
             }
-        } finally {
-            table.readUnlock();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
@@ -1908,10 +1916,16 @@ public class ShowExecutor {
     }
 
     // Handle show resources
-    private void handleShowResources() {
+    private void handleShowResources() throws AnalysisException {
         ShowResourcesStmt showStmt = (ShowResourcesStmt) stmt;
+        PatternMatcher matcher = null;
+        if (showStmt.getPattern() != null) {
+            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
+                    CaseSensibility.RESOURCE.getCaseSensibility());
+        }
+
         List<List<Comparable>> resourcesInfos = Env.getCurrentEnv().getResourceMgr()
-                .getResourcesInfo(showStmt.getNameValue(), showStmt.isAccurateMatch(), showStmt.getTypeSet());
+                .getResourcesInfo(matcher, showStmt.getNameValue(), showStmt.isAccurateMatch(), showStmt.getTypeSet());
 
         // order the result of List<LoadInfo> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
@@ -1952,10 +1966,14 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    private void handleShowWorkloadGroups() {
+    private void handleShowWorkloadGroups() throws AnalysisException {
         ShowWorkloadGroupsStmt showStmt = (ShowWorkloadGroupsStmt) stmt;
-        List<List<String>> workloadGroupsInfos = Env.getCurrentEnv().getWorkloadGroupMgr().getResourcesInfo();
-
+        PatternMatcher matcher = null;
+        if (showStmt.getPattern() != null) {
+            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
+                    CaseSensibility.WORKLOAD_GROUP.getCaseSensibility());
+        }
+        List<List<String>> workloadGroupsInfos = Env.getCurrentEnv().getWorkloadGroupMgr().getResourcesInfo(matcher);
         resultSet = new ShowResultSet(showStmt.getMetaData(), workloadGroupsInfos);
     }
 
@@ -2107,7 +2125,7 @@ public class ShowExecutor {
     }
 
     private void handleAdminShowTabletStatus() throws AnalysisException {
-        AdminShowReplicaStatusStmt showStmt = (AdminShowReplicaStatusStmt) stmt;
+        ShowReplicaStatusStmt showStmt = (ShowReplicaStatusStmt) stmt;
         List<List<String>> results;
         try {
             results = MetadataViewer.getTabletStatus(showStmt);
@@ -2118,7 +2136,7 @@ public class ShowExecutor {
     }
 
     private void handleAdminShowTabletDistribution() throws AnalysisException {
-        AdminShowReplicaDistributionStmt showStmt = (AdminShowReplicaDistributionStmt) stmt;
+        ShowReplicaDistributionStmt showStmt = (ShowReplicaDistributionStmt) stmt;
         List<List<String>> results;
         try {
             results = MetadataViewer.getTabletDistribution(showStmt);
@@ -2129,7 +2147,7 @@ public class ShowExecutor {
     }
 
     private void handleAdminShowConfig() throws AnalysisException {
-        AdminShowConfigStmt showStmt = (AdminShowConfigStmt) stmt;
+        ShowConfigStmt showStmt = (ShowConfigStmt) stmt;
         List<List<String>> results;
 
         PatternMatcher matcher = null;
@@ -2228,10 +2246,13 @@ public class ShowExecutor {
         DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
         TransactionStatus status = showStmt.getStatus();
-        GlobalTransactionMgr transactionMgr = Env.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
         if (status != TransactionStatus.UNKNOWN) {
             resultSet = new ShowResultSet(showStmt.getMetaData(),
                     transactionMgr.getDbTransInfoByStatus(db.getId(), status));
+        } else if (showStmt.labelMatch() && !showStmt.getLabel().isEmpty()) {
+            resultSet =  new ShowResultSet(showStmt.getMetaData(),
+                transactionMgr.getDbTransInfoByLabelMatch(db.getId(), showStmt.getLabel()));
         } else {
             Long txnId = showStmt.getTxnId();
             String label = showStmt.getLabel();
@@ -2481,43 +2502,54 @@ public class ShowExecutor {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         TableName tableName = showColumnStatsStmt.getTableName();
         TableIf tableIf = showColumnStatsStmt.getTable();
-        List<Pair<String, ColumnStatistic>> columnStatistics = new ArrayList<>();
+        List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics = new ArrayList<>();
         Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
         boolean showCache = showColumnStatsStmt.isCached();
 
         for (String colName : columnNames) {
-            // Show column statistics in columnStatisticsCache. For validation.
-            if (showCache) {
-                ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                        tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(), tableIf.getId(), colName);
-                columnStatistics.add(Pair.of(colName, columnStatistic));
-            } else if (partitionNames == null) {
-                ColumnStatistic columnStatistic =
-                        StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), colName);
-                columnStatistics.add(Pair.of(colName, columnStatistic));
+            // Olap base index use -1 as index id.
+            List<Long> indexIds = Lists.newArrayList();
+            if (StatisticsUtil.isMvColumn(tableIf, colName)) {
+                OlapTable olapTable = (OlapTable) tableIf;
+                indexIds = olapTable.getMvColumnIndexIds(colName);
             } else {
-                columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                                colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
-                        .stream().map(s -> Pair.of(colName, s))
-                        .collect(Collectors.toList()));
+                indexIds.add(-1L);
             }
-
+            for (long indexId : indexIds) {
+                String indexName = "N/A";
+                if (indexId != -1) {
+                    indexName = ((OlapTable) tableIf).getIndexNameById(indexId);
+                    if (indexName == null) {
+                        continue;
+                    }
+                }
+                // Show column statistics in columnStatisticsCache.
+                if (showCache) {
+                    ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+                            tableIf.getDatabase().getCatalog().getId(),
+                            tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
+                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                } else if (partitionNames == null) {
+                    ColumnStatistic columnStatistic =
+                            StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), indexId, colName);
+                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                } else {
+                    String finalIndexName = indexName;
+                    columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
+                            colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
+                            .stream().map(s -> Pair.of(Pair.of(colName, finalIndexName), s))
+                            .collect(Collectors.toList()));
+                }
+            }
         }
         resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
     }
 
     public void handleShowColumnHist() {
+        // TODO: support histogram in the future.
         ShowColumnHistStmt showColumnHistStmt = (ShowColumnHistStmt) stmt;
-        TableIf tableIf = showColumnHistStmt.getTable();
-        Set<String> columnNames = showColumnHistStmt.getColumnNames();
-
-        List<Pair<String, Histogram>> columnStatistics = columnNames.stream()
-                .map(colName -> Pair.of(colName,
-                        StatisticsRepository.queryColumnHistogramByName(tableIf.getId(), colName)))
-                .collect(Collectors.toList());
-
+        List<Pair<String, Histogram>> columnStatistics = Lists.newArrayList();
         resultSet = showColumnHistStmt.constructResultSet(columnStatistics);
     }
 
@@ -2605,7 +2637,7 @@ public class ShowExecutor {
     }
 
     private void handleAdminDiagnoseTablet() {
-        AdminDiagnoseTabletStmt showStmt = (AdminDiagnoseTabletStmt) stmt;
+        DiagnoseTabletStmt showStmt = (DiagnoseTabletStmt) stmt;
         List<List<String>> resultRowSet = Diagnoser.diagnoseTablet(showStmt.getTabletId());
         ShowResultSetMetaData showMetaData = showStmt.getMetaData();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
@@ -2900,12 +2932,19 @@ public class ShowExecutor {
 
     private void handleShowAnalyzeTaskStatus() {
         ShowAnalyzeTaskStatus showStmt = (ShowAnalyzeTaskStatus) stmt;
+        AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(showStmt.getJobId());
+        TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
         List<AnalysisInfo> analysisInfos = Env.getCurrentEnv().getAnalysisManager().findTasks(showStmt.getJobId());
         List<List<String>> rows = new ArrayList<>();
         for (AnalysisInfo analysisInfo : analysisInfos) {
             List<String> row = new ArrayList<>();
             row.add(String.valueOf(analysisInfo.taskId));
             row.add(analysisInfo.colName);
+            if (StatisticsUtil.isMvColumn(table, analysisInfo.colName)) {
+                row.add(((OlapTable) table).getIndexNameById(analysisInfo.indexId));
+            } else {
+                row.add("N/A");
+            }
             row.add(analysisInfo.message);
             row.add(TimeUtils.DATETIME_FORMAT.format(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),

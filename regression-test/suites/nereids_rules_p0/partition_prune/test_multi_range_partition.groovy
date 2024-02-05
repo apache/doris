@@ -19,6 +19,7 @@ suite("test_multi_range_partition") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set partition_pruning_expand_threshold=10;"
     sql "drop table if exists pt"
@@ -296,6 +297,7 @@ suite("test_multi_range_partition") {
     ); 
     """
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "insert into tt values (0, 0), (6, 6), (8, 8)"
     explain {

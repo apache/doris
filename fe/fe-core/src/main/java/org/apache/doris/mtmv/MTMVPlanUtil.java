@@ -33,14 +33,17 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPlanUtil {
@@ -57,11 +60,30 @@ public class MTMVPlanUtil {
         ctx.changeDefaultCatalog(catalog.getName());
         ctx.setDatabase(catalog.getDbOrAnalysisException(mtmv.getEnvInfo().getDbId()).getFullName());
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
+        Optional<String> workloadGroup = mtmv.getWorkloadGroup();
+        if (workloadGroup.isPresent()) {
+            ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
+        }
+        ctx.getSessionVariable().enableNereidsDML = true;
         return ctx;
     }
 
     public static MTMVRelation generateMTMVRelation(MTMV mtmv, ConnectContext ctx) {
-        Plan plan = getPlanBySql(mtmv.getQuerySql(), ctx);
+        // Should not make table without data to empty relation when analyze the related table,
+        // so add disable rules
+        SessionVariable sessionVariable = ctx.getSessionVariable();
+        Set<String> tempDisableRules = sessionVariable.getDisableNereidsRuleNames();
+        sessionVariable.setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
+        if (ctx.getStatementContext() != null) {
+            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        }
+        Plan plan;
+        try {
+            plan = getPlanBySql(mtmv.getQuerySql(), ctx);
+        } finally {
+            sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
+            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        }
         return generateMTMVRelation(plan);
     }
 
@@ -72,7 +94,8 @@ public class MTMVPlanUtil {
     private static Set<BaseTableInfo> getBaseTables(Plan plan) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
-                        com.google.common.collect.Sets.newHashSet(TableType.MATERIALIZED_VIEW, TableType.OLAP));
+                        com.google.common.collect.Sets
+                                .newHashSet(TableType.values()));
         plan.accept(TableCollector.INSTANCE, collectorContext);
         List<TableIf> collectedTables = collectorContext.getCollectedTables();
         return transferTableIfToInfo(collectedTables);

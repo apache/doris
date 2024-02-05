@@ -196,29 +196,32 @@ public class MaterializationContext {
      */
     public static String toSummaryString(List<MaterializationContext> materializationContexts,
             List<MTMV> chosenMaterializationNames) {
+        if (materializationContexts.isEmpty()) {
+            return "";
+        }
         Set<String> materializationChosenNameSet = chosenMaterializationNames.stream()
                 .map(MTMV::getName)
                 .collect(Collectors.toSet());
         StringBuilder builder = new StringBuilder();
-        builder.append("\n\nMaterializedView\n");
+        builder.append("\nMaterializedView");
         builder.append("\nMaterializedViewRewriteFail:");
         for (MaterializationContext ctx : materializationContexts) {
             if (!ctx.isSuccess()) {
                 Set<String> failReasonSet =
                         ctx.getFailReason().values().stream().map(Pair::key).collect(Collectors.toSet());
-                builder.append("\n\n")
+                builder.append("\n")
                         .append("  Name: ").append(ctx.getMTMV().getName())
                         .append("\n")
                         .append("  FailSummary: ").append(String.join(", ", failReasonSet));
             }
         }
-        builder.append("\n\nMaterializedViewRewriteSuccessButNotChose:\n");
+        builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
         builder.append("  Names: ").append(materializationContexts.stream()
                 .filter(materializationContext -> materializationContext.isSuccess()
                         && !materializationChosenNameSet.contains(materializationContext.getMTMV().getName()))
                 .map(materializationContext -> materializationContext.getMTMV().getName())
                 .collect(Collectors.joining(", ")));
-        builder.append("\n\nMaterializedViewRewriteSuccessAndChose:\n");
+        builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
         builder.append("  Names: ").append(String.join(", ", materializationChosenNameSet));
         return builder.toString();
     }
