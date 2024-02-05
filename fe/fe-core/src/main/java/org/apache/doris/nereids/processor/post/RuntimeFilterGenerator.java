@@ -159,6 +159,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                             // since the srcExpr are the same, all buildNodes of rfToPushDown are in the same tree path
                             // the longest ancestors means its corresponding rf build node is the most right deep one.
                             RuntimeFilter rightDeep = rfsToPushDown.get(0);
+                            List<RuntimeFilter> rightDeepAccompanies = Lists.newArrayList();
                             List<Plan> rightDeepAncestors = rfsToPushDown.get(0).getBuilderNode().getAncestors();
                             int rightDeepAncestorsSize = rightDeepAncestors.size();
                             RuntimeFilter leftTop = rfsToPushDown.get(0);
@@ -166,10 +167,15 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                             for (RuntimeFilter rf : rfsToPushDown) {
                                 List<Plan> ancestors = rf.getBuilderNode().getAncestors();
                                 int currentAncestorsSize = ancestors.size();
-                                if (currentAncestorsSize > rightDeepAncestorsSize) {
-                                    rightDeep = rf;
-                                    rightDeepAncestorsSize = currentAncestorsSize;
-                                    rightDeepAncestors = ancestors;
+                                if (currentAncestorsSize >= rightDeepAncestorsSize) {
+                                    if (currentAncestorsSize == rightDeepAncestorsSize) {
+                                        rightDeepAccompanies.add(rf);
+                                    } else {
+                                        rightDeepAncestorsSize = currentAncestorsSize;
+                                        rightDeepAncestors = ancestors;
+                                        rightDeep = rf;
+                                        rightDeepAccompanies.clear();
+                                    }
                                 }
                                 if (currentAncestorsSize < leftTopAncestorsSize) {
                                     leftTopAncestorsSize = currentAncestorsSize;
@@ -187,7 +193,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                 if (cursor instanceof AbstractPhysicalJoin) {
                                     AbstractPhysicalJoin cursorJoin = (AbstractPhysicalJoin) cursor;
                                     valid = (!RuntimeFilterGenerator.DENIED_JOIN_TYPES
-                                                    .contains(cursorJoin.getJoinType())
+                                            .contains(cursorJoin.getJoinType())
                                             || cursorJoin.isMarkJoin()) && valid;
                                 }
                                 if (!valid) {
@@ -199,27 +205,29 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                 break;
                             }
 
-                            Expression rightDeepTargetExpressionOnCTE = null;
-                            int targetCount = rightDeep.getTargetExpressions().size();
-                            for (int i = 0; i < targetCount; i++) {
-                                PhysicalRelation rel = rightDeep.getTargetScans().get(i);
-                                if (rel instanceof PhysicalCTEConsumer
-                                        && ((PhysicalCTEConsumer) rel).getCteId().equals(cteId)) {
-                                    rightDeepTargetExpressionOnCTE = rightDeep.getTargetExpressions().get(i);
-                                    break;
+                            for (RuntimeFilter rfToPush : rightDeepAccompanies) {
+                                Expression rightDeepTargetExpressionOnCTE = null;
+                                int targetCount = rfToPush.getTargetExpressions().size();
+                                for (int i = 0; i < targetCount; i++) {
+                                    PhysicalRelation rel = rfToPush.getTargetScans().get(i);
+                                    if (rel instanceof PhysicalCTEConsumer
+                                            && ((PhysicalCTEConsumer) rel).getCteId().equals(cteId)) {
+                                        rightDeepTargetExpressionOnCTE = rfToPush.getTargetExpressions().get(i);
+                                        break;
+                                    }
                                 }
-                            }
 
-                            boolean pushedDown = doPushDownIntoCTEProducerInternal(
-                                    rightDeep,
-                                    rightDeepTargetExpressionOnCTE,
-                                    rfCtx,
-                                    rfCtx.getCteProduceMap().get(cteId)
-                                    );
-                            if (pushedDown) {
-                                rfCtx.removeFilter(
-                                        rightDeepTargetExpressionOnCTE.getInputSlotExprIds().iterator().next(),
-                                        (PhysicalHashJoin) rightDeep.getBuilderNode());
+                                boolean pushedDown = doPushDownIntoCTEProducerInternal(
+                                        rfToPush,
+                                        rightDeepTargetExpressionOnCTE,
+                                        rfCtx,
+                                        rfCtx.getCteProduceMap().get(cteId)
+                                );
+                                if (pushedDown) {
+                                    rfCtx.removeFilter(
+                                            rightDeepTargetExpressionOnCTE.getInputSlotExprIds().iterator().next(),
+                                            (PhysicalHashJoin) rfToPush.getBuilderNode());
+                                }
                             }
                         }
                     }
