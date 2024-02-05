@@ -19,7 +19,6 @@
 # Build Step: Command Line
 : <<EOF
 #!/bin/bash
-export DEBUG=true
 
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-tpch.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/

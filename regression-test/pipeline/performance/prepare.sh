@@ -25,9 +25,9 @@ pwd
 rm -rf ../.old/*
 set +x
 
-teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
-commit_id_from_checkout="%build.vcs.number%"
-target_branch='%teamcity.pullRequest.target.branch%'
+export teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
+export commit_id_from_checkout="%build.vcs.number%"
+export target_branch='%teamcity.pullRequest.target.branch%'
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/prepare.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
     bash prepare.sh

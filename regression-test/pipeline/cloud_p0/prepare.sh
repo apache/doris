@@ -8,9 +8,9 @@ set -x
 pwd
 rm -rf ../.old/*
 
-teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
-commit_id_from_checkout="%build.vcs.number%"
-target_branch='%teamcity.pullRequest.target.branch%'
+export teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
+export commit_id_from_checkout="%build.vcs.number%"
+export target_branch='%teamcity.pullRequest.target.branch%'
 
 merge_pr_to_target_branch_latest() {
     local pr_num_from_trigger="$1"
