@@ -372,8 +372,6 @@ private:
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler;
     // used for query without workload group
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
-    // used for query with workload group cpu soft limit
-    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _with_group_block_scheduler;
 
     doris::pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 

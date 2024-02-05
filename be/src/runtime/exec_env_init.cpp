@@ -302,8 +302,6 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     RETURN_IF_ERROR(_without_group_block_scheduler->start());
 
     auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
-    _with_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGSchePool");
-    RETURN_IF_ERROR(_with_group_block_scheduler->start());
 
     _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGBlockSche");
     RETURN_IF_ERROR(_global_block_scheduler->start());
@@ -539,7 +537,6 @@ void ExecEnv::destroy() {
     // stop pipline step 1, non-cgroup execution
     SAFE_SHUTDOWN(_without_group_block_scheduler.get());
     SAFE_STOP(_without_group_task_scheduler);
-    SAFE_SHUTDOWN(_with_group_block_scheduler.get());
     // stop pipline step 2, cgroup execution
     SAFE_SHUTDOWN(_global_block_scheduler.get());
     SAFE_STOP(_task_group_manager);
