@@ -426,8 +426,4 @@ std::string PipelineTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
-taskgroup::TaskGroupPipelineTaskEntity* PipelineTask::get_task_group_entity() const {
-    return _fragment_context->get_task_group_entity();
-}
-
 } // namespace doris::pipeline

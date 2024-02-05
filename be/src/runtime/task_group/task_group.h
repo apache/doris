@@ -44,50 +44,6 @@ namespace taskgroup {
 
 class TaskGroup;
 struct TaskGroupInfo;
-
-template <typename QueueType>
-class TaskGroupEntity {
-public:
-    explicit TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type);
-    ~TaskGroupEntity();
-
-    uint64_t vruntime_ns() const { return _vruntime_ns; }
-
-    QueueType* task_queue();
-
-    void incr_runtime_ns(uint64_t runtime_ns);
-
-    void adjust_vruntime_ns(uint64_t vruntime_ns);
-
-    size_t task_size() const;
-
-    uint64_t cpu_share() const;
-
-    std::string debug_string() const;
-
-    uint64_t task_group_id() const;
-
-    void check_and_update_cpu_share(const TaskGroupInfo& tg_info);
-
-private:
-    QueueType* _task_queue = nullptr;
-
-    uint64_t _vruntime_ns = 0;
-    taskgroup::TaskGroup* _tg = nullptr;
-
-    std::string _type;
-
-    // Because updating cpu share of entity requires locking the task queue(pipeline task queue or
-    // scan task queue) contains that entity, we kept version and cpu share in entity for
-    // independent updates.
-    int64_t _version;
-    uint64_t _cpu_share;
-};
-
-// TODO llj tg use PriorityTaskQueue to replace std::queue
-using TaskGroupPipelineTaskEntity = TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
-using TGPTEntityPtr = TaskGroupPipelineTaskEntity*;
-
 struct TgTrackerLimiterGroup {
     std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
     std::mutex group_lock;
@@ -96,8 +52,6 @@ struct TgTrackerLimiterGroup {
 class TaskGroup : public std::enable_shared_from_this<TaskGroup> {
 public:
     explicit TaskGroup(const TaskGroupInfo& tg_info);
-
-    TaskGroupPipelineTaskEntity* task_entity() { return &_task_entity; }
 
     int64_t version() const { return _version; }
 
@@ -160,7 +114,6 @@ private:
     int64_t _memory_limit; // bytes
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
-    TaskGroupPipelineTaskEntity _task_entity;
     std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
     std::atomic<int> _cpu_hard_limit;
 
