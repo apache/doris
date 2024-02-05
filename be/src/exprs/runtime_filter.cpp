@@ -363,14 +363,9 @@ public:
         }
     }
 
-    BloomFilterFuncBase* get_bloomfilter() const { return _context.bloom_filter_func.get(); }
-
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) {
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            if (_is_ignored_in_filter) {
-                break;
-            }
             _context.hybrid_set->insert_fixed_len(column, start);
             break;
         }
@@ -465,14 +460,15 @@ public:
 
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            if (_is_ignored_in_filter) {
+            // only in filter can set ignore in merge time
+            if (_ignored) {
                 break;
-            } else if (wrapper->_is_ignored_in_filter) {
+            } else if (wrapper->_ignored) {
                 VLOG_DEBUG << " ignore merge runtime filter(in filter id " << _filter_id
-                           << ") because: " << wrapper->get_ignored_in_filter_msg();
+                           << ") because: " << wrapper->ignored_msg();
 
-                _is_ignored_in_filter = true;
-                _ignored_in_filter_msg = wrapper->_ignored_in_filter_msg;
+                _ignored = true;
+                _ignored_msg = wrapper->_ignored_msg;
                 // release in filter
                 _context.hybrid_set.reset();
                 break;
@@ -480,17 +476,11 @@ public:
             // try insert set
             _context.hybrid_set->insert(wrapper->_context.hybrid_set.get());
             if (_max_in_num >= 0 && _context.hybrid_set->size() >= _max_in_num) {
-#ifdef VLOG_DEBUG_IS_ON
-                std::stringstream msg;
-                msg << " ignore merge runtime filter(in filter id " << _filter_id
-                    << ") because: in_num(" << _context.hybrid_set->size() << ") >= max_in_num("
-                    << _max_in_num << ")";
-                _ignored_in_filter_msg = std::string(msg.str());
-#else
-                _ignored_in_filter_msg = std::string("ignored");
-#endif
-                _is_ignored_in_filter = true;
-
+                _ignored_msg = fmt::format(
+                        " ignore merge runtime filter(in filter id {})"
+                        "because: in_num({}) >= max_in_num({})",
+                        _filter_id, _context.hybrid_set->size(), _max_in_num);
+                _ignored = true;
                 // release in filter
                 _context.hybrid_set.reset();
             }
@@ -520,10 +510,10 @@ public:
 
             if (real_filter_type == RuntimeFilterType::IN_FILTER) {
                 if (other_filter_type == RuntimeFilterType::IN_FILTER) { // in merge in
-                    CHECK(!wrapper->_is_ignored_in_filter)
+                    CHECK(!wrapper->_ignored)
                             << " can not ignore merge runtime filter(in filter id "
                             << wrapper->_filter_id << ") when used IN_OR_BLOOM_FILTER, ignore msg: "
-                            << wrapper->get_ignored_in_filter_msg();
+                            << wrapper->ignored_msg();
                     _context.hybrid_set->insert(wrapper->_context.hybrid_set.get());
                     if (_max_in_num >= 0 && _context.hybrid_set->size() >= _max_in_num) {
                         VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
@@ -540,10 +530,10 @@ public:
                 }
             } else {
                 if (other_filter_type == RuntimeFilterType::IN_FILTER) { // bloom filter merge in
-                    CHECK(!wrapper->_is_ignored_in_filter)
+                    CHECK(!wrapper->_ignored)
                             << " can not ignore merge runtime filter(in filter id "
                             << wrapper->_filter_id << ") when used IN_OR_BLOOM_FILTER, ignore msg: "
-                            << wrapper->get_ignored_in_filter_msg();
+                            << wrapper->ignored_msg();
                     wrapper->insert_to_bloom_filter(_context.bloom_filter_func.get());
                     // bloom filter merge bloom filter
                 } else {
@@ -563,8 +553,8 @@ public:
         if (in_filter->has_ignored_msg()) {
             VLOG_DEBUG << "Ignore in filter(id=" << _filter_id
                        << ") because: " << in_filter->ignored_msg();
-            _is_ignored_in_filter = true;
-            _ignored_in_filter_msg = in_filter->ignored_msg();
+            _ignored = true;
+            _ignored_msg = in_filter->ignored_msg();
             return Status::OK();
         }
 
@@ -893,9 +883,9 @@ public:
 
     bool is_bloomfilter() const { return _is_bloomfilter; }
 
-    bool is_ignored_in_filter() const { return _is_ignored_in_filter; }
+    bool is_ignored() const { return _ignored; }
 
-    const std::string& get_ignored_in_filter_msg() const { return _ignored_in_filter_msg; }
+    const std::string& ignored_msg() const { return _ignored_msg; }
 
     void batch_assign(const PInFilter* filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
@@ -938,8 +928,8 @@ private:
 
     vectorized::SharedRuntimeFilterContext _context;
     bool _is_bloomfilter = false;
-    bool _is_ignored_in_filter = false;
-    std::string _ignored_in_filter_msg;
+    bool _ignored = false;
+    std::string _ignored_msg;
     uint32_t _filter_id;
 };
 
@@ -1022,7 +1012,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
                                           std::vector<vectorized::VExprSPtr>& push_exprs,
                                           bool is_late_arrival) {
     DCHECK(is_consumer());
-    if (_is_ignored) {
+    if (_wrapper->is_ignored()) {
         return Status::OK();
     }
     if (!is_late_arrival) {
@@ -1153,11 +1143,16 @@ void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTim
 }
 
 void IRuntimeFilter::set_ignored(const std::string& msg) {
-    _is_ignored = true;
-    if (_wrapper->_filter_type == RuntimeFilterType::IN_FILTER) {
-        _wrapper->_is_ignored_in_filter = true;
-        _wrapper->_ignored_in_filter_msg = msg;
-    }
+    _wrapper->_ignored = true;
+    _wrapper->_ignored_msg = msg;
+}
+
+std::string IRuntimeFilter::_format_status() const {
+    return fmt::format(
+            "[IsPushDown = {}, RuntimeFilterState = {}, IsIgnored = {}, HasRemoteTarget = {}, "
+            "HasLocalTarget = {}]",
+            _is_push_down, _get_explain_state_string(), _wrapper->is_ignored(), _has_remote_target,
+            _has_local_target);
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
@@ -1343,14 +1338,11 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
-    if (!_is_ignored && wrapper->is_ignored_in_filter()) {
-        set_ignored(wrapper->get_ignored_in_filter_msg());
+    if (!_wrapper->is_ignored() && wrapper->is_ignored()) {
+        set_ignored(wrapper->ignored_msg());
     }
     auto origin_type = _wrapper->get_real_type();
     Status status = _wrapper->merge(wrapper);
-    if (!_is_ignored && _wrapper->is_ignored_in_filter()) {
-        set_ignored(_wrapper->get_ignored_in_filter_msg());
-    }
     if (origin_type != _wrapper->get_real_type()) {
         update_runtime_filter_type_to_profile();
     }
@@ -1401,8 +1393,8 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     auto column_type = _wrapper->column_type();
     filter->set_column_type(to_proto(column_type));
 
-    if (_is_ignored) {
-        filter->set_ignored_msg(_ignored_msg);
+    if (_wrapper->is_ignored()) {
+        filter->set_ignored_msg(_wrapper->ignored_msg());
         return;
     }
 
@@ -1699,22 +1691,20 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
     auto real_filter_type = get_real_type();
     switch (real_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
-        if (!_is_ignored_in_filter) {
-            TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
-            type_desc.__set_is_nullable(false);
-            TExprNode node;
-            node.__set_type(type_desc);
-            node.__set_node_type(TExprNodeType::IN_PRED);
-            node.in_predicate.__set_is_not_in(false);
-            node.__set_opcode(TExprOpcode::FILTER_IN);
-            node.__set_is_nullable(false);
+        TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
+        type_desc.__set_is_nullable(false);
+        TExprNode node;
+        node.__set_type(type_desc);
+        node.__set_node_type(TExprNodeType::IN_PRED);
+        node.in_predicate.__set_is_not_in(false);
+        node.__set_opcode(TExprOpcode::FILTER_IN);
+        node.__set_is_nullable(false);
 
-            auto in_pred = vectorized::VDirectInPredicate::create_shared(node);
-            in_pred->set_filter(_context.hybrid_set);
-            in_pred->add_child(probe_ctx->root());
-            auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, in_pred);
-            container.push_back(wrapper);
-        }
+        auto in_pred = vectorized::VDirectInPredicate::create_shared(node);
+        in_pred->set_filter(_context.hybrid_set);
+        in_pred->add_child(probe_ctx->root());
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, in_pred);
+        container.push_back(wrapper);
         break;
     }
     case RuntimeFilterType::MIN_FILTER: {
