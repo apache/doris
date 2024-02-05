@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include "common/status.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "process_hash_table_probe.h"
@@ -87,7 +89,10 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
     constexpr auto probe_all =
             JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
 
-    bool build_index_has_null = false;
+    bool build_index_has_null = JoinOpType != TJoinOp::INNER_JOIN;
+    bool need_output = (!is_semi_anti_join || have_other_join_conjunct ||
+                        (is_mark_join && !_parent->_mark_join_conjuncts.empty())) &&
+                       size;
     // Dispose right tuple is null flags columns
     if (probe_all && !have_other_join_conjunct) {
         _tuple_is_null_right_flags->resize(size);
@@ -95,12 +100,12 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
         for (int i = 0; i < size; ++i) {
             null_data[i] = _build_indexs[i] == 0;
         }
-        build_index_has_null = simd::contain_byte(null_data, size, 1);
+        if (need_output) {
+            build_index_has_null = simd::contain_byte(null_data, size, 1);
+        }
     }
 
-    if ((!is_semi_anti_join || have_other_join_conjunct ||
-         (is_mark_join && !_parent->_mark_join_conjuncts.empty())) &&
-        size) {
+    if (need_output) {
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
             if (output_slot_flags[i]) {
