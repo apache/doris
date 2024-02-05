@@ -664,7 +664,9 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         // Check if all columns mentioned is enough
-        checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
+        if (!(targetTable instanceof JdbcTable)) {
+            checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
+        }
 
         realTargetColumnNames = targetColumns.stream().map(Column::getName).collect(Collectors.toList());
 
@@ -675,6 +677,21 @@ public class NativeInsertStmt extends InsertStmt {
                 // INSERT INTO VALUES(...)
                 List<ArrayList<Expr>> rows = selectStmt.getValueList().getRows();
                 for (int rowIdx = 0; rowIdx < rows.size(); ++rowIdx) {
+                    // Only check for JdbcTable
+                    if (targetTable instanceof JdbcTable) {
+                        // Check for NULL values in not-nullable columns
+                        for (int colIdx = 0; colIdx < targetColumns.size(); ++colIdx) {
+                            Column column = targetColumns.get(colIdx);
+                            // Ensure rows.get(rowIdx) has enough columns to match targetColumns
+                            if (colIdx < rows.get(rowIdx).size()) {
+                                Expr expr = rows.get(rowIdx).get(colIdx);
+                                if (!column.isAllowNull() && expr instanceof NullLiteral) {
+                                    throw new AnalysisException("Column `" + column.getName()
+                                            + "` is not nullable, but the inserted value is nullable.");
+                                }
+                            }
+                        }
+                    }
                     analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForExtendCols, realTargetColumnNames,
                             skipCheck);
                 }
@@ -698,6 +715,18 @@ public class NativeInsertStmt extends InsertStmt {
                         skipCheck);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
+
+                if (targetTable instanceof JdbcTable) {
+                    for (int colIdx = 0; colIdx < targetColumns.size(); ++colIdx) {
+                        Column column = targetColumns.get(colIdx);
+                        Expr expr = rows.get(0).get(colIdx);
+                        if (!column.isAllowNull() && expr.isNullable()) {
+                            throw new AnalysisException("Column `" + column.getName()
+                                    + "` is not nullable, but the inserted value is nullable.");
+                        }
+                    }
+                }
+
                 for (Expr expr : rows.get(0)) {
                     selectStmt.getResultExprs().add(expr);
                 }
