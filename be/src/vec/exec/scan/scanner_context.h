@@ -121,7 +121,7 @@ public:
     virtual ~ScannerContext() = default;
     virtual Status init();
 
-    vectorized::BlockUPtr get_free_block(int batch_size);
+    vectorized::BlockUPtr get_free_block();
     void return_free_block(vectorized::BlockUPtr block);
 
     // Get next block from blocks queue. Called by ScanNode/ScanOperator

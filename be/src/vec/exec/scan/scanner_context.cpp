@@ -146,7 +146,7 @@ Status ScannerContext::init() {
     for (int i = 0; i < _max_thread_num; ++i) {
         std::weak_ptr<ScannerDelegate> next_scanner;
         if (_scanners.try_dequeue(next_scanner)) {
-            vectorized::BlockUPtr block = get_free_block(_batch_size);
+            vectorized::BlockUPtr block = get_free_block();
             submit_scan_task(std::make_shared<ScanTask>(next_scanner, std::move(block)));
             _num_running_scanners++;
         }
@@ -159,7 +159,7 @@ std::string ScannerContext::parent_name() {
     return _parent ? _parent->get_name() : _local_state->get_name();
 }
 
-vectorized::BlockUPtr ScannerContext::get_free_block(int batch_size) {
+vectorized::BlockUPtr ScannerContext::get_free_block() {
     vectorized::BlockUPtr block;
     if (_free_blocks.try_dequeue(block)) {
         std::lock_guard<std::mutex> fl(_free_blocks_lock);
@@ -170,7 +170,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(int batch_size) {
     }
 
     _newly_create_free_blocks_num->update(1);
-    return vectorized::Block::create_unique(_output_tuple_desc->slots(), batch_size,
+    return vectorized::Block::create_unique(_output_tuple_desc->slots(), _batch_size,
                                             true /*ignore invalid slots*/);
 }
 

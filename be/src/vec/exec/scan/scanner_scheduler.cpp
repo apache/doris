@@ -127,8 +127,8 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     }
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
-        scan_task->set_status(
-                Status::EndOfFile("could not lock task execution context, query maybe finished"));
+        LOG(INFO) << "could not lock task execution context, query " << ctx->debug_string()
+                  << " maybe finished";
         ctx->append_block_to_queue(scan_task);
         return;
     }
@@ -206,7 +206,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     ctx->incr_ctx_scheduling_time(GetCurrentTimeNanos() - scan_task->last_submit_time);
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
-        scan_task->set_eos(true);
         ctx->append_block_to_queue(scan_task);
         return;
     }
@@ -256,7 +255,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     static_cast<void>(scanner->try_append_late_arrival_runtime_filter());
 
     bool first_read = true;
-    int last_read_rows = ctx->batch_size();
     while (!eos) {
         if (UNLIKELY(ctx->done())) {
             eos = true;
@@ -266,15 +264,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         if (first_read) {
             status = scanner->get_block_after_projects(state, scan_task->current_block.get(), &eos);
             first_read = false;
-            if (scan_task->current_block->rows() > 0) {
-                last_read_rows = scan_task->current_block->rows();
-            }
         } else {
-            free_block = ctx->get_free_block(last_read_rows);
+            free_block = ctx->get_free_block();
             status = scanner->get_block_after_projects(state, free_block.get(), &eos);
-            if (free_block->rows() > 0) {
-                last_read_rows = free_block->rows();
-            }
         }
 
         // The VFileScanner for external table may try to open not exist files,
