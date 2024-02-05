@@ -320,6 +320,8 @@ public class PolicyMgr implements Writable {
                 if (policy instanceof RowPolicy) {
                     dropTablePolicies((RowPolicy) policy);
                 }
+                LOG.info("the policy {} with id {} has been dropped", policy.getPolicyName(),
+                        policy.getId());
                 return true;
             }
             return false;
