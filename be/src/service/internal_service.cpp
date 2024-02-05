@@ -1319,24 +1319,18 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
     }
 }
 
-void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* controller,
-                                           const PTransmitDataParams* request,
-                                           PTransmitDataResult* response,
-                                           google::protobuf::Closure* done,
-                                           const Status& extract_st) {
-    std::string query_id;
-    TUniqueId finst_id;
+void PInternalService::_transmit_block(google::protobuf::RpcController* controller,
+                                       const PTransmitDataParams* request,
+                                       PTransmitDataResult* response,
+                                       google::protobuf::Closure* done, const Status& extract_st) {
     if (request->has_query_id()) {
-        query_id = print_id(request->query_id());
-        finst_id.__set_hi(request->finst_id().hi());
-        finst_id.__set_lo(request->finst_id().lo());
+        VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
+                 << " query_id=" << print_id(request->query_id()) << " node=" << request->node_id();
     }
-    VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
-             << " query_id=" << query_id << " node=" << request->node_id();
+
     // The response is accessed when done->Run is called in transmit_block(),
     // give response a default value to avoid null pointers in high concurrency.
     Status st;
-    st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
         st = _exec_env->vstream_mgr()->transmit_block(request, &done);
         if (!st.ok() && !st.is<END_OF_FILE>()) {
