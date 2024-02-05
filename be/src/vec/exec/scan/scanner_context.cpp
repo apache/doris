@@ -231,6 +231,7 @@ void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) 
 Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Block* block,
                                             bool* eos, int id, bool wait) {
     if (state->is_cancelled()) {
+        _set_scanner_done();
         return Status::Cancelled("query cancelled");
     }
     std::unique_lock l(_transfer_lock);
@@ -402,15 +403,57 @@ Status ScannerContext::validate_block_schema(Block* block) {
 
 void ScannerContext::stop_scanners(RuntimeState* state) {
     std::lock_guard<std::mutex> l(_transfer_lock);
-    if (!done()) {
-        _should_stop = true;
-        _set_scanner_done();
-        for (const std::weak_ptr<ScannerDelegate>& scanner : _all_scanners) {
-            if (std::shared_ptr<ScannerDelegate> sc = scanner.lock()) {
-                sc->_scanner->try_stop();
-            }
+    if (_should_stop) {
+        return;
+    }
+    _should_stop = true;
+    _set_scanner_done();
+    for (const std::weak_ptr<ScannerDelegate>& scanner : _all_scanners) {
+        if (std::shared_ptr<ScannerDelegate> sc = scanner.lock()) {
+            sc->_scanner->try_stop();
         }
     }
+    _blocks_queue.clear();
+    // TODO yiguolei, call mark close to scanners
+    if (state->enable_profile()) {
+        std::stringstream scanner_statistics;
+        std::stringstream scanner_rows_read;
+        std::stringstream scanner_wait_worker_time;
+        scanner_statistics << "[";
+        scanner_rows_read << "[";
+        scanner_wait_worker_time << "[";
+        // Scanners can in 3 state
+        //  state 1: in scanner context, not scheduled
+        //  state 2: in scanner worker pool's queue, scheduled but not running
+        //  state 3: scanner is running.
+        for (auto& scanner_ref : _all_scanners) {
+            auto scanner = scanner_ref.lock();
+            if (scanner == nullptr) {
+                continue;
+            }
+            // Add per scanner running time before close them
+            scanner_statistics << PrettyPrinter::print(scanner->_scanner->get_time_cost_ns(),
+                                                       TUnit::TIME_NS)
+                               << ", ";
+            scanner_rows_read << PrettyPrinter::print(scanner->_scanner->get_rows_read(),
+                                                      TUnit::UNIT)
+                              << ", ";
+            scanner_wait_worker_time
+                    << PrettyPrinter::print(scanner->_scanner->get_scanner_wait_worker_timer(),
+                                            TUnit::TIME_NS)
+                    << ", ";
+            // since there are all scanners, some scanners is running, so that could not call scanner
+            // close here.
+        }
+        scanner_statistics << "]";
+        scanner_rows_read << "]";
+        scanner_wait_worker_time << "]";
+        _scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
+        _scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
+        _scanner_profile->add_info_string("PerScannerWaitTime", scanner_wait_worker_time.str());
+    }
+
+    _blocks_queue_added_cv.notify_one();
 }
 
 std::string ScannerContext::debug_string() {
