@@ -42,7 +42,7 @@ merge_pr_to_target_branch_latest() {
     fi
 }
 if ! merge_pr_to_target_branch_latest "${pr_num_from_trigger}" "${target_branch}";then return 1; fi
-
+export PATH=/usr/local/software/apache-maven-3.6.3/bin:${PATH}
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/prepare.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/
     bash prepare.sh
@@ -91,10 +91,10 @@ fi
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
-if [[ "${target_branch}" == "master" || "${target_branch}" == "branch-2.0" ]]; then
-    echo "INFO: PR target branch ${target_branch} is in (master, branch-2.0)"
+if [[ "${target_branch}" == "master" ]]; then
+    echo "INFO: PR target branch ${target_branch} is in (master)"
 else
-    echo "WARNING: PR target branch ${target_branch} is NOT in (master, branch-2.0), skip pipeline."
+    echo "WARNING: PR target branch ${target_branch} is NOT in (master), skip pipeline."
     bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
     exit 0
 fi
