@@ -44,12 +44,8 @@ private:
     Status _check_token(HttpRequest* req);
 
 private:
-<<<<<<< HEAD
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     StorageEngine& _engine;
-=======
-    ExecEnv* _exec_env;
->>>>>>> 7756f5ebf8 (add = nullptr)
     std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group;
 };
 
