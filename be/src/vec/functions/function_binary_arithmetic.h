@@ -244,6 +244,18 @@ private:
         return (x > 0) ? 1 : ((x < 0) ? -1 : 0);
     }
 
+    static void adjust_scale(typename ArrayC::value_type* c, size_t size,
+                             const ResultType& scale_diff_multiplier) {
+        auto sig_uptr = std::unique_ptr<int8_t[]>(new int8_t[size]);
+        int8_t* __restrict sig = sig_uptr.get();
+        for (size_t i = 0; i < size; i++) {
+            sig[i] = sgn(c[i].value);
+        }
+        for (size_t i = 0; i < size; i++) {
+            c[i].value = (c[i].value - sig[i]) / scale_diff_multiplier.value + sig[i];
+        }
+    }
+
     static void vector_vector(const typename Traits::ArrayA::value_type* __restrict a,
                               const typename Traits::ArrayB::value_type* __restrict b,
                               typename ArrayC::value_type* c, size_t size,
@@ -265,14 +277,7 @@ private:
                     make_bool_variant(need_adjust_scale && check_overflow));
 
             if (OpTraits::is_multiply && need_adjust_scale && !check_overflow) {
-                auto sig_uptr = std::unique_ptr<int8_t[]>(new int8_t[size]);
-                int8_t* sig = sig_uptr.get();
-                for (size_t i = 0; i < size; i++) {
-                    sig[i] = sgn(c[i].value);
-                }
-                for (size_t i = 0; i < size; i++) {
-                    c[i].value = (c[i].value - sig[i]) / scale_diff_multiplier.value + sig[i];
-                }
+                adjust_scale(c, size, scale_diff_multiplier);
             }
         }
     }
@@ -324,6 +329,9 @@ private:
                     }
                 },
                 make_bool_variant(need_adjust_scale));
+        if (OpTraits::is_multiply && need_adjust_scale && !check_overflow) {
+            adjust_scale(c, size, scale_diff_multiplier);
+        }
     }
 
     static void vector_constant(const typename Traits::ArrayA::value_type* __restrict a, B b,
@@ -355,6 +363,9 @@ private:
                     }
                 },
                 make_bool_variant(need_adjust_scale));
+        if (OpTraits::is_multiply && need_adjust_scale && !check_overflow) {
+            adjust_scale(c, size, scale_diff_multiplier);
+        }
     }
 
     static void constant_vector(A a, const typename Traits::ArrayB::value_type* __restrict b,
@@ -570,15 +581,7 @@ private:
                 }
                 return res;
             } else {
-                res = Op::template apply<NativeResultType>(a, b);
-                if constexpr (OpTraits::is_multiply && need_adjust_scale) {
-                    if (res >= 0) {
-                        res = (res + scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
-                    } else {
-                        res = (res - scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
-                    }
-                }
-                return res;
+                return Op::template apply<NativeResultType>(a, b);
             }
         }
     }

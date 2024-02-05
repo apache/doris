@@ -527,16 +527,18 @@ void convert_decimal_cols(
                     }
                 }
             } else {
-                res = vec_from[i].value * multiplier;
                 if constexpr (narrow_integral) {
+                    res = vec_from[i].value * multiplier;
                     if (UNLIKELY(res > max_result.value || res < -max_result.value)) {
                         throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
                                         "Arithmetic overflow, convert failed from {}, "
                                         "expected data is [{}, {}]",
                                         res, -max_result.value, max_result.value);
                     }
+                    vec_to[i] = ToFieldType(res);
+                } else {
+                    vec_to[i] = ToFieldType(vec_from[i].value * multiplier);
                 }
-                vec_to[i] = ToFieldType(res);
             }
         }
     } else if (scale_to == scale_from) {
