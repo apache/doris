@@ -339,7 +339,6 @@ under the License.
         <jettison.version>1.5.4</jettison.version>
         <jetty.version>9.4.53.v20231009</jetty.version>
         <immutables.version>2.9.3</immutables.version>
-        <mysql-connector-j.version>8.0.33</mysql-connector-j.version>
         <vesoft.client.version>3.0.0</vesoft.client.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
@@ -1483,12 +1482,6 @@ under the License.
                 <version>${clickhouse.version}</version>
                 <scope>provided</scope>
                 <classifier>all</classifier>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.mysql/mysql-connector-j -->
-            <dependency>
-                <groupId>com.mysql</groupId>
-                <artifactId>mysql-connector-j</artifactId>
-                <version>${mysql-connector-j.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/joda-time/joda-time -->
             <dependency>
