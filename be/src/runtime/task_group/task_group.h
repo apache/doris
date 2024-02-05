@@ -96,9 +96,15 @@ public:
         return _memory_limit > 0;
     }
 
-    void add_query(TUniqueId query_id) { _query_id_set.insert(query_id); }
+    void add_query(TUniqueId query_id) {
+        std::unique_lock<std::shared_mutex> wlock;
+        _query_id_set.insert(query_id);
+    }
 
-    void remove_query(TUniqueId query_id) { _query_id_set.erase(query_id); }
+    void remove_query(TUniqueId query_id) {
+        std::unique_lock<std::shared_mutex> wlock;
+        _query_id_set.erase(query_id);
+    }
 
     void shutdown() { _is_shutdown = true; }
 
