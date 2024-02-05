@@ -364,9 +364,11 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
     }
 
-    // Check Aggregate is simple or not and check join is whether valid or not.
-    // Support project, filter, join, logical relation node and join condition should only contain
-    // slot reference equals currently.
+    /**
+     * Check Aggregate is simple or not and check join is whether valid or not.
+     * Support project, filter, join, logical relation node and join condition should only contain
+     * slot reference equals currently.
+     */
     @Override
     protected boolean checkPattern(StructInfo structInfo) {
         PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
