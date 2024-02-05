@@ -17,6 +17,23 @@
 
 suite("test_analyze_mv") {
 
+    def wait_mv_finish = { db ->
+        while(true) {
+            Thread.sleep(1000)
+            boolean finished = true;
+            def result = sql """SHOW ALTER TABLE MATERIALIZED VIEW FROM ${db};"""
+            for (int i = 0; i < result.size(); i++) {
+                if (result[i][8] != 'FINISHED') {
+                    finished = false;
+                    break;
+                }
+            }
+            if (finished) {
+                break;
+            }
+        }
+    }
+
     sql """drop database if exists test_analyze_mv"""
     sql """create database test_analyze_mv"""
     sql """use test_analyze_mv"""
@@ -36,11 +53,11 @@ suite("test_analyze_mv") {
         )
     """
     sql """create materialized view mv1 as select key1 from mvTestDup;"""
-    Thread.sleep(1500)
+    wait_mv_finish("test_analyze_mv")
     sql """create materialized view mv2 as select key2 from mvTestDup;"""
-    Thread.sleep(1500)
+    wait_mv_finish("test_analyze_mv")
     sql """create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestDup group by key1, key2;"""
-    Thread.sleep(1500)
+    wait_mv_finish("test_analyze_mv")
     sql """insert into mvTestDup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestDup with sync;"""
@@ -130,11 +147,11 @@ suite("test_analyze_mv") {
     """
 
     sql """create materialized view mv1 as select key2 from mvTestAgg;"""
-    Thread.sleep(1500)
+    wait_mv_finish("test_analyze_mv")
     sql """create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestAgg group by key1, key2;"""
-    Thread.sleep(1500)
+    wait_mv_finish("test_analyze_mv")
     sql """create materialized view mv6 as select key1, sum(value1) from mvTestAgg group by key1;"""
-    Thread.sleep(1500)
+    wait_mv_finish("test_analyze_mv")
     sql """insert into mvTestAgg values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestAgg with sync;"""
@@ -209,9 +226,9 @@ suite("test_analyze_mv") {
     """
 
     sql """create materialized view mv1 as select key1 from mvTestUni;"""
-    Thread.sleep(1000)
+    wait_mv_finish("test_analyze_mv")
     sql """create materialized view mv6 as select key2, value2, value3 from mvTestUni;"""
-    Thread.sleep(1000)
+    wait_mv_finish("test_analyze_mv")
     sql """insert into mvTestUni values (1, 2, 3, 4, 5), (1, 2, 3, 7, 8), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestUni with sync;"""
