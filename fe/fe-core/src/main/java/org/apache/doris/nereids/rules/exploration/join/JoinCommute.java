@@ -61,6 +61,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 .whenNot(LogicalJoin::hasDistributeHint)
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
                 .whenNot(join -> JoinUtils.isNullAwareMarkJoin(join))
+                .whenNot(join -> join.isMarkJoin() && join.getHashJoinConjuncts().isEmpty())
                 .then(join -> {
                     LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(join.getJoinType().swap(),
                             join.right(), join.left(), null);

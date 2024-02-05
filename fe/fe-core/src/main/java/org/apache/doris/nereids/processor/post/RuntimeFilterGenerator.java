@@ -443,10 +443,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         join.right().accept(this, context);
         join.left().accept(this, context);
 
-        if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType())
-                || JoinUtils.isNullAwareMarkJoin(join)) {
-            join.right().getOutput().forEach(
-                    slot -> context.getRuntimeFilterContext().aliasTransferMapRemove(slot));
+        if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
+            join.right().getOutput().forEach(slot ->
+                    context.getRuntimeFilterContext().aliasTransferMapRemove(slot));
             return join;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
