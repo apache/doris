@@ -101,7 +101,7 @@ public class JdbcFunctionPushDownRule {
         return REPLACE_ORACLE_FUNCTIONS.containsKey(functionName.toLowerCase());
     }
 
-    public static Expr processFunctions(TOdbcTableType tableType, Expr expr, List<String> errors) {
+    public Expr processFunctions(TOdbcTableType tableType, Expr expr, List<String> errors) {
         if (tableType == null || expr == null) {
             return expr;
         }
@@ -125,7 +125,7 @@ public class JdbcFunctionPushDownRule {
         return processFunctionsRecursively(expr, checkFunction, replaceFunction, errors, tableType);
     }
 
-    private static Expr processFunctionsRecursively(Expr expr, Predicate<String> checkFunction,
+    private Expr processFunctionsRecursively(Expr expr, Predicate<String> checkFunction,
             Predicate<String> replaceFunction, List<String> errors, TOdbcTableType tableType) {
         if (expr instanceof FunctionCallExpr) {
             FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
@@ -156,7 +156,7 @@ public class JdbcFunctionPushDownRule {
         return expr;
     }
 
-    private static void replaceFunctionNameIfNecessary(String func, Predicate<String> replaceFunction,
+    private void replaceFunctionNameIfNecessary(String func, Predicate<String> replaceFunction,
             FunctionCallExpr functionCallExpr, TOdbcTableType tableType) {
         if (replaceFunction.test(func)) {
             String newFunc;
@@ -176,7 +176,7 @@ public class JdbcFunctionPushDownRule {
     }
 
     // Function used to convert nereids planner's function to old planner's function
-    private static Expr replaceGenericFunctionExpr(FunctionCallExpr functionCallExpr, String func) {
+    private Expr replaceGenericFunctionExpr(FunctionCallExpr functionCallExpr, String func) {
         Map<String, String> supportedTimeUnits = Maps.newHashMap();
         supportedTimeUnits.put("years", "YEAR");
         supportedTimeUnits.put("months", "MONTH");
