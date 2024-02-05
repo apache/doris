@@ -54,6 +54,7 @@ public class JdbcExternalCatalogTest {
         Map<String, String> newProperties = Maps.newHashMap();
         newProperties.put(JdbcResource.CONNECTION_POOL_MIN_SIZE, "2");
         jdbcExternalCatalog.getCatalogProperty().modifyCatalogProps(newProperties);
+        jdbcExternalCatalog.notifyPropertiesUpdated(newProperties);
         JdbcExternalCatalog replayJdbcCatalog2 = (JdbcExternalCatalog) CatalogFactory.createFromLog(
                 jdbcExternalCatalog.constructEditLog());
         Map<String, String> properties2 = replayJdbcCatalog2.getProperties();
