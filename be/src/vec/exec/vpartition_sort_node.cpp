@@ -205,17 +205,19 @@ Status VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_col
                     _value_places.push_back(mapped);
                     _num_partition++;
                 };
-
-                SCOPED_TIMER(_emplace_key_timer);
-                for (size_t row = 0; row < num_rows; ++row) {
-                    auto& mapped =
-                            agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
-                    mapped->add_row_idx(row);
+                {
+                    SCOPED_TIMER(_emplace_key_timer);
+                    for (size_t row = 0; row < num_rows; ++row) {
+                        auto& mapped =
+                                agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
+                        mapped->add_row_idx(row);
+                    }
                 }
-
-                SCOPED_TIMER(_selector_block_timer);
-                for (auto* place : _value_places) {
-                    RETURN_IF_ERROR(place->append_block_by_selector(input_block, eos));
+                {
+                    SCOPED_TIMER(_selector_block_timer);
+                    for (auto* place : _value_places) {
+                        RETURN_IF_ERROR(place->append_block_by_selector(input_block, eos));
+                    }
                 }
                 return Status::OK();
             },

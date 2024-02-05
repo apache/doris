@@ -25,7 +25,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
-import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.MTMVRewriteUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -315,8 +315,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return ImmutableSet.of();
         }
         // get mv valid partitions
-        Set<Long> mvDataValidPartitionIdSet = MTMVUtil.getMTMVCanRewritePartitions(mtmv,
-                        cascadesContext.getConnectContext()).stream()
+        Set<Long> mvDataValidPartitionIdSet = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
+                cascadesContext.getConnectContext(), System.currentTimeMillis()).stream()
                 .map(Partition::getId)
                 .collect(Collectors.toSet());
         Set<Long> queryUsedPartitionIdSet = rewrittenPlan.collectToList(node -> node instanceof LogicalOlapScan

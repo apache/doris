@@ -90,26 +90,21 @@ public class StatisticsCache {
         });
     }
 
-    public ColumnStatistic getColumnStatistics(long catalogId, long dbId, long tblId, String colName) {
-        return getColumnStatistics(catalogId, dbId, tblId, -1, colName).orElse(ColumnStatistic.UNKNOWN);
-    }
-
-    public Optional<ColumnStatistic> getColumnStatistics(long catalogId, long dbId,
-            long tblId, long idxId, String colName) {
+    public ColumnStatistic getColumnStatistics(long catalogId, long dbId, long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getSessionVariable().internalSession) {
-            return Optional.empty();
+            return ColumnStatistic.UNKNOWN;
         }
         StatisticsCacheKey k = new StatisticsCacheKey(catalogId, dbId, tblId, idxId, colName);
         try {
             CompletableFuture<Optional<ColumnStatistic>> f = columnStatisticsCache.get(k);
             if (f.isDone()) {
-                return f.get();
+                return f.get().orElse(ColumnStatistic.UNKNOWN);
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);
         }
-        return Optional.empty();
+        return ColumnStatistic.UNKNOWN;
     }
 
     public Histogram getHistogram(long tblId, String colName) {

@@ -633,8 +633,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 return ColumnStatistic.UNKNOWN;
             }
         } else {
+            // TODO. Get index id for materialized view.
             return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                    catalogId, dbId, table.getId(), colName);
+                catalogId, dbId, table.getId(), -1, colName);
         }
     }
 

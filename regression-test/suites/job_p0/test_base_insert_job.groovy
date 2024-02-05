@@ -153,7 +153,10 @@ suite("test_base_insert_job") {
     sql """
           CREATE JOB press  ON SCHEDULE every 10 hour starts CURRENT_TIMESTAMP  comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', 99, 99);
      """
-    Thread.sleep(2500)
+    Thread.sleep(5000)
+    def pressJob = sql """ select * from jobs("type"="insert") where name='press' """
+    println pressJob
+    
     def recurringTableDatas = sql """ select count(1) from ${tableName} where user_id=99 and type=99 """
     assert recurringTableDatas.get(0).get(0) == 1
     sql """
