@@ -17,12 +17,14 @@
 
 package org.apache.doris.resource.workloadgroup;
 
+import org.apache.doris.common.UserException;
+import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
+
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Condition;
+import java.util.PriorityQueue;
 import java.util.concurrent.locks.ReentrantLock;
 
 // note(wb) refer java BlockingQueue, but support altering capacity
@@ -32,71 +34,89 @@ public class QueryQueue {
     private static final Logger LOG = LogManager.getLogger(QueryQueue.class);
     // note(wb) used unfair by default, need more test later
     private final ReentrantLock queueLock = new ReentrantLock();
-    private final Condition queueLockCond = queueLock.newCondition();
     // resource group property
     private int maxConcurrency;
     private int maxQueueSize;
     private int queueTimeout; // ms
     // running property
     private volatile int currentRunningQueryNum;
-    private volatile int currentWaitingQueryNum;
 
     public static final String RUNNING_QUERY_NUM = "running_query_num";
     public static final String WAITING_QUERY_NUM = "waiting_query_num";
+
+    private long wgId;
+
+    private long propVersion;
+
+    private PriorityQueue<QueueToken> priorityTokenQueue;
 
     int getCurrentRunningQueryNum() {
         return currentRunningQueryNum;
     }
 
     int getCurrentWaitingQueryNum() {
-        return currentWaitingQueryNum;
+        try {
+            queueLock.lock();
+            return priorityTokenQueue.size();
+        } finally {
+            queueLock.unlock();
+        }
     }
 
-    public QueryQueue(int maxConcurrency, int maxQueueSize, int queueTimeout) {
+    long getPropVersion() {
+        return propVersion;
+    }
+
+    long getWgId() {
+        return wgId;
+    }
+
+    int getMaxConcurrency() {
+        return maxConcurrency;
+    }
+
+    int getMaxQueueSize() {
+        return maxQueueSize;
+    }
+
+    int getQueueTimeout() {
+        return queueTimeout;
+    }
+
+    public QueryQueue(long wgId, int maxConcurrency, int maxQueueSize, int queueTimeout, long propVersion) {
+        this.wgId = wgId;
         this.maxConcurrency = maxConcurrency;
         this.maxQueueSize = maxQueueSize;
         this.queueTimeout = queueTimeout;
+        this.propVersion = propVersion;
+        this.priorityTokenQueue = new PriorityQueue<QueueToken>();
     }
 
     public String debugString() {
-        return "maxConcurrency=" + maxConcurrency + ", maxQueueSize=" + maxQueueSize + ", queueTimeout=" + queueTimeout
-                + ", currentRunningQueryNum=" + currentRunningQueryNum + ", currentWaitingQueryNum="
-                + currentWaitingQueryNum;
+        return "wgId= " + wgId + ", version=" + this.propVersion + ",maxConcurrency=" + maxConcurrency
+                + ", maxQueueSize=" + maxQueueSize + ", queueTimeout=" + queueTimeout
+                + ", currentRunningQueryNum=" + currentRunningQueryNum
+                + ", currentWaitingQueryNum=" + priorityTokenQueue.size();
     }
 
-    public QueueOfferToken offer() throws InterruptedException {
-        // to prevent hang
-        // the lock shouldn't be hold for too long
-        // we should catch the case when it happens
-        queueLock.tryLock(5, TimeUnit.SECONDS);
+    public QueueToken getToken() throws UserException {
+
+        queueLock.lock();
         try {
             if (LOG.isDebugEnabled()) {
                 LOG.info(this.debugString());
             }
-
-            while (true) {
-                if (currentRunningQueryNum < maxConcurrency) {
-                    break;
-                }
-                // currentRunningQueryNum may bigger than maxRunningQueryNum
-                // because maxRunningQueryNum can be altered
-                if (currentWaitingQueryNum >= maxQueueSize) {
-                    return new QueueOfferToken(false, "query waiting queue is full, queue length=" + maxQueueSize);
-                }
-
-                currentWaitingQueryNum++;
-                boolean ret;
-                try {
-                    ret = queueLockCond.await(queueTimeout, TimeUnit.MILLISECONDS);
-                } finally {
-                    currentWaitingQueryNum--;
-                }
-                if (!ret) {
-                    return new QueueOfferToken(false, "query wait timeout " + queueTimeout + " ms");
-                }
+            if (currentRunningQueryNum < maxConcurrency) {
+                currentRunningQueryNum++;
+                return new QueueToken(TokenState.READY_TO_RUN, queueTimeout, "offer success");
             }
-            currentRunningQueryNum++;
-            return new QueueOfferToken(true, "offer success");
+            if (priorityTokenQueue.size() >= maxQueueSize) {
+                throw new UserException("query waiting queue is full, queue length=" + maxQueueSize);
+            }
+            QueueToken newQueryToken = new QueueToken(TokenState.ENQUEUE_SUCCESS, queueTimeout,
+                    "query wait timeout " + queueTimeout + " ms");
+            this.priorityTokenQueue.offer(newQueryToken);
+            return newQueryToken;
         } finally {
             if (LOG.isDebugEnabled()) {
                 LOG.info(this.debugString());
@@ -105,14 +125,29 @@ public class QueryQueue {
         }
     }
 
-    public void poll() throws InterruptedException {
-        queueLock.tryLock(5, TimeUnit.SECONDS);
+    // If the token is acquired and do work success, then call this method to release it.
+    public void returnToken(QueueToken token) {
+        queueLock.lock();
         try {
+            // If current token is not in ready to run state, then it is still in the queue
+            // it is not running, just remove it.
+            if (!token.isReadyToRun()) {
+                this.priorityTokenQueue.remove(token);
+                return;
+            }
             currentRunningQueryNum--;
             Preconditions.checkArgument(currentRunningQueryNum >= 0);
-            // maybe only when currentWaitingQueryNum != 0 need to signal
-            if (currentRunningQueryNum < maxConcurrency) {
-                queueLockCond.signal();
+            // If return token and find user changed concurrency num,  then maybe need signal
+            // more tokens.
+            while (currentRunningQueryNum < maxConcurrency) {
+                QueueToken nextToken = this.priorityTokenQueue.poll();
+                if (nextToken != null) {
+                    if (nextToken.signal()) {
+                        ++currentRunningQueryNum;
+                    }
+                } else {
+                    break;
+                }
             }
         } finally {
             if (LOG.isDebugEnabled()) {
@@ -122,22 +157,18 @@ public class QueryQueue {
         }
     }
 
-    public void resetQueueProperty(int maxConcurrency, int maxQueueSize, int queryWaitTimeout) {
+    public void resetQueueProperty(int maxConcurrency, int maxQueueSize, int queryWaitTimeout, long version) {
+        queueLock.lock();
         try {
-            queueLock.tryLock(5, TimeUnit.SECONDS);
-            try {
-                this.maxConcurrency = maxConcurrency;
-                this.maxQueueSize = maxQueueSize;
-                this.queueTimeout = queryWaitTimeout;
-            } finally {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(this.debugString());
-                }
-                queueLock.unlock();
+            this.maxConcurrency = maxConcurrency;
+            this.maxQueueSize = maxQueueSize;
+            this.queueTimeout = queryWaitTimeout;
+            this.propVersion = version;
+        } finally {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(this.debugString());
             }
-        } catch (InterruptedException e) {
-            LOG.error("reset queue property failed, ", e);
-            throw new RuntimeException("reset queue property failed, reason=" + e.getMessage());
+            queueLock.unlock();
         }
     }
 

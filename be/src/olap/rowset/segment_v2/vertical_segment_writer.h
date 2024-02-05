@@ -149,11 +149,11 @@ private:
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;
-    DataDir* _data_dir;
+    DataDir* _data_dir = nullptr;
     VerticalSegmentWriterOptions _opts;
 
     // Not owned. owned by RowsetWriter
-    io::FileWriter* _file_writer;
+    io::FileWriter* _file_writer = nullptr;
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;

@@ -516,9 +516,9 @@ string AccurateItoaKMGT(int64 i);
 //    '\0'-terminated, which is more efficient.
 // ----------------------------------------------------------------------
 struct DoubleRangeOptions {
-    const char* separators;
+    const char* separators = nullptr;
     bool require_separator;
-    const char* acceptable_terminators;
+    const char* acceptable_terminators = nullptr;
     bool null_terminator_ok;
     bool allow_unbounded_markers;
     uint32 num_required_bounds;

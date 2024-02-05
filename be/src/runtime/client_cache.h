@@ -124,10 +124,10 @@ private:
     std::shared_ptr<MetricEntity> _thrift_client_metric_entity;
 
     // Number of clients 'checked-out' from the cache
-    IntGauge* thrift_used_clients;
+    IntGauge* thrift_used_clients = nullptr;
 
     // Total clients in the cache, including those in use
-    IntGauge* thrift_opened_clients;
+    IntGauge* thrift_opened_clients = nullptr;
 
     // Create a new client for specific host/port in 'client' and put it in _client_map
     Status _create_client(const TNetworkAddress& hostport, ClientFactory& factory_method,
@@ -192,7 +192,7 @@ public:
     T* operator->() const { return _client; }
 
 private:
-    ClientCache<T>* _client_cache;
+    ClientCache<T>* _client_cache = nullptr;
     T* _client;
 };
 

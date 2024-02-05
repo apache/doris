@@ -59,22 +59,26 @@ import java.util.stream.Collectors;
 
 public class ExportMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
+    private Map<Long, ExportJob> exportIdToJob = Maps.newHashMap(); // exportJobId to exportJob
+    // dbid -> <label -> job>
+    private Map<Long, Map<String, Long>> dbTolabelToExportJobId = Maps.newHashMap();
 
     // lock for export job
     // lock is private and must use after db lock
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-
-    private Map<Long, ExportJob> exportIdToJob = Maps.newHashMap(); // exportJobId to exportJob
-    private Map<String, Long> labelToExportJobId = Maps.newHashMap();
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     public ExportMgr() {
     }
 
-    public void readLock() {
+    public List<ExportJob> getJobs() {
+        return Lists.newArrayList(exportIdToJob.values());
+    }
+
+    private void readLock() {
         lock.readLock().lock();
     }
 
-    public void readUnlock() {
+    private void readUnlock() {
         lock.readLock().unlock();
     }
 
@@ -86,22 +90,18 @@ public class ExportMgr {
         lock.writeLock().unlock();
     }
 
-    public List<ExportJob> getJobs() {
-        return Lists.newArrayList(exportIdToJob.values());
-    }
-
     public void addExportJobAndRegisterTask(ExportJob job) throws Exception {
         long jobId = Env.getCurrentEnv().getNextId();
         job.setId(jobId);
         writeLock();
         try {
-            if (labelToExportJobId.containsKey(job.getLabel())) {
+            if (dbTolabelToExportJobId.containsKey(job.getDbId())
+                    && dbTolabelToExportJobId.get(job.getDbId()).containsKey(job.getLabel())) {
                 throw new LabelAlreadyUsedException(job.getLabel());
             }
             unprotectAddJob(job);
-            job.getJobExecutorList().forEach(executor -> {
-                Long taskId = Env.getCurrentEnv().getExportTaskRegister().registerTask(executor);
-                executor.setTaskId(taskId);
+            job.getTaskExecutors().forEach(executor -> {
+                Long taskId = Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
                 job.getTaskIdToExecutor().put(taskId, executor);
             });
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
@@ -135,7 +135,8 @@ public class ExportMgr {
 
     public void unprotectAddJob(ExportJob job) {
         exportIdToJob.put(job.getId(), job);
-        labelToExportJobId.putIfAbsent(job.getLabel(), job.getId());
+        dbTolabelToExportJobId.computeIfAbsent(job.getDbId(),
+                k -> Maps.newHashMap()).put(job.getLabel(), job.getId());
     }
 
     private List<ExportJob> getWaitingCancelJobs(CancelExportStmt stmt) throws AnalysisException {
@@ -393,7 +394,13 @@ public class ExportMgr {
                         && (job.getState() == ExportJobState.CANCELLED
                             || job.getState() == ExportJobState.FINISHED)) {
                     iter.remove();
-                    labelToExportJobId.remove(job.getLabel(), job.getId());
+                    Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
+                    if (labelJobs != null) {
+                        labelJobs.remove(job.getLabel());
+                        if (labelJobs.isEmpty()) {
+                            dbTolabelToExportJobId.remove(job.getDbId());
+                        }
+                    }
                 }
             }
         } finally {

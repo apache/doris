@@ -140,7 +140,7 @@ private:
     size_t get_block_size(const LZ4F_frameInfo_t* info);
 
 private:
-    LZ4F_dctx* _dctx;
+    LZ4F_dctx* _dctx = nullptr;
     size_t _expect_dec_buf_size;
     const static unsigned DORIS_LZ4F_VERSION;
 };

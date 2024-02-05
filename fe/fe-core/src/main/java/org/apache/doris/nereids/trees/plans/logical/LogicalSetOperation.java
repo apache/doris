@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -39,7 +40,6 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
@@ -124,7 +124,6 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
 
     // If the right child is nullable, need to ensure that the left child is also nullable
     private List<Slot> resetNullableForLeftOutputs() {
-        Preconditions.checkState(children.size() == 2);
         List<Slot> resetNullableForLeftOutputs = new ArrayList<>();
         for (int i = 0; i < child(1).getOutput().size(); ++i) {
             if (child(1).getOutput().get(i).nullable() && !child(0).getOutput().get(i).nullable()) {
@@ -144,8 +143,8 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
             Slot left = child(0).getOutput().get(i);
             Slot right = child(1).getOutput().get(i);
             DataType compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
-            Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, compatibleType);
-            Expression newRight = TypeCoercionUtils.castIfNotSameType(right, compatibleType);
+            Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrict(left, compatibleType);
+            Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrict(right, compatibleType);
             if (newLeft instanceof Cast) {
                 newLeft = new Alias(newLeft, left.getName());
             }
@@ -251,10 +250,21 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
             }
             return new StructType(commonFields.build());
         }
-        return DataType.fromCatalogType(Type.getAssignmentCompatibleType(
-                left.toCatalogDataType(),
-                right.toCatalogDataType(),
-                false,
-                SessionVariable.getEnableDecimal256()));
+        boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
+        Type resultType = Type.getAssignmentCompatibleType(left.toCatalogDataType(),
+                right.toCatalogDataType(), false, enableDecimal256);
+        if (resultType.isDecimalV3()) {
+            int oldPrecision = resultType.getPrecision();
+            int oldScale = resultType.getDecimalDigits();
+            int integerPart = oldPrecision - oldScale;
+            int maxPrecision = enableDecimal256 ? ScalarType.MAX_DECIMAL256_PRECISION
+                    : ScalarType.MAX_DECIMAL128_PRECISION;
+            if (oldPrecision > maxPrecision) {
+                int newScale = maxPrecision - integerPart;
+                resultType =
+                        ScalarType.createDecimalType(maxPrecision, newScale < 0 ? 0 : newScale);
+            }
+        }
+        return DataType.fromCatalogType(resultType);
     }
 }

@@ -84,37 +84,37 @@ public class DropDbTest {
 
     @Test
     public void testNormalDropDb() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test1");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test1");
         OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
         Partition partition = table.getAllPartitions().iterator().next();
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropDbSql = "drop database test1";
         dropDb(dropDbSql);
-        db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test1");
+        db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNull(db);
         List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertEquals(1, replicaList.size());
         String recoverDbSql = "recover database test1";
         RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         Env.getCurrentEnv().recoverDatabase(recoverDbStmt);
-        db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test1");
+        db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNotNull(db);
-        Assert.assertEquals("default_cluster:test1", db.getFullName());
+        Assert.assertEquals("test1", db.getFullName());
         table = (OlapTable) db.getTableOrMetaException("tbl1");
         Assert.assertNotNull(table);
         Assert.assertEquals("tbl1", table.getName());
 
         dropDbSql = "drop schema test1";
         dropDb(dropDbSql);
-        db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test1");
+        db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNull(db);
         Env.getCurrentEnv().recoverDatabase(recoverDbStmt);
-        db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test1");
+        db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNotNull(db);
 
         dropDbSql = "drop schema if exists test1";
         dropDb(dropDbSql);
-        db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test1");
+        db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNull(db);
     }
 
@@ -122,11 +122,11 @@ public class DropDbTest {
     public void testForceDropDb() throws Exception {
         String dropDbSql = "drop database test2 force";
         dropDb(dropDbSql);
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test2");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test2");
         Assert.assertNull(db);
         // After unify force and non-force drop db, the replicas will be recycled eventually.
         //
-        // Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test2");
+        // Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test2");
         // OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
         // Partition partition = table.getAllPartitions().iterator().next();
         // long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
@@ -136,19 +136,19 @@ public class DropDbTest {
         String recoverDbSql = "recover database test2";
         RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown database 'default_cluster:test2' or database id '-1'",
+                "Unknown database 'test2' or database id '-1'",
                 () -> Env.getCurrentEnv().recoverDatabase(recoverDbStmt));
 
         dropDbSql = "drop schema test3 force";
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test3");
+        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test3");
         Assert.assertNotNull(db);
         dropDb(dropDbSql);
-        db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test3");
+        db = Env.getCurrentInternalCatalog().getDbNullable("test3");
         Assert.assertNull(db);
         recoverDbSql = "recover database test3";
         RecoverDbStmt recoverDbStmt2 = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown database 'default_cluster:test3'",
+                "Unknown database 'test3'",
                 () -> Env.getCurrentEnv().recoverDatabase(recoverDbStmt2));
 
         dropDbSql = "drop schema if exists test3 force";

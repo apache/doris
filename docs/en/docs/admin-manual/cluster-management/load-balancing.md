@@ -294,7 +294,7 @@ Query OK, 94 rows affected (0.079 sec)
  
 Verify the monitoring results: The indicators of the ProxySQL monitoring module are stored in the log table of the monitor library.
 The following is the monitoring of whether the connection is normal (monitoring of connect indicators):
-Note: There may be many connect_errors, this is because there is an error when the monitoring information is not configured. After the configuration, if the result of connect_error is NULL, it means normal。
+Note: There may be many connect_errors, this is because there is an error when the monitoring information is not configured. After the configuration, if the result of connect_error is NULL, it means normal.
 MySQL [(none)]> select * from mysql_server_connect_log;
 +---------------+------+------------------+-------------------------+---------------+
 | hostname      | port | time_start_us    | connect_success_time_us | connect_error |
@@ -330,7 +330,7 @@ MySQL [(none)]> select * from mysql_server_read_only_log;
 Empty set (0.000 sec)
 
 All 3 nodes are in the group with hostgroup_id=10.
-Now, load the modification of the mysql_replication_hostgroups table just now to RUNTIME to take effect。
+Now, load the modification of the mysql_replication_hostgroups table just now to RUNTIME to take effect.
 MySQL [(none)]> load mysql servers to runtime;
 Query OK, 0 rows affected (0.003 sec)
  

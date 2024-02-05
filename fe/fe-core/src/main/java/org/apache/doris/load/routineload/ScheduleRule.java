@@ -31,7 +31,7 @@ import org.apache.logging.log4j.Logger;
 public class ScheduleRule {
     private static final Logger LOG = LogManager.getLogger(ScheduleRule.class);
 
-    private static int deadBeCount(String clusterName) {
+    private static int deadBeCount() {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         int total = systemInfoService.getAllBackendIds(false).size();
         int alive = systemInfoService.getAllBackendIds(true).size();
@@ -60,7 +60,7 @@ public class ScheduleRule {
                 jobRoutine.id, jobRoutine.firstResumeTimestamp, jobRoutine.autoResumeCount,
                 jobRoutine.pauseReason == null ? "null" : jobRoutine.pauseReason.getCode().name());
         if (jobRoutine.pauseReason != null && jobRoutine.pauseReason.getCode() == InternalErrorCode.REPLICA_FEW_ERR) {
-            int dead = deadBeCount(jobRoutine.clusterName);
+            int dead = deadBeCount();
             if (dead > Config.max_tolerable_backend_down_num) {
                 LOG.debug("dead backend num {} is larger than config {}, "
                                 + "routine load job {} can not be auto rescheduled",

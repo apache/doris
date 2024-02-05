@@ -30,7 +30,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.collect.Maps;
 import mockit.Delegate;
@@ -169,11 +169,11 @@ public class WorkloadGroupMgrTest {
         CreateWorkloadGroupStmt stmt1 = new CreateWorkloadGroupStmt(false, name1, properties1);
         workloadGroupMgr.createWorkloadGroup(stmt1);
         context.getSessionVariable().setWorkloadGroup(name1);
-        List<TPipelineWorkloadGroup> tWorkloadGroups1 = workloadGroupMgr.getWorkloadGroup(context);
+        List<TopicInfo> tWorkloadGroups1 = workloadGroupMgr.getPublishTopicInfo();
         Assert.assertEquals(1, tWorkloadGroups1.size());
-        TPipelineWorkloadGroup tWorkloadGroup1 = tWorkloadGroups1.get(0);
-        Assert.assertEquals(name1, tWorkloadGroup1.getName());
-        Assert.assertTrue(tWorkloadGroup1.getProperties().containsKey(WorkloadGroup.CPU_SHARE));
+        TopicInfo tWorkloadGroup1 = tWorkloadGroups1.get(0);
+        Assert.assertEquals(name1, tWorkloadGroup1.getWorkloadGroupInfo().getName());
+        Assert.assertTrue(tWorkloadGroup1.getWorkloadGroupInfo().getCpuShare() == 10);
 
         try {
             context.getSessionVariable().setWorkloadGroup("g2");
@@ -242,9 +242,9 @@ public class WorkloadGroupMgrTest {
         workloadGroupMgr.alterWorkloadGroup(stmt2);
 
         context.getSessionVariable().setWorkloadGroup(name);
-        List<TPipelineWorkloadGroup> tWorkloadGroups = workloadGroupMgr.getWorkloadGroup(context);
+        List<TopicInfo> tWorkloadGroups = workloadGroupMgr.getPublishTopicInfo();
         Assert.assertEquals(1, tWorkloadGroups.size());
-        TPipelineWorkloadGroup tWorkloadGroup1 = tWorkloadGroups.get(0);
-        Assert.assertEquals(tWorkloadGroup1.getProperties().get(WorkloadGroup.CPU_SHARE), "5");
+        TopicInfo tWorkloadGroup1 = tWorkloadGroups.get(0);
+        Assert.assertTrue(tWorkloadGroup1.getWorkloadGroupInfo().getCpuShare() == 5);
     }
 }

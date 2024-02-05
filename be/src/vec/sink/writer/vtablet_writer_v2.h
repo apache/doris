@@ -69,6 +69,7 @@
 namespace doris {
 class DeltaWriterV2;
 class LoadStreamStub;
+class LoadStreams;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
@@ -76,10 +77,6 @@ class TDataSink;
 class TExpr;
 class TabletSchema;
 class TupleDescriptor;
-
-namespace stream_load {
-class LoadStreams;
-}
 
 namespace vectorized {
 
@@ -93,7 +90,7 @@ using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
 struct Rows {
     int64_t partition_id;
     int64_t index_id;
-    std::vector<int32_t> row_idxes;
+    std::vector<uint32_t> row_idxes;
 };
 
 using RowsForTablet = std::unordered_map<int64_t, Rows>;
@@ -109,9 +106,9 @@ public:
 
     ~VTabletWriterV2() override;
 
-    Status init_properties(ObjectPool* pool, bool group_commit);
+    Status init_properties(ObjectPool* pool);
 
-    Status append_block(Block& block) override;
+    Status write(Block& block) override;
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
@@ -126,11 +123,13 @@ private:
 
     Status _open_streams(int64_t src_id);
 
-    Status _open_streams_to_backend(int64_t dst_id, ::doris::stream_load::LoadStreams& streams);
+    Status _open_streams_to_backend(int64_t dst_id, LoadStreams& streams);
 
     Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
 
-    void _build_tablet_node_mapping();
+    Status _send_new_partition_batch();
+
+    Status _build_tablet_node_mapping();
 
     void _generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                    RowsForTablet& rows_for_tablet);
@@ -148,7 +147,7 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 
     TDataSink _t_sink;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 
     // unique load id
     PUniqueId _load_id;
@@ -187,6 +186,7 @@ private:
     int64_t _number_output_rows = 0;
 
     MonotonicStopWatch _row_distribution_watch;
+    MonotonicStopWatch _timeout_watch;
 
     RuntimeProfile::Counter* _input_rows_counter = nullptr;
     RuntimeProfile::Counter* _output_rows_counter = nullptr;
@@ -211,15 +211,13 @@ private:
 
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
-    bool _group_commit = false;
 
     std::unordered_set<int64_t> _opened_partitions;
 
     std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
 
-    std::unordered_map<int64_t, std::shared_ptr<::doris::stream_load::LoadStreams>>
-            _streams_for_node;
+    std::unordered_map<int64_t, std::shared_ptr<LoadStreams>> _streams_for_node;
 
     size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;

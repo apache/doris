@@ -70,7 +70,7 @@ private:
     std::vector<std::string> _filters;
 
     // Descriptor of tuples read from MySQL table.
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
     // Tuple index in tuple row.
     int _slot_num;
     // Jni helper for scanning an HBase table.

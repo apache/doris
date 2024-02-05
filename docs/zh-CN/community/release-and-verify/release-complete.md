@@ -99,7 +99,14 @@ refer to: <http://www.apache.org/dev/release-download-pages#closer>
 
 ### Maven
 
-在 [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories) 中找到对应的 Staging Repo, 点击 `Release` 进行正式发布。
+在 [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories) 中找到对应的 Staging Repo。
+
+- 如果没有 close，先点击 `close` 关闭。
+- 点击 `Release` 进行正式发布。
+
+> 如果 `close` 阶段报错：`No public key: Key with id: (xxx) was not able to be located on`。
+
+> 可以执行 `gpg --keyserver hkp://keyserver.ubuntu.com --send-keys xxx` 后再重新close，xxx 可以通过 `gpg -k` 查看。
 
 ### 准备 release note
 

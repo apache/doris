@@ -301,15 +301,15 @@ private:
         } else if (which.is_decimal64()) {
             res = _execute_number<ColumnDecimal64>(src_column, src_offsets, dest_column,
                                                    dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_decimal128i()) {
-            res = _execute_number<ColumnDecimal128I>(src_column, src_offsets, dest_column,
-                                                     dest_offsets, src_null_map, dest_null_map);
+        } else if (which.is_decimal128v3()) {
+            res = _execute_number<ColumnDecimal128V3>(src_column, src_offsets, dest_column,
+                                                      dest_offsets, src_null_map, dest_null_map);
         } else if (which.is_decimal256()) {
             res = _execute_number<ColumnDecimal256>(src_column, src_offsets, dest_column,
                                                     dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_decimal128()) {
-            res = _execute_number<ColumnDecimal128>(src_column, src_offsets, dest_column,
-                                                    dest_offsets, src_null_map, dest_null_map);
+        } else if (which.is_decimal128v2()) {
+            res = _execute_number<ColumnDecimal128V2>(src_column, src_offsets, dest_column,
+                                                      dest_offsets, src_null_map, dest_null_map);
         } else if (which.is_string()) {
             res = _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
                                   dest_null_map);

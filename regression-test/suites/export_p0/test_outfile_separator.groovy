@@ -93,6 +93,8 @@ suite("test_outfile_separator") {
             time 10000 // limit inflight 10s
         }
 
+        sql """ sync; """
+
         qt_select_2 """ SELECT * FROM ${tableName} t ORDER BY k1; """
 
     } finally {

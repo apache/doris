@@ -18,21 +18,28 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * The node of logical plan for sub query and alias
@@ -41,6 +48,7 @@ import java.util.Optional;
  */
 public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
+    protected RelationId relationId;
     private final List<String> qualifier;
     private final Optional<List<String>> columnAliases;
 
@@ -152,5 +160,37 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression, logicalProperties,
                 children.get(0));
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies
+                .Builder(child(0).getLogicalProperties().getFunctionalDependencies());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> outputs = outputSupplier.get();
+        for (int i = 0; i < outputs.size(); i++) {
+            replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
+        }
+        builder.replace(replaceMap);
+        return builder.build();
+    }
+
+    public void setRelationId(RelationId relationId) {
+        this.relationId = relationId;
+    }
+
+    public RelationId getRelationId() {
+        return relationId;
+    }
+
+    public List<String> getQualifier() {
+        return qualifier;
+    }
+
+    @Override
+    public Set<RelationId> getInputRelations() {
+        Set<RelationId> relationIdSet = Sets.newHashSet();
+        relationIdSet.add(relationId);
+        return relationIdSet;
     }
 }

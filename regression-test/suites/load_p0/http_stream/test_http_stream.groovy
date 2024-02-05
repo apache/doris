@@ -598,7 +598,7 @@ suite("test_http_stream", "p0") {
         try_sql "DROP TABLE IF EXISTS ${tableName13}"
     }
 
-    // 14. test label 
+    // 14. test label
     def tableName14 = "test_http_stream_label"
     def label = UUID.randomUUID().toString().replaceAll("-", "")
 
@@ -712,6 +712,147 @@ suite("test_http_stream", "p0") {
         }
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName15}"
+    }
+
+    // 16. test strict_mode
+    def tableName16 = "test_http_stream_strict_mode"
+
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName16} (
+            id int,
+            name CHAR(10),
+            tyint1 tinyint,
+            decimal1 decimal(6, 3) NULL
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
+
+        streamLoad {
+            set 'version', '1'
+            set 'strict_mode', 'true'
+            set 'sql', """
+                    insert into ${db}.${tableName16} select c1, c2, c3, c4 from http_stream("format"="csv", "column_separator"="--")
+                    """
+            time 10000
+            file 'test_http_stream_column_strict_mode.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("http_stream result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
+
+        qt_sql16 "select id, name, tyint1, decimal1 from ${tableName16} order by id"
+
+        sql """truncate table ${tableName16}"""
+        sql """sync"""
+
+        // TODO Waiting for the http_stream strict_mode problem to be fixed
+        streamLoad {
+            set 'version', '1'
+            set 'strict_mode', 'test'
+            set 'sql', """
+                    insert into ${db}.${tableName16} select c1, c2, c3, c4 from http_stream("format"="csv", "column_separator"="--")
+                    """
+            time 10000
+            file 'test_http_stream_column_strict_mode.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("http_stream result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+            qt_sql16_1 "select id, name, tyint1, decimal1 from ${tableName16} order by id"
+        }
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName16}"
+    }
+
+    def tableName17 = "test_http_stream_trim_double_quotes"
+
+    try {
+        sql """
+       CREATE TABLE IF NOT EXISTS ${tableName17} (
+        `k1` int(11) NULL,
+        `k2` VARCHAR(20) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into ${db}.${tableName17} select c1, c2 from http_stream("format"="csv", "column_separator"="|", "trim_double_quotes"="true")
+                    """
+            time 10000
+            file '../stream_load/trim_double_quotes.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("http_stream result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+        }
+
+        qt_sql_trim_double_quotes "select * from ${tableName17} order by k1"
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName17}"
+    }
+
+    //  test enable_profile
+    def tableName18 = "test_http_stream_enable_profile"
+
+    try {
+        sql """
+       CREATE TABLE IF NOT EXISTS ${tableName18} (
+        `k1` int(11) NULL,
+        `k2` VARCHAR(20) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+
+        streamLoad {
+            set 'version', '1'
+            set 'enable_profile','true'
+            set 'sql', """
+                    insert into ${db}.${tableName18} select c1, c2 from http_stream("format"="csv", "column_separator"="|", "trim_double_quotes"="true")
+                    """
+            time 10000
+            file '../stream_load/trim_double_quotes.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("http_stream result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+        }
+
+        qt_sql18 "select * from ${tableName18} order by k1"
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName18}"
     }
 }
 

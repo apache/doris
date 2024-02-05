@@ -64,6 +64,7 @@ class TPipelineInstanceParams;
 class TScanColumnDesc;
 class TScanOpenParams;
 class Thread;
+class WorkloadQueryInfo;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
@@ -99,6 +100,14 @@ public:
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg = "");
     void cancel_instance_unlocked(const TUniqueId& instance_id,
+                                  const PPlanFragmentCancelReason& reason,
+                                  const std::unique_lock<std::mutex>& state_lock,
+                                  const std::string& msg = "");
+    // Cancel fragment (only pipelineX).
+    // {query id fragment} -> PipelineXFragmentContext
+    void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
+                         const PPlanFragmentCancelReason& reason, const std::string& msg = "");
+    void cancel_fragment_unlocked(const TUniqueId& query_id, int32_t fragment_id,
                                   const PPlanFragmentCancelReason& reason,
                                   const std::unique_lock<std::mutex>& state_lock,
                                   const std::string& msg = "");
@@ -143,6 +152,10 @@ public:
         return _query_ctx_map.size();
     }
 
+    std::string dump_pipeline_tasks();
+
+    void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
+
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
                               const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
@@ -169,7 +182,7 @@ private:
                           std::shared_ptr<QueryContext>& query_ctx);
 
     // This is input params
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     // The lock should only be used to protect the structures in fragment manager. Has to be
     // used in a very small scope because it may dead lock. For example, if the _lock is used
@@ -194,11 +207,12 @@ private:
     // every job is a pool
     std::unique_ptr<ThreadPool> _thread_pool;
 
-    std::shared_ptr<MetricEntity> _entity = nullptr;
+    std::shared_ptr<MetricEntity> _entity;
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
-    std::unique_ptr<ThreadPool> _async_report_thread_pool; // used for pipeliine context report
+    std::unique_ptr<ThreadPool> _async_report_thread_pool =
+            nullptr; // used for pipeliine context report
 };
 
 } // namespace doris

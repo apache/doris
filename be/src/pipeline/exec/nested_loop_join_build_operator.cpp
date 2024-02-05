@@ -27,8 +27,8 @@ OPERATOR_CODE_GENERATOR(NestLoopJoinBuildOperator, StreamingOperator)
 
 NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                                      RuntimeState* state)
-        : JoinBuildSinkLocalState<NestedLoopJoinDependency, NestedLoopJoinBuildSinkLocalState>(
-                  parent, state) {}
+        : JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
+                                  NestedLoopJoinBuildSinkLocalState>(parent, state) {}
 
 Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
@@ -120,7 +120,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
                                            !local_state._shared_state->build_blocks.empty()))) {
             local_state._shared_state->left_side_eos = true;
         }
-        local_state._dependency->set_ready_for_read();
+        local_state._dependency->set_ready_to_read();
     }
 
     return Status::OK();

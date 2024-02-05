@@ -115,6 +115,14 @@ Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) 
         _get_value_fn = get_decimal256_value;
         break;
     }
+    case PrimitiveType::TYPE_IPV4: {
+        _get_value_fn = get_ipv4_value;
+        break;
+    }
+    case PrimitiveType::TYPE_IPV6: {
+        _get_value_fn = get_ipv6_value;
+        break;
+    }
     default:
         return Status::InvalidArgument("unsupported runtime predicate type {}", type);
     }
@@ -134,11 +142,6 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
     }
 
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
-
-    // TODO why null
-    if (!_tablet_schema) {
-        return Status::OK();
-    }
 
     bool updated = false;
 
@@ -161,6 +164,10 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
         return Status::OK();
     }
 
+    // TODO defensive code
+    if (!_tablet_schema || !_tablet_schema->have_column(col_name)) {
+        return Status::OK();
+    }
     // update _predictate
     int32_t col_unique_id = _tablet_schema->column(col_name).unique_id();
     const TabletColumn& column = _tablet_schema->column_by_uid(col_unique_id);

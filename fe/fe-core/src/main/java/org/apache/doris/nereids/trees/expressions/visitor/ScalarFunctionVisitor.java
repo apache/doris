@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerateUniq;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayShuffle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
@@ -70,8 +72,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftLeft;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
@@ -114,6 +120,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
@@ -166,6 +173,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
@@ -182,13 +190,25 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4CIDRToRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6CIDRToRange;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Compat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -358,6 +378,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
@@ -366,6 +387,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithC
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
@@ -475,6 +502,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayEnumerate, context);
     }
 
+    default R visitArrayEnumerateUniq(ArrayEnumerateUniq arrayEnumerateUniq, C context) {
+        return visitScalarFunction(arrayEnumerateUniq, context);
+    }
+
     default R visitArrayExcept(ArrayExcept arrayExcept, C context) {
         return visitScalarFunction(arrayExcept, context);
     }
@@ -555,6 +586,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arraySortBy, context);
     }
 
+    default R visitArrayShuffle(ArrayShuffle arrayShuffle, C context) {
+        return visitScalarFunction(arrayShuffle, context);
+    }
+
     default R visitArrayMap(ArrayMap arraySort, C context) {
         return visitScalarFunction(arraySort, context);
     }
@@ -599,8 +634,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(atan, context);
     }
 
+    default R visitAtan2(Atan2 atan2, C context) {
+        return visitScalarFunction(atan2, context);
+    }
+
     default R visitBin(Bin bin, C context) {
         return visitScalarFunction(bin, context);
+    }
+
+    default R visitBitCount(BitCount bitCount, C context) {
+        return visitScalarFunction(bitCount, context);
     }
 
     default R visitBitLength(BitLength bitLength, C context) {
@@ -723,6 +766,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(bitmapXorCount, context);
     }
 
+    default R visitBitShiftLeft(BitShiftLeft bitShiftLeft, C context) {
+        return visitScalarFunction(bitShiftLeft, context);
+    }
+
+    default R visitBitShiftRight(BitShiftRight bitShiftRight, C context) {
+        return visitScalarFunction(bitShiftRight, context);
+    }
+
     default R visitCardinality(Cardinality cardinality, C context) {
         return visitScalarFunction(cardinality, context);
     }
@@ -773,6 +824,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCos(Cos cos, C context) {
         return visitScalarFunction(cos, context);
+    }
+
+    default R visitCosh(Cosh cosh, C context) {
+        return visitScalarFunction(cosh, context);
     }
 
     default R visitCosineDistance(CosineDistance cosineDistance, C context) {
@@ -1043,6 +1098,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(getJsonString, context);
     }
 
+    default R visitG(G g, C context) {
+        return visitScalarFunction(g, context);
+    }
+
     default R visitGreatest(Greatest greatest, C context) {
         return visitScalarFunction(greatest, context);
     }
@@ -1083,6 +1142,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(function, context);
     }
 
+    default R visitIgnore(Ignore function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
     default R visitInitcap(Initcap initcap, C context) {
         return visitScalarFunction(initcap, context);
     }
@@ -1109,6 +1172,74 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv4StringToNumOrNull(Ipv4StringToNumOrNull ipv4StringToNumOrNull, C context) {
         return visitScalarFunction(ipv4StringToNumOrNull, context);
+    }
+
+    default R visitIpv6NumToString(Ipv6NumToString ipv6NumToString, C context) {
+        return visitScalarFunction(ipv6NumToString, context);
+    }
+
+    default R visitIpv6StringToNum(Ipv6StringToNum ipv6StringToNum, C context) {
+        return visitScalarFunction(ipv6StringToNum, context);
+    }
+
+    default R visitIpv6StringToNumOrDefault(Ipv6StringToNumOrDefault ipv6StringToNumOrDefault, C context) {
+        return visitScalarFunction(ipv6StringToNumOrDefault, context);
+    }
+
+    default R visitIpv4CIDRToRange(Ipv4CIDRToRange ipv4CIDRToRange, C context) {
+        return visitScalarFunction(ipv4CIDRToRange, context);
+    }
+
+    default R visitIpv6StringToNumOrNull(Ipv6StringToNumOrNull ipv6StringToNumOrNull, C context) {
+        return visitScalarFunction(ipv6StringToNumOrNull, context);
+    }
+
+    default R visitIsIpv4Compat(IsIpv4Compat isIpv4Compat, C context) {
+        return visitScalarFunction(isIpv4Compat, context);
+    }
+
+    default R visitIsIpv4Mapped(IsIpv4Mapped isIpv4Mapped, C context) {
+        return visitScalarFunction(isIpv4Mapped, context);
+    }
+
+    default R visitIsIpv4String(IsIpv4String isIpv4String, C context) {
+        return visitScalarFunction(isIpv4String, context);
+    }
+
+    default R visitIsIpv6String(IsIpv6String isIpv6String, C context) {
+        return visitScalarFunction(isIpv6String, context);
+    }
+
+    default R visitIsIPAddressInRange(IsIpAddressInRange isIpAddressInRange, C context) {
+        return visitScalarFunction(isIpAddressInRange, context);
+    }
+
+    default R visitIpv6CIDRToRange(Ipv6CIDRToRange ipv6CIDRToRange, C context) {
+        return visitScalarFunction(ipv6CIDRToRange, context);
+    }
+
+    default R visitToIpv4(ToIpv4 toIpv4, C context) {
+        return visitScalarFunction(toIpv4, context);
+    }
+
+    default R visitToIpv4OrDefault(ToIpv4OrDefault toIpv4OrDefault, C context) {
+        return visitScalarFunction(toIpv4OrDefault, context);
+    }
+
+    default R visitToIpv4OrNull(ToIpv4OrNull toIpv4OrNull, C context) {
+        return visitScalarFunction(toIpv4OrNull, context);
+    }
+
+    default R visitToIpv6(ToIpv6 toIpv6, C context) {
+        return visitScalarFunction(toIpv6, context);
+    }
+
+    default R visitToIpv6OrDefault(ToIpv6OrDefault toIpv6OrDefault, C context) {
+        return visitScalarFunction(toIpv6OrDefault, context);
+    }
+
+    default R visitToIpv6OrNull(ToIpv6OrNull toIpv6OrNull, C context) {
+        return visitScalarFunction(toIpv6OrNull, context);
     }
 
     default R visitJsonArray(JsonArray jsonArray, C context) {
@@ -1729,6 +1860,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitTan(Tan tan, C context) {
         return visitScalarFunction(tan, context);
+    }
+
+    default R visitTanh(Tanh tanh, C context) {
+        return visitScalarFunction(tanh, context);
     }
 
     default R visitTimeDiff(TimeDiff timeDiff, C context) {

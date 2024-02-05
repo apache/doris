@@ -18,6 +18,7 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.Predicate;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -33,6 +34,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -50,6 +52,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DeleteHandler implements Writable {
@@ -86,6 +89,66 @@ public class DeleteHandler implements Writable {
         lock.writeLock().unlock();
     }
 
+    /**
+     * use for Nereids process empty relation
+     */
+    public void processEmptyRelation(QueryState execState) {
+        String sb = "{'label':'" + DeleteJob.DELETE_PREFIX + UUID.randomUUID()
+                + "', 'txnId':'" + -1
+                + "', 'status':'" + TransactionStatus.VISIBLE.name() + "'}";
+        execState.setOk(0, 0, sb);
+    }
+
+    /**
+     * used for Nereids planner
+     */
+    public void process(Database targetDb, OlapTable targetTbl, List<String> partitionNames,
+            List<Predicate> deleteConditions, QueryState execState) {
+        DeleteJob deleteJob = null;
+        try {
+            targetTbl.readLock();
+            try {
+                if (targetTbl.getState() != OlapTable.OlapTableState.NORMAL) {
+                    // table under alter operation can also do delete.
+                    // just add a comment here to notice.
+                }
+                deleteJob = DeleteJob.newBuilder()
+                        .buildWith(new DeleteJob.BuildParams(
+                                targetDb,
+                                targetTbl,
+                                partitionNames,
+                                deleteConditions));
+
+                long txnId = deleteJob.beginTxn();
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(targetDb.getId(), txnId);
+                // must call this to make sure we only handle the tablet in the mIndex we saw here.
+                // table may be under schema change or rollup, and the newly created tablets will not be checked later,
+                // to make sure that the delete transaction can be done successfully.
+                txnState.addTableIndexes(targetTbl);
+                idToDeleteJob.put(txnId, deleteJob);
+                deleteJob.dispatch();
+            } finally {
+                targetTbl.readUnlock();
+            }
+            deleteJob.await();
+            String commitMsg = deleteJob.commit();
+            execState.setOk(0, 0, commitMsg);
+        } catch (Exception ex) {
+            if (deleteJob != null) {
+                deleteJob.cancel(ex.getMessage());
+            }
+            execState.setError(ex.getMessage());
+        } finally {
+            if (!FeConstants.runningUnitTest) {
+                clearJob(deleteJob);
+            }
+        }
+    }
+
+    /**
+     * used for legacy planner
+     */
     public void process(DeleteStmt stmt, QueryState execState) throws DdlException {
         Database targetDb = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
         OlapTable targetTbl = targetDb.getOlapTableOrDdlException(stmt.getTableName());

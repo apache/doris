@@ -46,12 +46,16 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
 
 class ObjectPool;
+class MatchPredicate;
 
 namespace vectorized {
 class VExpr;
@@ -163,6 +167,7 @@ private:
     [[nodiscard]] Status _lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                                          rowid_t* rowid);
     // lookup the ordinal of given key from short key index
+    // the returned rowid is rowid in primary index, not the rowid encoded in primary key
     [[nodiscard]] Status _lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include,
                                                        rowid_t upper_bound, rowid_t* rowid);
     // lookup the ordinal of given key from primary key index
@@ -224,6 +229,11 @@ private:
                                                  uint16_t* sel_rowid_idx, size_t select_size,
                                                  vectorized::MutableColumns* mutable_columns);
 
+    Status copy_column_data_by_selector(vectorized::IColumn* input_col_ptr,
+                                        vectorized::MutableColumnPtr& output_col,
+                                        uint16_t* sel_rowid_idx, uint16_t select_size,
+                                        size_t batch_size);
+
     template <class Container>
     [[nodiscard]] Status _output_column_by_sel_idx(vectorized::Block* block,
                                                    const Container& column_ids,
@@ -231,9 +241,34 @@ private:
         SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
         for (auto cid : column_ids) {
             int block_cid = _schema_block_id_map[cid];
-            RETURN_IF_ERROR(block->copy_column_data_to_block(_current_return_columns[cid].get(),
-                                                             sel_rowid_idx, select_size, block_cid,
+            // Only the additional deleted filter condition need to materialize column be at the end of the block
+            // We should not to materialize the column of query engine do not need. So here just return OK.
+            // Eg:
+            //      `delete from table where a = 10;`
+            //      `select b from table;`
+            // a column only effective in segment iterator, the block from query engine only contain the b column.
+            // so the `block_cid >= data.size()` is true
+            if (block_cid >= block->columns()) {
+                continue;
+            }
+            vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
+                    _schema->column(cid)->path(), _schema->column(cid)->is_nullable(), false);
+            if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
+                // Do additional cast
+                vectorized::MutableColumnPtr tmp = storage_type->create_column();
+                RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
+                                                             tmp, sel_rowid_idx, select_size,
                                                              _opts.block_row_max));
+                RETURN_IF_ERROR(vectorized::schema_util::cast_column(
+                        {tmp->get_ptr(), storage_type, ""}, block->get_by_position(block_cid).type,
+                        &block->get_by_position(block_cid).column));
+            } else {
+                vectorized::MutableColumnPtr output_column =
+                        block->get_by_position(block_cid).column->assume_mutable();
+                RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
+                                                             output_column, sel_rowid_idx,
+                                                             select_size, _opts.block_row_max));
+            }
         }
         return Status::OK();
     }
@@ -250,8 +285,6 @@ private:
     void _convert_dict_code_for_predicate_if_necessary();
 
     void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
-
-    void _update_max_row(const vectorized::Block* block);
 
     bool _check_apply_by_bitmap_index(ColumnPredicate* pred);
     bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
@@ -327,11 +360,34 @@ private:
         return 0;
     }
 
+    bool _is_match_predicate_and_not_remaining(
+            ColumnPredicate* pred, const std::vector<ColumnPredicate*>& remaining_predicates) {
+        return pred->type() == PredicateType::MATCH &&
+               std::find(remaining_predicates.begin(), remaining_predicates.end(), pred) ==
+                       remaining_predicates.end();
+    }
+
+    void _delete_expr_from_conjunct_roots(const vectorized::VExprSPtr& expr,
+                                          vectorized::VExprSPtrs& conjunct_roots) {
+        conjunct_roots.erase(std::remove(conjunct_roots.begin(), conjunct_roots.end(), expr),
+                             conjunct_roots.end());
+    }
+
+    bool _is_target_expr_match_predicate(const vectorized::VExprSPtr& expr,
+                                         const MatchPredicate* match_pred, const Schema* schema);
+
+    Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
+
+    bool _need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column, size_t nrows_read);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
     std::shared_ptr<Segment> _segment;
+    // read schema from scanner
     SchemaSPtr _schema;
+    // storage type schema related to _schema, since column in segment may be different with type in _schema
+    std::vector<vectorized::NameAndTypePair> _storage_name_and_type;
     // vector idx -> column iterarator
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
@@ -378,14 +434,12 @@ private:
     std::vector<ColumnId> _first_read_column_ids;
     std::vector<ColumnId> _second_read_column_ids;
     std::vector<ColumnId> _columns_to_filter;
+    std::vector<ColumnId> _converted_column_ids;
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
     bool _lazy_inited;
     bool _inited;
-    bool _estimate_row_size;
-    // Read up to 100 rows at a time while waiting for the estimated row size.
-    int _wait_times_estimate_row_size;
 
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes
@@ -400,7 +454,7 @@ private:
             _column_pred_in_remaining_vconjunct;
     std::set<ColumnId> _not_apply_index_pred;
 
-    std::shared_ptr<ColumnPredicate> _runtime_predicate {nullptr};
+    std::shared_ptr<ColumnPredicate> _runtime_predicate;
 
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`
@@ -417,6 +471,7 @@ private:
     // char_type or array<char> type columns cid
     std::vector<size_t> _char_type_idx;
     std::vector<size_t> _char_type_idx_no_0;
+    std::vector<bool> _is_char_type;
 
     // number of rows read in the current batch
     uint32_t _current_batch_rows_read = 0;
@@ -431,6 +486,8 @@ private:
     bool _record_rowids = false;
     int32_t _tablet_id = 0;
     std::set<int32_t> _output_columns;
+
+    std::unique_ptr<HierarchicalDataReader> _path_reader;
 };
 
 } // namespace segment_v2

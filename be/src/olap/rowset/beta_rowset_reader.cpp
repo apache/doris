@@ -138,7 +138,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // It is necessary to ensure that there is a schema version when using a cache
     // because the absence of a schema version can result in reading a stale version
     // of the schema after a schema change.
+    // For table contains variants, it's schema is unstable and variable so we could not use schema cache here
     if (_read_context->tablet_schema->schema_version() < 0 ||
+        _read_context->tablet_schema->num_variant_columns() > 0 ||
         (_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
         _input_schema =
                 std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
@@ -212,6 +214,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.io_ctx.reader_type = _read_context->reader_type;
     _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
     _read_options.io_ctx.is_disposable = _read_context->reader_type != ReaderType::READER_QUERY;
+    _read_options.target_cast_type_for_variants = _read_context->target_cast_type_for_variants;
     if (_read_context->runtime_state != nullptr) {
         _read_options.io_ctx.query_id = &_read_context->runtime_state->query_id();
         _read_options.io_ctx.read_file_cache =
@@ -234,10 +237,23 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     for (int i = seg_start; i < seg_end; i++) {
         auto& seg_ptr = segments[i];
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(_input_schema, _read_options, &iter);
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
-            return Status::Error<ROWSET_READER_INIT>(s.to_string());
+        Status status;
+
+        /// If `_segment_row_ranges` is empty, the segment is not split.
+        if (_segment_row_ranges.empty()) {
+            _read_options.row_ranges.clear();
+            status = seg_ptr->new_iterator(_input_schema, _read_options, &iter);
+        } else {
+            DCHECK_EQ(seg_end - seg_start, _segment_row_ranges.size());
+            auto local_options = _read_options;
+            local_options.row_ranges = _segment_row_ranges[i - seg_start];
+            status = seg_ptr->new_iterator(_input_schema, local_options, &iter);
+        }
+
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
+                         << "]: " << status.to_string();
+            return Status::Error<ROWSET_READER_INIT>(status.to_string());
         }
         if (iter->empty()) {
             continue;
@@ -252,6 +268,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSpl
     _read_context = read_context;
     _read_context->rowset_id = _rowset->rowset_id();
     _segment_offsets = rs_splits.segment_offsets;
+    _segment_row_ranges = rs_splits.segment_row_ranges;
     return Status::OK();
 }
 

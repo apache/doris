@@ -221,7 +221,7 @@ std::string VFileResultWriter::_file_format_to_name() {
     }
 }
 
-Status VFileResultWriter::append_block(Block& block) {
+Status VFileResultWriter::write(Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -305,6 +305,9 @@ Status VFileResultWriter::_send_result() {
     row_buffer.push_bigint(_written_data_bytes->value());   // file size
     std::string file_url;
     static_cast<void>(_get_file_url(&file_url));
+    std::stringstream ss;
+    ss << file_url << "*";
+    file_url = ss.str();
     row_buffer.push_string(file_url.c_str(), file_url.length()); // url
 
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();

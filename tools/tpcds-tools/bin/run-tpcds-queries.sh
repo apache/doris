@@ -123,8 +123,24 @@ run_sql() {
     echo "$*"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
+get_session_variable() {
+    k="$1"
+    v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+    echo "${v/*Value: /}"
+}
+backup_session_variables_file="${CURDIR}/../conf/opt/backup_session_variables.sql"
+backup_session_variables() {
+    while IFS= read -r line; do
+        k="${line/set global /}"
+        k="${k%=*}"
+        v=$(get_session_variable "${k}")
+        echo "set global ${k}=${v};" >>"${backup_session_variables_file}"
+    done < <(grep -v '^ *#' <"${TPCDS_OPT_CONF}")
+}
+backup_session_variables
 
 echo '============================================'
+echo "Optimize session variables"
 run_sql "source ${TPCDS_OPT_CONF};"
 echo '============================================'
 run_sql "show variables;"
@@ -182,3 +198,7 @@ done
 echo "Total cold run time: ${cold_run_sum} ms"
 echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish tpcds queries.'
+
+echo "Restore session variables"
+run_sql "source ${backup_session_variables_file};"
+rm -f "${backup_session_variables_file}"

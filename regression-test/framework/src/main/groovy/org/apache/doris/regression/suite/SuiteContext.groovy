@@ -43,6 +43,7 @@ class SuiteContext implements Closeable {
     public final String group
     public final String dbName
     public final ThreadLocal<ConnectionInfo> threadLocalConn = new ThreadLocal<>()
+    public final ThreadLocal<ConnectionInfo> threadArrowFlightSqlConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveDockerConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
@@ -128,6 +129,14 @@ class SuiteContext implements Closeable {
         return getConnection()
     }
 
+    boolean useArrowFlightSql() {
+        if (group.contains("arrow_flight_sql") && config.groups.contains("arrow_flight_sql")) {
+            return true
+        }
+        return false
+    }
+
+    // jdbc:mysql
     Connection getConnection() {
         def threadConnInfo = threadLocalConn.get()
         if (threadConnInfo == null) {
@@ -137,6 +146,19 @@ class SuiteContext implements Closeable {
             threadConnInfo.password = config.jdbcPassword
             threadLocalConn.set(threadConnInfo)
         }
+        return threadConnInfo.conn
+    }
+
+    Connection getArrowFlightSqlConnection(){
+        def threadConnInfo = threadArrowFlightSqlConn.get()
+        if (threadConnInfo == null) {
+            threadConnInfo = new ConnectionInfo()
+            threadConnInfo.conn = config.getConnectionByArrowFlightSql(dbName)
+            threadConnInfo.username = config.jdbcUser
+            threadConnInfo.password = config.jdbcPassword
+            threadArrowFlightSqlConn.set(threadConnInfo)
+        }
+        println("Use arrow flight sql connection")
         return threadConnInfo.conn
     }
 
@@ -371,7 +393,17 @@ class SuiteContext implements Closeable {
                 log.warn("Close connection failed", t)
             }
         }
-        
+
+        ConnectionInfo arrow_flight_sql_conn = threadArrowFlightSqlConn.get()
+        if (arrow_flight_sql_conn != null) {
+            threadArrowFlightSqlConn.remove()
+            try {
+                arrow_flight_sql_conn.conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+
         Connection hive_docker_conn = threadHiveDockerConn.get()
         if (hive_docker_conn != null) {
             threadHiveDockerConn.remove()

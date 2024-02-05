@@ -21,6 +21,7 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
@@ -88,9 +89,7 @@ public class MasterOpExecutor {
 
     // Send request to Master
     private TMasterOpResult forward(TMasterOpRequest params) throws Exception {
-        if (!ctx.getEnv().isReady()) {
-            throw new Exception("Node catalog is not ready, please wait for a while.");
-        }
+        ctx.getEnv().checkReadyOrThrow();
         String masterHost = ctx.getEnv().getMasterHost();
         int masterRpcPort = ctx.getEnv().getMasterRpcPort();
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
@@ -148,7 +147,6 @@ public class MasterOpExecutor {
         //node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
-        params.setCluster(ctx.getClusterName());
         params.setSql(originStmt.originStmt);
         params.setStmtIdx(originStmt.idx);
         params.setUser(ctx.getQualifiedUser());
@@ -207,6 +205,23 @@ public class MasterOpExecutor {
         } else {
             return result.getStatus();
         }
+    }
+
+    public int getProxyStatusCode() {
+        if (result == null || !result.isSetStatusCode()) {
+            return ErrorCode.ERR_UNKNOWN_ERROR.getCode();
+        }
+        return result.getStatusCode();
+    }
+
+    public String getProxyErrMsg() {
+        if (result == null) {
+            return ErrorCode.ERR_UNKNOWN_ERROR.getErrorMsg();
+        }
+        if (!result.isSetErrMessage()) {
+            return "";
+        }
+        return result.getErrMessage();
     }
 
     public ShowResultSet getProxyResultSet() {

@@ -45,7 +45,7 @@ public:
 };
 
 template <bool is_intersect>
-class SetSourceOperator : public SourceOperator<SetSourceOperatorBuilder<is_intersect>> {
+class SetSourceOperator : public SourceOperator<vectorized::VSetOperationNode<is_intersect>> {
 public:
     SetSourceOperator(OperatorBuilderBase* builder,
                       vectorized::VSetOperationNode<is_intersect>* set_node);
@@ -53,14 +53,22 @@ public:
     Status open(RuntimeState* /*state*/) override { return Status::OK(); }
 };
 
+class SetSourceDependency final : public Dependency {
+public:
+    using SharedState = SetSharedState;
+    SetSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SetSourceDependency", query_ctx) {}
+    ~SetSourceDependency() override = default;
+};
+
 template <bool is_intersect>
 class SetSourceOperatorX;
 
 template <bool is_intersect>
-class SetSourceLocalState final : public PipelineXLocalState<SetDependency> {
+class SetSourceLocalState final : public PipelineXLocalState<SetSourceDependency> {
 public:
     ENABLE_FACTORY_CREATOR(SetSourceLocalState);
-    using Base = PipelineXLocalState<SetDependency>;
+    using Base = PipelineXLocalState<SetSourceDependency>;
     using Parent = SetSourceOperatorX<is_intersect>;
     SetSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
     Status init(RuntimeState* state, LocalStateInfo& infos) override;

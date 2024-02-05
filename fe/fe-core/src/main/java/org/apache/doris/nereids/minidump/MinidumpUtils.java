@@ -41,7 +41,8 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 
-import lombok.extern.slf4j.Slf4j;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -60,10 +61,11 @@ import java.util.Optional;
 /**
  * Util for minidump
  */
-@Slf4j
 public class MinidumpUtils {
 
-    public static String DUMP_PATH = null;
+    private static final Logger LOG = LogManager.getLogger(MinidumpUtils.class);
+
+    private static String DUMP_PATH = null;
 
     /**
      * Saving of minidump file to fe log path
@@ -74,7 +76,7 @@ public class MinidumpUtils {
         try (FileWriter file = new FileWriter(dumpPath + ".json")) {
             file.write(jsonMinidump);
         } catch (IOException e) {
-            log.info("failed to save minidump file", e);
+            LOG.info("failed to save minidump file", e);
         }
     }
 
@@ -157,7 +159,7 @@ public class MinidumpUtils {
             String inputString = sb.toString();
             return jsonMinidumpLoadFromString(inputString);
         } catch (IOException e) {
-            log.info("failed to open minidump file", e);
+            LOG.info("failed to open minidump file", e);
         }
         return null;
     }
@@ -239,8 +241,9 @@ public class MinidumpUtils {
     }
 
     private static ColumnStatistic getColumnStatistic(TableIf table, String colName) {
+        // TODO. Get index id for materialized view.
         return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-            table.getDatabase().getCatalog().getId(), table.getDatabase().getId(), table.getId(), colName);
+            table.getDatabase().getCatalog().getId(), table.getDatabase().getId(), table.getId(), -1, colName);
     }
 
     private static Histogram getColumnHistogram(TableIf table, String colName) {
@@ -288,14 +291,14 @@ public class MinidumpUtils {
      * serialize output plan to dump file and persistent into disk
      */
     public static void serializeOutputToDumpFile(Plan resultPlan) {
-        if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()
-                || !ConnectContext.get().getSessionVariable().isEnableMinidump()) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext.getSessionVariable().isPlayNereidsDump()
+                || !connectContext.getSessionVariable().isEnableMinidump()) {
             return;
         }
-        ConnectContext.get().getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
-        if (ConnectContext.get().getSessionVariable().isEnableMinidump()) {
-            saveMinidumpString(ConnectContext.get().getMinidump(),
-                    DebugUtil.printId(ConnectContext.get().queryId()));
+        connectContext.getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
+        if (connectContext.getSessionVariable().isEnableMinidump()) {
+            saveMinidumpString(connectContext.getMinidump(), DebugUtil.printId(connectContext.queryId()));
         }
     }
 
@@ -431,15 +434,16 @@ public class MinidumpUtils {
      * implementation of interface serializeInputsToDumpFile
      */
     private static JSONObject serializeInputs(Plan parsedPlan, List<TableIf> tables) throws IOException {
+        ConnectContext connectContext = ConnectContext.get();
         // Create a JSON object
         JSONObject jsonObj = new JSONObject();
-        jsonObj.put("Sql", ConnectContext.get().getStatementContext().getOriginStatement().originStmt);
+        jsonObj.put("Sql", connectContext.getStatementContext().getOriginStatement().originStmt);
         // add session variable
-        int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true);
-        ConnectContext.get().getSessionVariable().setBeNumberForTest(beNumber);
-        jsonObj.put("SessionVariable", serializeChangedSessionVariable(ConnectContext.get().getSessionVariable()));
+        int beNumber = connectContext.getEnv().getClusterInfo().getBackendsNumber(true);
+        connectContext.getSessionVariable().setBeNumberForTest(beNumber);
+        jsonObj.put("SessionVariable", serializeChangedSessionVariable(connectContext.getSessionVariable()));
         // add tables
-        jsonObj.put("DbName", ConnectContext.get().getDatabase());
+        jsonObj.put("DbName", connectContext.getDatabase());
         JSONArray tablesJson = serializeTables(tables);
         jsonObj.put("Tables", tablesJson);
         // add colocate table index, used to indicate grouping of table distribution
@@ -459,19 +463,20 @@ public class MinidumpUtils {
      * @throws IOException this will write to disk, so io exception should be dealed with
      */
     public static void serializeInputsToDumpFile(Plan parsedPlan, List<TableIf> tables) throws IOException {
+        ConnectContext connectContext = ConnectContext.get();
         // when playing minidump file, we do not save input again.
-        if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()
-                || !ConnectContext.get().getSessionVariable().isEnableMinidump()) {
+        if (connectContext.getSessionVariable().isPlayNereidsDump()
+                || !connectContext.getSessionVariable().isEnableMinidump()) {
             return;
         }
 
-        if (!ConnectContext.get().getSessionVariable().getMinidumpPath().equals("")) {
-            MinidumpUtils.DUMP_PATH = ConnectContext.get().getSessionVariable().getMinidumpPath();
+        if (!connectContext.getSessionVariable().getMinidumpPath().equals("")) {
+            MinidumpUtils.DUMP_PATH = connectContext.getSessionVariable().getMinidumpPath();
         } else {
-            ConnectContext.get().getSessionVariable().setMinidumpPath("defaultMinidumpPath");
+            connectContext.getSessionVariable().setMinidumpPath("defaultMinidumpPath");
         }
         MinidumpUtils.init();
-        ConnectContext.get().setMinidump(serializeInputs(parsedPlan, tables));
+        connectContext.setMinidump(serializeInputs(parsedPlan, tables));
     }
 
     /**

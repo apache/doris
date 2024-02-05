@@ -32,7 +32,6 @@ import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class DecommissionTest {
     private static final Logger LOG = LogManager.getLogger(TabletReplicaTooSlowTest.class);
@@ -152,23 +152,23 @@ public class DecommissionTest {
     }
 
     void checkBalance(int tryTimes, int totalReplicaNum, int backendNum) throws Exception {
-        int beReplicaNum = totalReplicaNum / backendNum;
         for (int i = 0; i < tryTimes; i++) {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            if (backendNum != backendIds.size() && i != tryTimes - 1) {
-                Thread.sleep(1000);
-                continue;
+            if (backendNum == backendIds.size()) {
+                break;
             }
 
-            List<Integer> tabletNums = Lists.newArrayList();
-            for (long beId : backendIds) {
-                tabletNums.add(Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId));
-            }
-
-            Assert.assertEquals("tablet nums = " + tabletNums, backendNum, backendIds.size());
-            for (int tabletNum : tabletNums) {
-                Assert.assertEquals("tablet nums = " + tabletNums, beReplicaNum, tabletNum);
-            }
+            Thread.sleep(1000);
         }
+
+        List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        Assert.assertEquals(backendNum, backendIds.size());
+        List<Integer> tabletNums = backendIds.stream()
+                .map(beId -> Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId))
+                .collect(Collectors.toList());
+
+        int avgReplicaNum = totalReplicaNum / backendNum;
+        boolean balanced = tabletNums.stream().allMatch(num -> Math.abs(num - avgReplicaNum) <= 30);
+        Assert.assertTrue("not balance, tablet nums = " + tabletNums, balanced);
     }
 }

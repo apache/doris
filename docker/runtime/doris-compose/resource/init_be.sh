@@ -81,6 +81,7 @@ main() {
     if [ -n $LLVM_PROFILE_FILE_PREFIX ]; then
         export LLVM_PROFILE_FILE="${LLVM_PROFILE_FILE_PREFIX}-$(date +%s)"
     fi
+    health_log "run start_be.sh"
     bash $DORIS_HOME/bin/start_be.sh --daemon
 
     wait_process

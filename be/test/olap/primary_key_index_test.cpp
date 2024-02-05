@@ -41,7 +41,10 @@ using namespace ErrorCode;
 class PrimaryKeyIndexTest : public testing::Test {
 public:
     void SetUp() override {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(kTestDir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(kTestDir);
+        ASSERT_TRUE(st.ok()) << st;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
@@ -57,7 +60,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     auto fs = io::global_local_filesystem();
     EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
-    PrimaryKeyIndexBuilder builder(file_writer.get(), 0);
+    PrimaryKeyIndexBuilder builder(file_writer.get(), 0, 0);
     static_cast<void>(builder.init());
     size_t num_rows = 0;
     std::vector<std::string> keys;
@@ -174,7 +177,7 @@ TEST_F(PrimaryKeyIndexTest, multiple_pages) {
     EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
     config::primary_key_data_page_size = 5 * 5;
-    PrimaryKeyIndexBuilder builder(file_writer.get(), 0);
+    PrimaryKeyIndexBuilder builder(file_writer.get(), 0, 0);
     static_cast<void>(builder.init());
     size_t num_rows = 0;
     std::vector<std::string> keys {"00000", "00002", "00004", "00006", "00008",
@@ -258,7 +261,7 @@ TEST_F(PrimaryKeyIndexTest, single_page) {
     EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
     config::primary_key_data_page_size = 32768;
 
-    PrimaryKeyIndexBuilder builder(file_writer.get(), 0);
+    PrimaryKeyIndexBuilder builder(file_writer.get(), 0, 0);
     static_cast<void>(builder.init());
     size_t num_rows = 0;
     std::vector<std::string> keys {"00000", "00002", "00004", "00006", "00008",

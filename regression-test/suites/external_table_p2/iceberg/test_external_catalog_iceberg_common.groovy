@@ -46,5 +46,8 @@ suite("test_external_catalog_iceberg_common", "p2,external,iceberg,external_remo
         }
         sql """ use `iceberg_catalog`; """
         q01_parquet()
+
+        // test the special characters in table fields
+        qt_sanitize_mara """select MaTnR, NtgEW, `/dsd/Sv_cnt_grP` from sanitize_mara order by mAtNr"""
     }
 }

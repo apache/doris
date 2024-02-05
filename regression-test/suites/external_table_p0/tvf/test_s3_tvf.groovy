@@ -37,7 +37,7 @@ suite("test_s3_tvf", "p0") {
         CREATE TABLE IF NOT EXISTS ${table_name} (
             `user_id` LARGEINT NOT NULL COMMENT "用户id",
             `name` STRING COMMENT "用户名称",
-            `age` INT COMMENT "用户年龄",
+            `age` INT COMMENT "用户年龄"
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
@@ -79,7 +79,7 @@ suite("test_s3_tvf", "p0") {
     // 1. normal
     try {
         order_qt_select_1 """ SELECT * FROM S3 (
-                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.orc",
+                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.orc",
                             "ACCESS_KEY"= "${ak}",
                             "SECRET_KEY" = "${sk}",
                             "format" = "orc",
@@ -107,7 +107,7 @@ suite("test_s3_tvf", "p0") {
     // 3.test use_path_style
     try {
         order_qt_select_3 """ SELECT * FROM S3 (
-                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.orc",
+                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.orc",
                             "s3.access_key"= "${ak}",
                             "s3.secret_key" = "${sk}",
                             "format" = "orc",

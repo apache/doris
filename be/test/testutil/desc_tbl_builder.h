@@ -52,7 +52,7 @@ public:
 
 private:
     // Owned by caller.
-    ObjectPool* _obj_pool;
+    ObjectPool* _obj_pool = nullptr;
 
     std::vector<TupleDescBuilder*> _tuples_descs;
 

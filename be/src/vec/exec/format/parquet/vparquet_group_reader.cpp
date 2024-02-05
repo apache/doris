@@ -176,8 +176,18 @@ Status RowGroupReader::init(
 
 bool RowGroupReader::_can_filter_by_dict(int slot_id,
                                          const tparquet::ColumnMetaData& column_metadata) {
-    if (column_metadata.encodings[0] != tparquet::Encoding::RLE_DICTIONARY ||
-        column_metadata.type != tparquet::Type::BYTE_ARRAY) {
+    SlotDescriptor* slot = nullptr;
+    const std::vector<SlotDescriptor*>& slots = _tuple_descriptor->slots();
+    for (auto each : slots) {
+        if (each->id() == slot_id) {
+            slot = each;
+            break;
+        }
+    }
+    if (!slot->type().is_string_type()) {
+        return false;
+    }
+    if (column_metadata.type != tparquet::Type::BYTE_ARRAY) {
         return false;
     }
 

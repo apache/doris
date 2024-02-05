@@ -194,7 +194,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
     public static final Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
-    public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1 && v <= 60;
+    public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1;
     public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> v >= 200000;
     public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024;
     public static final Predicate<Long> EXEC_MEM_LIMIT_PRED = (v) -> v >= 0L;
@@ -462,7 +462,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         desiredConcurrentNum = ((Long) Util.getLongPropertyOrDefault(
                 jobProperties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY),
                 Config.max_routine_load_task_concurrent_num, DESIRED_CONCURRENT_NUMBER_PRED,
-                DESIRED_CONCURRENT_NUMBER_PROPERTY + " should > 0")).intValue();
+                DESIRED_CONCURRENT_NUMBER_PROPERTY + " must be greater than 0")).intValue();
 
         maxErrorNum = Util.getLongPropertyOrDefault(jobProperties.get(MAX_ERROR_NUMBER_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_ERROR_NUM, MAX_ERROR_NUMBER_PRED,
@@ -474,7 +474,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
         maxBatchIntervalS = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_INTERVAL_SEC_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, MAX_BATCH_INTERVAL_PRED,
-                MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 1 and 60");
+                MAX_BATCH_INTERVAL_SEC_PROPERTY + " should >= 1");
 
         maxBatchRows = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_ROWS_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, MAX_BATCH_ROWS_PRED,
@@ -488,11 +488,12 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 RoutineLoadJob.DEFAULT_STRICT_MODE,
                 LoadStmt.STRICT_MODE + " should be a boolean");
         execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
-                RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED, EXEC_MEM_LIMIT_PROPERTY + "should > 0");
+                RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED,
+                EXEC_MEM_LIMIT_PROPERTY + " must be greater than 0");
 
         sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
                 ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
-                SEND_BATCH_PARALLELISM + " should > 0")).intValue();
+                SEND_BATCH_PARALLELISM + " must be greater than 0")).intValue();
         loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
                 RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
                 LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");

@@ -32,7 +32,6 @@
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
@@ -77,8 +76,7 @@ public:
                                       null_map_->assume_mutable());
     }
 
-    template <typename... Args,
-              typename = typename std::enable_if<IsMutableColumns<Args...>::value>::type>
+    template <typename... Args, typename = std::enable_if_t<IsMutableColumns<Args...>::value>>
     static MutablePtr create(Args&&... args) {
         return Base::create(std::forward<Args>(args)...);
     }
@@ -121,8 +119,9 @@ public:
     void deserialize_vec(std::vector<StringRef>& keys, size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
+
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
 
@@ -273,7 +272,8 @@ public:
     size_t size_of_value_if_fixed() const override {
         return null_map->size_of_value_if_fixed() + nested_column->size_of_value_if_fixed();
     }
-    bool only_null() const override { return nested_column->is_dummy(); }
+
+    bool only_null() const override { return size() == 1 && is_null_at(0); }
 
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)nested_column) = other; }

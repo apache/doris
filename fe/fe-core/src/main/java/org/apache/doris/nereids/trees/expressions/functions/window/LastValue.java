@@ -34,10 +34,18 @@ public class LastValue extends FirstOrLastValue {
         super("last_value", child);
     }
 
+    public LastValue(Expression child, Expression ignoreNullValue) {
+        super("last_value", child, ignoreNullValue);
+    }
+
+    public LastValue(List<Expression> children) {
+        super("last_value", children);
+    }
+
     @Override
     public LastValue withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new LastValue(children.get(0));
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        return new LastValue(children);
     }
 
     @Override

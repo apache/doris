@@ -63,7 +63,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         if (DebugPointUtil.isEnable("PublishVersionDaemon.stop_publish")) {
             return;
         }
-        GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgrIface globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
         if (readyTransactionStates.isEmpty()) {
             return;
@@ -173,6 +173,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                 for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
                 }
+                transactionState.pruneAfterVisible();
                 if (MetricRepo.isInit) {
                     long publishTime = transactionState.getLastPublishVersionTime() - transactionState.getCommitTime();
                     MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishTime);

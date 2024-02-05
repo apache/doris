@@ -128,13 +128,12 @@ public class PartitionDesc {
                                     + expr.toSql());
                 }
             } else if (expr instanceof SlotRef) {
-                if (colNames.isEmpty()) {
-                    colNames.add(((SlotRef) expr).getColumnName());
-                } else {
+                if (!colNames.isEmpty() && !isListPartition) {
                     throw new AnalysisException(
-                            "auto create partition only support one slotRef in expr. "
+                            "auto create partition only support one slotRef in expr of RANGE partition. "
                                     + expr.toSql());
                 }
+                colNames.add(((SlotRef) expr).getColumnName());
             } else {
                 if (!isListPartition) {
                     throw new AnalysisException(
@@ -191,9 +190,14 @@ public class PartitionDesc {
                         throw new AnalysisException("Complex type column can't be partition column: "
                                 + columnDef.getType().toString());
                     }
+                    // prohibit to create auto partition with null column anyhow
+                    if (this.isAutoCreatePartitions && columnDef.isAllowNull()) {
+                        throw new AnalysisException("The auto partition column must be NOT NULL");
+                    }
                     if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
                             && columnDef.isAllowNull()) {
-                        throw new AnalysisException("The partition column must be NOT NULL");
+                        throw new AnalysisException(
+                                "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
                     }
                     if (this instanceof ListPartitionDesc && columnDef.isAllowNull()) {
                         throw new AnalysisException("The list partition column must be NOT NULL");
@@ -242,6 +246,14 @@ public class PartitionDesc {
 
     public PartitionType getType() {
         return type;
+    }
+
+    public ArrayList<Expr> getPartitionExprs() {
+        return partitionExprs;
+    }
+
+    public boolean isAutoCreatePartitions() {
+        return isAutoCreatePartitions;
     }
 
     public String toSql() {

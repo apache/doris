@@ -18,15 +18,15 @@
 package org.apache.doris.job.executor;
 
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.disruptor.TaskDisruptor;
 
 import io.netty.util.Timeout;
 import io.netty.util.TimerTask;
-import jline.internal.Log;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.log4j.Log4j2;
 
-@Slf4j
-public class TimerJobSchedulerTask<T extends AbstractJob<?>> implements TimerTask {
+@Log4j2
+public class TimerJobSchedulerTask<T extends AbstractJob> implements TimerTask {
 
     private TaskDisruptor dispatchDisruptor;
 
@@ -40,9 +40,13 @@ public class TimerJobSchedulerTask<T extends AbstractJob<?>> implements TimerTas
     @Override
     public void run(Timeout timeout) {
         try {
+            if (!JobStatus.RUNNING.equals(job.getJobStatus())) {
+                log.info("job status is not running, job id is {}, skip dispatch", this.job.getJobId());
+                return;
+            }
             dispatchDisruptor.publishEvent(this.job);
         } catch (Exception e) {
-            Log.warn("dispatch timer job error, task id is {}", this.job.getJobId(), e);
+            log.warn("dispatch timer job error, task id is {}", this.job.getJobId(), e);
         }
     }
 }

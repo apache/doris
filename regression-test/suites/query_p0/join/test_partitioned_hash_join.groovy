@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_partitioned_hash_join", "query,p0") {
+suite("test_partitioned_hash_join", "query,p0,arrow_flight_sql") {
     sql "drop table if exists test_partitioned_hash_join_l"
     sql "drop table if exists test_partitioned_hash_join_r"
     sql """ create table test_partitioned_hash_join_l (

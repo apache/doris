@@ -116,7 +116,7 @@ suite("bind_priority") {
 
     test{
         sql "SELECT a,2 as a FROM (SELECT '1' as a) b HAVING a=1"
-        exception "a is ambiguous: a#0, a#1."
+        exception "a is ambiguous: a#1, a#2."
     }
 
     sql "drop table if exists duplicate_slot";

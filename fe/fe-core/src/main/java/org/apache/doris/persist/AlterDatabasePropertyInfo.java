@@ -17,8 +17,10 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -28,7 +30,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 
-public class AlterDatabasePropertyInfo implements Writable {
+public class AlterDatabasePropertyInfo implements Writable, GsonPostProcessable {
     @SerializedName(value = "dbId")
     private long dbId;
 
@@ -37,12 +39,6 @@ public class AlterDatabasePropertyInfo implements Writable {
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
-
-    public AlterDatabasePropertyInfo() {
-        // for persist
-        this.dbName = "";
-        this.properties = null;
-    }
 
     public AlterDatabasePropertyInfo(long dbId, String dbName, Map<String, String> properties) {
         this.dbId = dbId;
@@ -73,5 +69,10 @@ public class AlterDatabasePropertyInfo implements Writable {
 
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        dbName = ClusterNamespace.getNameFromFullName(dbName);
     }
 }

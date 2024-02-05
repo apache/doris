@@ -101,7 +101,7 @@ public class RoutineLoadManagerTest {
                                                                                 LoadTask.MergeType.APPEND, "");
         createRoutineLoadStmt.setOrigStmt(new OriginStatement("dummy", 0));
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, "default_cluster", 1L, 1L,
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, 1L, 1L,
                 serverAddress, topicName, UserIdentity.ADMIN);
 
         new MockUp<KafkaRoutineLoadJob>() {
@@ -199,7 +199,7 @@ public class RoutineLoadManagerTest {
         String jobName = "job1";
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, "default_cluster", 1L, 1L,
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, 1L, 1L,
                 serverAddress, topicName, UserIdentity.ADMIN);
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
@@ -207,7 +207,7 @@ public class RoutineLoadManagerTest {
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
         Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
         List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-        KafkaRoutineLoadJob kafkaRoutineLoadJobWithSameName = new KafkaRoutineLoadJob(1L, jobName, "default_cluster",
+        KafkaRoutineLoadJob kafkaRoutineLoadJobWithSameName = new KafkaRoutineLoadJob(1L, jobName,
                 1L, 1L, serverAddress, topicName, UserIdentity.ADMIN);
         routineLoadJobList.add(kafkaRoutineLoadJobWithSameName);
         nameToRoutineLoadJob.put(jobName, routineLoadJobList);
@@ -215,7 +215,7 @@ public class RoutineLoadManagerTest {
 
         Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
         try {
-            routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db");
+            routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
             Assert.fail();
         } catch (DdlException e) {
             LOG.info(e.getMessage());
@@ -229,7 +229,7 @@ public class RoutineLoadManagerTest {
         String jobName = "job1";
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, "default_cluster", 1L, 1L,
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, 1L, 1L,
                 serverAddress, topicName, UserIdentity.ADMIN);
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
@@ -245,7 +245,7 @@ public class RoutineLoadManagerTest {
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
         Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
         List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-        KafkaRoutineLoadJob kafkaRoutineLoadJobWithSameName = new KafkaRoutineLoadJob(1L, jobName, "default_cluster",
+        KafkaRoutineLoadJob kafkaRoutineLoadJobWithSameName = new KafkaRoutineLoadJob(1L, jobName,
                 1L, 1L, serverAddress, topicName, UserIdentity.ADMIN);
         Deencapsulation.setField(kafkaRoutineLoadJobWithSameName, "state", RoutineLoadJob.JobState.STOPPED);
         routineLoadJobList.add(kafkaRoutineLoadJobWithSameName);
@@ -256,7 +256,7 @@ public class RoutineLoadManagerTest {
 
         Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
         Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
-        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db");
+        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
 
         Map<Long, Map<String, List<RoutineLoadJob>>> result =
                 Deencapsulation.getField(routineLoadManager, "dbToNameToRoutineLoadJob");
@@ -775,12 +775,12 @@ public class RoutineLoadManagerTest {
         };
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "testjob", SystemInfoService.DEFAULT_CLUSTER,
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "testjob",
                 10000, 10001, "192.168.1.1:9090", "testtopic", UserIdentity.ADMIN);
-        routineLoadManager.addRoutineLoadJob(job, "testdb");
+        routineLoadManager.addRoutineLoadJob(job, "testdb", "testtable");
         Config.max_routine_load_task_num_per_be = 10;
         Deencapsulation.setField(routineLoadManager, "beIdToMaxConcurrentTasks", beIdToMaxConcurrentTasks);
-        Assert.assertEquals(1L, routineLoadManager.getAvailableBeForTask(1L, 1L, "default"));
+        Assert.assertEquals(1L, routineLoadManager.getAvailableBeForTask(1L, 1L));
     }
 
     @Test
@@ -801,7 +801,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                routineLoadJob.needRemove();
+                routineLoadJob.isExpired();
                 minTimes = 0;
                 result = true;
                 routineLoadJob.getDbId();
@@ -817,6 +817,47 @@ public class RoutineLoadManagerTest {
         };
         routineLoadManager.cleanOldRoutineLoadJobs();
 
+        Assert.assertEquals(0, dbToNameToRoutineLoadJob.size());
+        Assert.assertEquals(0, idToRoutineLoadJob.size());
+    }
+
+    @Test
+    public void testCleanOverLimitRoutineLoadJobs(@Injectable RoutineLoadJob routineLoadJob,
+            @Mocked Env env, @Mocked EditLog editLog) {
+        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+        routineLoadJobList.add(routineLoadJob);
+        nameToRoutineLoadJob.put("", routineLoadJobList);
+        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+        Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newHashMap();
+        idToRoutineLoadJob.put(1L, routineLoadJob);
+        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+
+        new Expectations() {
+            {
+                routineLoadJob.getId();
+                minTimes = 0;
+                result = 1L;
+                routineLoadJob.isFinal();
+                minTimes = 0;
+                result = true;
+                routineLoadJob.getDbId();
+                minTimes = 0;
+                result = 1L;
+                routineLoadJob.getName();
+                minTimes = 0;
+                result = "";
+                env.getEditLog();
+                minTimes = 0;
+                result = editLog;
+            }
+        };
+        Config.label_num_threshold = 0;
+
+        routineLoadManager.cleanOverLimitRoutineLoadJobs();
         Assert.assertEquals(0, dbToNameToRoutineLoadJob.size());
         Assert.assertEquals(0, idToRoutineLoadJob.size());
     }

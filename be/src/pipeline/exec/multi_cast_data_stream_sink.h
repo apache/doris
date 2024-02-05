@@ -33,7 +33,7 @@ public:
 };
 
 class MultiCastDataStreamSinkOperator final
-        : public DataSinkOperator<MultiCastDataStreamSinkOperatorBuilder> {
+        : public DataSinkOperator<vectorized::MultiCastDataStreamSink> {
 public:
     MultiCastDataStreamSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
@@ -41,18 +41,25 @@ public:
     bool can_write() override { return _sink->can_write(); }
 };
 
+class MultiCastSinkDependency final : public Dependency {
+public:
+    using SharedState = MultiCastSharedState;
+    MultiCastSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "MultiCastSinkDependency", true, query_ctx) {}
+    ~MultiCastSinkDependency() override = default;
+};
+
 class MultiCastDataStreamSinkOperatorX;
 class MultiCastDataStreamSinkLocalState final
-        : public PipelineXSinkLocalState<MultiCastDependency> {
+        : public PipelineXSinkLocalState<MultiCastSinkDependency> {
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSinkLocalState);
     MultiCastDataStreamSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
     friend class MultiCastDataStreamSinkOperatorX;
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
-    using Base = PipelineXSinkLocalState<MultiCastDependency>;
+    using Base = PipelineXSinkLocalState<MultiCastSinkDependency>;
     using Parent = MultiCastDataStreamSinkOperatorX;
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    std::string id_name() override;
+    std::string name_suffix() override;
 
 private:
     std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer;
@@ -105,7 +112,7 @@ private:
     friend class MultiCastDataStreamSinkLocalState;
     ObjectPool* _pool;
     RowDescriptor _row_desc;
-    int _cast_sender_count;
+    const int _cast_sender_count;
     const TMultiCastDataStreamSink& _sink;
     friend class MultiCastDataStreamSinkLocalState;
 };

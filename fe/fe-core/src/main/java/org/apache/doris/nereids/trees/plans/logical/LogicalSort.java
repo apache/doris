@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -42,7 +43,8 @@ import java.util.Optional;
  * orderKeys: list of column information after order by. eg:[a, asc],[b, desc].
  * OrderKey: Contains order expression information and sorting method. Default is ascending.
  */
-public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Sort {
+public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements Sort, PropagateFuncDeps {
 
     private final List<OrderKey> orderKeys;
 

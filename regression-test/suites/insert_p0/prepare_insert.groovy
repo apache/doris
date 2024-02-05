@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,9 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The cases is copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases
-// and modified by Doris.
+import com.mysql.cj.ServerPreparedQuery
+import com.mysql.cj.jdbc.ConnectionImpl
+import com.mysql.cj.jdbc.JdbcStatement
+import com.mysql.cj.jdbc.ServerPreparedStatement
+import com.mysql.cj.jdbc.StatementImpl
+
+import java.lang.reflect.Field
+import java.util.concurrent.CopyOnWriteArrayList
+
 suite("prepare_insert") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
@@ -41,6 +46,29 @@ suite("prepare_insert") {
         );
     """
 
+    def getServerInfo = { stmt ->
+        def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
+        logger.info("server info: " + serverInfo)
+        return serverInfo
+    }
+
+    def getStmtId = { stmt ->
+        ConnectionImpl connection = (ConnectionImpl) stmt.getConnection()
+        Field field = ConnectionImpl.class.getDeclaredField("openStatements")
+        field.setAccessible(true)
+        CopyOnWriteArrayList<JdbcStatement> openStatements = (CopyOnWriteArrayList<JdbcStatement>) field.get(
+                connection)
+        List<Long> serverStatementIds = new ArrayList<Long>()
+        for (JdbcStatement openStatement : openStatements) {
+            ServerPreparedStatement serverPreparedStatement = (ServerPreparedStatement) openStatement
+            ServerPreparedQuery serverPreparedQuery = (ServerPreparedQuery) serverPreparedStatement.getQuery()
+            long serverStatementId = serverPreparedQuery.getServerStatementId()
+            serverStatementIds.add(serverStatementId)
+        }
+        logger.info("server statement ids: " + serverStatementIds)
+        return serverStatementIds
+    }
+
     // Parse url
     String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, realDb)
 
@@ -52,11 +80,16 @@ suite("prepare_insert") {
         stmt.setInt(3, 90)
         def result = stmt.execute()
         logger.info("result: ${result}")
+        getServerInfo(stmt)
+        def stmtId = getStmtId(stmt)
+
         stmt.setInt(1, 2)
         stmt.setString(2, "ab")
         stmt.setInt(3, 91)
         result = stmt.execute()
         logger.info("result: ${result}")
+        getServerInfo(stmt)
+        assertEquals(stmtId, getStmtId(stmt))
 
         stmt.setInt(1, 3)
         stmt.setString(2, "abc")
@@ -71,6 +104,10 @@ suite("prepare_insert") {
         assertEquals(result.size(), 2)
         assertEquals(result[0], 1)
         assertEquals(result[1], 1)
+        getServerInfo(stmt)
+        // Even if we write 2 rows as a batch, but the client does not add rewriteBatchedStatements=true in the url,
+        // so the insert is executed in fe one by one.
+        assertEquals(stmtId, getStmtId(stmt))
 
         stmt.close()
     }
@@ -85,6 +122,7 @@ suite("prepare_insert") {
         stmt.setInt(3, 94)
         def result = stmt.execute()
         logger.info("result: ${result}")
+        getServerInfo(stmt)
 
         stmt.close()
     }
@@ -98,11 +136,16 @@ suite("prepare_insert") {
         stmt.setInt(3, 90)
         def result = stmt.execute()
         logger.info("result: ${result}")
+        getServerInfo(stmt)
+        def stmtId = getStmtId(stmt)
+
         stmt.setInt(1, 20)
         stmt.setString(2, "ab")
         stmt.setInt(3, 91)
         result = stmt.execute()
         logger.info("result: ${result}")
+        getServerInfo(stmt)
+        assertEquals(stmtId, getStmtId(stmt))
 
         stmt.setInt(1, 30)
         stmt.setString(2, "abc")
@@ -118,6 +161,49 @@ suite("prepare_insert") {
         // TODO why return -2
         assertEquals(result[0], -2)
         assertEquals(result[1], -2)
+        getServerInfo(stmt)
+        assertEquals(stmtId, getStmtId(stmt))
+
+        stmt.close()
+    }
+
+    url += "&cachePrepStmts=true"
+    result1 = connect(user = user, password = password, url = url) {
+        def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)
+        stmt.setInt(1, 10)
+        stmt.setString(2, "a")
+        stmt.setInt(3, 90)
+        def result = stmt.execute()
+        logger.info("result: ${result}")
+        getServerInfo(stmt)
+        def stmtId = getStmtId(stmt)
+
+        stmt.setInt(1, 20)
+        stmt.setString(2, "ab")
+        stmt.setInt(3, 91)
+        result = stmt.execute()
+        logger.info("result: ${result}")
+        getServerInfo(stmt)
+        assertEquals(stmtId, getStmtId(stmt))
+
+        stmt.setInt(1, 30)
+        stmt.setString(2, "abc")
+        stmt.setInt(3, 92)
+        stmt.addBatch()
+        stmt.setInt(1, 40)
+        stmt.setString(2, "abcd")
+        stmt.setInt(3, 93)
+        stmt.addBatch()
+        result = stmt.executeBatch()
+        logger.info("result: ${result}")
+        assertEquals(result.size(), 2)
+        // TODO why return -2
+        assertEquals(result[0], -2)
+        assertEquals(result[1], -2)
+        getServerInfo(stmt)
+        def stmtId2 = getStmtId(stmt)
+        assertEquals(2, stmtId2.size())
 
         stmt.close()
     }

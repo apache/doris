@@ -27,7 +27,7 @@ under the License.
 ## OUTFILE
 ### Name
 
-OURFILE
+OUTFILE
 
 ### description
 
@@ -107,7 +107,7 @@ INTO OUTFILE "file_path"
     s3.access_key
     s3.secret_key
     s3.region
-    use_path_stype: (optional) default false . The S3 SDK uses the virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the use_path_style parameter to force the use of path style access method.
+    use_path_style: (optional) default false . The S3 SDK uses the virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the use_path_style parameter to force the use of path style access method.
     ```
 
     > Note that to use the `delete_existing_files` parameter, you also need to add the configuration `enable_delete_existing_files = true` to the fe.conf file and restart the FE. Only then will the `delete_existing_files` parameter take effect. Setting `delete_existing_files = true` is a dangerous operation and it is recommended to only use it in a testing environment.

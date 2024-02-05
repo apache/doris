@@ -97,7 +97,7 @@ OperatorPtr DistinctStreamingAggSinkOperatorBuilder::build_operator() {
 
 DistinctStreamingAggSinkLocalState::DistinctStreamingAggSinkLocalState(
         DataSinkOperatorXBase* parent, RuntimeState* state)
-        : AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState>(parent, state),
+        : AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>(parent, state),
           dummy_mapped_data(std::make_shared<char>('A')) {}
 
 Status DistinctStreamingAggSinkLocalState::_distinct_pre_agg_with_serialized_key(
@@ -127,7 +127,7 @@ Status DistinctStreamingAggSinkLocalState::_distinct_pre_agg_with_serialized_key
     RETURN_IF_CATCH_EXCEPTION(
             _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows));
 
-    bool mem_reuse = _dependency->make_nullable_keys().empty() && out_block->mem_reuse();
+    bool mem_reuse = _shared_state->make_nullable_keys.empty() && out_block->mem_reuse();
     if (mem_reuse) {
         for (int i = 0; i < key_size; ++i) {
             auto dst = out_block->get_by_position(i).column->assume_mutable();
@@ -183,7 +183,8 @@ DistinctStreamingAggSinkOperatorX::DistinctStreamingAggSinkOperatorX(ObjectPool*
                                                                      int operator_id,
                                                                      const TPlanNode& tnode,
                                                                      const DescriptorTbl& descs)
-        : AggSinkOperatorX<DistinctStreamingAggSinkLocalState>(pool, operator_id, tnode, descs) {}
+        : AggSinkOperatorX<DistinctStreamingAggSinkLocalState>(pool, operator_id, tnode, descs,
+                                                               true) {}
 
 Status DistinctStreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(AggSinkOperatorX<DistinctStreamingAggSinkLocalState>::init(tnode, state));

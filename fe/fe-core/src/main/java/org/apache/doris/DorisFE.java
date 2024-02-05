@@ -33,6 +33,7 @@ import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.qe.QeService;
+import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeServer;
 import org.apache.doris.service.FrontendOptions;
@@ -151,7 +152,7 @@ public class DorisFE {
 
             if (Config.enable_bdbje_debug_mode) {
                 // Start in BDB Debug mode
-                BDBDebugger.get().startDebugMode(dorisHomeDir);
+                BDBDebugger.get().startDebugMode(Config.meta_dir + "/bdb");
                 return;
             }
 
@@ -193,6 +194,8 @@ public class DorisFE {
                 httpServer.start();
                 Env.getCurrentEnv().setHttpReady(true);
             }
+
+            SimpleScheduler.init();
 
             if (options.enableQeService) {
                 QeService qeService = new QeService(Config.query_port, Config.arrow_flight_sql_port,

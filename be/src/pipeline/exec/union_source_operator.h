@@ -48,7 +48,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class UnionSourceOperator final : public SourceOperator<UnionSourceOperatorBuilder> {
+class UnionSourceOperator final : public SourceOperator<vectorized::VUnionNode> {
 public:
     UnionSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* node,
                         std::shared_ptr<DataQueue>);
@@ -69,16 +69,25 @@ private:
     bool _need_read_for_const_expr;
 };
 
+class UnionSourceDependency final : public Dependency {
+public:
+    using SharedState = UnionSharedState;
+    UnionSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "UnionSourceDependency", query_ctx) {}
+    ~UnionSourceDependency() override = default;
+};
+
 class UnionSourceOperatorX;
-class UnionSourceLocalState final : public PipelineXLocalState<UnionDependency> {
+class UnionSourceLocalState final : public PipelineXLocalState<UnionSourceDependency> {
 public:
     ENABLE_FACTORY_CREATOR(UnionSourceLocalState);
-    using Base = PipelineXLocalState<UnionDependency>;
+    using Base = PipelineXLocalState<UnionSourceDependency>;
     using Parent = UnionSourceOperatorX;
     UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    std::shared_ptr<UnionSharedState> create_shared_state();
+
+    [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
 private:
     friend class UnionSourceOperatorX;

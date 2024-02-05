@@ -21,23 +21,24 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
-import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.ReplaceExpressions;
-import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.SlotContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -164,7 +165,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
      * @param predicatesSupplier Supplier to get pushdown predicates.
      * @return Result scan node.
      */
-    private LogicalOlapScan select(
+    public static LogicalOlapScan select(
             LogicalOlapScan scan,
             Supplier<Set<Slot>> requiredScanOutputSupplier,
             Supplier<Set<Expression>> predicatesSupplier,
@@ -184,6 +185,11 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
             default:
                 throw new RuntimeException("Not supported keys type: " + keysType);
         }
+
+        Set<Slot> requiredSlots = new HashSet<>();
+        requiredSlots.addAll(requiredScanOutputSupplier.get());
+        requiredSlots.addAll(ExpressionUtils.getInputSlotSet(requiredExpr));
+        requiredSlots.addAll(ExpressionUtils.getInputSlotSet(predicatesSupplier.get()));
         if (scan.getTable().isDupKeysOrMergeOnWrite()) {
             // Set pre-aggregation to `on` to keep consistency with legacy logic.
             List<MaterializedIndex> candidates = scan
@@ -192,6 +198,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             scan, requiredScanOutputSupplier.get(), requiredExpr, predicatesSupplier.get()))
                     .collect(Collectors.toList());
             long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
+            // this is fail-safe for select mv
+            // select baseIndex if bestIndex's slots' data types are different from baseIndex
+            bestIndex = isSameDataType(scan, bestIndex, requiredSlots) ? bestIndex : baseIndexId;
             return scan.withMaterializedIndexSelected(PreAggStatus.on(), bestIndex);
         } else {
             final PreAggStatus preAggStatus;
@@ -219,13 +228,31 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // `candidates` only have base index.
                 return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
             } else {
-                return scan.withMaterializedIndexSelected(preAggStatus,
-                        selectBestIndex(candidates, scan, predicatesSupplier.get()));
+                long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
+                // this is fail-safe for select mv
+                // select baseIndex if bestIndex's slots' data types are different from baseIndex
+                bestIndex = isSameDataType(scan, bestIndex, requiredSlots) ? bestIndex : baseIndexId;
+                return scan.withMaterializedIndexSelected(preAggStatus, bestIndex);
             }
         }
     }
 
-    private boolean indexHasAggregate(MaterializedIndex index, LogicalOlapScan scan) {
+    private static boolean isSameDataType(LogicalOlapScan scan, long selectIndex, Set<Slot> slots) {
+        if (selectIndex != scan.getTable().getBaseIndexId()) {
+            Map<String, PrimitiveType> columnTypes =
+                    scan.getTable().getSchemaByIndexId(selectIndex).stream().collect(Collectors
+                            .toMap(Column::getNameWithoutMvPrefix, column -> column.getDataType()));
+            return slots.stream().allMatch(slot -> {
+                PrimitiveType dataType =
+                        columnTypes.getOrDefault(slot.getName(), PrimitiveType.NULL_TYPE);
+                return dataType == PrimitiveType.NULL_TYPE
+                        || dataType == slot.getDataType().toCatalogDataType().getPrimitiveType();
+            });
+        }
+        return true;
+    }
+
+    private static boolean indexHasAggregate(MaterializedIndex index, LogicalOlapScan scan) {
         return scan.getTable().getSchemaByIndexId(index.getId())
                 .stream()
                 .anyMatch(Column::isAggregated);

@@ -37,7 +37,7 @@ import java.util.Optional;
  * Used in {@link org.apache.doris.nereids.pattern.GroupExpressionMatching.GroupExpressionIterator},
  * as a place-holder when do match root.
  */
-public class GroupPlan extends LogicalLeaf {
+public class GroupPlan extends LogicalLeaf implements BlockFuncDepsPropagation {
 
     private final Group group;
 

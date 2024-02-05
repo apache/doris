@@ -144,23 +144,13 @@ public:
     using Container = PaddedPODArray<value_type>;
 
 private:
-    ColumnVector() {}
+    ColumnVector() = default;
     ColumnVector(const size_t n) : data(n) {}
     ColumnVector(const size_t n, const value_type x) : data(n, x) {}
     ColumnVector(const ColumnVector& src) : data(src.data.begin(), src.data.end()) {}
 
     /// Sugar constructor.
     ColumnVector(std::initializer_list<T> il) : data {il} {}
-
-    void insert_res_column(const uint16_t* sel, size_t sel_size,
-                           vectorized::ColumnVector<T>* res_ptr) {
-        auto& res_data = res_ptr->data;
-        DCHECK(res_data.empty());
-        res_data.resize(sel_size);
-        for (size_t i = 0; i < sel_size; i++) {
-            res_data[i] = T(data[sel[i]]);
-        }
-    }
 
     void insert_many_default_type(const char* data_ptr, size_t num) {
         auto old_size = data.size();
@@ -177,7 +167,7 @@ public:
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
-        return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
+        return {reinterpret_cast<const char*>(&data[n]), sizeof(data[n])};
     }
 
     void insert_from(const IColumn& src, size_t n) override {
@@ -193,6 +183,20 @@ public:
         auto old_size = data.size();
         data.resize(old_size + num);
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
+    }
+
+    void insert_raw_integers(T val, size_t n) {
+        auto old_size = data.size();
+        data.resize(old_size + n);
+        std::fill(data.data() + old_size, data.data() + old_size + n, val);
+    }
+
+    void insert_range_of_integer(T begin, T end) {
+        auto old_size = data.size();
+        data.resize(old_size + (end - begin));
+        for (int i = 0; i < end - begin; i++) {
+            data[old_size + i] = begin + i;
+        }
     }
 
     void insert_date_column(const char* data_ptr, size_t num) {
@@ -378,8 +382,8 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
     void fill(const value_type& element, size_t num) {
         auto old_size = data.size();
@@ -394,19 +398,10 @@ public:
         }
     }
 
-    void insert_zeroed_elements(size_t num) {
-        auto old_size = data.size();
-        auto new_size = old_size + num;
-        data.resize(new_size);
-        memset(&data[old_size], 0, sizeof(value_type) * num);
-    }
-
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
-
-    //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
 
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
@@ -428,8 +423,6 @@ public:
                                  const IColumn::Selector& selector) const override {
         this->template append_data_by_selector_impl<Self>(res, selector);
     }
-
-    //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
@@ -459,6 +452,8 @@ public:
         DCHECK(size() > self_row);
         data[self_row] = T();
     }
+
+    void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;

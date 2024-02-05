@@ -20,7 +20,7 @@ suite("map_agg_nested_insert_doris", "p0") {
     def tb_doris = "test_map_agg_nested_insert_target"
     sql "DROP TABLE IF EXISTS `${tb_base}`;"
     sql "DROP TABLE IF EXISTS `${tb_doris}`;"
-    sql """ ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false'); """
+
 
     sql """
         CREATE TABLE `${tb_base}` (

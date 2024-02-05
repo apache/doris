@@ -51,6 +51,11 @@ public class BeSelectionPolicy {
     public boolean preferComputeNode = false;
     public int expectBeNum = 0;
 
+    public boolean enableRoundRobin = false;
+    // if enable round robin, choose next be from nextRoundRobinIndex
+    // call SystemInfoService::selectBackendIdsByPolicy will update nextRoundRobinIndex
+    public int nextRoundRobinIndex = -1;
+
     public List<String> preferredLocations = new ArrayList<>();
 
     private BeSelectionPolicy() {
@@ -111,6 +116,16 @@ public class BeSelectionPolicy {
 
         public Builder addPreLocations(List<String> preferredLocations) {
             policy.preferredLocations.addAll(preferredLocations);
+            return this;
+        }
+
+        public Builder setEnableRoundRobin(boolean enableRoundRobin) {
+            policy.enableRoundRobin = enableRoundRobin;
+            return this;
+        }
+
+        public Builder setNextRoundRobinIndex(int nextRoundRobinIndex) {
+            policy.nextRoundRobinIndex = nextRoundRobinIndex;
             return this;
         }
 

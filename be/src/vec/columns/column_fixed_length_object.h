@@ -38,9 +38,9 @@ private:
 
 public:
     using Container = PaddedPODArray<uint8_t>;
+    ColumnFixedLengthObject() = delete;
 
 private:
-    ColumnFixedLengthObject() = delete;
     ColumnFixedLengthObject(const size_t _item_size_) : _item_size(_item_size_), _item_count(0) {}
     ColumnFixedLengthObject(const ColumnFixedLengthObject& src)
             : _item_size(src._item_size),
@@ -63,7 +63,7 @@ public:
     }
 
     MutableColumnPtr clone_resized(size_t size) const override {
-        auto res = this->create(_item_size);
+        auto res = create(_item_size);
 
         if (size > 0) {
             auto& new_col = assert_cast<Self&>(*res);
@@ -81,8 +81,8 @@ public:
         return res;
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         const Self& src_vec = assert_cast<const Self&>(src);
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
@@ -92,14 +92,9 @@ public:
         DCHECK(_item_size == src_vec._item_size) << "dst and src should have the same _item_size";
         resize(origin_size + new_size);
 
-        for (int i = 0; i < new_size; ++i) {
-            int offset = indices_begin[i];
-            if (offset > -1) {
-                memcpy(&_data[(origin_size + i) * _item_size], &src_vec._data[offset * _item_size],
-                       _item_size);
-            } else {
-                memset(&_data[(origin_size + i) * _item_size], 0, _item_size);
-            }
+        for (uint32_t i = 0; i < new_size; ++i) {
+            memcpy(&_data[(origin_size + i) * _item_size],
+                   &src_vec._data[indices_begin[i] * _item_size], _item_size);
         }
     }
 
@@ -110,18 +105,19 @@ public:
 
     [[noreturn]] Field operator[](size_t n) const override {
         LOG(FATAL) << "operator[] not supported";
+        __builtin_unreachable();
     }
 
     void get(size_t n, Field& res) const override { LOG(FATAL) << "get not supported"; }
 
     StringRef get_data_at(size_t n) const override {
-        return StringRef(reinterpret_cast<const char*>(&_data[n * _item_size]), _item_size);
+        return {reinterpret_cast<const char*>(&_data[n * _item_size]), _item_size};
     }
 
     void insert(const Field& x) override { LOG(FATAL) << "insert not supported"; }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
-        const ColumnFixedLengthObject& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
+        const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
         CHECK_EQ(src_col._item_size, _item_size);
 
         if (length == 0) {
@@ -142,7 +138,7 @@ public:
     }
 
     void insert_from(const IColumn& src, size_t n) override {
-        const ColumnFixedLengthObject& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
+        const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
         DCHECK(_item_size == src_col._item_size) << "dst and src should have the same _item_size  "
                                                  << _item_size << " " << src_col._item_size;
         size_t old_size = size();
@@ -151,10 +147,16 @@ public:
     }
 
     void insert_data(const char* pos, size_t length) override {
-        LOG(FATAL) << "insert_data not supported";
+        size_t old_size = size();
+        resize(old_size + 1);
+        memcpy(&_data[old_size * _item_size], pos, _item_size);
     }
 
-    void insert_default() override { LOG(FATAL) << "insert_default not supported"; }
+    void insert_default() override {
+        size_t old_size = size();
+        resize(old_size + 1);
+        memset(&_data[old_size * _item_size], 0, _item_size);
+    }
 
     void pop_back(size_t n) override { LOG(FATAL) << "pop_back not supported"; }
 
@@ -174,19 +176,23 @@ public:
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
         LOG(FATAL) << "filter not supported";
+        __builtin_unreachable();
     }
 
     [[noreturn]] size_t filter(const IColumn::Filter&) override {
         LOG(FATAL) << "filter not supported";
+        __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported";
+        __builtin_unreachable();
     }
 
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not supported";
+        __builtin_unreachable();
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -233,6 +239,7 @@ public:
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
         LOG(FATAL) << "scatter not supported";
+        __builtin_unreachable();
     }
 
     void append_data_by_selector(MutableColumnPtr& res,
@@ -286,9 +293,9 @@ public:
 
         size_t old_count = _item_count;
         resize(old_count + num);
-        auto dst = _data.data() + old_count * _item_size;
+        auto* dst = _data.data() + old_count * _item_size;
         for (size_t i = 0; i < num; i++) {
-            auto src = data_array + start_offset_array[i];
+            auto* src = data_array + start_offset_array[i];
             uint32_t len = len_array[i];
             dst += i * _item_size;
             memcpy(dst, src, len);

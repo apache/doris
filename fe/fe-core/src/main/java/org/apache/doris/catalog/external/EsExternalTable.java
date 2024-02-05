@@ -61,11 +61,6 @@ public class EsExternalTable extends ExternalTable {
     }
 
     @Override
-    public String getMysqlType() {
-        return type.name();
-    }
-
-    @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
         TEsTable tEsTable = new TEsTable();

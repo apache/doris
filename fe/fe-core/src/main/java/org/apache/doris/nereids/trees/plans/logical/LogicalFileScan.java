@@ -32,7 +32,6 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
-import lombok.Getter;
 
 import java.util.List;
 import java.util.Map;
@@ -46,11 +45,8 @@ import java.util.Set;
 public class LogicalFileScan extends LogicalCatalogRelation {
 
     // TODO remove this conjuncts when old planner is removed
-    @Getter
     private final Set<Expression> conjuncts;
-    @Getter
     private final SelectedPartitions selectedPartitions;
-    @Getter
     private final Optional<TableSample> tableSample;
 
     /**
@@ -70,6 +66,18 @@ public class LogicalFileScan extends LogicalCatalogRelation {
                            Optional<TableSample> tableSample) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 Sets.newHashSet(), SelectedPartitions.NOT_PRUNED, tableSample);
+    }
+
+    public Set<Expression> getConjuncts() {
+        return conjuncts;
+    }
+
+    public SelectedPartitions getSelectedPartitions() {
+        return selectedPartitions;
+    }
+
+    public Optional<TableSample> getTableSample() {
+        return tableSample;
     }
 
     @Override

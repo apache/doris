@@ -96,7 +96,7 @@ void JSONDataParser<ParserImpl, parse_nested>::traverse(const Element& element, 
     } else if (element.isArray()) {
         has_nested = false;
         checkHasNested(element);
-        if (has_nested && !parse_nested && !config::enable_flatten_nested_for_variant) {
+        if (has_nested && !parse_nested && !config::variant_enable_flatten_nested) {
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
             traverseArrayAsJsonb(element.getArray(), writer);

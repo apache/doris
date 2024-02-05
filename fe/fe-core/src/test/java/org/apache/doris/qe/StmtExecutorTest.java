@@ -152,7 +152,7 @@ public class StmtExecutorTest {
 
                 ctx.getDatabase();
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 ctx.getSessionVariable();
                 minTimes = 0;
@@ -680,15 +680,11 @@ public class StmtExecutorTest {
 
                 useStmt.getDatabase();
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 useStmt.getRedirectStatus();
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
-
-                useStmt.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
 
                 Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
                 parser.parse();
@@ -718,10 +714,6 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
 
-                useStmt.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
-
                 Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
                 parser.parse();
                 minTimes = 0;
@@ -744,15 +736,11 @@ public class StmtExecutorTest {
 
                 useStmt.getDatabase();
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 useStmt.getRedirectStatus();
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
-
-                useStmt.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
 
                 useStmt.getCatalogName();
                 minTimes = 0;
@@ -785,10 +773,6 @@ public class StmtExecutorTest {
                 useStmt.getRedirectStatus();
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
-
-                useStmt.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
 
                 useStmt.getCatalogName();
                 minTimes = 0;

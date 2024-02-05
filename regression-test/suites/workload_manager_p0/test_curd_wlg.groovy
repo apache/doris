@@ -17,11 +17,32 @@
 
 suite("test_crud_wlg") {
     def table_name = "wlg_test_table"
+    def table_name2 = "wlg_test_table2"
+    def table_name3 = "wlg_test_table3"
 
     sql "drop table if exists ${table_name}"
+    sql "drop table if exists ${table_name2}"
+    sql "drop table if exists ${table_name3}"
 
     sql """
         CREATE TABLE IF NOT EXISTS `${table_name}` (
+          `siteid` int(11) NOT NULL COMMENT "",
+          `citycode` int(11) NOT NULL COMMENT "",
+          `userid` int(11) NOT NULL COMMENT "",
+          `pv` int(11) NOT NULL COMMENT ""
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`siteid`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`siteid`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        )
+    """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS `${table_name2}` (
           `siteid` int(11) NOT NULL COMMENT "",
           `citycode` int(11) NOT NULL COMMENT "",
           `userid` int(11) NOT NULL COMMENT "",
@@ -46,18 +67,19 @@ suite("test_crud_wlg") {
 
     sql "create workload group if not exists normal " +
             "properties ( " +
-            "    'cpu_share'='10', " +
+            "    'cpu_share'='1024', " +
             "    'memory_limit'='50%', " +
             "    'enable_memory_overcommit'='true' " +
             ");"
 
     // reset normal group property
-    sql "alter workload group normal properties ( 'cpu_share'='10' );"
+    sql "alter workload group normal properties ( 'cpu_share'='1024' );"
     sql "alter workload group normal properties ( 'memory_limit'='50%' );"
     sql "alter workload group normal properties ( 'enable_memory_overcommit'='true' );"
     sql "alter workload group normal properties ( 'max_concurrency'='2147483647' );"
     sql "alter workload group normal properties ( 'max_queue_size'='0' );"
     sql "alter workload group normal properties ( 'queue_timeout'='0' );"
+    sql "alter workload group normal properties ( 'cpu_hard_limit'='1%' );"
 
     sql "set workload_group=normal;"
 
@@ -68,10 +90,10 @@ suite("test_crud_wlg") {
 
     qt_cpu_share_2 """ select count(1) from ${table_name} """
 
-    try {
+    test {
         sql "alter workload group normal properties ( 'cpu_share'='-2' );"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("requires a positive integer"));
+
+        exception "requires a positive integer"
     }
 
     sql "drop workload group if exists test_group;"
@@ -88,21 +110,23 @@ suite("test_crud_wlg") {
     qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit from workload_groups() order by name;"
 
     // test memory_limit
-    try {
+    test {
         sql "alter workload group test_group properties ( 'memory_limit'='100%' );"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("cannot be greater than"));
+
+        exception "cannot be greater than"
     }
+
     sql "alter workload group test_group properties ( 'memory_limit'='11%' );"
     qt_mem_limit_1 """ select count(1) from ${table_name} """
     qt_mem_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit from workload_groups() order by name;"
 
     // test enable_memory_overcommit
-    try {
+    test {
         sql "alter workload group test_group properties ( 'enable_memory_overcommit'='1' );"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("must be true or false"));
+
+        exception "must be true or false"
     }
+
     sql "alter workload group test_group properties ( 'enable_memory_overcommit'='true' );"
     qt_mem_overcommit_1 """ select count(1) from ${table_name} """
     sql "alter workload group test_group properties ( 'enable_memory_overcommit'='false' );"
@@ -110,16 +134,18 @@ suite("test_crud_wlg") {
     qt_mem_overcommit_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit from workload_groups() order by name;"
 
     // test cpu_hard_limit
-    try {
+    test {
         sql "alter workload group test_group properties ( 'cpu_hard_limit'='101%' );"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("can not be greater than 100%"));
+
+        exception "can not be greater than 100%"
     }
 
-    try {
-        sql "alter workload group test_group properties ( 'cpu_hard_limit'='99%' );"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("can not be greater than 100%"));
+    sql "alter workload group test_group properties ( 'cpu_hard_limit'='99%' );"
+
+    test {
+        sql "alter workload group normal properties ( 'cpu_hard_limit'='2%' );"
+
+        exception "can not be greater than 100%"
     }
 
     sql "alter workload group test_group properties ( 'cpu_hard_limit'='20%' );"
@@ -127,30 +153,22 @@ suite("test_crud_wlg") {
     qt_cpu_hard_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit from workload_groups() order by name;"
 
     // test query queue
-    try {
+    test {
         sql "alter workload group test_group properties ( 'max_concurrency'='-1' );"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("requires a positive integer"));
+
+        exception "requires a positive integer"
     }
 
-    try {
+    test {
         sql "alter workload group test_group properties ( 'max_queue_size'='-1' );"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("requires a positive integer"));
+
+        exception "requires a positive integer"
     }
 
-    try {
+    test {
         sql "alter workload group test_group properties ( 'queue_timeout'='-1' );"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("requires a positive integer"));
-    }
-    sql "alter workload group test_group properties ( 'max_concurrency'='0' );"
-    sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
-    sql "alter workload group test_group properties ( 'queue_timeout'='0' );"
-    try {
-        sql "select count(1) from ${table_name}"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("queue failed"));
+
+        exception "requires a positive integer"
     }
 
     sql "alter workload group test_group properties ( 'max_concurrency'='100' );"
@@ -159,42 +177,43 @@ suite("test_crud_wlg") {
 
     // test create group failed
     // failed for cpu_share
-    try {
+    test {
         sql "create workload group if not exists test_group2 " +
                 "properties ( " +
                 "    'cpu_share'='-1', " +
                 "    'memory_limit'='1%', " +
                 "    'enable_memory_overcommit'='true' " +
                 ");"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("requires a positive integer"));
+
+        exception "requires a positive integer"
     }
+
     // failed for mem_limit
-    try {
+    test {
         sql "create workload group if not exists test_group2 " +
                 "properties ( " +
                 "    'cpu_share'='10', " +
                 "    'memory_limit'='200%', " +
                 "    'enable_memory_overcommit'='true' " +
                 ");"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("cannot be greater than"))
+
+        exception "cannot be greater than"
     }
 
-    try {
+    test {
         sql "create workload group if not exists test_group2 " +
                 "properties ( " +
                 "    'cpu_share'='10', " +
                 "    'memory_limit'='99%', " +
                 "    'enable_memory_overcommit'='true' " +
                 ");"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("cannot be greater than"))
+
+        exception "cannot be greater than"
     }
 
 
     // failed for mem_overcommit
-    try {
+    test {
         sql "create workload group if not exists test_group2 " +
                 "properties ( " +
                 "    'cpu_share'='10', " +
@@ -202,12 +221,12 @@ suite("test_crud_wlg") {
                 "    'enable_memory_overcommit'='1', " +
                 " 'cpu_hard_limit'='1%' " +
                 ");"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("must be true or false"));
+
+        exception "must be true or false"
     }
 
     // failed for cpu_hard_limit
-    try {
+    test {
         sql "create workload group if not exists test_group2 " +
                 "properties ( " +
                 "    'cpu_share'='10', " +
@@ -215,11 +234,11 @@ suite("test_crud_wlg") {
                 "    'enable_memory_overcommit'='true', " +
                 " 'cpu_hard_limit'='120%' " +
                 ");"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("can not be greater than"));
+
+        exception "can not be greater than"
     }
 
-    try {
+    test {
         sql "create workload group if not exists test_group2 " +
                 "properties ( " +
                 "    'cpu_share'='10', " +
@@ -227,8 +246,8 @@ suite("test_crud_wlg") {
                 "    'enable_memory_overcommit'='true', " +
                 " 'cpu_hard_limit'='99%' " +
                 ");"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("can not be greater than"));
+
+        exception "can not be greater than"
     }
 
     // test show workload groups
@@ -258,4 +277,45 @@ suite("test_crud_wlg") {
         sql """ select 1; """
     }
 
+    // test query queue limit
+    sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '500');"
+    sql "set workload_group=test_group;"
+    sql "alter workload group test_group properties ( 'max_concurrency'='0' );"
+    sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
+    Thread.sleep(5000);
+    test {
+        sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+
+        exception "query waiting queue is full"
+    }
+
+    // test insert into select will go to queue
+    test {
+        sql "insert into ${table_name2} select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+
+        exception "query waiting queue is full"
+    }
+
+    // test create table as select will go to queue
+    test {
+        sql "create table ${table_name3} PROPERTIES('replication_num' = '1') as select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+
+        exception "query waiting queue is full"
+    }
+
+    sql "alter workload group test_group properties ( 'max_queue_size'='1' );"
+    sql "alter workload group test_group properties ( 'queue_timeout'='500' );"
+    Thread.sleep(5000);
+    test {
+        sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+
+        exception "query wait timeout"
+    }
+
+    sql "alter workload group test_group properties ( 'max_concurrency'='10' );"
+    Thread.sleep(5000);
+    sql "select 1;"
+    sql "set workload_group=normal;"
+    sql "drop workload group test_group;"
+    sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '5000');"
 }

@@ -18,12 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
@@ -109,7 +107,7 @@ public class CreateUserStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        userIdent.analyze(analyzer.getClusterName());
+        userIdent.analyze();
 
         if (userIdent.isRootUser()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Can not create root user");
@@ -124,14 +122,11 @@ public class CreateUserStmt extends DdlStmt {
                 role = Role.ADMIN_ROLE;
             }
             FeNameFormat.checkRoleName(role, true /* can be admin */, "Can not granted user to role");
-            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 
         passwordOptions.analyze();
 
-        // check if current user has GRANT priv on GLOBAL or DATABASE level.
-        if (!Env.getCurrentEnv().getAccessManager().checkHasPriv(ConnectContext.get(),
-                PrivPredicate.GRANT, PrivLevel.GLOBAL, PrivLevel.DATABASE)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }
     }

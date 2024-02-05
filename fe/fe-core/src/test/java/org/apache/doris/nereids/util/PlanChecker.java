@@ -165,7 +165,7 @@ public class PlanChecker {
 
     public PlanChecker applyTopDown(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteTopDownJob::new, true)))
+                        ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteTopDownJob::new, true)))
                 .execute();
         cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
@@ -259,7 +259,6 @@ public class PlanChecker {
             PhysicalQuickSort<? extends Plan> sort = (PhysicalQuickSort) plan;
             plan = sort.withChildren(new PhysicalDistribute<>(
                     DistributionSpecGather.INSTANCE,
-                    plan.child(0).getLogicalProperties(),
                     plan.child(0)));
         }
         physicalPlan = ((PhysicalPlan) plan);
@@ -562,6 +561,10 @@ public class PlanChecker {
 
     public Plan getPlan() {
         return cascadesContext.getMemo().copyOut();
+    }
+
+    public List<Plan> getAllPlan() {
+        return cascadesContext.getMemo().copyOutAll();
     }
 
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties) {

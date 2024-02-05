@@ -19,6 +19,7 @@ suite("test_multi_range_partition") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set partition_pruning_expand_threshold=10;"
     sql "drop table if exists pt"
@@ -179,12 +180,12 @@ suite("test_multi_range_partition") {
 
     explain {
         sql "select * from pt where k1=7 and k2 in (null);"
-        contains "partitions=2/3 (p2,p3)"
+        contains "VEMPTYSET"
     }
 
     explain {
         sql "select * from pt where k1=7 and k2 not in (null);"
-        contains "partitions=2/3 (p2,p3)"
+        contains "VEMPTYSET"
     }
 
     explain {
@@ -204,13 +205,13 @@ suite("test_multi_range_partition") {
 
     explain {
         sql "select * from pt where k2 in (null);"
-        contains "partitions=3/3 (p1,p2,p3)"
+        contains "VEMPTYSET"
     }
 
     // p1/p2/p3 NOT pruned
     explain {
         sql "select * from pt where k2 not in (null)"
-        contains "partitions=3/3 (p1,p2,p3)"
+        contains "VEMPTYSET"
     }
 
     explain {
@@ -271,5 +272,42 @@ suite("test_multi_range_partition") {
     explain {
         sql "select * from pt where not k3 < 5;"
         contains "partitions=3/3 (p1,p2,p3)"
+    }
+
+    sql "drop table if exists tt"
+    sql """
+    CREATE TABLE `tt` (
+     a bigint(20) NULL,
+     b bigint(20) null
+    ) ENGINE=OLAP
+    duplicate KEY(`a`)
+    COMMENT 'OLAP'
+    PARTITION BY RANGE(`a`, `b`)
+    (PARTITION p0 VALUES [("-2147483648", "-9223372036854775808"), ("5", "5")),
+    PARTITION p1 VALUES [("5", "5"), ("7", "7")),
+    PARTITION p2 VALUES [("7", "7"), ("2147483647", "2147483647000")))
+    DISTRIBUTED BY HASH(`b`) BUCKETS 10
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "is_being_synced" = "false",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false",
+    "enable_single_replica_compaction" = "false"
+    ); 
+    """
+    sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
+    sql "SET enable_fallback_to_original_planner=false"
+    sql "insert into tt values (0, 0), (6, 6), (8, 8)"
+    explain {
+        sql """SELECT
+            *
+            FROM
+            tt
+            WHERE
+            ( NOT ( a  IN ( 5 ) )
+            AND b  BETWEEN 2 AND 13 )"""
+        contains "partitions=3/3 (p0,p1,p2)"    
     }
 }

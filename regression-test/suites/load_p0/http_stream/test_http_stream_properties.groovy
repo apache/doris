@@ -224,9 +224,138 @@ suite("test_http_stream_properties", "p0") {
         sql new File("""${context.file.parent}/../stream_load/ddl/uniq_tbl_basic_drop_sequence.sql""").text
     }
 
-    // TODO merge type
+    // merge type 
+    // append
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_create.sql""").text
 
-    // TODO two_phase_commit
+            def tableNm = "stream_load_" + tableName
+
+            streamLoad {
+                set 'version', '1'
+                set 'sql', """
+                        insert into ${db}.${tableNm}(${target_columns[i]}) select ${columns[i]} from http_stream("format"="csv", "column_separator"="|", "merge_type"="APPEND")
+                        """
+                file files[i]
+                time 10000 // limit inflight 10s
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            if (i <= 3) {
+                qt_sql_merge_type_append "select * from ${tableNm} order by k00,k01"
+            } else {
+                qt_sql_merge_type_append "select * from ${tableNm} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
+        }
+    }
+
+    // delete
+    try {
+        def tableName = "mow_tbl_basic"
+        sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
+        sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_create.sql""").text
+
+        def tableNm = "stream_load_" + tableName
+
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                        insert into ${db}.${tableNm}(${target_columns[2]}) select ${columns[2]} from http_stream("format"="csv", "column_separator"="|", "merge_type"="APPEND")
+                        """
+            file files[2]
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                        insert into ${db}.${tableNm}(${target_columns[2]}) select ${columns[2]} from http_stream("format"="csv", "column_separator"="|", "merge_type"="DELETE")
+                        """
+            file files[2]
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+        qt_sql_merge_type_delete "select * from ${tableNm} order by k00,k01"
+    } finally {
+        sql new File("""${context.file.parent}/../stream_load/ddl/mow_tbl_basic_drop.sql""").text
+    }
+
+    // merge
+    try {
+        def tableName = "mow_tbl_basic"
+        sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
+        sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_create.sql""").text
+
+        def tableNm = "stream_load_" + tableName
+
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                        insert into ${db}.${tableNm}(${target_columns[2]}) select ${columns[2]} from http_stream("format"="csv", "column_separator"="|", "merge_type"="merge", "delete"="k00=8")
+                        """
+            file files[2]
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+        qt_sql_merge_type_merge "select * from ${tableNm} order by k00,k01"
+    } finally {
+        sql new File("""${context.file.parent}/../stream_load/ddl/mow_tbl_basic_drop.sql""").text
+    }
 
     // compress_type
     // gz/bz2
@@ -414,6 +543,131 @@ suite("test_http_stream_properties", "p0") {
     } finally {
         for (String table in tables) {
             sql new File("""${context.file.parent}/../stream_load/ddl/${table}_drop.sql""").text
+        }
+    }
+
+    // load_to_single_tablet
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_create.sql""").text
+
+            def tableNm = "stream_load_" + tableName
+
+            streamLoad {
+                set 'version', '1'
+                set 'sql', """
+                        insert into ${db}.${tableNm}(${target_columns[i]}) select ${columns[i]} from http_stream("format"="csv", "column_separator"="|", "load_to_single_tablet"="false")
+                        """
+                file files[i]
+                time 10000 // limit inflight 10s
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            if (i <= 3) {
+                qt_sql_load_to_single_tablet "select * from ${tableNm} order by k00,k01"
+            } else {
+                qt_sql_load_to_single_tablet "select * from ${tableNm} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
+        }
+    }
+
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_create.sql""").text
+
+            def tableNm = "stream_load_" + tableName
+
+            streamLoad {
+                set 'version', '1'
+                set 'sql', """
+                        insert into ${db}.${tableNm}(${target_columns[i]}) select ${columns[i]} from http_stream("format"="csv", "column_separator"="|", "load_to_single_tablet"="test_invalid")
+                        """
+                file files[i]
+                time 10000 // limit inflight 10s
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            if (i <= 3) {
+                qt_sql_load_to_single_tablet "select * from ${tableNm} order by k00,k01"
+            } else {
+                qt_sql_load_to_single_tablet "select * from ${tableNm} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
+        }
+    }
+
+    // enable profile
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_create.sql""").text
+
+            def tableNm = "stream_load_" + tableName
+
+            streamLoad {
+                set 'version', '1'
+                set 'sql', """
+                        insert into ${db}.${tableNm}(${target_columns[i]}) select ${columns[i]} from http_stream("format"="csv", "column_separator"="|", "enable_profile"="true")
+                        """
+                file files[i]
+                time 10000 // limit inflight 10s
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            if (i <= 3) {
+                qt_sql_enable_profile "select * from ${tableNm} order by k00,k01"
+            } else {
+                qt_sql_enable_profile "select * from ${tableNm} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
         }
     }
 }

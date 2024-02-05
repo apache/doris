@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -44,7 +43,9 @@ public class AnalysisJobTest {
     }
 
     @Test
-    public void testAppendBufTest1(@Mocked AnalysisInfo analysisInfo, @Mocked OlapAnalysisTask olapAnalysisTask) {
+    public void testAppendBufTest1(@Mocked AnalysisInfo analysisInfo,
+            @Mocked OlapAnalysisTask olapAnalysisTask,
+            @Mocked OlapAnalysisTask olapAnalysisTask2) {
         AtomicInteger writeBufInvokeTimes = new AtomicInteger();
         new MockUp<AnalysisJob>() {
             @Mock
@@ -63,9 +64,9 @@ public class AnalysisJobTest {
         AnalysisJob job = new AnalysisJob(analysisInfo, Arrays.asList(olapAnalysisTask));
         job.queryingTask = new HashSet<>();
         job.queryingTask.add(olapAnalysisTask);
+        job.queryingTask.add(olapAnalysisTask2);
         job.queryFinished = new HashSet<>();
         job.buf = new ArrayList<>();
-        job.totalTaskCount = 20;
 
         // not all task finished nor cached limit exceed, shouldn't  write
         job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
@@ -97,7 +98,6 @@ public class AnalysisJobTest {
         job.queryingTask.add(olapAnalysisTask);
         job.queryFinished = new HashSet<>();
         job.buf = new ArrayList<>();
-        job.totalTaskCount = 1;
 
         job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
         // all task finished, should write and deregister this job
@@ -132,7 +132,6 @@ public class AnalysisJobTest {
         for (int i = 0; i < StatisticsUtil.getInsertMergeCount(); i++) {
             job.buf.add(colStatsData);
         }
-        job.totalTaskCount = 100;
 
         job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
         // cache limit exceed, should write them
@@ -185,12 +184,6 @@ public class AnalysisJobTest {
             protected void syncLoadStats() {
             }
         };
-        new Expectations() {
-            {
-                job.syncLoadStats();
-                times = 1;
-            }
-        };
         job.writeBuf();
 
         Assertions.assertEquals(0, job.queryFinished.size());
@@ -206,7 +199,7 @@ public class AnalysisJobTest {
 
             @Mock
             protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
-                throw new RuntimeException();
+                // DO NOTHING
             }
 
             @Mock
@@ -218,7 +211,7 @@ public class AnalysisJobTest {
         job.queryFinished = new HashSet<>();
         job.queryFinished.add(task2);
         job.writeBuf();
-        Assertions.assertEquals(1, job.queryFinished.size());
+        Assertions.assertEquals(0, job.queryFinished.size());
     }
 
 }

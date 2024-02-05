@@ -255,7 +255,7 @@ suite("add_drop_partition") {
     """
 
     sql """
-        insert into ${tableName} values(1, "2017-01-01");
+        insert into ${tableName} values(1, "2016-01-01");
     """
 
     partitions = sql "show partitions from ${tableName}"
@@ -264,7 +264,7 @@ suite("add_drop_partition") {
     }
 
     sql """
-    sql * from ${tableName}
+    select * from ${tableName}
     """
 
     sql """

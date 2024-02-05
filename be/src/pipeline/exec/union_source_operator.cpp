@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/descriptors.h"
 #include "vec/core/block.h"
@@ -53,15 +54,17 @@ bool UnionSourceOperator::_has_data() {
 
 // we assumed it can read to process const expr， Although we don't know whether there is
 // ,and queue have data, could read also
+// The source operator's run dependences on Node's alloc_resource, which is called in Sink's open.
+// So hang until SinkOperator was scheduled to open.
 bool UnionSourceOperator::can_read() {
-    return _has_data() || _data_queue->is_all_finish();
+    return _node->resource_allocated() && (_has_data() || _data_queue->is_all_finish());
 }
 
 Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* block, bool* eos) {
     // here we precess const expr firstly
     if (_need_read_for_const_expr) {
         if (_node->has_more_const(state)) {
-            static_cast<void>(_node->get_next_const(state, block));
+            RETURN_IF_ERROR(_node->get_next_const(state, block));
         }
         _need_read_for_const_expr = _node->has_more_const(state);
     } else {
@@ -87,11 +90,15 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
             state, block, &eos,
             std::bind(&UnionSourceOperator::pull_data, this, std::placeholders::_1,
                       std::placeholders::_2, std::placeholders::_3)));
-    //have exectue const expr, queue have no data any more, and child could be colsed
-    if (eos || (!_has_data() && _data_queue->is_all_finish())) {
+    //have executing const expr, queue have no data anymore, and child could be closed.
+    if (eos) { // reach limit
         source_state = SourceState::FINISHED;
     } else if (_has_data()) {
         source_state = SourceState::MORE_DATA;
+    } else if (_data_queue->is_all_finish()) {
+        // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
+        // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
+        source_state = _has_data() ? SourceState::MORE_DATA : SourceState::FINISHED;
     } else {
         source_state = SourceState::DEPEND_ON_SOURCE;
     }
@@ -100,27 +107,19 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
 }
 
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    auto& p = _parent->cast<Parent>();
-    int child_count = p.get_child_count();
-    auto ss = create_shared_state();
-    if (child_count != 0) {
-        auto& deps = info.dependencys;
-        for (auto& dep : deps) {
-            ((UnionDependency*)dep.get())->set_shared_state(ss);
-        }
-    } else {
-        auto& deps = info.dependencys;
-        DCHECK(child_count == 0);
-        DCHECK(deps.size() == 1);
-        DCHECK(deps.front() == nullptr);
-        //child_count == 0 , we need to creat a  UnionDependency
-        deps.front() = std::make_shared<UnionDependency>(_parent->operator_id());
-        ((UnionDependency*)deps.front().get())->set_shared_state(ss);
-    }
     RETURN_IF_ERROR(Base::init(state, info));
-    ss->data_queue.set_dependency(_dependency);
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+    auto& p = _parent->cast<Parent>();
+    int child_count = p.get_child_count();
+    if (child_count != 0) {
+        auto& deps = info.upstream_dependencies;
+        for (auto& dep : deps) {
+            dep->set_shared_state(_dependency->shared_state());
+        }
+    }
+    ((UnionSharedState*)_dependency->shared_state())
+            ->data_queue.set_source_dependency(info.dependency);
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
     if (state->per_fragment_instance_idx() == 0) {
@@ -139,14 +138,19 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             RETURN_IF_ERROR(clone_expr_list(_const_expr_list, other_expr_list));
         }
     }
+    if (child_count == 0) {
+        _dependency->set_ready();
+    }
     return Status::OK();
 }
 
-std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
-    auto& p = _parent->cast<Parent>();
-    std::shared_ptr<UnionSharedState> data_queue =
-            std::make_shared<UnionSharedState>(p._child_size, _dependency);
-    return data_queue;
+std::string UnionSourceLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, ", data_queue: (is_all_finish = {}, has_data = {})",
+                   _shared_state->data_queue.is_all_finish(),
+                   _shared_state->data_queue.remaining_has_data());
+    return fmt::to_string(debug_string_buffer);
 }
 
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
@@ -155,14 +159,14 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._need_read_for_const_expr) {
         if (has_more_const(state)) {
-            static_cast<void>(get_next_const(state, block));
+            RETURN_IF_ERROR(get_next_const(state, block));
         }
         local_state._need_read_for_const_expr = has_more_const(state);
     } else {
         std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
         int child_idx = 0;
-        static_cast<void>(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
-                                                                                     &child_idx));
+        RETURN_IF_ERROR(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
+                                                                                   &child_idx));
         if (!output_block) {
             return Status::OK();
         }
@@ -171,13 +175,15 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
     }
     local_state.reached_limit(block, source_state);
-    //have exectue const expr, queue have no data any more, and child could be colsed
+    //have executing const expr, queue have no data anymore, and child could be closed
     if (_child_size == 0 && !local_state._need_read_for_const_expr) {
-        source_state = SourceState::FINISHED;
-    } else if ((!_has_data(state) && local_state._shared_state->data_queue.is_all_finish())) {
         source_state = SourceState::FINISHED;
     } else if (_has_data(state)) {
         source_state = SourceState::MORE_DATA;
+    } else if (local_state._shared_state->data_queue.is_all_finish()) {
+        // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
+        // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
+        source_state = _has_data(state) ? SourceState::MORE_DATA : SourceState::FINISHED;
     } else {
         source_state = SourceState::DEPEND_ON_SOURCE;
     }
@@ -197,12 +203,23 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
         tmp_block.insert({vectorized::ColumnUInt8::create(1),
                           std::make_shared<vectorized::DataTypeUInt8>(), ""});
         int const_expr_lists_size = _const_expr_lists[_const_expr_list_idx].size();
+        if (_const_expr_list_idx && const_expr_lists_size != _const_expr_lists[0].size()) {
+            return Status::InternalError(
+                    "[UnionNode]const expr at {}'s count({}) not matched({} expected)",
+                    _const_expr_list_idx, const_expr_lists_size, _const_expr_lists[0].size());
+        }
+
         std::vector<int> result_list(const_expr_lists_size);
         for (size_t i = 0; i < const_expr_lists_size; ++i) {
             RETURN_IF_ERROR(_const_expr_lists[_const_expr_list_idx][i]->execute(&tmp_block,
                                                                                 &result_list[i]));
         }
         tmp_block.erase_not_in(result_list);
+        if (tmp_block.columns() != mblock.columns()) {
+            return Status::InternalError(
+                    "[UnionNode]columns count of const expr block not matched ({} vs {})",
+                    tmp_block.columns(), mblock.columns());
+        }
         if (tmp_block.rows() > 0) {
             RETURN_IF_ERROR(mblock.merge(tmp_block));
             tmp_block.clear();

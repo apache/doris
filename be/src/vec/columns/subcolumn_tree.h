@@ -19,8 +19,11 @@
 // and modified by Doris
 
 #pragma once
+#include <memory>
+
 #include "vec/columns/column.h"
 #include "vec/common/hash_table/hash_map.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
 namespace doris::vectorized {
@@ -72,6 +75,22 @@ public:
             StringRef key_ref {strings_pool.insert(key.data(), key.length()), key.length()};
             children[key_ref] = std::move(next_node);
         }
+
+        std::vector<StringRef> get_sorted_chilren_keys() const {
+            std::vector<StringRef> sorted_keys;
+            for (auto it = children.begin(); it != children.end(); ++it) {
+                sorted_keys.push_back(it->get_first());
+            }
+            std::sort(sorted_keys.begin(), sorted_keys.end());
+            return sorted_keys;
+        }
+        std::shared_ptr<const Node> get_child_node(StringRef key) const {
+            auto it = children.find(key);
+            if (it != children.end()) {
+                return it->get_second();
+            }
+            return nullptr;
+        }
     };
 
     using NodeKind = typename Node::Kind;
@@ -115,6 +134,8 @@ public:
         root = std::make_shared<Node>(Node::SCALAR, leaf_data);
         leaves.push_back(root);
     }
+
+    void add_leaf(const NodePtr& node) { leaves.push_back(node); }
 
     bool add(const PathInData& path, const NodeCreator& node_creator) {
         const auto& parts = path.get_parts();
@@ -218,6 +239,7 @@ public:
 
     const Nodes& get_leaves() const { return leaves; }
     const Node* get_root() const { return root.get(); }
+    const NodePtr& get_root_ptr() const { return root; }
     Node* get_mutable_root() { return root.get(); }
 
     static void get_leaves_of_node(const Node* node, std::vector<const Node*>& nodes,

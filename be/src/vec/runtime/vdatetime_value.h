@@ -31,6 +31,7 @@
 #include <string_view>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
@@ -205,7 +206,7 @@ static constexpr uint32_t DATEV2_YEAR_WIDTH = 23;
 static constexpr uint32_t DATETIMEV2_YEAR_WIDTH = 18;
 static constexpr uint32_t DATETIMEV2_MONTH_WIDTH = 4;
 
-static RE2 time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
+static RE2 time_zone_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)");
 
 uint8_t mysql_week_mode(uint32_t mode);
 
@@ -507,9 +508,10 @@ public:
     bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
-    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC
+    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
+    //we don't do any check in it because it's hot path. any usage want ensure the time legality should check itself.
     bool from_unixtime(int64_t, const std::string& timezone);
-    bool from_unixtime(int64_t, const cctz::time_zone& ctz);
+    void from_unixtime(int64_t, const cctz::time_zone& ctz);
 
     bool operator==(const VecDateTimeValue& other) const {
         // NOTE: This is not same with MySQL.
@@ -751,9 +753,11 @@ public:
     // Constructor
     DateV2Value() : date_v2_value_(0, 0, 0, 0, 0, 0, 0) {}
 
-    DateV2Value(DateV2Value<T>& other) { int_val_ = other.to_date_int_val(); }
+    DateV2Value(underlying_value int_val) : int_val_(int_val) {}
 
-    DateV2Value(const DateV2Value<T>& other) { int_val_ = other.to_date_int_val(); }
+    DateV2Value(DateV2Value<T>& other) = default;
+
+    DateV2Value(const DateV2Value<T>& other) = default;
 
     static DateV2Value create_from_olap_date(uint64_t value) {
         DateV2Value<T> date;
@@ -964,18 +968,19 @@ public:
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
     bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
+    //the first arg is result of fixed point
     bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const std::string& timezone) const;
     bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
-    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC
+    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
+    //we don't do any check in it because it's hot path. any usage want ensure the time legality should check itself.
     bool from_unixtime(int64_t, const std::string& timezone);
-    bool from_unixtime(int64_t, const cctz::time_zone& ctz);
+    void from_unixtime(int64_t, const cctz::time_zone& ctz);
     bool from_unixtime(std::pair<int64_t, int64_t>, const std::string& timezone);
-    bool from_unixtime(std::pair<int64_t, int64_t>, const cctz::time_zone& ctz);
-
-    bool from_unixtime(int64_t, int32_t, const std::string& timezone, const int scale);
-    bool from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, int scale);
+    void from_unixtime(std::pair<int64_t, int64_t>, const cctz::time_zone& ctz);
+    bool from_unixtime(int64_t, int32_t, const std::string& timezone, int scale);
+    void from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, int scale);
 
     bool operator==(const DateV2Value<T>& other) const {
         // NOTE: This is not same with MySQL.
@@ -1129,7 +1134,7 @@ public:
                this->microsecond() == 0;
     }
 
-    underlying_value to_date_int_val() const;
+    underlying_value to_date_int_val() const { return int_val_; }
 
     bool from_date(uint32_t value);
     bool from_datetime(uint64_t value);
@@ -1525,14 +1530,6 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const DateV2Value<T>& t
  */
 class date_day_offset_dict {
 private:
-    static date_day_offset_dict instance;
-
-    date_day_offset_dict();
-    ~date_day_offset_dict() = default;
-    date_day_offset_dict(const date_day_offset_dict&) = default;
-    date_day_offset_dict& operator=(const date_day_offset_dict&) = default;
-
-public:
     static constexpr int DAY_BEFORE_EPOCH = 25567;                           // 1900-01-01
     static constexpr int DAY_AFTER_EPOCH = 25566;                            // 2039-12-31
     static constexpr int DICT_DAYS = DAY_BEFORE_EPOCH + 1 + DAY_AFTER_EPOCH; // 1 means 1970-01-01
@@ -1542,6 +1539,19 @@ public:
     static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR =
             719528; // 1970-01-01 (start from 0000-01-01, 0000-01-01 is day 1, returns 1)
 
+    static std::array<DateV2Value<DateV2ValueType>, DICT_DAYS> DATE_DAY_OFFSET_ITEMS;
+    static std::array<std::array<std::array<int, 31>, 12>, 140> DATE_DAY_OFFSET_DICT;
+
+    static bool DATE_DAY_OFFSET_ITEMS_INIT;
+
+    static date_day_offset_dict instance;
+
+    date_day_offset_dict();
+    ~date_day_offset_dict() = default;
+    date_day_offset_dict(const date_day_offset_dict&) = default;
+    date_day_offset_dict& operator=(const date_day_offset_dict&) = default;
+
+public:
     static bool can_speed_up_calc_daynr(int year) { return year >= START_YEAR && year <= END_YEAR; }
 
     static int get_offset_by_daynr(int daynr) { return daynr - DAY_OFFSET_CAL_START_POINT_DAYNR; }
@@ -1555,7 +1565,15 @@ public:
 
     static bool get_dict_init();
 
-    DateV2Value<DateV2ValueType> operator[](int day) const;
+    inline DateV2Value<DateV2ValueType> operator[](int day) const {
+        int index = day + DAY_BEFORE_EPOCH;
+        if (LIKELY(index >= 0 && index < DICT_DAYS)) {
+            return DATE_DAY_OFFSET_ITEMS[index];
+        } else {
+            DateV2Value<DateV2ValueType> d = DATE_DAY_OFFSET_ITEMS[0];
+            return d += index;
+        }
+    }
 
     int daynr(int year, int month, int day) const;
 };

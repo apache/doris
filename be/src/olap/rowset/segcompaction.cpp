@@ -45,7 +45,6 @@
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/reader.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer_context.h"
@@ -55,6 +54,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
@@ -74,7 +74,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
         std::vector<uint32_t>& return_columns,
         std::unique_ptr<vectorized::VerticalBlockReader>* reader) {
-    auto ctx = _writer->_context;
+    const auto& ctx = _writer->_context;
     StorageReadOptions read_options;
     read_options.stats = stat;
     read_options.use_page_cache = false;
@@ -90,8 +90,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         seg_iterators.push_back(std::move(iter));
     }
 
-    *reader = std::unique_ptr<vectorized::VerticalBlockReader> {
-            new vectorized::VerticalBlockReader(&row_sources_buf)};
+    *reader = std::make_unique<vectorized::VerticalBlockReader>(&row_sources_buf);
 
     TabletReader::ReaderParams reader_params;
     reader_params.is_segcompaction = true;
@@ -135,10 +134,11 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
                                        strings::Substitute("Failed to delete file=$0", seg_path));
         // Delete inverted index files
         for (auto column : schema->columns()) {
-            if (schema->has_inverted_index(column.unique_id())) {
-                auto index_id = schema->get_inverted_index(column.unique_id())->index_id();
+            if (schema->has_inverted_index(column)) {
+                auto index_info = schema->get_inverted_index(column);
+                auto index_id = index_info->index_id();
                 auto idx_path = InvertedIndexDescriptor::inverted_index_file_path(
-                        ctx.rowset_dir, ctx.rowset_id, i, index_id);
+                        ctx.rowset_dir, ctx.rowset_id, i, index_id, index_info->get_index_suffix());
                 VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
                 RETURN_NOT_OK_STATUS_WITH_WARN(
                         fs->delete_file(idx_path),
@@ -198,7 +198,7 @@ Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    SCOPED_CONSUME_MEM_TRACKER(StorageEngine::instance()->segcompaction_mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(_writer->_engine.segcompaction_mem_tracker());
     /* throttle segcompaction task if memory depleted */
     if (MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::Error<FETCH_MEMORY_EXCEEDED>("skip segcompaction due to memory shortage");
@@ -241,7 +241,8 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
                                            is_key, column_ids, &reader);
         if (UNLIKELY(reader == nullptr || !s.ok())) {
-            return Status::Error<SEGCOMPACTION_INIT_READER>("failed to get segcompaction reader.");
+            return Status::Error<SEGCOMPACTION_INIT_READER>(
+                    "failed to get segcompaction reader. err: {}", s.to_string());
         }
 
         Merger::Statistics merger_stats;
@@ -301,10 +302,12 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
 void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segments) {
     Status status = Status::OK();
-    if (_cancelled) {
-        LOG(INFO) << "segcompaction worker is cancelled, skipping segcompaction task";
-    } else {
+    if (_is_compacting_state_mutable.exchange(false)) {
         status = _do_compact_segments(segments);
+    } else {
+        // note: be aware that _writer maybe released when the task is cancelled
+        LOG(INFO) << "segcompaction worker is cancelled, skipping segcompaction task";
+        return;
     }
     if (!status.ok()) {
         int16_t errcode = status.code();
@@ -329,6 +332,13 @@ void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segm
         _writer->_is_doing_segcompaction = false;
         _writer->_segcompacting_cond.notify_all();
     }
+    _is_compacting_state_mutable = true;
+}
+
+bool SegcompactionWorker::cancel() {
+    // return true if the task is canncellable (actual compaction is not started)
+    // return false when the task is not cancellable (it is in the middle of segcompaction)
+    return _is_compacting_state_mutable.exchange(false);
 }
 
 } // namespace doris

@@ -22,6 +22,7 @@ import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.thrift.TRow;
 
 import java.util.List;
 
@@ -32,25 +33,31 @@ import java.util.List;
  * The job status is used to control the execution of the job.
  *
  * @param <T> The type of task associated with the job, extending AbstractTask.
+ *            <C> The type of task context associated with the job
  */
-public interface Job<T extends AbstractTask> {
+public interface Job<T extends AbstractTask, C> {
 
     /**
      * Creates a list of tasks of the specified type for this job.
+     * you can set task context for task,
+     * eg: insert task, execute sql is insert into table select * from table1 limit ${limit}
+     * every task context is different, eg: limit 1000, limit 2000,you can set task context to 1000,2000
+     * it's used by manual task or streaming task
      *
-     * @param taskType The type of tasks to create.
+     * @param taskType    The type of tasks to create. @See TaskType
+     * @param taskContext The context of tasks to create.
      * @return A list of tasks.
      */
-    List<T> createTasks(TaskType taskType);
+    List<T> createTasks(TaskType taskType, C taskContext);
 
     /**
      * Cancels the task with the specified taskId.
      *
      * @param taskId The ID of the task to cancel.
      * @throws JobException If the task is not in the running state, it may have already
-     * finished and cannot be cancelled.
+     *                      finished and cannot be cancelled.
      */
-    void cancel(long taskId) throws JobException;
+    void cancelTaskById(long taskId) throws JobException;
 
     /**
      * Checks if the job is ready for scheduling.
@@ -59,7 +66,7 @@ public interface Job<T extends AbstractTask> {
      *
      * @return True if the job is ready for scheduling, false otherwise.
      */
-    boolean isReadyForScheduling();
+    boolean isReadyForScheduling(C taskContext);
 
     /**
      * Retrieves the metadata for the job, which is used to display job information.
@@ -92,29 +99,58 @@ public interface Job<T extends AbstractTask> {
 
     /**
      * Cancels all running tasks of this job.
-     *
      * @throws JobException If cancelling a running task fails.
      */
-    void cancel() throws JobException;
+    void cancelAllTasks() throws JobException;
+
+    /**
+     * register job
+     * @throws JobException If register job failed.
+     */
+    void onRegister() throws JobException;
+
+    /**
+     * register job failed
+     * @throws JobException If failed.
+     */
+    void onUnRegister() throws JobException;
+
+    /**
+     * replay create job
+     * @throws JobException  If replay create failed.
+     */
+    void onReplayCreate() throws JobException;
+
+    /**
+     * replay finished or cancelled job
+     * @throws JobException If replay end failed.
+     */
+    void onReplayEnd(AbstractJob<?, C> replayJob) throws JobException;
 
     /**
      * Notifies the job when a task execution fails.
      *
      * @param task The failed task.
      */
-    void onTaskFail(T task);
+    void onTaskFail(T task) throws JobException;
 
     /**
      * Notifies the job when a task execution is successful.
      *
      * @param task The successful task.
      */
-    void onTaskSuccess(T task);
+    void onTaskSuccess(T task) throws JobException;
 
     /**
-     * Notifies the job when a task execution is cancelled.
+     * get the job's show info, which is used to sql show the job information
      *
-     * @param task The cancelled task.
+     * @return List<String> job common show info
      */
-    void onTaskCancel(T task);
+    List<String> getShowInfo();
+
+    /**
+     * get info for tvf `jobs`
+     * @return TRow
+     */
+    TRow getTvfInfo();
 }

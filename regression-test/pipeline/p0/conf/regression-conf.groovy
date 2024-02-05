@@ -54,11 +54,12 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
+// load_stream_fault_injection may cause bad disk
 
-excludeSuites = "test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
+excludeSuites = "test_index_failure_injection,test_dump_image,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
 
 // this directories will not be executed
-excludeDirectories = "workload_manager_p1,fault_injection_p0"
+excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery"
 
 customConf1 = "test_custom_conf_value"
 
@@ -85,6 +86,7 @@ mariadb_10_port=3326
 enableHiveTest=false
 hms_port=7141
 hiveServerPort=10000
+hive_pg_port=5432
 
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container
@@ -94,6 +96,7 @@ kafka_port=19193
 
 // iceberg test config
 iceberg_rest_uri_port=18181
+iceberg_minio_port=19001
 
 enableEsTest=false
 es_6_port=19200

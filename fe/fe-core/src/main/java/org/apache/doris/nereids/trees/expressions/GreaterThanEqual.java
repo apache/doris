@@ -32,11 +32,19 @@ import java.util.List;
 public class GreaterThanEqual extends ComparisonPredicate implements PropagateNullable {
 
     public GreaterThanEqual(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), ">=");
+        this(left, right, false);
+    }
+
+    public GreaterThanEqual(Expression left, Expression right, boolean inferred) {
+        super(ImmutableList.of(left, right), ">=", inferred);
     }
 
     private GreaterThanEqual(List<Expression> children) {
-        super(children, ">=");
+        this(children, false);
+    }
+
+    private GreaterThanEqual(List<Expression> children, boolean inferred) {
+        super(children, ">=", inferred);
     }
 
     @Override
@@ -52,7 +60,12 @@ public class GreaterThanEqual extends ComparisonPredicate implements PropagateNu
     @Override
     public GreaterThanEqual withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new GreaterThanEqual(children);
+        return new GreaterThanEqual(children, this.isInferred());
+    }
+
+    @Override
+    public Expression withInferred(boolean inferred) {
+        return new GreaterThanEqual(this.children, inferred);
     }
 
     @Override

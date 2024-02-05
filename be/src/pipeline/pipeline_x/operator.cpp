@@ -72,39 +72,24 @@
 
 namespace doris::pipeline {
 
-std::string PipelineXLocalStateBase::debug_string(int indentation_level) const {
-    return _parent->debug_string(indentation_level);
-}
-
 template <typename DependencyType>
 std::string PipelineXLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}",
-                   PipelineXLocalStateBase::debug_string(indentation_level));
-    if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, "\nDependency: \n {}",
-                       _dependency->debug_string(indentation_level + 1));
-    }
+    fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
     return fmt::to_string(debug_string_buffer);
 }
 
 template <typename DependencyType>
 std::string PipelineXSinkLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}",
-                   PipelineXSinkLocalStateBase::debug_string(indentation_level));
-    if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, "\n{}Dependency: \n {}",
-                       std::string(indentation_level * 2, ' '),
-                       _dependency->debug_string(indentation_level + 1));
-    }
+    fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
     return fmt::to_string(debug_string_buffer);
 }
 
 std::string OperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}", std::string(indentation_level * 2, ' '),
-                   _op_name, node_id());
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, parallel_tasks={}",
+                   std::string(indentation_level * 2, ' '), _op_name, node_id(), _parallel_tasks);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -166,7 +151,11 @@ Status OperatorXBase::close(RuntimeState* state) {
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->close(state));
     }
-    return state->get_local_state(operator_id())->close(state);
+    auto result = state->get_local_state_result(operator_id());
+    if (!result) {
+        return result.error();
+    }
+    return result.value()->close(state);
 }
 
 void PipelineXLocalStateBase::clear_origin_block() {
@@ -202,13 +191,14 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             }
         }
         DCHECK(mutable_block.rows() == rows);
+        output_block->set_columns(std::move(mutable_columns));
     }
 
     return Status::OK();
 }
 
-Status OperatorXBase::get_next_after_projects(RuntimeState* state, vectorized::Block* block,
-                                              SourceState& source_state) {
+Status OperatorXBase::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
+                                               SourceState& source_state) {
     auto local_state = state->get_local_state(operator_id());
     if (_output_row_descriptor) {
         local_state->clear_origin_block();
@@ -245,10 +235,6 @@ std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-std::string PipelineXSinkLocalStateBase::debug_string(int indentation_level) const {
-    return _parent->debug_string(indentation_level);
-}
-
 std::string DataSinkOperatorXBase::debug_string(RuntimeState* state, int indentation_level) const {
     return state->get_sink_local_state(operator_id())->debug_string(indentation_level);
 }
@@ -282,17 +268,68 @@ Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
     return Status::OK();
 }
 
+template <typename SharedStateType>
+constexpr bool NeedToCreate = true;
+template <>
+inline constexpr bool NeedToCreate<MultiCastSharedState> = false;
+template <>
+inline constexpr bool NeedToCreate<SetSharedState> = false;
+template <>
+inline constexpr bool NeedToCreate<UnionSharedState> = false;
+template <>
+inline constexpr bool NeedToCreate<LocalExchangeSharedState> = false;
+
 template <typename LocalStateType>
-void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& dependency) {
-    using DependencyType = typename LocalStateType::Dependency;
-    if constexpr (!std::is_same_v<typename LocalStateType::Dependency, FakeDependency>) {
+void DataSinkOperatorX<LocalStateType>::get_dependency(
+        vector<DependencySPtr>& dependency,
+        std::map<int, std::shared_ptr<BasicSharedState>>& shared_states, QueryContext* ctx) {
+    std::shared_ptr<BasicSharedState> ss = nullptr;
+    if constexpr (NeedToCreate<typename LocalStateType::DependencyType::SharedState>) {
+        ss.reset(new typename LocalStateType::DependencyType::SharedState());
+        DCHECK(!shared_states.contains(dests_id().front()));
+        if constexpr (!std::is_same_v<typename LocalStateType::DependencyType::SharedState,
+                                      FakeSharedState>) {
+            shared_states.insert({dests_id().front(), ss});
+        }
+    } else if constexpr (std::is_same_v<typename LocalStateType::DependencyType::SharedState,
+                                        MultiCastSharedState>) {
+        ss = ((MultiCastDataStreamSinkOperatorX*)this)->create_multi_cast_data_streamer();
         auto& dests = dests_id();
         for (auto& dest_id : dests) {
-            dependency.push_back(std::make_shared<DependencyType>(dest_id));
+            DCHECK(!shared_states.contains(dest_id));
+            shared_states.insert({dest_id, ss});
+        }
+    }
+    if constexpr (!std::is_same_v<typename LocalStateType::DependencyType, FakeDependency>) {
+        auto& dests = dests_id();
+        for (auto& dest_id : dests) {
+            dependency.push_back(std::make_shared<typename LocalStateType::DependencyType>(
+                    dest_id, _node_id, ctx));
+            dependency.back()->set_shared_state(ss.get());
         }
     } else {
         dependency.push_back(nullptr);
     }
+}
+
+template <typename LocalStateType>
+DependencySPtr OperatorX<LocalStateType>::get_dependency(
+        QueryContext* ctx, std::map<int, std::shared_ptr<BasicSharedState>>& shared_states) {
+    std::shared_ptr<BasicSharedState> ss = nullptr;
+    if constexpr (std::is_same_v<typename LocalStateType::DependencyType::SharedState,
+                                 SetSharedState>) {
+        ss.reset(new typename LocalStateType::DependencyType::SharedState());
+        shared_states.insert({operator_id(), ss});
+    } else if constexpr (std::is_same_v<typename LocalStateType::DependencyType::SharedState,
+                                        UnionSharedState>) {
+        ss.reset(new typename LocalStateType::DependencyType::SharedState(
+                ((UnionSourceOperatorX*)this)->get_child_count()));
+        shared_states.insert({operator_id(), ss});
+    }
+    auto dep =
+            std::make_shared<typename LocalStateType::DependencyType>(_operator_id, _node_id, ctx);
+    dep->set_shared_state(ss.get());
+    return dep;
 }
 
 template <typename LocalStateType>
@@ -305,44 +342,48 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
 
 PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
-        : _parent(parent),
-          _state(state),
-          _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
-                                                  parent->get_name() + "_FINISH_DEPENDENCY")) {}
+        : _parent(parent), _state(state) {
+    _query_statistics = std::make_shared<QueryStatistics>();
+}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
         : _num_rows_returned(0),
           _rows_returned_counter(nullptr),
           _peak_memory_usage_counter(nullptr),
           _parent(parent),
-          _state(state),
-          _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
-                                                  parent->get_name() + "_FINISH_DEPENDENCY")) {
-    _filter_dependency = std::make_shared<RuntimeFilterDependency>(
-            parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY");
+          _state(state) {
+    _query_statistics = std::make_shared<QueryStatistics>();
 }
 
 template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {
-    _runtime_profile.reset(new RuntimeProfile(_parent->get_name() +
-                                              " (id=" + std::to_string(_parent->node_id()) + ")"));
+    _runtime_profile.reset(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _runtime_profile->set_metadata(_parent->node_id());
     _runtime_profile->set_is_sink(false);
     info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
-    _wait_for_finish_dependency_timer =
-            ADD_TIMER(_runtime_profile, "WaitForPendingFinishDependency");
+    constexpr auto is_fake_shared =
+            std::is_same_v<typename DependencyType::SharedState, FakeSharedState>;
+    _dependency = (DependencyType*)info.dependency.get();
     if constexpr (!std::is_same_v<FakeDependency, DependencyType>) {
-        auto& deps = info.dependencys;
-        _dependency = (DependencyType*)deps.front().get();
-        if (_dependency) {
-            _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state();
-            _wait_for_dependency_timer = ADD_TIMER(
-                    _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time");
+        _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+                _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+        auto& deps = info.upstream_dependencies;
+        if constexpr (std::is_same_v<LocalExchangeSourceDependency, DependencyType>) {
+            _dependency->set_shared_state(info.le_state_map[_parent->operator_id()].first.get());
+            _shared_state = _dependency->shared_state()
+                                    ->template cast<typename DependencyType::SharedState>();
+
+            _shared_state->source_dep = info.dependency;
+        } else if constexpr (!is_fake_shared) {
+            _dependency->set_shared_state(info.shared_state);
+            _shared_state = _dependency->shared_state()
+                                    ->template cast<typename DependencyType::SharedState>();
+
+            _shared_state->source_dep = info.dependency;
+            if (!deps.empty()) {
+                _shared_state->sink_dep = deps.front();
+            }
         }
-    } else {
-        auto& deps = info.dependencys;
-        deps.front() = std::make_shared<FakeDependency>(0);
-        _dependency = (DependencyType*)deps.front().get();
     }
 
     _conjuncts.resize(_parent->_conjuncts.size());
@@ -354,17 +395,17 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
         RETURN_IF_ERROR(_parent->_projections[i]->clone(state, _projections[i]));
     }
     _rows_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsReturned", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
     _blocks_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksReturned", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
     _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
     _exec_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ExecTime", 1);
     _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
-    _memory_used_counter = ADD_LABEL_COUNTER(_runtime_profile, "MemoryUsage");
+    _memory_used_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "MemoryUsage", 1);
     _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
-            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
+            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage", 1);
     return Status::OK();
 }
 
@@ -374,12 +415,13 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
         return Status::OK();
     }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        COUNTER_SET(_wait_for_dependency_timer, _dependency->read_watcher_elapse_time());
+        COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
     }
-    COUNTER_SET(_wait_for_finish_dependency_timer,
-                _finish_dependency->finish_watcher_elapse_time());
     if (_rows_returned_counter != nullptr) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    }
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
     _closed = true;
     return Status::OK();
@@ -389,21 +431,29 @@ template <typename DependencyType>
 Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
                                                      LocalSinkStateInfo& info) {
     // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + id_name()));
+    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _profile->set_metadata(_parent->node_id());
     _profile->set_is_sink(true);
     _wait_for_finish_dependency_timer = ADD_TIMER(_profile, "PendingFinishDependency");
+    constexpr auto is_fake_shared =
+            std::is_same_v<typename DependencyType::SharedState, FakeSharedState>;
     if constexpr (!std::is_same_v<FakeDependency, DependencyType>) {
-        auto& deps = info.dependencys;
+        auto& deps = info.dependencies;
         _dependency = (DependencyType*)deps.front().get();
+        if constexpr (std::is_same_v<LocalExchangeSinkDependency, DependencyType>) {
+            _dependency = info.le_state_map[_parent->dests_id().front()].second.get();
+        }
         if (_dependency) {
-            _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state();
-            _wait_for_dependency_timer =
-                    ADD_TIMER(_profile, "WaitForDependency[" + _dependency->name() + "]Time");
+            if constexpr (!is_fake_shared) {
+                _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state();
+            }
+
+            _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+                    _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         }
     } else {
-        auto& deps = info.dependencys;
-        deps.front() = std::make_shared<FakeDependency>(0);
+        auto& deps = info.dependencies;
+        deps.front() = std::make_shared<FakeDependency>(0, 0, state->get_query_ctx());
         _dependency = (DependencyType*)deps.front().get();
     }
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
@@ -412,6 +462,9 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
     _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
     info.parent_profile->add_child(_profile, true, nullptr);
     _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
+    _memory_used_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_profile, "MemoryUsage", 1);
+    _peak_memory_usage_counter =
+            _profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage", 1);
     return Status::OK();
 }
 
@@ -421,10 +474,11 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
         return Status::OK();
     }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        COUNTER_SET(_wait_for_dependency_timer, _dependency->write_watcher_elapse_time());
+        COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
     }
-    COUNTER_SET(_wait_for_finish_dependency_timer,
-                _finish_dependency->finish_watcher_elapse_time());
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+    }
     _closed = true;
     return Status::OK();
 }
@@ -432,8 +486,8 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
 template <typename LocalStateType>
 Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                      SourceState& source_state) {
-    RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(state, block,
-                                                                                 source_state));
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(state, block,
+                                                                                  source_state));
     return pull(state, block, source_state);
 }
 
@@ -444,7 +498,7 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
                                 ->template cast<LocalStateType>();
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data();
-        RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(
+        RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(
                 state, local_state._child_block.get(), local_state._child_source_state));
         source_state = local_state._child_source_state;
         if (local_state._child_block->rows() == 0 &&
@@ -474,6 +528,7 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     _output_vexpr_ctxs.resize(_parent->cast<Parent>()._output_vexpr_ctxs.size());
@@ -481,19 +536,19 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
         RETURN_IF_ERROR(
                 _parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
     }
-    static_cast<AsyncWriterSinkDependency*>(_dependency)->set_write_blocked_by([this]() {
-        return this->write_blocked_by();
-    });
     _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
-    _async_writer_dependency = AsyncWriterDependency::create_shared(_parent->operator_id());
+    _async_writer_dependency = AsyncWriterDependency::create_shared(
+            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
 
-    _wait_for_dependency_timer =
-            ADD_TIMER(_profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time");
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+            _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
+    _finish_dependency->block();
     return Status::OK();
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     _writer->start_writer(state, _profile);
@@ -501,42 +556,35 @@ Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              SourceState source_state) {
     return _writer->sink(block, source_state == SourceState::FINISHED);
 }
 
 template <typename Writer, typename Parent>
-WriteDependency* AsyncWriterSink<Writer, Parent>::write_blocked_by() {
-    return _writer->write_blocked_by();
-}
-
-template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
-    COUNTER_SET(_wait_for_dependency_timer, _async_writer_dependency->write_watcher_elapse_time());
+    COUNTER_SET(_wait_for_dependency_timer, _async_writer_dependency->watcher_elapse_time());
+    COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     // if the init failed, the _writer may be nullptr. so here need check
     if (_writer) {
-        if (_writer->need_normal_close()) {
-            if (exec_status.ok() && !state->is_cancelled()) {
-                RETURN_IF_ERROR(_writer->commit_trans());
-            }
-            RETURN_IF_ERROR(_writer->close(exec_status));
+        Status st = _writer->get_writer_status();
+        if (exec_status.ok()) {
+            _writer->force_close(state->is_cancelled() ? Status::Cancelled("Cancelled")
+                                                       : Status::Cancelled("force close"));
         } else {
-            RETURN_IF_ERROR(_writer->get_writer_status());
+            _writer->force_close(exec_status);
         }
+        // If there is an error in process_block thread, then we should get the writer
+        // status before call force_close. For example, the thread may failed in commit
+        // transaction.
+        RETURN_IF_ERROR(st);
     }
     return Base::close(state, exec_status);
-}
-
-template <typename Writer, typename Parent>
-Status AsyncWriterSink<Writer, Parent>::try_close(RuntimeState* state, Status exec_status) {
-    if (state->is_cancelled() || !exec_status.ok()) {
-        _writer->force_close(!exec_status.ok() ? exec_status : Status::Cancelled("Cancelled"));
-    }
-    return Status::OK();
 }
 
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
@@ -599,29 +647,34 @@ template class StatefulOperatorX<RepeatLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
 template class StatefulOperatorX<TableFunctionLocalState>;
 
-template class PipelineXSinkLocalState<HashJoinDependency>;
-template class PipelineXSinkLocalState<SortDependency>;
-template class PipelineXSinkLocalState<NestedLoopJoinDependency>;
-template class PipelineXSinkLocalState<AnalyticDependency>;
-template class PipelineXSinkLocalState<AggDependency>;
+template class PipelineXSinkLocalState<SharedHashTableDependency>;
+template class PipelineXSinkLocalState<SortSinkDependency>;
+template class PipelineXSinkLocalState<NestedLoopJoinBuildSinkDependency>;
+template class PipelineXSinkLocalState<AnalyticSinkDependency>;
+template class PipelineXSinkLocalState<AggSinkDependency>;
 template class PipelineXSinkLocalState<FakeDependency>;
-template class PipelineXSinkLocalState<UnionDependency>;
-template class PipelineXSinkLocalState<PartitionSortDependency>;
-template class PipelineXSinkLocalState<MultiCastDependency>;
-template class PipelineXSinkLocalState<SetDependency>;
-template class PipelineXSinkLocalState<LocalExchangeDependency>;
+template class PipelineXSinkLocalState<UnionSinkDependency>;
+template class PipelineXSinkLocalState<PartitionSortSinkDependency>;
+template class PipelineXSinkLocalState<MultiCastSinkDependency>;
+template class PipelineXSinkLocalState<SetSinkDependency>;
+template class PipelineXSinkLocalState<SetProbeSinkDependency>;
+template class PipelineXSinkLocalState<LocalExchangeSinkDependency>;
+template class PipelineXSinkLocalState<AndDependency>;
+template class PipelineXSinkLocalState<ResultSinkDependency>;
 
-template class PipelineXLocalState<HashJoinDependency>;
-template class PipelineXLocalState<SortDependency>;
-template class PipelineXLocalState<NestedLoopJoinDependency>;
-template class PipelineXLocalState<AnalyticDependency>;
-template class PipelineXLocalState<AggDependency>;
+template class PipelineXLocalState<HashJoinProbeDependency>;
+template class PipelineXLocalState<SortSourceDependency>;
+template class PipelineXLocalState<NestedLoopJoinProbeDependency>;
+template class PipelineXLocalState<AnalyticSourceDependency>;
+template class PipelineXLocalState<AggSourceDependency>;
 template class PipelineXLocalState<FakeDependency>;
-template class PipelineXLocalState<UnionDependency>;
-template class PipelineXLocalState<MultiCastDependency>;
-template class PipelineXLocalState<PartitionSortDependency>;
-template class PipelineXLocalState<SetDependency>;
-template class PipelineXLocalState<LocalExchangeDependency>;
+template class PipelineXLocalState<UnionSourceDependency>;
+template class PipelineXLocalState<MultiCastSourceDependency>;
+template class PipelineXLocalState<PartitionSortSourceDependency>;
+template class PipelineXLocalState<SetSourceDependency>;
+template class PipelineXLocalState<LocalExchangeSourceDependency>;
+template class PipelineXLocalState<AndDependency>;
+template class PipelineXLocalState<ScanDependency>;
 
 template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;

@@ -29,11 +29,12 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -98,6 +99,16 @@ public class RefreshTableTest extends TestWithFeService {
         // updateTime is equal to schema update time as default
         long l5 = table.getUpdateTime();
         Assertions.assertTrue(l5 == l4);
+
+        // external info schema db
+        ExternalInfoSchemaDatabase infoDb = (ExternalInfoSchemaDatabase) test1.getDbNullable(InfoSchemaDb.DATABASE_NAME);
+        Assertions.assertNotNull(infoDb);
+        for (String tblName : SchemaTable.TABLE_MAP.keySet()) {
+            ExternalInfoSchemaTable infoTbl = (ExternalInfoSchemaTable) infoDb.getTableNullable(tblName);
+            Assertions.assertNotNull(infoTbl);
+            List<Column> schema = infoTbl.getFullSchema();
+            Assertions.assertEquals(SchemaTable.TABLE_MAP.get(tblName).getColumns().size(), schema.size());
+        }
     }
 
     @Test
@@ -113,7 +124,7 @@ public class RefreshTableTest extends TestWithFeService {
 
         // mock login user1
         UserIdentity user1 = new UserIdentity("user1", "%");
-        user1.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user1.analyze();
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "Access denied; you need (at least one of) the DROP privilege(s) for this operation",

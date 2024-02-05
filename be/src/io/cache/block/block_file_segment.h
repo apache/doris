@@ -186,7 +186,7 @@ private:
     mutable std::mutex _download_mutex;
 
     Key _file_key;
-    IFileCache* _cache;
+    IFileCache* _cache = nullptr;
 
     std::atomic<bool> _is_downloaded {false};
     CacheType _cache_type;

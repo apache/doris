@@ -570,6 +570,9 @@ public class NumericArithmetic {
         return new DoubleLiteral(result);
     }
 
+    /**
+     * Executable arithmetic functions divide
+     */
     @ExecFunction(name = "divide", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "DECIMAL")
     public static Expression divideDecimal(DecimalLiteral first, DecimalLiteral second) {
         if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {

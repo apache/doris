@@ -154,10 +154,16 @@ add_thirdparty(com_err)
 add_thirdparty(k5crypto)
 add_thirdparty(gssapi_krb5)
 add_thirdparty(dragonbox_to_chars LIB64)
+add_thirdparty(streamvbyte LIB64)
 target_include_directories(dragonbox_to_chars INTERFACE "${THIRDPARTY_DIR}/include/dragonbox-1.1.3")
 
 if (OS_MACOSX)
     add_thirdparty(bfd)
     add_thirdparty(iberty)
     add_thirdparty(intl)
+endif()
+
+# Only used on x86 or x86_64
+if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
+    add_thirdparty(deflate)
 endif()

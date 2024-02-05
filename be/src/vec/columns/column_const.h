@@ -63,7 +63,7 @@ namespace doris::vectorized {
 class ColumnConst final : public COWHelper<IColumn, ColumnConst> {
 private:
     friend class COWHelper<IColumn, ColumnConst>;
-
+    using Self = ColumnConst;
     WrappedPtr data;
     size_t s;
 
@@ -73,7 +73,9 @@ private:
 public:
     ColumnPtr convert_to_full_column() const;
 
-    ColumnPtr convert_to_full_column_if_const() const override { return convert_to_full_column(); }
+    ColumnPtr convert_to_full_column_if_const() const override {
+        return convert_to_full_column()->convert_to_full_column_if_const();
+    }
 
     ColumnPtr remove_low_cardinality() const;
 
@@ -111,8 +113,8 @@ public:
         s += length;
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         s += (indices_end - indices_begin);
     }
 
@@ -223,7 +225,7 @@ public:
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
-        LOG(FATAL) << "append_data_by_selector is not supported in ColumnConst!";
+        assert_cast<Self&>(*res).resize(selector.size());
     }
 
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }

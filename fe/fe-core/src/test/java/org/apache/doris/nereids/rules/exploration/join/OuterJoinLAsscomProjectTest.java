@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.rules.rewrite.PushdownAliasThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownAliasThroughJoin;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -79,7 +79,7 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(new PushdownAliasThroughJoin())
+                .applyTopDown(new PushDownAliasThroughJoin())
                 .printlnTree()
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .printlnExploration()

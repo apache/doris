@@ -40,7 +40,6 @@
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "util/hash_util.hpp"
-#include "util/lock.h"
 #include "vec/common/uint128.h"
 
 namespace doris {
@@ -147,7 +146,7 @@ public:
     virtual size_t get_file_segments_num(CacheType type) const = 0;
 
     virtual void change_cache_type(const Key& key, size_t offset, CacheType new_type,
-                                   std::lock_guard<doris::Mutex>& cache_lock) = 0;
+                                   std::lock_guard<std::mutex>& cache_lock) = 0;
 
     static std::string_view cache_type_to_string(CacheType type);
     static CacheType string_to_cache_type(const std::string& str);

@@ -67,11 +67,6 @@ public class JdbcExternalTable extends ExternalTable {
     }
 
     @Override
-    public String getMysqlType() {
-        return type.name();
-    }
-
-    @Override
     public TTableDescriptor toThrift() {
         makeSureInitialized();
         return jdbcTable.toThrift();
@@ -87,10 +82,13 @@ public class JdbcExternalTable extends ExternalTable {
         JdbcExternalCatalog jdbcCatalog = (JdbcExternalCatalog) catalog;
         String fullDbName = this.dbName + "." + this.name;
         JdbcTable jdbcTable = new JdbcTable(this.id, fullDbName, schema, TableType.JDBC_EXTERNAL_TABLE);
+        jdbcTable.setCatalogId(jdbcCatalog.getId());
         jdbcTable.setExternalTableName(fullDbName);
         jdbcTable.setRealDatabaseName(((JdbcExternalCatalog) catalog).getJdbcClient().getRealDatabaseName(this.dbName));
         jdbcTable.setRealTableName(
                 ((JdbcExternalCatalog) catalog).getJdbcClient().getRealTableName(this.dbName, this.name));
+        jdbcTable.setRealColumnNames(((JdbcExternalCatalog) catalog).getJdbcClient().getRealColumnNames(this.dbName,
+                this.name));
         jdbcTable.setJdbcTypeName(jdbcCatalog.getDatabaseTypeName());
         jdbcTable.setJdbcUrl(jdbcCatalog.getJdbcUrl());
         jdbcTable.setJdbcUser(jdbcCatalog.getJdbcUser());
@@ -99,6 +97,11 @@ public class JdbcExternalTable extends ExternalTable {
         jdbcTable.setDriverUrl(jdbcCatalog.getDriverUrl());
         jdbcTable.setResourceName(jdbcCatalog.getResource());
         jdbcTable.setCheckSum(jdbcCatalog.getCheckSum());
+        jdbcTable.setConnectionPoolMinSize(jdbcCatalog.getConnectionPoolMinSize());
+        jdbcTable.setConnectionPoolMaxSize(jdbcCatalog.getConnectionPoolMaxSize());
+        jdbcTable.setConnectionPoolMaxLifeTime(jdbcCatalog.getConnectionPoolMaxLifeTime());
+        jdbcTable.setConnectionPoolMaxWaitTime(jdbcCatalog.getConnectionPoolMaxWaitTime());
+        jdbcTable.setConnectionPoolKeepAlive(jdbcCatalog.isConnectionPoolKeepAlive());
         return jdbcTable;
     }
 
@@ -118,6 +121,11 @@ public class JdbcExternalTable extends ExternalTable {
             return rowCount;
         }
         return 1;
+    }
+
+    @Override
+    public long getCacheRowCount() {
+        return getRowCount();
     }
 
     @Override

@@ -101,7 +101,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
                 `test8` datetime NULL,
                 `c_byte` array<tinyint(4)> NULL,
                 `c_bool` array<boolean> NULL,
-                `c_integer` array<int(11)> NULL
+                `c_integer` array<int(11)> NULL,
+                `message` text NULL
             ) ENGINE=ELASTICSEARCH
             COMMENT 'ELASTICSEARCH'
             PROPERTIES (
@@ -115,7 +116,9 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql01 """select * from test_v1 where test2='text#1'"""
         order_qt_sql02 """select * from test_v1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
         order_qt_sql03 """select test4,test5,test6,test7,test8 from test_v1 order by test8"""
-
+        order_qt_sql04 """select message from test_v1 where message != ''"""
+        order_qt_sql05 """select message from test_v1 where message is not null"""
+        order_qt_sql06 """select message from test_v1 where not_null_or_empty(message)"""
        sql """
             CREATE TABLE `test_v2` (
                 `c_datetime` array<datev2> NULL,
@@ -152,9 +155,9 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
                 "http_ssl_enabled"="false"
             );
         """
-        order_qt_sql04 """select * from test_v2 where test2='text#1'"""
-        order_qt_sql05 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
-        order_qt_sql06 """select test4,test5,test6,test7,test8 from test_v2 order by test8"""
+        order_qt_sql20 """select * from test_v2 where test2='text#1'"""
+        order_qt_sql21 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
+        order_qt_sql22 """select test4,test5,test6,test7,test8 from test_v2 order by test8"""
 
         sql """switch test_es_query_es6"""
         // order_qt_sql_6_01 """show tables"""
@@ -172,6 +175,9 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql_6_13 """select test6 from test1 where test1='string1'"""
         order_qt_sql_6_14 """select test6 from test1 where test1='string2'"""
         order_qt_sql_6_15 """select test6 from test1 where test1='string3'"""
+        order_qt_sql_6_16 """select message from test1 where message != ''"""
+        order_qt_sql_6_17 """select message from test1 where message is not null"""
+        order_qt_sql_6_18 """select message from test1 where not_null_or_empty(message)"""
 
         List<List<String>> tables6N = sql """show tables"""
         boolean notContainHide = true
@@ -211,6 +217,9 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql_7_16 """select test10 from test1 where test1='string2'"""
         order_qt_sql_7_17 """select test10 from test1 where test1='string3'"""
         order_qt_sql_7_18 """select test10 from test1 where test1='string4'"""
+        order_qt_sql_7_19 """select message from test1 where message != ''"""
+        order_qt_sql_7_20 """select message from test1 where message is not null"""
+        order_qt_sql_7_21 """select message from test1 where not_null_or_empty(message)"""
 
         List<List<String>> tables7N = sql """show tables"""
         boolean notContainHide7 = true
@@ -250,5 +259,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql_8_14 """select test10 from test1 where test1='string2'"""
         order_qt_sql_8_15 """select test10 from test1 where test1='string3'"""
         order_qt_sql_8_16 """select test10 from test1 where test1='string4'"""
+        order_qt_sql_8_17 """select message from test1 where message != ''"""
+        order_qt_sql_8_18 """select message from test1 where message is not null"""
+        order_qt_sql_8_19 """select message from test1 where not_null_or_empty(message)"""
     }
 }

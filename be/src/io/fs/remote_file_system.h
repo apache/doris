@@ -40,11 +40,7 @@ public:
     Status upload(const Path& local_file, const Path& dest_file);
     Status batch_upload(const std::vector<Path>& local_files,
                         const std::vector<Path>& remote_files);
-    Status direct_upload(const Path& remote_file, const std::string& content);
-    Status upload_with_checksum(const Path& local_file, const Path& remote,
-                                const std::string& checksum);
     Status download(const Path& remote_file, const Path& local);
-    Status direct_download(const Path& remote_file, std::string* content);
 
     Status connect();
 
@@ -64,20 +60,9 @@ protected:
     virtual Status batch_upload_impl(const std::vector<Path>& local_files,
                                      const std::vector<Path>& remote_files) = 0;
 
-    /// save the content in "content" directly to remote file
-    virtual Status direct_upload_impl(const Path& remote_file, const std::string& content) = 0;
-
-    /// upload local_file to remote_file,
-    /// and the final remote file name is "remote_file.checksum"
-    virtual Status upload_with_checksum_impl(const Path& local_file, const Path& remote_file,
-                                             const std::string& checksum) = 0;
-
     /// download remote_file to local_file
     /// local_file should be an absolute path on local filesystem.
     virtual Status download_impl(const Path& remote_file, const Path& local_file) = 0;
-
-    /// save of content of remote_file directly into "content"
-    virtual Status direct_download_impl(const Path& remote_file, std::string* content) = 0;
 
     // The derived class should implement this method.
     // if file_size < 0, the file size should be fetched from file system

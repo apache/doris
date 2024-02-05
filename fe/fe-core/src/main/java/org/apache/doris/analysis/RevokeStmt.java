@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
@@ -118,10 +117,9 @@ public class RevokeStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (userIdent != null) {
-            userIdent.analyze(analyzer.getClusterName());
+            userIdent.analyze();
         } else {
             FeNameFormat.checkRoleName(role, false /* can not be superuser */, "Can not revoke from role");
-            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 
         if (tblPattern != null) {
@@ -134,7 +132,6 @@ public class RevokeStmt extends DdlStmt {
             for (int i = 0; i < roles.size(); i++) {
                 String originalRoleName = roles.get(i);
                 FeNameFormat.checkRoleName(originalRoleName, true /* can be admin */, "Can not revoke role");
-                roles.set(i, ClusterNamespace.getFullName(analyzer.getClusterName(), originalRoleName));
             }
         }
         if (!CollectionUtils.isEmpty(accessPrivileges)) {

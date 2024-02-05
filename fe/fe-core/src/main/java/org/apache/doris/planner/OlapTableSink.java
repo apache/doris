@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -104,7 +105,7 @@ public class OlapTableSink extends DataSink {
     private HashSet<String> partialUpdateInputColumns;
 
     // set after init called
-    private TDataSink tDataSink;
+    protected TDataSink tDataSink;
 
     private boolean singleReplicaLoad;
 
@@ -119,7 +120,7 @@ public class OlapTableSink extends DataSink {
     }
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
-            boolean loadToSingleTablet, boolean isStrictMode) throws AnalysisException {
+            boolean loadToSingleTablet, boolean isStrictMode, long txnExpirationS) throws AnalysisException {
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);
         tSink.setTxnId(txnId);
@@ -133,6 +134,7 @@ public class OlapTableSink extends DataSink {
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
+        tSink.setTxnTimeoutS(txnExpirationS);
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setOlapTableSink(tSink);
 
@@ -169,6 +171,10 @@ public class OlapTableSink extends DataSink {
 
     public void updateLoadId(TUniqueId newLoadId) {
         tDataSink.getOlapTableSink().setLoadId(newLoadId);
+    }
+
+    public void setAutoPartition(boolean var) {
+        tDataSink.getOlapTableSink().getPartition().setEnableAutomaticPartition(var);
     }
 
     // must called after tupleDescriptor is computed
@@ -252,6 +258,12 @@ public class OlapTableSink extends DataSink {
             columns.addAll(indexMeta.getSchema().stream().map(Column::getNonShadowName).collect(Collectors.toList()));
             for (Column column : indexMeta.getSchema()) {
                 TColumn tColumn = column.toThrift();
+                // When schema change is doing, some modified column has prefix in name. Columns here
+                // is for the schema in rowset meta, which should be no column with shadow prefix.
+                // So we should remove the shadow prefix here.
+                if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                    tColumn.setColumnName(column.getNonShadowName());
+                }
                 column.setIndexFlag(tColumn, table);
                 columnsDesc.add(tColumn);
             }
@@ -343,8 +355,13 @@ public class OlapTableSink extends DataSink {
                     }
                     tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partitionId));
                     if (partition.getDistributionInfo().getType() == DistributionInfoType.RANDOM) {
-                        int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
-                                .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                        int tabletIndex;
+                        if (tDataSink != null && tDataSink.type == TDataSinkType.GROUP_COMMIT_BLOCK_SINK) {
+                            tabletIndex = 0;
+                        } else {
+                            tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                                    .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                        }
                         tPartition.setLoadTabletIdx(tabletIndex);
                     }
 
@@ -361,23 +378,31 @@ public class OlapTableSink extends DataSink {
                         }
                     }
                 }
-                boolean  enableAutomaticPartition = partitionInfo.enableAutomaticPartition();
+                boolean enableAutomaticPartition = partitionInfo.enableAutomaticPartition();
                 // for auto create partition by function expr, there is no any partition firstly,
                 // But this is required in thrift struct.
                 if (enableAutomaticPartition && partitionIds.isEmpty()) {
                     partitionParam.setDistributedColumns(getDistColumns(table.getDefaultDistributionInfo()));
                     partitionParam.setPartitions(new ArrayList<TOlapTablePartition>());
                 }
-                ArrayList<Expr> exprs = partitionInfo.getPartitionExprs();
-                if (enableAutomaticPartition && exprs != null && analyzer != null) {
+
+                ArrayList<Expr> exprSource = partitionInfo.getPartitionExprs();
+                if (enableAutomaticPartition && exprSource != null && analyzer != null) {
                     Analyzer funcAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
                     tupleDescriptor.setTable(table);
                     funcAnalyzer.registerTupleDescriptor(tupleDescriptor);
+                    // we must clone the exprs. otherwise analyze will influence the origin exprs.
+                    ArrayList<Expr> exprs = new ArrayList<Expr>();
+                    for (Expr e : exprSource) {
+                        exprs.add(e.clone());
+                    }
                     for (Expr e : exprs) {
+                        e.reset();
                         e.analyze(funcAnalyzer);
                     }
                     partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));
                 }
+
                 partitionParam.setEnableAutomaticPartition(enableAutomaticPartition);
                 break;
             }
@@ -404,8 +429,13 @@ public class OlapTableSink extends DataSink {
                 }
 
                 if (partition.getDistributionInfo().getType() == DistributionInfoType.RANDOM) {
-                    int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
-                            .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                    int tabletIndex;
+                    if (tDataSink != null && tDataSink.type == TDataSinkType.GROUP_COMMIT_BLOCK_SINK) {
+                        tabletIndex = 0;
+                    } else {
+                        tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                                .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                    }
                     tPartition.setLoadTabletIdx(tabletIndex);
                 }
                 partitionParam.addToPartitions(tPartition);
@@ -498,6 +528,7 @@ public class OlapTableSink extends DataSink {
         // for partition by function expr, there is no any partition firstly, But this is required in thrift struct.
         if (partitionIds.isEmpty()) {
             locationParam.setTablets(new ArrayList<TTabletLocation>());
+            slaveLocationParam.setTablets(new ArrayList<TTabletLocation>());
         }
         // check if disk capacity reach limit
         // this is for load process, so use high water mark to check

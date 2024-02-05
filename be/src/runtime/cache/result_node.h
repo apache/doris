@@ -93,7 +93,7 @@ private:
 
 private:
     int64 _partition_key;
-    PCacheValue* _cache_value;
+    PCacheValue* _cache_value = nullptr;
     size_t _data_size;
     CacheStat _cache_stat;
 };
@@ -174,8 +174,8 @@ public:
 private:
     mutable std::shared_mutex _node_mtx;
     UniqueId _sql_key;
-    ResultNode* _prev;
-    ResultNode* _next;
+    ResultNode* _prev = nullptr;
+    ResultNode* _next = nullptr;
     size_t _data_size;
     PartitionRowBatchList _partition_list;
     PartitionRowBatchMap _partition_map;

@@ -911,6 +911,7 @@ public final class AggregateInfo extends AggregateInfoBase {
                 continue;
             }
 
+            slotDesc.setIsMaterialized(true);
             intermediateSlotDesc.setIsMaterialized(true);
             exprs.add(functionCallExpr);
             materializedSlots.add(i);

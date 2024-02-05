@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -45,8 +44,8 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     }
 
     @Override
-    public SchemaTable getTable() {
-        return (SchemaTable) table;
+    public TableIf getTable() {
+        return table;
     }
 
     @Override

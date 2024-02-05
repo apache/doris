@@ -19,7 +19,6 @@ package org.apache.doris.datasource.jdbc;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -27,6 +26,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -64,6 +64,25 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
+        }
+
+        Map<String, String> propertiesWithoutCheckSum = Maps.newHashMap(catalogProperty.getProperties());
+        propertiesWithoutCheckSum.remove(JdbcResource.CHECK_SUM);
+        JdbcResource.validateProperties(propertiesWithoutCheckSum);
+
+        JdbcResource.checkBooleanProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, getOnlySpecifiedDatabase());
+        JdbcResource.checkBooleanProperty(JdbcResource.LOWER_CASE_TABLE_NAMES, getLowerCaseTableNames());
+        JdbcResource.checkDatabaseListProperties(getOnlySpecifiedDatabase(), getIncludeDatabaseMap(),
+                getExcludeDatabaseMap());
+        JdbcResource.checkConnectionPoolProperties(getConnectionPoolMinSize(), getConnectionPoolMaxSize(),
+                getConnectionPoolMaxWaitTime(), getConnectionPoolMaxLifeTime());
+    }
+
+    @Override
+    public void onRefresh(boolean invalidCache) {
+        super.onRefresh(invalidCache);
+        if (jdbcClient != null) {
+            jdbcClient.closeClient();
         }
     }
 
@@ -122,17 +141,44 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public String getOnlySpecifiedDatabase() {
-        return catalogProperty.getOrDefault(JdbcResource.ONLY_SPECIFIED_DATABASE, "false");
+        return catalogProperty.getOrDefault(JdbcResource.ONLY_SPECIFIED_DATABASE, JdbcResource.getDefaultPropertyValue(
+                JdbcResource.ONLY_SPECIFIED_DATABASE));
     }
 
     public String getLowerCaseTableNames() {
         // Forced to true if Config.lower_case_table_names has a value of 1 or 2
-        if (Config.lower_case_table_names == 1 || Config.lower_case_table_names == 2) {
+        if (GlobalVariable.lowerCaseTableNames == 1 || GlobalVariable.lowerCaseTableNames == 2) {
             return "true";
         }
 
         // Otherwise, it defaults to false
-        return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_TABLE_NAMES, "false");
+        return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_TABLE_NAMES, JdbcResource.getDefaultPropertyValue(
+                JdbcResource.LOWER_CASE_TABLE_NAMES));
+    }
+
+    public int getConnectionPoolMinSize() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.CONNECTION_POOL_MIN_SIZE, JdbcResource
+                .getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MIN_SIZE)));
+    }
+
+    public int getConnectionPoolMaxSize() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.CONNECTION_POOL_MAX_SIZE, JdbcResource
+                .getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MAX_SIZE)));
+    }
+
+    public int getConnectionPoolMaxWaitTime() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.CONNECTION_POOL_MAX_WAIT_TIME, JdbcResource
+                .getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MAX_WAIT_TIME)));
+    }
+
+    public int getConnectionPoolMaxLifeTime() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.CONNECTION_POOL_MAX_LIFE_TIME, JdbcResource
+                .getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MAX_LIFE_TIME)));
+    }
+
+    public boolean isConnectionPoolKeepAlive() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(JdbcResource.CONNECTION_POOL_KEEP_ALIVE, JdbcResource
+                .getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_KEEP_ALIVE)));
     }
 
     @Override
@@ -147,7 +193,12 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setOnlySpecifiedDatabase(getOnlySpecifiedDatabase())
                 .setIsLowerCaseTableNames(getLowerCaseTableNames())
                 .setIncludeDatabaseMap(getIncludeDatabaseMap())
-                .setExcludeDatabaseMap(getExcludeDatabaseMap());
+                .setExcludeDatabaseMap(getExcludeDatabaseMap())
+                .setConnectionPoolMinSize(getConnectionPoolMinSize())
+                .setConnectionPoolMaxSize(getConnectionPoolMaxSize())
+                .setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime())
+                .setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime())
+                .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive());
 
         jdbcClient = JdbcClient.createJdbcClient(jdbcClientConfig);
     }
@@ -185,22 +236,15 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             properties.put(JdbcResource.CHECK_SUM,
                     JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
         }
-        String onlySpecifiedDatabase = getOnlySpecifiedDatabase();
-        if (!onlySpecifiedDatabase.equalsIgnoreCase("true") && !onlySpecifiedDatabase.equalsIgnoreCase("false")) {
-            throw new DdlException("only_specified_database must be true or false");
-        }
-        String lowerCaseTableNames = getLowerCaseTableNames();
-        if (!lowerCaseTableNames.equalsIgnoreCase("true") && !lowerCaseTableNames.equalsIgnoreCase("false")) {
-            throw new DdlException("lower_case_table_names must be true or false");
-        }
-        if (!onlySpecifiedDatabase.equalsIgnoreCase("true")) {
-            Map<String, Boolean> includeDatabaseList = getIncludeDatabaseMap();
-            Map<String, Boolean> excludeDatabaseList = getExcludeDatabaseMap();
-            if ((includeDatabaseList != null && !includeDatabaseList.isEmpty())
-                    || (excludeDatabaseList != null && !excludeDatabaseList.isEmpty())) {
-                throw new DdlException("include_database_list and exclude_database_list can not be set when "
-                        + "only_specified_database is false");
-            }
-        }
+    }
+
+    /**
+     * Execute stmt direct via jdbc
+     *
+     * @param stmt, the raw stmt string
+     */
+    public void executeStmt(String stmt) {
+        makeSureInitialized();
+        jdbcClient.executeStmt(stmt);
     }
 }

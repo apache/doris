@@ -69,7 +69,7 @@ suite("test_duplicate_backup_restore", "backup_restore") {
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
-            "replication_num" = "1"
+            "reserve_replica" = "true"
         )
         """
     
@@ -109,7 +109,7 @@ suite("test_duplicate_backup_restore", "backup_restore") {
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
-            "replication_num" = "1"
+            "reserve_replica" = "true"
         )
         """
     while (!syncer.checkAllRestoreFinish(dbName)) {

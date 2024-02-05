@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
@@ -270,6 +271,28 @@ public class BackupJob extends AbstractJob {
     @Override
     public boolean isCancelled() {
         return state == BackupJobState.CANCELLED;
+    }
+
+    @Override
+    public synchronized Status updateRepo(Repository repo) {
+        this.repo = repo;
+
+        if (this.state == BackupJobState.UPLOADING) {
+            for (Map.Entry<Long, Long> entry : unfinishedTaskIds.entrySet()) {
+                long signature = entry.getKey();
+                long beId = entry.getValue();
+                AgentTask task = AgentTaskQueue.getTask(beId, TTaskType.UPLOAD, signature);
+                if (task == null || task.getTaskType() != TTaskType.UPLOAD) {
+                    continue;
+                }
+                ((UploadTask) task).updateBrokerProperties(
+                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
+            }
+            LOG.info("finished to update upload job properties. {}", this);
+        }
+        LOG.info("finished to update repo of job. {}", this);
+        return Status.OK;
     }
 
     // Polling the job state and do the right things.
@@ -614,8 +637,7 @@ public class BackupJob extends AbstractJob {
         for (Long beId : beToSnapshots.keySet()) {
             List<SnapshotInfo> infos = beToSnapshots.get(beId);
             int totalNum = infos.size();
-            // each backend allot at most 3 tasks
-            int batchNum = Math.min(totalNum, 3);
+            int batchNum = Math.min(totalNum, Config.backup_upload_task_num_per_be);
             // each task contains several upload sub tasks
             int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
             LOG.info("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);

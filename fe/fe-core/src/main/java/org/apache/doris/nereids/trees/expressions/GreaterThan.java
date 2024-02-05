@@ -37,11 +37,19 @@ public class GreaterThan extends ComparisonPredicate implements PropagateNullabl
      * @param right right child of greater than
      */
     public GreaterThan(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), ">");
+        this(left, right, false);
+    }
+
+    public GreaterThan(Expression left, Expression right, boolean inferred) {
+        super(ImmutableList.of(left, right), ">", inferred);
     }
 
     private GreaterThan(List<Expression> children) {
-        super(children, ">");
+        this(children, false);
+    }
+
+    private GreaterThan(List<Expression> children, boolean inferred) {
+        super(children, ">", inferred);
     }
 
     @Override
@@ -57,7 +65,12 @@ public class GreaterThan extends ComparisonPredicate implements PropagateNullabl
     @Override
     public GreaterThan withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new GreaterThan(children);
+        return new GreaterThan(children, this.isInferred());
+    }
+
+    @Override
+    public Expression withInferred(boolean inferred) {
+        return new GreaterThan(this.children, inferred);
     }
 
     @Override

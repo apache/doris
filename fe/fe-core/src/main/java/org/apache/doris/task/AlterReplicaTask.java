@@ -53,6 +53,7 @@ public class AlterReplicaTask extends AgentTask {
     private Map<String, Expr> defineExprs;
     private Expr whereClause;
     private DescriptorTable descTable;
+    private Map<Object, List<TColumn>> tcloumnsPool;
     private List<Column> baseSchemaColumns;
 
     /**
@@ -62,7 +63,8 @@ public class AlterReplicaTask extends AgentTask {
     public AlterReplicaTask(long backendId, long dbId, long tableId, long partitionId, long rollupIndexId,
             long baseIndexId, long rollupTabletId, long baseTabletId, long newReplicaId, int newSchemaHash,
             int baseSchemaHash, long version, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs,
-            DescriptorTable descTable, List<Column> baseSchemaColumns, Expr whereClause) {
+            DescriptorTable descTable, List<Column> baseSchemaColumns, Map<Object, List<TColumn>> tcloumnsPool,
+            Expr whereClause) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
@@ -79,6 +81,7 @@ public class AlterReplicaTask extends AgentTask {
         this.whereClause = whereClause;
         this.descTable = descTable;
         this.baseSchemaColumns = baseSchemaColumns;
+        this.tcloumnsPool = tcloumnsPool;
     }
 
     public long getBaseTabletId() {
@@ -128,7 +131,6 @@ public class AlterReplicaTask extends AgentTask {
                 List<SlotRef> slots = Lists.newArrayList();
                 entry.getValue().collect(SlotRef.class, slots);
                 TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(entry.getKey());
-                mvParam.setOriginColumnName(slots.get(0).getColumnName());
                 mvParam.setMvExpr(entry.getValue().treeToThrift());
                 req.addToMaterializedViewParams(mvParam);
             }
@@ -141,9 +143,13 @@ public class AlterReplicaTask extends AgentTask {
         req.setDescTbl(descTable.toThrift());
 
         if (baseSchemaColumns != null) {
-            List<TColumn> columns = new ArrayList<TColumn>();
-            for (Column column : baseSchemaColumns) {
-                columns.add(column.toThrift());
+            List<TColumn> columns = tcloumnsPool.get(baseSchemaColumns);
+            if (columns == null) {
+                columns = new ArrayList<TColumn>();
+                for (Column column : baseSchemaColumns) {
+                    columns.add(column.toThrift());
+                }
+                tcloumnsPool.put(baseSchemaColumns, columns);
             }
             req.setColumns(columns);
         }

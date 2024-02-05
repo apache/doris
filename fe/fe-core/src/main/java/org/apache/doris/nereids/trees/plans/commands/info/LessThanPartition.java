@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-
-import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -32,17 +32,21 @@ import java.util.stream.Collectors;
  * represent less than partition
  */
 public class LessThanPartition extends PartitionDefinition {
-    private final String partitionName;
     private final List<Expression> values;
 
-    public LessThanPartition(String partitionName, List<Expression> values) {
-        this.partitionName = partitionName;
+    public LessThanPartition(boolean ifNotExists, String partitionName, List<Expression> values) {
+        super(ifNotExists, partitionName);
         this.values = values;
     }
 
     @Override
     public void validate(Map<String, String> properties) {
         super.validate(properties);
+        try {
+            FeNameFormat.checkPartitionName(partitionName);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
     }
 
     public String getPartitionName() {
@@ -54,13 +58,16 @@ public class LessThanPartition extends PartitionDefinition {
      */
     public SinglePartitionDesc translateToCatalogStyle() {
         if (values.get(0) instanceof MaxValue) {
-            return new SinglePartitionDesc(false, partitionName, PartitionKeyDesc.createMaxKeyDesc(),
-                    replicaAllocation, Maps.newHashMap());
+            return new SinglePartitionDesc(ifNotExists, partitionName,
+                    PartitionKeyDesc.createMaxKeyDesc(), replicaAllocation, properties,
+                    partitionDataProperty, isInMemory, tabletType, versionInfo, storagePolicy,
+                    isMutable);
         }
-        List<PartitionValue> partitionValues = values.stream()
-                .map(this::toLegacyPartitionValueStmt)
-                .collect(Collectors.toList());
-        return new SinglePartitionDesc(false, partitionName,
-                PartitionKeyDesc.createLessThan(partitionValues), replicaAllocation, Maps.newHashMap());
+        List<PartitionValue> partitionValues =
+                values.stream().map(this::toLegacyPartitionValueStmt).collect(Collectors.toList());
+        return new SinglePartitionDesc(ifNotExists, partitionName,
+                PartitionKeyDesc.createLessThan(partitionValues), replicaAllocation, properties,
+                partitionDataProperty, isInMemory, tabletType, versionInfo, storagePolicy,
+                isMutable);
     }
 }

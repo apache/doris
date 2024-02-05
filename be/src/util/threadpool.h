@@ -487,7 +487,7 @@ private:
     ThreadPool::ExecutionMode _mode;
 
     // Pointer to the token's thread pool.
-    ThreadPool* _pool;
+    ThreadPool* _pool = nullptr;
 
     // Token state machine.
     State _state;

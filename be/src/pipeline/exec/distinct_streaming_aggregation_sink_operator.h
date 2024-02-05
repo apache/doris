@@ -54,7 +54,7 @@ private:
 };
 
 class DistinctStreamingAggSinkOperator final
-        : public StreamingOperator<DistinctStreamingAggSinkOperatorBuilder> {
+        : public StreamingOperator<vectorized::DistinctAggregationNode> {
 public:
     DistinctStreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
                                      std::shared_ptr<DataQueue>);
@@ -78,17 +78,12 @@ private:
 class DistinctStreamingAggSinkOperatorX;
 
 class DistinctStreamingAggSinkLocalState final
-        : public AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState> {
+        : public AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState> {
 public:
     using Parent = DistinctStreamingAggSinkOperatorX;
-    using Base = AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState>;
+    using Base = AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(DistinctStreamingAggSinkLocalState);
     DistinctStreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
-        RETURN_IF_ERROR(Base::init(state, info));
-        _shared_state->data_queue.reset(new DataQueue(1, _dependency));
-        return Status::OK();
-    }
 
     Status close(RuntimeState* state, Status exec_status) override;
     Status _distinct_pre_agg_with_serialized_key(vectorized::Block* in_block,
@@ -101,7 +96,7 @@ private:
                                               const size_t num_rows);
 
     std::unique_ptr<vectorized::Block> _output_block = vectorized::Block::create_unique();
-    std::shared_ptr<char> dummy_mapped_data = nullptr;
+    std::shared_ptr<char> dummy_mapped_data;
     vectorized::IColumn::Selector _distinct_row;
     vectorized::Arena _arena;
     int64_t _output_distinct_rows = 0;
@@ -115,6 +110,15 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+
+    DataDistribution required_data_distribution() const override {
+        if (_needs_finalize) {
+            return _is_colocate
+                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        }
+        return DataSinkOperatorX<DistinctStreamingAggSinkLocalState>::required_data_distribution();
+    }
 };
 
 } // namespace pipeline
