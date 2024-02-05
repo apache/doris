@@ -199,7 +199,9 @@ public class DorisFunctionRegistry implements FunctionRegistry {
     }
 
     private void saveInCache(String name, ParserRuleContext procCtx) {
-        cache.put(qualified(name.toUpperCase()), procCtx);
+        // TODO, removeCached needs to be synchronized to all Observer FEs.
+        // Even if it is always executed on the Master FE, it still has to deal with Master switching.
+        // cache.put(qualified(name.toUpperCase()), procCtx);
     }
 
     /**

@@ -52,6 +52,8 @@ public class CreateProcedureCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        // TODO, removeCached needs to be synchronized to all Observer FEs.
+        // Even if it is always executed on the Master FE, it still has to deal with Master switching.
         ctx.getPlSqlOperation().getExec().functions.removeCached(name);
         client.addPlsqlStoredProcedure(name, ctx.getCurrentCatalog().getName(), ctx.getDatabase(),
                 ctx.getQualifiedUser(),
