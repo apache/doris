@@ -81,6 +81,7 @@
 #include "util/md5.h"
 #include "util/simd/vstring_function.h"
 #include "util/sm3.h"
+#include "util/url_coding.h"
 #include "util/url_parser.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
@@ -2827,6 +2828,53 @@ public:
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+};
+
+class FunctionUrlDecode : public IFunction {
+public:
+    static constexpr auto name = "url_decode";
+    static FunctionPtr create() { return std::make_shared<FunctionUrlDecode>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    bool is_variadic() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block,
+
+                        const ColumnNumbers& arguments, size_t result,
+                        size_t input_rows_count) const override {
+        auto res = ColumnString::create();
+        auto& res_offsets = res->get_offsets();
+        auto& res_chars = res->get_chars();
+        res_offsets.resize(input_rows_count);
+
+        ColumnPtr argument_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto* url_col = check_and_get_column<ColumnString>(argument_column.get());
+
+        if (!url_col) {
+            return Status::InternalError("Not supported input argument type");
+        }
+
+        std::string decoded_url;
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto source = url_col->get_data_at(i);
+            StringRef url_val(const_cast<char*>(source.data), source.size);
+
+            url_decode(url_val.to_string(), &decoded_url);
+
+            StringOP::push_value_string(decoded_url, i, res_chars, res_offsets);
+            decoded_url.clear();
+        }
+
+        block.get_by_position(result).column = std::move(res);
+
         return Status::OK();
     }
 };
