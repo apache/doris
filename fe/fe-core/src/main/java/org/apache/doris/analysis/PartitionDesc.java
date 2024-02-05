@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.qe.ConnectContext;
@@ -157,6 +158,14 @@ public class PartitionDesc {
     public void analyze(List<ColumnDef> columnDefs, Map<String, String> otherProperties) throws AnalysisException {
         if (partitionColNames == null || partitionColNames.isEmpty()) {
             throw new AnalysisException("No partition columns.");
+        }
+
+        if (singlePartitionDescs.size() > Config.create_table_partition_max_num) {
+            throw new AnalysisException(String.format(
+                    "The number of partitions to be created is [%s], exceeding the maximum value of [%s]. "
+                            + "Creating too many partitions can be time-consuming. If necessary, "
+                            + "you can modify the configuration item 'create_table_partition_max_num' in FE.",
+                    singlePartitionDescs.size(), Config.create_table_partition_max_num));
         }
 
         // `analyzeUniqueKeyMergeOnWrite` would modify `properties`, which will be used later,

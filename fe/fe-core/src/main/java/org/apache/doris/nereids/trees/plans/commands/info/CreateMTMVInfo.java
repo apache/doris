@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.CreateMTMVStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.ListPartitionDesc;
@@ -37,6 +38,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -317,14 +319,16 @@ public class CreateMTMVInfo {
     }
 
     private PartitionDesc generatePartitionDesc(MTMVRelatedTableIf relatedTable) {
+        List<AllPartitionDesc> allPartitionDescs = MTMVPartitionUtil
+                .getPartitionDescsByRelatedTable(relatedTable);
         try {
             PartitionType type = relatedTable.getPartitionType();
             if (type == PartitionType.RANGE) {
                 return new RangePartitionDesc(Lists.newArrayList(mvPartitionInfo.getPartitionCol()),
-                        Lists.newArrayList());
+                        allPartitionDescs);
             } else if (type == PartitionType.LIST) {
                 return new ListPartitionDesc(Lists.newArrayList(mvPartitionInfo.getPartitionCol()),
-                        Lists.newArrayList());
+                        allPartitionDescs);
             } else {
                 return null;
             }
