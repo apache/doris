@@ -71,11 +71,12 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
     _scanners.enqueue_bulk(scanners.begin(), scanners.size());
     if (limit < 0) {
         limit = -1;
-    } else if (limit < _batch_size) {
-        _batch_size = limit;
     }
-    _max_thread_num =
-            config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
+    MAX_SCALE_UP_RATIO = _state->scanner_scale_up_ratio();
+    _max_thread_num = _state->num_scanner_threads() > 0
+                              ? _state->num_scanner_threads()
+                              : config::doris_scanner_thread_pool_thread_num /
+                                        state->query_parallel_instance_num();
     _max_thread_num *= num_parallel_instances;
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     _max_thread_num = std::min(_max_thread_num, (int32_t)scanners.size());
@@ -103,12 +104,16 @@ ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VS
 Status ScannerContext::init() {
     if (_parent) {
         _scanner_profile = _parent->_scanner_profile;
+        _scanner_sched_counter = _parent->_scanner_sched_counter;
+        _newly_create_free_blocks_num = _parent->_newly_create_free_blocks_num;
         _scanner_wait_batch_timer = _parent->_scanner_wait_batch_timer;
         _free_blocks_memory_usage_mark = _parent->_free_blocks_memory_usage;
         _scanner_ctx_sched_time = _parent->_scanner_ctx_sched_time;
         _scale_up_scanners_counter = _parent->_scale_up_scanners_counter;
     } else {
         _scanner_profile = _local_state->_scanner_profile;
+        _scanner_sched_counter = _local_state->_scanner_sched_counter;
+        _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
         _scanner_wait_batch_timer = _local_state->_scanner_wait_batch_timer;
         _free_blocks_memory_usage_mark = _local_state->_free_blocks_memory_usage;
         _scanner_ctx_sched_time = _local_state->_scanner_ctx_sched_time;
@@ -142,8 +147,7 @@ Status ScannerContext::init() {
         std::weak_ptr<ScannerDelegate> next_scanner;
         if (_scanners.try_dequeue(next_scanner)) {
             vectorized::BlockUPtr block = get_free_block(_batch_size);
-            submit_running_scanner(
-                    std::make_shared<RunningScanner>(next_scanner, std::move(block)));
+            submit_scan_task(std::make_shared<ScanTask>(next_scanner, std::move(block)));
             _num_running_scanners++;
         }
     }
@@ -165,6 +169,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(int batch_size) {
         return block;
     }
 
+    _newly_create_free_blocks_num->update(1);
     return vectorized::Block::create_unique(_output_tuple_desc->slots(), batch_size,
                                             true /*ignore invalid slots*/);
 }
@@ -184,28 +189,25 @@ bool ScannerContext::empty_in_queue(int id) {
     return _blocks_queue.empty();
 }
 
-void ScannerContext::submit_running_scanner(std::shared_ptr<RunningScanner> running_scanner) {
+void ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
+    _scanner_sched_counter->update(1);
     _num_scheduled_scanners++;
-    _scanner_scheduler->submit(shared_from_this(), running_scanner);
+    _scanner_scheduler->submit(shared_from_this(), scan_task);
 }
 
-void ScannerContext::append_block_to_queue(std::shared_ptr<RunningScanner> running_scanner) {
-    Status st = validate_block_schema(running_scanner->current_block.get());
+void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) {
+    Status st = validate_block_schema(scan_task->current_block.get());
     if (!st.ok()) {
-        running_scanner->status = st;
+        scan_task->set_status(st);
     }
-    // set `eos` if `END_OF_FILE`, don't take `END_OF_FILE` as error
-    if (running_scanner->status.is<ErrorCode::END_OF_FILE>()) {
-        running_scanner->eos = true;
-    }
-    // We can only the known the block size after reading at least one block
+    // We can only know the block size after reading at least one block
     // Just take the size of first block as `_estimated_block_size`
-    if (running_scanner->first_block) {
+    if (scan_task->first_block) {
         std::lock_guard<std::mutex> fl(_free_blocks_lock);
-        size_t block_size = running_scanner->current_block->allocated_bytes();
+        size_t block_size = scan_task->current_block->allocated_bytes();
         _free_blocks_memory_usage += block_size;
         _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
-        running_scanner->first_block = false;
+        scan_task->first_block = false;
         if (block_size > _estimated_block_size) {
             _estimated_block_size = block_size;
         }
@@ -218,11 +220,11 @@ void ScannerContext::append_block_to_queue(std::shared_ptr<RunningScanner> runni
         // there's no block in queue before current block, so the consumer is waiting
         _total_wait_block_time += UnixMillis() - _last_fetch_time;
     }
-    if (running_scanner->eos) {
+    if (scan_task->is_eos()) {
         _num_finished_scanners++;
     }
     _num_scheduled_scanners--;
-    _blocks_queue.emplace_back(running_scanner);
+    _blocks_queue.emplace_back(scan_task);
     _blocks_queue_added_cv.notify_one();
 }
 
@@ -244,31 +246,33 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             _blocks_queue_added_cv.wait_for(l, 1s);
         }
     }
-    std::shared_ptr<RunningScanner> scanner = nullptr;
+    std::shared_ptr<ScanTask> scan_task = nullptr;
     if (!_blocks_queue.empty()) {
         _last_fetch_time = UnixMillis();
-        scanner = _blocks_queue.front();
+        scan_task = _blocks_queue.front();
         _blocks_queue.pop_front();
     }
 
-    if (scanner) {
-        if (!scanner->status_ok()) {
+    if (scan_task) {
+        if (!scan_task->status_ok()) {
             _set_scanner_done();
-            return scanner->status;
+            return scan_task->get_status();
         }
-        block->swap(*scanner->current_block);
-        if (!scanner->current_block->mem_reuse()) {
+        block->swap(*scan_task->current_block);
+        if (!scan_task->current_block->mem_reuse()) {
             // it depends on the memory strategy of ScanNode/ScanOperator
             // we should double check `mem_reuse()` of `current_block` to make sure it can be reused
-            scanner->current_block = get_free_block(_batch_size);
+            _newly_create_free_blocks_num->update(1);
+            scan_task->current_block = vectorized::Block::create_unique(_output_tuple_desc->slots(),
+                                                                        _batch_size, true);
         }
-        if (scanner->eos) { // current scanner is finished, and no more data to read
+        if (scan_task->is_eos()) { // current scanner is finished, and no more data to read
             std::weak_ptr<ScannerDelegate> next_scanner;
             // submit one of the remaining scanners
             if (_scanners.try_dequeue(next_scanner)) {
                 // reuse current running scanner, just reset some states.
-                scanner->reuse_scanner(next_scanner);
-                submit_running_scanner(scanner);
+                scan_task->reuse_scanner(next_scanner);
+                submit_scan_task(scan_task);
             } else {
                 // no more scanner to be scheduled
                 // `_free_blocks` serve all running scanners, maybe it's too large for the remaining scanners
@@ -285,7 +289,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             }
         } else {
             // resubmit current running scanner to read the next block
-            submit_running_scanner(scanner);
+            submit_scan_task(scan_task);
         }
         // scale up
         _try_to_scale_up();
@@ -305,7 +309,7 @@ void ScannerContext::_try_to_scale_up() {
     // 2. Half(`WAIT_BLOCK_DURATION_RATIO`) of the duration is waiting to get blocks
     // 3. `_free_blocks_memory_usage` < `_max_bytes_in_queue`, remains enough memory to scale up
     // 4. At most scale up `MAX_SCALE_UP_RATIO` times to `_max_thread_num`
-    if (_scanners.size_approx() > 0 &&
+    if (MAX_SCALE_UP_RATIO > 0 && _scanners.size_approx() > 0 &&
         (_num_running_scanners < _max_thread_num * MAX_SCALE_UP_RATIO) &&
         (_last_fetch_time - _last_scale_up_time > SCALE_UP_DURATION) && // duration > 5000ms
         (_total_wait_block_time > (_last_fetch_time - _last_scale_up_time) *
@@ -326,31 +330,31 @@ void ScannerContext::_try_to_scale_up() {
                                _max_thread_num * MAX_SCALE_UP_RATIO - _num_running_scanners);
         num_add = std::max(num_add, 1);
         for (int i = 0; i < num_add; ++i) {
-            vectorized::BlockUPtr add_block = nullptr;
+            vectorized::BlockUPtr allocate_block = nullptr;
             // reuse block in `_free_blocks` firstly
-            if (!_free_blocks.try_dequeue(add_block)) {
+            if (!_free_blocks.try_dequeue(allocate_block)) {
                 if (_free_blocks_memory_usage < _max_bytes_in_queue) {
-                    add_block = vectorized::Block::create_unique(_output_tuple_desc->slots(),
-                                                                 _batch_size,
-                                                                 true /*ignore invalid slots*/);
+                    _newly_create_free_blocks_num->update(1);
+                    allocate_block = vectorized::Block::create_unique(_output_tuple_desc->slots(),
+                                                                      _batch_size, true);
                 }
             } else {
                 // comes from `_free_blocks`, decrease first, then will be added back.
-                _free_blocks_memory_usage -= add_block->allocated_bytes();
+                _free_blocks_memory_usage -= allocate_block->allocated_bytes();
                 _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
             }
-            if (add_block) {
+            if (allocate_block) {
                 // get enough memory to launch one more scanner.
-                std::weak_ptr<ScannerDelegate> add_scanner;
-                if (_scanners.try_dequeue(add_scanner)) {
-                    std::shared_ptr<RunningScanner> scale_up_scanner =
-                            std::make_shared<RunningScanner>(add_scanner, std::move(add_block));
+                std::weak_ptr<ScannerDelegate> scale_up_scanner;
+                if (_scanners.try_dequeue(scale_up_scanner)) {
+                    std::shared_ptr<ScanTask> scale_up_task =
+                            std::make_shared<ScanTask>(scale_up_scanner, std::move(allocate_block));
                     _free_blocks_memory_usage += _estimated_block_size;
                     _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
                     // `first_block` is used to update `_free_blocks_memory_usage`,
                     // we have got the `_estimated_block_size`, no need for further updates
-                    scale_up_scanner->first_block = false;
-                    submit_running_scanner(scale_up_scanner);
+                    scale_up_task->first_block = false;
+                    submit_scan_task(scale_up_task);
                     _num_running_scanners++;
                     _scale_up_scanners_counter->update(1);
                     is_scale_up = true;
@@ -397,6 +401,7 @@ Status ScannerContext::validate_block_schema(Block* block) {
 }
 
 void ScannerContext::stop_scanners(RuntimeState* state) {
+    std::lock_guard<std::mutex> l(_transfer_lock);
     if (!done()) {
         _should_stop = true;
         _set_scanner_done();

@@ -54,10 +54,50 @@ namespace vectorized {
 
 class VScanner;
 class ScannerDelegate;
-class RunningScanner;
 class VScanNode;
 class ScannerScheduler;
 class SimplifiedScanScheduler;
+
+class ScanTask {
+public:
+    ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner, vectorized::BlockUPtr free_block)
+            : scanner(delegate_scanner), current_block(std::move(free_block)) {}
+
+private:
+    // whether current scanner is finished
+    bool eos = false;
+    Status status = Status::OK();
+
+public:
+    std::weak_ptr<ScannerDelegate> scanner;
+    // cache the block of current loop
+    vectorized::BlockUPtr current_block;
+    // only take the size of the first block as estimated size
+    bool first_block = true;
+    uint64_t last_submit_time; // nanoseconds
+
+    void set_status(Status _status) {
+        if (_status.is<ErrorCode::END_OF_FILE>()) {
+            // set `eos` if `END_OF_FILE`, don't take `END_OF_FILE` as error
+            eos = true;
+        }
+        status = _status;
+    }
+    Status get_status() const { return status; }
+    bool status_ok() { return status.ok() || status.is<ErrorCode::END_OF_FILE>(); }
+    bool is_eos() const { return eos; }
+    void set_eos(bool _eos) { eos = _eos; }
+
+    // reuse current running scanner
+    // reset `eos` and `status`
+    // `first_block` is used to update `_free_blocks_memory_usage`, and take the first block size
+    // as the `_estimated_block_size`. It has updated `_free_blocks_memory_usage`, so don't reset.
+    void reuse_scanner(std::weak_ptr<ScannerDelegate> next_scanner) {
+        scanner = next_scanner;
+        eos = false;
+        status = Status::OK();
+    }
+};
 
 // ScannerContext is responsible for recording the execution status
 // of a group of Scanners corresponding to a ScanNode.
@@ -92,13 +132,13 @@ public:
     [[nodiscard]] Status validate_block_schema(Block* block);
 
     // submit the running scanner to thread pool in `ScannerScheduler`
-    // set the next scanned block to `RunningScanner::current_block`
-    // set the error state to `RunningScanner::status`
-    // set the `eos` to `RunningScanner::eos` if there is no more data in current scanner
-    void submit_running_scanner(std::shared_ptr<RunningScanner> running_scanner);
+    // set the next scanned block to `ScanTask::current_block`
+    // set the error state to `ScanTask::status`
+    // set the `eos` to `ScanTask::eos` if there is no more data in current scanner
+    void submit_scan_task(std::shared_ptr<ScanTask> scan_task);
 
     // append the running scanner and its cached block to `_blocks_queue`
-    virtual void append_block_to_queue(std::shared_ptr<RunningScanner> running_scanner);
+    virtual void append_block_to_queue(std::shared_ptr<ScanTask> scan_task);
 
     // Return true if this ScannerContext need no more process
     bool done() const { return _is_finished || _should_stop; }
@@ -157,7 +197,7 @@ protected:
 
     std::mutex _transfer_lock;
     std::condition_variable _blocks_queue_added_cv;
-    std::list<std::shared_ptr<RunningScanner>> _blocks_queue;
+    std::list<std::shared_ptr<ScanTask>> _blocks_queue;
 
     std::atomic_bool _should_stop = false;
     std::atomic_bool _is_finished = false;
@@ -181,6 +221,8 @@ protected:
     std::vector<std::weak_ptr<ScannerDelegate>> _all_scanners;
     const int _num_parallel_instances;
     std::shared_ptr<RuntimeProfile> _scanner_profile;
+    RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
+    RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage_mark = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
@@ -197,7 +239,7 @@ protected:
     const int64_t SCALE_UP_DURATION = 5000; // 5000ms
     const float WAIT_BLOCK_DURATION_RATIO = 0.5;
     const float SCALE_UP_RATIO = 0.5;
-    const float MAX_SCALE_UP_RATIO = 5;
+    float MAX_SCALE_UP_RATIO;
 };
 } // namespace vectorized
 } // namespace doris

@@ -102,35 +102,6 @@ public:
     ScannerDelegate(ScannerDelegate&&) = delete;
 };
 
-class RunningScanner {
-public:
-    RunningScanner(std::weak_ptr<ScannerDelegate> delegate_scanner,
-                   vectorized::BlockUPtr free_block)
-            : scanner(delegate_scanner), current_block(std::move(free_block)) {}
-
-    std::weak_ptr<ScannerDelegate> scanner;
-    // cache the block of current loop
-    vectorized::BlockUPtr current_block;
-    // whether current scanner is finished
-    bool eos = false;
-    // only take the size of the first block as estimated size
-    bool first_block = true;
-    uint64_t last_submit_time; // nanoseconds
-    Status status = Status::OK();
-
-    bool status_ok() { return status.ok() || status.is<ErrorCode::END_OF_FILE>(); }
-
-    // reuse current running scanner
-    // reset `eos` and `status`
-    // `first_block` is used to update `_free_blocks_memory_usage`, and take the first block size
-    // as the `_estimated_block_size`. It has updated `_free_blocks_memory_usage`, so don't reset.
-    void reuse_scanner(std::weak_ptr<ScannerDelegate> next_scanner) {
-        scanner = next_scanner;
-        eos = false;
-        status = Status::OK();
-    }
-};
-
 class VScanNode : public ExecNode, public RuntimeFilterConsumer {
 public:
     VScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -405,9 +376,12 @@ protected:
     // time of filter output block from scanner
     RuntimeProfile::Counter* _filter_timer = nullptr;
 
+    RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
+    // Num of newly created free blocks when running query
+    RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 

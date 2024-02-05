@@ -53,9 +53,8 @@ public:
         _dependency = dependency;
     }
 
-    void append_block_to_queue(
-            std::shared_ptr<vectorized::RunningScanner> running_scanner) override {
-        vectorized::ScannerContext::append_block_to_queue(running_scanner);
+    void append_block_to_queue(std::shared_ptr<vectorized::ScanTask> scan_task) override {
+        vectorized::ScannerContext::append_block_to_queue(scan_task);
         if (_dependency) {
             _dependency->set_ready();
         }

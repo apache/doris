@@ -1289,9 +1289,12 @@ Status ScanLocalState<Derived>::_init_profile() {
     _memory_usage_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_scanner_profile, "MemoryUsage", 1);
     _free_blocks_memory_usage =
             _scanner_profile->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES, "MemoryUsage", 1);
+    _newly_create_free_blocks_num =
+            ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
     _scale_up_scanners_counter = ADD_COUNTER(_scanner_profile, "NumScaleUpScanners", TUnit::UNIT);
     // time of transfer thread to wait for block from scan thread
     _scanner_wait_batch_timer = ADD_TIMER(_scanner_profile, "ScannerBatchWaitTime");
+    _scanner_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerSchedCount", TUnit::UNIT);
     _scanner_ctx_sched_time = ADD_TIMER(_scanner_profile, "ScannerCtxSchedTime");
 
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
@@ -1449,7 +1452,10 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         }
     }};
 
-    if (state->is_cancelled()) {
+    if (state->is_cancelled() || local_state._scanner_ctx == nullptr) {
+        if (local_state._scanner_ctx) {
+            local_state._scanner_ctx->stop_scanners(state);
+        }
         return Status::Cancelled("query cancelled");
     }
 
