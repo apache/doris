@@ -44,4 +44,7 @@ suite("nereids_scalar_fn_U") {
 	sql "select user() from fn_test"
 	sql "select user() from fn_test_not_nullable"
     qt_sql_url_decode "select url_decode('https%3A%2F%2Fdoris.apache.org%2Fzh-CN%2Fdocs%2Fsql-manual%2Fsql-functions%2Fstring-functions')"
+    qt_sql_url_decode_empty "select url_decode('');"
+    qt_sql_url_decode_null "select url_decode(null);"
+    qt_sql_url_decode_invalid_url "select url_decode('This is not a url');"
 }
