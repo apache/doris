@@ -9,6 +9,40 @@ pwd
 rm -rf ../.old/*
 
 teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
+commit_id_from_checkout="%build.vcs.number%"
+target_branch='%teamcity.pullRequest.target.branch%'
+
+merge_pr_to_target_branch_latest() {
+    local pr_num_from_trigger="$1"
+    local target_branch="$2"
+    echo "INFO: merge pull request into ${target_branch}"
+    if [[ -z "${teamcity_build_checkoutDir}" ]]; then
+        echo "ERROR: env teamcity_build_checkoutDir not set" && return 1
+    fi
+    cd "${teamcity_build_checkoutDir}" || return 1
+    git reset --hard
+    git fetch origin "${target_branch}"
+    git checkout "${target_branch}"
+    git reset --hard origin/"${target_branch}"
+    git pull origin "${target_branch}"
+    git submodule update --init be/src/clucene
+    git submodule update --init be/src/apache-orc
+    # target_branch_commit_id=$(git rev-parse HEAD)
+    git config user.email "ci@selectdb.com"
+    git config user.name "ci"
+    echo "git fetch origin refs/pull/${pr_num_from_trigger}/head"
+    git fetch origin "refs/pull/${pr_num_from_trigger}/head"
+    git merge --no-edit --allow-unrelated-histories FETCH_HEAD
+    echo "INFO: merge refs/pull/${pr_num_from_trigger}/head into master: $(git rev-parse HEAD)"
+    # CONFLICTS=$(git ls-files -u | wc -l)
+    if [[ $(git ls-files -u | wc -l) -gt 0 ]]; then
+        echo "ERROR: merge refs/pull/${pr_num_from_trigger}/head into master failed. Aborting"
+        git merge --abort
+        return 1
+    fi
+}
+if ! merge_pr_to_target_branch_latest "${pr_num_from_trigger}" "${target_branch}";then return 1; fi
+
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/prepare.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/
     bash prepare.sh
@@ -20,9 +54,9 @@ EOF
 ## prepare.sh content ##
 
 if ${DEBUG:-false}; then
-    pull_request_num="30772"
+    pr_num_from_trigger="30772"
     commit_id_from_trigger="8a0077c2cfc492894d9ff68916e7e131f9a99b65"
-    commit_id="8a0077c2cfc492894d9ff68916e7e131f9a99b65" # teamcity checkout commit id
+    commit_id_from_checkout="8a0077c2cfc492894d9ff68916e7e131f9a99b65" # teamcity checkout commit id
     target_branch="master"
 fi
 
@@ -35,20 +69,18 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils
 
 echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
-if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 1; fi
+if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger not set" && exit 1; fi
 if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
-if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 1; fi
+if [[ -z "${commit_id_from_checkout}" ]]; then echo "ERROR: env commit_id_from_checkout not set" && exit 1; fi
 if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
-
-commit_id_from_checkout=${commit_id}
 
 echo "#### 1. check if need run"
 if [[ "${commit_id_from_trigger}" != "${commit_id_from_checkout}" ]]; then
     echo -e "从触发流水线 -> 流水线开始跑，这个时间段中如果有新commit，
 这时候流水线 checkout 出来的 commit 就不是触发时的传过来的 commit 了，
 这种情况不需要跑，预期 pr owner 会重新触发。"
-    echo -e "ERROR: PR(${pull_request_num}),
-    the lastest commit id
+    echo -e "ERROR: PR(${pr_num_from_trigger}),
+    the commit_id_from_checkout
     ${commit_id_from_checkout}
     not equail to the commit_id_from_trigger
     ${commit_id_from_trigger}
@@ -70,7 +102,7 @@ fi
 # shellcheck source=/dev/null
 # _get_pr_changed_files file_changed_performance
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh
-if _get_pr_changed_files "${pull_request_num}"; then
+if _get_pr_changed_files "${pr_num_from_trigger}"; then
     if ! file_changed_cloud_p0; then
         bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
         exit 0
@@ -98,4 +130,4 @@ clean_fdb
 
 echo "#### 5. check if binary package ready"
 export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile_result"}"
-if ! check_oss_file_exist "${pull_request_num}_${commit_id_from_trigger}.tar.gz"; then return 1; fi
+if ! check_oss_file_exist "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.gz"; then return 1; fi
