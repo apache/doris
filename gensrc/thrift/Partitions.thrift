@@ -43,7 +43,7 @@ enum TPartitionType {
   BUCKET_SHFFULE_HASH_PARTITIONED,
 
   // used for shuffle data by parititon and tablet
-  PARTITION_TABLET_SINK_SHUFFLE
+  TABLET_SINK_SHUFFLE_PARTITIONED
 }
 
 enum TDistributionType {
