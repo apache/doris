@@ -29,7 +29,7 @@
 #include <ostream>
 #include <string>
 
-#include "common/config.h"
+#include "cloud/config.h"
 #include "runtime/query_context.h"
 #include "runtime/query_statistics.h"
 #include "vec/sink/async_writer_sink.h"
@@ -151,6 +151,10 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
+            if (config::is_cloud_mode()) {
+                return Status::InternalError(
+                        "memtable on sink node is not supported in cloud mode");
+            }
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs));
         } else {
             sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs));
