@@ -18,7 +18,6 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
@@ -39,7 +38,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -106,19 +104,6 @@ public class MTMVPartitionUtil {
                 addPartition(mtmv, entry.getValue());
             }
         }
-    }
-
-    public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(MTMVRelatedTableIf relatedTable) {
-        HashMap<String, String> properties = Maps.newHashMap();
-        List<AllPartitionDesc> res = Lists.newArrayList();
-        Map<Long, PartitionItem> relatedTableItems = relatedTable.getPartitionItems();
-        for (Entry<Long, PartitionItem> entry : relatedTableItems.entrySet()) {
-            PartitionKeyDesc oldPartitionKeyDesc = entry.getValue().toPartitionKeyDesc();
-            res.add(new SinglePartitionDesc(true,
-                    generatePartitionName(oldPartitionKeyDesc),
-                    oldPartitionKeyDesc, properties));
-        }
-        return res;
     }
 
     public static List<String> getPartitionNamesByIds(MTMV mtmv, Collection<Long> ids) throws AnalysisException {

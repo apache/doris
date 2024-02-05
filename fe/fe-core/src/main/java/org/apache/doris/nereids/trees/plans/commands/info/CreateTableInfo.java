@@ -812,6 +812,14 @@ public class CreateTableInfo {
                             ? partitions.stream().map(PartitionDefinition::translateToCatalogStyle)
                                     .collect(Collectors.toList())
                             : null;
+            if (partitionDescs != null && partitionDescs.size() > Config.create_table_partition_max_num) {
+                throw new AnalysisException(String.format(
+                        "The number of partitions to be created is [%s], exceeding the maximum value of [%s]. "
+                                + "Creating too many partitions can be time-consuming. If necessary, "
+                                + "you can modify the configuration item 'create_table_partition_max_num' in FE.",
+                        partitionDescs.size(), Config.create_table_partition_max_num));
+            }
+
             try {
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
