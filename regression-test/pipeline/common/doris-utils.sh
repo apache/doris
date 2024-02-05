@@ -51,6 +51,44 @@ function set_doris_conf_value() {
 # get_doris_conf_value "$1" "$2"
 # set_doris_conf_value "$1" "$2" "$3"
 
+function start_doris_ms() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    cd "${DORIS_HOME}"/ms || return 1
+    if ! ./bin/start.sh --meta-service --daemonized; then
+        echo "ERROR: start doris meta-service failed." && return 1
+    fi
+    local i=1
+    while [[ $((i++)) -lt 5 ]]; do
+        if ! pgrep -fia 'doris_cloud --meta-service' >/dev/null; then
+            echo "ERROR: start doris meta-service failed." && return 1
+        else
+            sleep 1
+        fi
+    done
+    if [[ ${i} -ge 5 ]]; then
+        echo -e "INFO: doris meta-service started,\n$("${DORIS_HOME}"/ms/lib/doris_cloud --version)"
+    fi
+}
+
+function start_doris_recycler() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    cd "${DORIS_HOME}"/recycler || return 1
+    if ! ./bin/start.sh --recycler --daemonized; then
+        echo "ERROR: start doris recycler failed." && return 1
+    fi
+    local i=1
+    while [[ $((i++)) -lt 5 ]]; do
+        if ! pgrep -fia 'doris_cloud --recycler' >/dev/null; then
+            echo "ERROR: start doris recycler failed." && return 1
+        else
+            sleep 1
+        fi
+    done
+    if [[ ${i} -ge 5 ]]; then
+        echo -e "INFO: doris recycler started,\n$("${DORIS_HOME}"/ms/lib/doris_cloud --version)"
+    fi
+}
+
 function start_doris_fe() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if ! java -version >/dev/null ||
@@ -110,18 +148,22 @@ function add_doris_be_to_fe() {
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     heartbeat_service_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf heartbeat_service_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
-    if ${cl} -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:${heartbeat_service_port}';"; then echo; else echo; fi
+    if ${cl} -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:${heartbeat_service_port}';"; then echo; else return 1; fi
+    check_doris_ready
+}
 
+function check_doris_ready() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     i=1
     while [[ $((i++)) -lt 60 ]]; do
         if be_ready_count=$(${cl} -e 'show backends\G' | grep -c 'Alive: true') &&
             [[ ${be_ready_count} -eq 1 ]]; then
-            echo -e "INFO: add doris be success, be version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
+            echo -e "INFO: Doris cluster ready, be version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
         else
-            echo 'Wait for Backends ready, sleep 2 seconds ...' && sleep 2
+            echo 'Wait for backends ready, sleep 2 seconds ...' && sleep 2
         fi
     done
-    if [[ ${i} -ge 60 ]]; then echo "ERROR: Add Doris Backend Failed after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Doris cluster not ready after 2 mins wait..." && return 1; fi
 
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
@@ -129,12 +171,47 @@ function add_doris_be_to_fe() {
 }
 
 function stop_doris() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh; fi
+    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh; fi
     if "${DORIS_HOME}"/fe/bin/stop_fe.sh &&
         "${DORIS_HOME}"/be/bin/stop_be.sh; then
         echo "INFO: normally stoped doris"
     else
         pgrep -fi doris | xargs kill -9 &>/dev/null
         echo "WARNING: force stoped doris"
+    fi
+}
+
+function clean_fdb() {
+    instance_id="$1"
+    if [[ -z "${instance_id:-}" ]]; then return 1; fi
+    if fdbcli --exec "writemode on;clearrange \x01\x10instance\x00\x01\x10${instance_id}\x00\x01 \x01\x10instance\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        fdbcli --exec "writemode on;clearrange \x01\x10meta\x00\x01\x10${instance_id}\x00\x01 \x01\x10meta\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        fdbcli --exec "writemode on;clearrange \x01\x10txn\x00\x01\x10${instance_id}\x00\x01 \x01\x10txn\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        fdbcli --exec "writemode on;clearrange \x01\x10version\x00\x01\x10${instance_id}\x00\x01 \x01\x10version\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        fdbcli --exec "writemode on;clearrange \x01\x10stats\x00\x01\x10${instance_id}\x00\x01 \x01\x10stats\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        fdbcli --exec "writemode on;clearrange \x01\x10recycle\x00\x01\x10${instance_id}\x00\x01 \x01\x10recycle\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        fdbcli --exec "writemode on;clearrange \x01\x10job\x00\x01\x10${instance_id}\x00\x01 \x01\x10job\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        fdbcli --exec "writemode on;clearrange \x01\x10copy\x00\x01\x10${instance_id}\x00\x01 \x01\x10copy\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        rm -f /var/log/foundationdb/*; then
+        echo "INFO: fdb cleaned."
+    else
+        echo "ERROR: failed to clean fdb" && return 1
+    fi
+}
+
+function install_fdb() {
+    if fdbcli --exec 'status' >/dev/null; then return; fi
+    wget -c -t3 -q https://github.com/apple/foundationdb/releases/download/7.1.23/foundationdb-clients_7.1.23-1_amd64.deb
+    wget -c -t3 -q https://github.com/apple/foundationdb/releases/download/7.1.23/foundationdb-server_7.1.23-1_amd64.deb
+    sudo dpkg -i foundationdb-clients_7.1.23-1_amd64.deb foundationdb-server_7.1.23-1_amd64.deb
+    # /usr/lib/foundationdb/fdbmonitor --daemonize
+    # fdbcli --exec 'configure new single ssd'
+    if fdbcli --exec 'status'; then
+        echo "INFO: foundationdb installed."
+    else
+        return 1
     fi
 }
 
@@ -305,37 +382,14 @@ get_session_variable() {
     fi
 }
 
-set_session_variables_from_file() {
-    usage="
-    usage:
-        set_session_variables_from_file FILE
-        FILE content lile '
-        session_variable_key session_variable_value
-        ...
-        '
-    "
+show_session_variables() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if [[ -z "$1" ]]; then echo "${usage}" && return 1; else sv_file="$1"; fi
-
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
-    cl="mysql -h127.0.0.1 -P${query_port} -uroot "
-
-    ret=0
-    while read -r sv; do
-        if [[ "${sv}" == "#"* ]]; then continue; fi
-        k=$(echo "${sv}" | awk '{print $1}')
-        v=$(echo "${sv}" | awk '{print $2}' | tr '[:upper:]' '[:lower:]')
-        if ${cl} -e"set global ${k}=${v};"; then
-            if [[ "$(get_session_variable "${k}" | tr '[:upper:]' '[:lower:]')" == "${v}" ]]; then
-                echo "INFO:      set global ${k}=${v};"
-            else
-                echo "ERROR:     set global ${k}=${v};" && ret=1
-            fi
-        else
-            ret=1
-        fi
-    done <"${sv_file}"
-    return "${ret}"
+    if mysql -h127.0.0.1 -P"${query_port}" -uroot -e"show session variables;"; then
+        return
+    else
+        return 1
+    fi
 }
 
 set_session_variable() {
@@ -376,20 +430,74 @@ function reset_doris_session_variables() {
     fi
 }
 
+function set_doris_session_variables_from_file() {
+    # set session variables from file
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    session_variables_file="$1"
+    if [[ -z ${session_variables_file} ]]; then echo "ERROR: session_variables_file required" && return 1; fi
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    if mysql -h127.0.0.1 -P"${query_port}" -uroot -e"source ${session_variables_file};"; then
+        echo "INFO: set session variables from file ${session_variables_file}, succeed"
+    else
+        echo "ERROR: set session variables from file ${session_variables_file}, failed" && return 1
+    fi
+}
+
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
+    archive_content="regression-test/log fe/conf fe/log be/conf be/log session_variables"
+    if [[ -d "${DORIS_HOME}"/ms ]]; then
+        cp -rf /var/log/foundationdb "${DORIS_HOME}"/foundationdb/log
+        archive_content="${archive_content} ms/conf ms/log foundationdb/log"
+    fi
+    if [[ -d "${DORIS_HOME}"/recycler ]]; then
+        archive_content="${archive_content} recycler/conf recycler/log"
+    fi
+    if [[ -d "${DORIS_HOME}"/be/storage/error_log ]]; then
+        archive_content="${archive_content} be/storage/error_log"
+    fi
+
+    # shellcheck disable=SC2086
     if tar -I pigz \
         --directory "${DORIS_HOME}" \
         -cf "${DORIS_HOME}/${archive_name}" \
-        fe/conf \
-        fe/log \
-        be/conf \
-        be/log; then
+        ${archive_content}; then
         echo "${DORIS_HOME}/${archive_name}"
     else
         return 1
+    fi
+}
+
+archive_doris_coredump() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    archive_name="$1"
+    if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
+    be_pid="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
+    if [[ -z "${be_id}" ]]; then echo "ERROR: can not find be id from ${DORIS_HOME}/be/bin/be.pid" && return 1; fi
+    if corename=$(find /var/lib/apport/coredump/ -type f -name "core.*${be_pid}.*"); then
+        initial_size=$(stat -c %s "${corename}")
+        while true; do
+            sleep 2
+            current_size=$(stat -c %s "${corename}")
+            if [[ ${initial_size} -eq ${current_size} ]]; then
+                break
+            else
+                initial_size=${current_size}
+            fi
+        done
+        file_size=$(stat -c %s "${corename}")
+        if ((file_size > 85899345920)); then
+            echo "coredump size ${file_size} over 80G, not upload"
+            return 1
+        else
+            #压缩core文件
+            mv "${corename}" "${DORIS_HOME}"/be/lib/
+            cd "${DORIS_HOME}"/be/lib/ || return 1
+            tar -I pigz -cf core.tar.gz be/lib/doris_be "be/lib/$(basename "${corename}")" >/dev/null
+            echo "$(pwd)/core.tar.gz"
+        fi
     fi
 }
 
@@ -409,4 +517,126 @@ print_doris_be_log() {
     echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
     tail -n 100 "${DORIS_HOME}"/be/log/be.INFO
     echo -e "WARNING: ----------------------------------------\n\n\n\n"
+}
+
+print_fdb_log() {
+    echo
+}
+
+print_doris_conf() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    echo -e "\n\n\n\nINFO: --------------------cat ${DORIS_HOME}/fe/conf/fe.conf--------------------"
+    cat "${DORIS_HOME}"/fe/conf/fe.conf
+    if [[ -f ${DORIS_HOME}/fe/conf/fe_custom.conf ]]; then
+        echo -e "\n\n\n\nINFO: --------------------cat ${DORIS_HOME}/fe/conf/fe_custom.conf--------------------"
+        cat "${DORIS_HOME}"/fe/conf/fe_custom.conf
+    fi
+    echo -e "\n\n\n\nINFO: --------------------tail -n 100 ${DORIS_HOME}/be/conf/be.conf--------------------"
+    tail -n 100 "${DORIS_HOME}"/be/conf/be.conf
+    if [[ -f ${DORIS_HOME}/be/conf/be_custom.conf ]]; then
+        echo -e "\n\n\n\nINFO: --------------------cat ${DORIS_HOME}/be/conf/be_custom.conf--------------------"
+        cat "${DORIS_HOME}"/be/conf/be_custom.conf
+    fi
+    if [[ -f ${DORIS_HOME}/ms/conf/doris_cloud.conf ]]; then
+        echo -e "\n\n\n\nINFO: --------------------cat ${DORIS_HOME}/ms/conf/doris_cloud.conf--------------------"
+        cat "${DORIS_HOME}"/ms/conf/doris_cloud.conf
+    fi
+    if [[ -f ${DORIS_HOME}/recycler/conf/doris_cloud.conf ]]; then
+        echo -e "\n\n\n\nINFO: --------------------cat ${DORIS_HOME}/recycler/conf/doris_cloud.conf--------------------"
+        cat "${DORIS_HOME}"/recycler/conf/doris_cloud.conf
+    fi
+    echo -e "INFO: ----------------------------------------\n\n\n\n"
+}
+
+function create_warehouse() {
+    if [[ -z ${COS_ak} || -z ${COS_sk} ]]; then
+        echo "ERROR: env COS_ak and COS_sk are required." && return 1
+    fi
+    if curl "127.0.0.1:5000/MetaService/http/create_instance?token=greedisgood9999" -d "{
+        \"instance_id\": \"cloud_instance_0\",
+        \"name\":\"cloud_instance_0\",
+        \"user_id\":\"user-id\",
+        \"obj_info\": {
+            \"provider\": \"COS\",
+            \"region\": \"ap-beijing\",
+            \"bucket\": \"doris-build-1308700295\",
+            \"prefix\": \"ci\",
+            \"endpoint\": \"cos.ap-beijing.myqcloud.com\",
+            \"external_endpoint\": \"cos.ap-beijing.myqcloud.com\",
+            \"ak\": \"${COS_ak}\",
+            \"sk\": \"${COS_sk}\"
+        }
+    }"; then
+        echo
+    else
+        return 1
+    fi
+}
+
+function warehouse_add_fe() {
+    local ret
+    if curl "127.0.0.1:5000/MetaService/http/add_cluster?token=greedisgood9999" -d "{
+        \"instance_id\": \"cloud_instance_0\",
+        \"cluster\":{
+            \"type\":\"SQL\",
+            \"cluster_name\":\"RESERVED_CLUSTER_NAME_FOR_SQL_SERVER\",
+            \"cluster_id\":\"RESERVED_CLUSTER_ID_FOR_SQL_SERVER\",
+            \"nodes\":[
+                {
+                    \"cloud_unique_id\":\"cloud_unique_id_sql_server00\",
+                    \"ip\":\"127.0.0.1\",
+                    \"edit_log_port\":\"9010\",
+                    \"node_type\":\"FE_MASTER\"
+                }
+            ]
+        }
+    }"; then
+        # check
+        if ret=$(curl "127.0.0.1:5000/MetaService/http/get_cluster?token=greedisgood9999" -d "{
+            \"instance_id\": \"cloud_instance_0\",
+            \"cloud_unique_id\":\"cloud_unique_id_sql_server00\",
+            \"cluster_name\":\"RESERVED_CLUSTER_NAME_FOR_SQL_SERVER\",
+            \"cluster_id\":\"RESERVED_CLUSTER_ID_FOR_SQL_SERVER\"
+        }"); then
+            echo -e "warehouse_add_fe:\n${ret}"
+        fi
+    else
+        return 1
+    fi
+
+}
+
+function warehouse_add_be() {
+    local ret
+    if curl "127.0.0.1:5000/MetaService/http/add_cluster?token=greedisgood9999" -d "{
+        \"instance_id\": \"cloud_instance_0\",
+        \"cluster\":{
+            \"type\":\"COMPUTE\",
+            \"cluster_name\":\"cluster_name0\",
+            \"cluster_id\":\"cluster_id0\",
+            \"nodes\":[
+                {
+                    \"cloud_unique_id\":\"cloud_unique_id_compute_node0\",
+                    \"ip\":\"127.0.0.1\",
+                    \"heartbeat_port\":\"9050\"
+                }
+            ]
+        }
+    }"; then
+        # check
+        if ret=$(curl "127.0.0.1:5000/MetaService/http/get_cluster?token=greedisgood9999" -d "{
+            \"instance_id\": \"cloud_instance_0\",
+            \"cloud_unique_id\":\"cloud_unique_id_compute_node0\",
+            \"cluster_name\":\"cluster_name0\",
+            \"cluster_id\":\"cluster_id0\"
+        }"); then
+            echo -e "warehouse_add_be:\n${ret}"
+        fi
+    else
+        return 1
+    fi
+}
+
+function check_if_need_gcore() {
+    echo
 }
