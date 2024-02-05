@@ -635,11 +635,40 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         query_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(pipeline);
         _set_scan_concurrency(params, query_ctx.get());
+        bool is_pipeline = std::is_same_v<TPipelineFragmentParams, Params>;
 
-        bool is_pipeline = false;
-        if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
-            is_pipeline = true;
+        bool has_query_mem_tracker =
+                params.query_options.__isset.mem_limit && (params.query_options.mem_limit > 0);
+        int64_t bytes_limit = has_query_mem_tracker ? params.query_options.mem_limit : -1;
+        if (bytes_limit > MemInfo::mem_limit()) {
+            VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+                        << " exceeds process memory limit of "
+                        << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
+                        << ". Using process memory limit instead";
+            bytes_limit = MemInfo::mem_limit();
         }
+        if (params.query_options.query_type == TQueryType::SELECT) {
+            query_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                    MemTrackerLimiter::Type::QUERY,
+                    fmt::format("Query#Id={}", print_id(query_ctx->query_id())), bytes_limit);
+        } else if (params.query_options.query_type == TQueryType::LOAD) {
+            query_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                    MemTrackerLimiter::Type::LOAD,
+                    fmt::format("Load#Id={}", print_id(query_ctx->query_id())), bytes_limit);
+        } else { // EXTERNAL
+            query_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                    MemTrackerLimiter::Type::LOAD,
+                    fmt::format("External#Id={}", print_id(query_ctx->query_id())), bytes_limit);
+        }
+        if (params.query_options.__isset.is_report_success &&
+            params.query_options.is_report_success) {
+            query_ctx->query_mem_tracker->enable_print_log_usage();
+        }
+
+        query_ctx->register_memory_statistics();
+        query_ctx->register_cpu_statistics();
+        const bool is_pipeline = std::is_same_v<TPipelineFragmentParams, Params>;
+>>>>>>> ea5f077d22 (opt the rf code)
 
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
             uint64_t tg_id = params.workload_groups[0].id;
@@ -1333,7 +1362,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     int64_t start_apply = MonotonicMillis();
 
     const auto& fragment_instance_ids = request->fragment_instance_ids();
-    if (fragment_instance_ids.size() > 0) {
+    if (!fragment_instance_ids.empty()) {
         UniqueId fragment_instance_id = fragment_instance_ids[0];
         TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
 

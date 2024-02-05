@@ -199,7 +199,6 @@ public:
               _rf_state_atomic(RuntimeFilterState::NOT_READY),
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
-              _always_true(false),
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
               _wait_infinitely(_state->runtime_filter_wait_infinitely),
@@ -268,8 +267,6 @@ public:
     // init filter with desc
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
                           int node_id = -1, bool build_bf_exactly = false);
-
-    BloomFilterFuncBase* get_bloomfilter() const;
 
     // serialize _wrapper to protobuf
     Status serialize(PMergeFilterRequest* request, void** data, int* len);
@@ -429,10 +426,6 @@ protected:
     std::condition_variable _inner_cv;
 
     bool _is_push_down = false;
-
-    // if set always_true = true
-    // this filter won't filter any data
-    bool _always_true;
 
     TExpr _probe_expr;
 
