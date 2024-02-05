@@ -22,14 +22,11 @@ import org.apache.doris.analysis.CreateMTMVStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
-import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
-import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -81,10 +78,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -325,7 +320,13 @@ public class CreateMTMVInfo {
     }
 
     private PartitionDesc generatePartitionDesc(MTMVRelatedTableIf relatedTable) {
-        List<AllPartitionDesc> allPartitionDescs = getPartitionDescsByRelatedTable(relatedTable);
+        List<AllPartitionDesc> allPartitionDescs = null;
+        try {
+            allPartitionDescs = MTMVPartitionUtil
+                    .getPartitionDescsByRelatedTable(relatedTable, properties);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException("getPartitionDescsByRelatedTable failed", e);
+        }
         if (allPartitionDescs.size() > Config.create_table_partition_max_num) {
             throw new AnalysisException(String.format(
                     "The number of partitions to be created is [%s], exceeding the maximum value of [%s]. "
@@ -347,26 +348,6 @@ public class CreateMTMVInfo {
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException("can not generate partitionDesc", e);
         }
-    }
-
-    private List<AllPartitionDesc> getPartitionDescsByRelatedTable(MTMVRelatedTableIf relatedTable) {
-        HashMap<String, String> partitionProperties = Maps.newHashMap();
-        List<AllPartitionDesc> res = Lists.newArrayList();
-        Map<Long, PartitionItem> relatedTableItems = relatedTable.getPartitionItems();
-        try {
-            for (Entry<Long, PartitionItem> entry : relatedTableItems.entrySet()) {
-                PartitionKeyDesc oldPartitionKeyDesc = entry.getValue().toPartitionKeyDesc();
-                SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
-                        MTMVPartitionUtil.generatePartitionName(oldPartitionKeyDesc),
-                        oldPartitionKeyDesc, partitionProperties);
-                // mtmv can only has one partition col
-                singlePartitionDesc.analyze(1, properties);
-                res.add(singlePartitionDesc);
-            }
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException("analyze partition failed", e);
-        }
-        return res;
     }
 
     private void analyzeBaseTables(Plan plan) {
