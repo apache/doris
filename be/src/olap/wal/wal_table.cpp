@@ -260,7 +260,8 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
         } else {
             st = ctx->status;
         }
-    } else {
+    }
+    if (!st.ok()) {
         _exec_env->stream_load_executor()->rollback_txn(ctx.get());
     }
     return st;

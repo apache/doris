@@ -238,7 +238,7 @@ Status WalManager::_scan_wals(const std::string& wal_path) {
     std::vector<io::FileInfo> dbs;
     Status st = io::global_local_filesystem()->list(wal_path, false, &dbs, &exists);
     if (!st.ok()) {
-        LOG(WARNING) << "Failed list files for wal=" << wal_path << ", st=" << st.to_string();
+        LOG(WARNING) << "failed list files for wal_dir=" << wal_path << ", st=" << st.to_string();
         return st;
     }
     for (const auto& database_id : dbs) {
@@ -249,7 +249,8 @@ Status WalManager::_scan_wals(const std::string& wal_path) {
         auto db_path = wal_path + "/" + database_id.file_name;
         st = io::global_local_filesystem()->list(db_path, false, &tables, &exists);
         if (!st.ok()) {
-            LOG(WARNING) << "Failed list files for wal=" << db_path << ", st=" << st.to_string();
+            LOG(WARNING) << "failed to list files for wal_dir=" << db_path
+                         << ", st=" << st.to_string();
             return st;
         }
         for (const auto& table_id : tables) {
@@ -260,7 +261,7 @@ Status WalManager::_scan_wals(const std::string& wal_path) {
             auto table_path = db_path + "/" + table_id.file_name;
             st = io::global_local_filesystem()->list(table_path, false, &wals, &exists);
             if (!st.ok()) {
-                LOG(WARNING) << "Failed list files for wal=" << table_path
+                LOG(WARNING) << "failed to list files for wal_dir=" << table_path
                              << ", st=" << st.to_string();
                 return st;
             }
@@ -327,7 +328,7 @@ Status WalManager::_replay() {
             RETURN_IF_ERROR(_thread_pool->submit_func([table_id, this] {
                 auto st = this->_table_map[table_id]->replay_wals();
                 if (!st.ok()) {
-                    LOG(WARNING) << "Failed to submit replay wal for table=" << table_id;
+                    LOG(WARNING) << "failed to submit replay wal for table=" << table_id;
                 }
             }));
         }
