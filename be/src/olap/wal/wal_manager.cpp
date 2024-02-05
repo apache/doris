@@ -407,6 +407,7 @@ Status WalManager::_update_wal_dir_info_thread() {
         static_cast<void>(_wal_dirs_info->update_all_wal_dir_used());
         if (++i == 100) {
             LOG(INFO) << "Scheduled(every 10s) WAL info: " << get_wal_dirs_info_string();
+            i = 0;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
