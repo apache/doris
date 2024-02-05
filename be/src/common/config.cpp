@@ -1127,6 +1127,8 @@ DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
 // 30s
 DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
 
+DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

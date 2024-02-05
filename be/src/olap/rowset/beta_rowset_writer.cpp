@@ -636,7 +636,7 @@ Status BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_m
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
     }
 
-    if (check_segment_num) {
+    if (check_segment_num && config::check_segment_when_build_rowset_meta) {
         auto segments_encoded_key_bounds_size = segments_encoded_key_bounds.size();
         if (segments_encoded_key_bounds_size != num_seg) {
             return Status::InternalError(
