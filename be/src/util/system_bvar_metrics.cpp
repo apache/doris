@@ -46,9 +46,9 @@ namespace doris {
     name = std::make_shared<BvarAdderMetric<int64_t>>(type, unit, #name, description, group_name, \
                                                       labels, core);
 
-#define INIT_DOUBLE_BVAR_METRIC(name, type, unit, description, group_name, labels, core)           \
+#define INIT_DOUBLE_BVAR_METRIC(name, type, unit, description, group_name, labels, core)         \
     name = std::make_shared<BvarAdderMetric<double>>(type, unit, #name, description, group_name, \
-                                                      labels, core);
+                                                     labels, core);
 // /proc/stat: http://www.linuxhowtos.org/System/procstat.htm
 struct CpuBvarMetrics {
     CpuBvarMetrics(std::shared_ptr<BvarMetricEntity> entity, std::string cpu_name) {
@@ -294,8 +294,10 @@ struct NetworkBvarMetrics {
 
 struct FileDescriptorBvarMetrics {
     FileDescriptorBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
-        INIT_INT64_BVAR_METRIC(fd_num_limit, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,"", "", Labels(), false);
-        INIT_INT64_BVAR_METRIC(fd_num_used, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(), false);
+        INIT_INT64_BVAR_METRIC(fd_num_limit, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                               Labels(), false);
+        INIT_INT64_BVAR_METRIC(fd_num_used, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                               Labels(), false);
         entity->register_metric("fd_num_limit", *fd_num_limit);
         entity->register_metric("fd_num_used", *fd_num_used);
     }
@@ -306,11 +308,17 @@ struct FileDescriptorBvarMetrics {
 
 // metrics read from /proc/net/snmp
 struct SnmpBvarMetrics {
-    SnmpBvarMetrics(std::shared_ptr<BvarMetricEntity> entity){
-        INIT_INT64_BVAR_METRIC(snmp_tcp_in_errs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "The number of all problematic TCP packets received", "", Labels(), false)
-        INIT_INT64_BVAR_METRIC(snmp_tcp_retrans_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "All TCP packets retransmitted", "", Labels(), false)
-        INIT_INT64_BVAR_METRIC(snmp_tcp_in_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "All received TCP packets", "", Labels(), false)
-        INIT_INT64_BVAR_METRIC(snmp_tcp_out_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,  "All send TCP packets with RST mark", "", Labels(), false)
+    SnmpBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
+        INIT_INT64_BVAR_METRIC(snmp_tcp_in_errs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
+                               "The number of all problematic TCP packets received", "", Labels(),
+                               false)
+        INIT_INT64_BVAR_METRIC(snmp_tcp_retrans_segs, BvarMetricType::COUNTER,
+                               BvarMetricUnit::NOUNIT, "All TCP packets retransmitted", "",
+                               Labels(), false)
+        INIT_INT64_BVAR_METRIC(snmp_tcp_in_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
+                               "All received TCP packets", "", Labels(), false)
+        INIT_INT64_BVAR_METRIC(snmp_tcp_out_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
+                               "All send TCP packets with RST mark", "", Labels(), false)
         entity->register_metric("snmp_tcp_in_errs", *snmp_tcp_in_errs);
         entity->register_metric("snmp_tcp_retrans_segs", *snmp_tcp_retrans_segs);
         entity->register_metric("snmp_tcp_in_segs", *snmp_tcp_in_segs);
@@ -325,9 +333,15 @@ struct SnmpBvarMetrics {
 
 struct LoadAverageBvarMetrics {
     LoadAverageBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
-        INIT_DOUBLE_BVAR_METRIC(load_average_1_minutes, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,"", "load_average", Labels({{"mode", "1_minutes"}}), false);
-        INIT_DOUBLE_BVAR_METRIC(load_average_5_minutes, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,  "", "load_average", Labels({{"mode", "5_minutes"}}), false);
-        INIT_DOUBLE_BVAR_METRIC(load_average_15_minutes, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT,  "", "load_average", Labels({{"mode", "15_minutes"}}), false);
+        INIT_DOUBLE_BVAR_METRIC(load_average_1_minutes, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "load_average",
+                                Labels({{"mode", "1_minutes"}}), false);
+        INIT_DOUBLE_BVAR_METRIC(load_average_5_minutes, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "load_average",
+                                Labels({{"mode", "5_minutes"}}), false);
+        INIT_DOUBLE_BVAR_METRIC(load_average_15_minutes, BvarMetricType::GAUGE,
+                                BvarMetricUnit::NOUNIT, "", "load_average",
+                                Labels({{"mode", "15_minutes"}}), false);
         entity->register_metric("load_average_1_minutes", *load_average_1_minutes);
         entity->register_metric("load_average_5_minutes", *load_average_5_minutes);
         entity->register_metric("load_average_15_minutes", *load_average_15_minutes);
@@ -340,10 +354,14 @@ struct LoadAverageBvarMetrics {
 
 struct ProcBvarMetrics {
     ProcBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
-        INIT_INT64_BVAR_METRIC(proc_interrupt, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "", "proc", Labels({{"mode", "interrupt"}}), false);
-        INIT_INT64_BVAR_METRIC(proc_ctxt_switch, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "", "proc", Labels({{"mode", "ctxt_switch"}}), false);
-        INIT_INT64_BVAR_METRIC(proc_procs_running, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "", "proc", Labels({{"mode", "procs_running"}}), false);
-        INIT_INT64_BVAR_METRIC(proc_procs_blocked, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "", "proc", Labels({{"mode", "procs_blocked"}}), false);
+        INIT_INT64_BVAR_METRIC(proc_interrupt, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "",
+                               "proc", Labels({{"mode", "interrupt"}}), false);
+        INIT_INT64_BVAR_METRIC(proc_ctxt_switch, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
+                               "", "proc", Labels({{"mode", "ctxt_switch"}}), false);
+        INIT_INT64_BVAR_METRIC(proc_procs_running, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
+                               "", "proc", Labels({{"mode", "procs_running"}}), false);
+        INIT_INT64_BVAR_METRIC(proc_procs_blocked, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
+                               "", "proc", Labels({{"mode", "procs_blocked"}}), false);
         entity->register_metric("proc_interrupt", *proc_interrupt);
         entity->register_metric("proc_ctxt_switch", *proc_ctxt_switch);
         entity->register_metric("proc_procs_running", *proc_procs_running);
@@ -418,13 +436,16 @@ void SystemBvarMetrics::update() {
 
 void SystemBvarMetrics::install_max_metrics() {
     auto max_entity = std::make_shared<BvarMetricEntity>("max", BvarMetricType::GAUGE);
-    INIT_INT64_BVAR_METRIC(max_disk_io_util_percent, BvarMetricType::GAUGE, BvarMetricUnit::PERCENT, "", "", Labels(), true)
-    INIT_INT64_BVAR_METRIC(max_network_send_bytes_rate, BvarMetricType::GAUGE, BvarMetricUnit::BYTES,  "", "", Labels(), true)
-    INIT_INT64_BVAR_METRIC(max_network_receive_bytes_rate, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), true)
+    INIT_INT64_BVAR_METRIC(max_disk_io_util_percent, BvarMetricType::GAUGE, BvarMetricUnit::PERCENT,
+                           "", "", Labels(), true)
+    INIT_INT64_BVAR_METRIC(max_network_send_bytes_rate, BvarMetricType::GAUGE,
+                           BvarMetricUnit::BYTES, "", "", Labels(), true)
+    INIT_INT64_BVAR_METRIC(max_network_receive_bytes_rate, BvarMetricType::GAUGE,
+                           BvarMetricUnit::BYTES, "", "", Labels(), true)
     max_entity->register_metric("max_disk_io_util_percent", *max_disk_io_util_percent);
     max_entity->register_metric("max_network_send_bytes_rate", *max_network_send_bytes_rate);
     max_entity->register_metric("max_network_receive_bytes_rate", *max_network_receive_bytes_rate);
-    entities_map_["max"].push_back(max_entity);  
+    entities_map_["max"].push_back(max_entity);
 }
 
 void SystemBvarMetrics::install_cpu_metrics() {
@@ -697,7 +718,7 @@ void SystemBvarMetrics::update_net_metrics() {
 
 void SystemBvarMetrics::install_fd_metrics() {
     auto fd_entity = std::make_shared<BvarMetricEntity>("fd_num", BvarMetricType::GAUGE);
-    fd_metrics_= std::make_shared<FileDescriptorBvarMetrics>(fd_entity);
+    fd_metrics_ = std::make_shared<FileDescriptorBvarMetrics>(fd_entity);
     entities_map_["fd_num"].push_back(fd_entity);
 }
 
@@ -740,7 +761,7 @@ void SystemBvarMetrics::update_fd_metrics() {
 
 void SystemBvarMetrics::install_snmp_metrics() {
     auto snmp_entity = std::make_shared<BvarMetricEntity>("snmp", BvarMetricType::COUNTER);
-    snmp_metrics_= std::make_shared<SnmpBvarMetrics>(snmp_entity);
+    snmp_metrics_ = std::make_shared<SnmpBvarMetrics>(snmp_entity);
     entities_map_["snmp"].push_back(snmp_entity);
 }
 
@@ -817,8 +838,9 @@ void SystemBvarMetrics::update_snmp_metrics() {
 }
 
 void SystemBvarMetrics::install_load_avg_metrics() {
-    auto load_average_entity = std::make_shared<BvarMetricEntity>("load_average", BvarMetricType::COUNTER);
-    load_average_metrics_= std::make_shared<LoadAverageBvarMetrics>(load_average_entity);
+    auto load_average_entity =
+            std::make_shared<BvarMetricEntity>("load_average", BvarMetricType::COUNTER);
+    load_average_metrics_ = std::make_shared<LoadAverageBvarMetrics>(load_average_entity);
     entities_map_["load_average"].push_back(load_average_entity);
 }
 
@@ -856,7 +878,7 @@ void SystemBvarMetrics::update_load_avg_metrics() {
 
 void SystemBvarMetrics::install_proc_metrics() {
     auto proc_entity = std::make_shared<BvarMetricEntity>("proc", BvarMetricType::COUNTER);
-    proc_metrics_= std::make_shared<ProcBvarMetrics>(proc_entity);
+    proc_metrics_ = std::make_shared<ProcBvarMetrics>(proc_entity);
     entities_map_["load_average"].push_back(proc_entity);
 }
 
@@ -992,7 +1014,7 @@ void SystemBvarMetrics::get_disks_io_time(std::map<std::string, int64_t>* map) {
 }
 
 int64_t SystemBvarMetrics::get_max_io_util(const std::map<std::string, int64_t>& lst_value,
-                                       int64_t interval_sec) {
+                                           int64_t interval_sec) {
     int64_t max = 0;
     for (auto& it : disk_metrics_) {
         int64_t cur = it.second->disk_io_time_ms->get_value();
@@ -1007,7 +1029,7 @@ int64_t SystemBvarMetrics::get_max_io_util(const std::map<std::string, int64_t>&
 }
 
 void SystemBvarMetrics::get_network_traffic(std::map<std::string, int64_t>* send_map,
-                                        std::map<std::string, int64_t>* rcv_map) {
+                                            std::map<std::string, int64_t>* rcv_map) {
     send_map->clear();
     rcv_map->clear();
     for (auto& it : network_metrics_) {
@@ -1020,9 +1042,9 @@ void SystemBvarMetrics::get_network_traffic(std::map<std::string, int64_t>* send
 }
 
 void SystemBvarMetrics::get_max_net_traffic(const std::map<std::string, int64_t>& lst_send_map,
-                                        const std::map<std::string, int64_t>& lst_rcv_map,
-                                        int64_t interval_sec, int64_t* send_rate,
-                                        int64_t* rcv_rate) {
+                                            const std::map<std::string, int64_t>& lst_rcv_map,
+                                            int64_t interval_sec, int64_t* send_rate,
+                                            int64_t* rcv_rate) {
     int64_t max_send = 0;
     int64_t max_rcv = 0;
     for (auto& it : network_metrics_) {
@@ -1045,8 +1067,8 @@ void SystemBvarMetrics::get_max_net_traffic(const std::map<std::string, int64_t>
     *rcv_rate = max_rcv / interval_sec;
 }
 
-void SystemBvarMetrics::update_max_disk_io_util_percent(const std::map<std::string, int64_t>& lst_value,
-                                                    int64_t interval_sec) {
+void SystemBvarMetrics::update_max_disk_io_util_percent(
+        const std::map<std::string, int64_t>& lst_value, int64_t interval_sec) {
     max_disk_io_util_percent->set_value(get_max_io_util(lst_value, interval_sec));
 }
 

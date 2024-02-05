@@ -46,7 +46,7 @@ public:
 
     // update metrics
     void update();
-    
+
     void get_disks_io_time(std::map<std::string, int64_t>* map);
     int64_t get_max_io_util(const std::map<std::string, int64_t>& lst_value, int64_t interval_sec);
 
@@ -61,16 +61,17 @@ public:
     void update_max_network_send_bytes_rate(int64_t max_send_bytes_rate);
     void update_max_network_receive_bytes_rate(int64_t max_receive_bytes_rate);
     void update_allocator_metrics();
-    
+
     //for UT
-    CpuBvarMetrics* cpu_metrics(const std::string&name) { return cpu_metrics_[name]; }
-    MemoryBvarMetrics* memory_metrics() { return memory_metric_.get(); }
-    DiskBvarMetrics* disk_metrics(const std::string& name) { return disk_metric_[name]; }
-    NetworkBvarMetrics* network_metrics(const std::string& name) { return network_metric_[name]; }
+    CpuBvarMetrics* cpu_metrics(const std::string& name) { return cpu_metrics_[name]; }
+    MemoryBvarMetrics* memory_metrics() { return memory_metrics_.get(); }
+    DiskBvarMetrics* disk_metrics(const std::string& name) { return disk_metrics_[name]; }
+    NetworkBvarMetrics* network_metrics(const std::string& name) { return network_metrics_[name]; }
     FileDescriptorBvarMetrics* fd_metrics() { return fd_metrics_.get(); }
     SnmpBvarMetrics* snmp_metrics() { return snmp_metrics_.get(); }
     LoadAverageBvarMetrics* load_average_metrics() { return load_average_metrics_.get(); }
     ProcBvarMetrics* proc_metrics() { return proc_metrics_.get(); }
+
 private:
     void install_cpu_metrics();
     // On Intel(R) Xeon(R) CPU E5-2450 0 @ 2.10GHz;
