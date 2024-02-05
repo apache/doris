@@ -364,6 +364,7 @@ public:
     }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) {
+        DCHECK(!is_ignored());
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
             _context.hybrid_set->insert_fixed_len(column, start);
