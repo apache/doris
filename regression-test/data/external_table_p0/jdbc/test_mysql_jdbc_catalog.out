@@ -399,3 +399,45 @@ year	SMALLINT	Yes	false	\N	NONE
 -- !money_format --
 1
 
+-- !date_add_year --
+2	2022-01-01
+
+-- !date_add_month --
+2	2022-01-01
+
+-- !date_add_week --
+2	2022-01-01
+
+-- !date_add_day --
+2	2022-01-01
+
+-- !date_add_hour --
+2	2022-01-01
+
+-- !date_add_min --
+2	2022-01-01
+
+-- !date_add_sec --
+2	2022-01-01
+
+-- !date_sub_year --
+2	2022-01-01
+
+-- !date_sub_month --
+2	2022-01-01
+
+-- !date_sub_week --
+2	2022-01-01
+
+-- !date_sub_day --
+2	2022-01-01
+
+-- !date_sub_hour --
+2	2022-01-01
+
+-- !date_sub_min --
+2	2022-01-01
+
+-- !date_sub_sec --
+2	2022-01-01
+
