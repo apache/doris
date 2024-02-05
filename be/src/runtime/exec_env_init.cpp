@@ -301,8 +301,6 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
     RETURN_IF_ERROR(_without_group_block_scheduler->start());
 
-    auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
-
     _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGBlockSche");
     RETURN_IF_ERROR(_global_block_scheduler->start());
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();

@@ -50,7 +50,6 @@ TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
           _memory_limit(tg_info.memory_limit),
           _enable_memory_overcommit(tg_info.enable_memory_overcommit),
           _cpu_share(tg_info.cpu_share),
-          _task_entity(this, "pipeline task entity"),
           _mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM),
           _cpu_hard_limit(tg_info.cpu_hard_limit) {}
 
