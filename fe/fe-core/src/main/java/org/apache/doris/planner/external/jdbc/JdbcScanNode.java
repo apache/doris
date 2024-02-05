@@ -69,7 +69,6 @@ public class JdbcScanNode extends ExternalScanNode {
     private String tableName;
     private TOdbcTableType jdbcType;
     private String graphQueryString = "";
-    private final JdbcFunctionPushDownRule pushDownRule;
 
     private JdbcTable tbl;
 
@@ -83,7 +82,6 @@ public class JdbcScanNode extends ExternalScanNode {
         }
         jdbcType = tbl.getJdbcTableType();
         tableName = tbl.getProperRealFullTableName(jdbcType);
-        pushDownRule = new JdbcFunctionPushDownRule();
     }
 
     @Override
@@ -154,7 +152,7 @@ public class JdbcScanNode extends ExternalScanNode {
             if (shouldPushDownConjunct(jdbcType, p)) {
                 List<Expr> individualConjuncts = p.getConjuncts();
                 for (Expr individualConjunct : individualConjuncts) {
-                    Expr newp = pushDownRule.processFunctions(jdbcType, individualConjunct, errors);
+                    Expr newp = JdbcFunctionPushDownRule.processFunctions(jdbcType, individualConjunct, errors);
                     if (!errors.isEmpty()) {
                         errors.clear();
                         continue;
