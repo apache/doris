@@ -541,7 +541,7 @@ bool LoadBlockQueue::has_enough_wal_disk_space(size_t pre_allocated) {
     {
         Status st = wal_mgr->get_wal_dir_available_size(_wal_base_path, &available_bytes);
         if (!st.ok()) {
-            LOG(WARNING) << "get wal disk available size filed!";
+            LOG(WARNING) << "get wal disk available size filed, reason: " << st.to_string();
         }
     }
     if (pre_allocated < available_bytes) {
