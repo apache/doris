@@ -28,8 +28,8 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 
 if ${DEBUG:-false}; then
-    pr_num_from_trigger="30772"
-    commit_id_from_trigger="8a0077c2cfc492894d9ff68916e7e131f9a99b65"
+    pr_num_from_trigger=${pr_num_from_debug:-"30772"}
+    commit_id_from_trigger=${commit_id_from_debug:-"8a0077c2cfc492894d9ff68916e7e131f9a99b65"}
 fi
 echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi

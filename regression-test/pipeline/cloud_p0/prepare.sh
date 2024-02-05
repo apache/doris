@@ -54,9 +54,9 @@ EOF
 ## prepare.sh content ##
 
 if ${DEBUG:-false}; then
-    pr_num_from_trigger="30772"
-    commit_id_from_trigger="8a0077c2cfc492894d9ff68916e7e131f9a99b65"
-    commit_id_from_checkout="8a0077c2cfc492894d9ff68916e7e131f9a99b65" # teamcity checkout commit id
+    pr_num_from_trigger=${pr_num_from_debug:-"30772"}
+    commit_id_from_trigger=${commit_id_from_debug:-"8a0077c2cfc492894d9ff68916e7e131f9a99b65"}
+    commit_id_from_checkout=${commit_id_from_debug:-"8a0077c2cfc492894d9ff68916e7e131f9a99b65"} # teamcity checkout commit id
     target_branch="master"
 fi
 
@@ -126,7 +126,7 @@ stop_doris
 
 echo "#### 4. prepare fundationdb"
 install_fdb
-clean_fdb
+clean_fdb "cloud_instance_0"
 
 echo "#### 5. check if binary package ready"
 export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile_result"}"
