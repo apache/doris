@@ -1319,10 +1319,11 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
     }
 }
 
-void PInternalService::_transmit_block(google::protobuf::RpcController* controller,
-                                       const PTransmitDataParams* request,
-                                       PTransmitDataResult* response,
-                                       google::protobuf::Closure* done, const Status& extract_st) {
+void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* controller,
+                                           const PTransmitDataParams* request,
+                                           PTransmitDataResult* response,
+                                           google::protobuf::Closure* done,
+                                           const Status& extract_st) {
     if (request->has_query_id()) {
         VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
                  << " query_id=" << print_id(request->query_id()) << " node=" << request->node_id();
