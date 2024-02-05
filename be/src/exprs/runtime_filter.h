@@ -267,6 +267,8 @@ public:
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
                           int node_id = -1, bool build_bf_exactly = false);
 
+    BloomFilterFuncBase* get_bloomfilter() const;
+
     // serialize _wrapper to protobuf
     Status serialize(PMergeFilterRequest* request, void** data, int* len);
     Status serialize(PPublishFilterRequest* request, void** data = nullptr, int* len = nullptr);

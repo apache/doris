@@ -635,7 +635,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         query_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(pipeline);
         _set_scan_concurrency(params, query_ctx.get());
-        bool is_pipeline = std::is_same_v<TPipelineFragmentParams, Params>;
+        const bool is_pipeline = std::is_same_v<TPipelineFragmentParams, Params>;
 
         bool has_query_mem_tracker =
                 params.query_options.__isset.mem_limit && (params.query_options.mem_limit > 0);
@@ -667,8 +667,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         query_ctx->register_memory_statistics();
         query_ctx->register_cpu_statistics();
-        const bool is_pipeline = std::is_same_v<TPipelineFragmentParams, Params>;
->>>>>>> ea5f077d22 (opt the rf code)
 
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
             uint64_t tg_id = params.workload_groups[0].id;

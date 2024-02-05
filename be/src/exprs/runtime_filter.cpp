@@ -363,6 +363,8 @@ public:
         }
     }
 
+    BloomFilterFuncBase* get_bloomfilter() const { return _context.bloom_filter_func.get(); }
+
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) {
         DCHECK(!is_ignored());
         switch (_filter_type) {
@@ -1154,6 +1156,10 @@ std::string IRuntimeFilter::_format_status() const {
             "HasLocalTarget = {}]",
             _is_push_down, _get_explain_state_string(), _wrapper->is_ignored(), _has_remote_target,
             _has_local_target);
+}
+
+BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
+    return _wrapper->get_bloomfilter();
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
