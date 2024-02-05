@@ -106,7 +106,7 @@ public abstract class ExternalCatalog
     private String comment;
     // A cached and being converted properties for external catalog.
     // generated from catalog properties.
-    private final byte[] lock = new byte[0];
+    private byte[] propLock = new byte[0];
     private Map<String, String> convertedProperties = null;
 
     public ExternalCatalog() {
@@ -302,7 +302,7 @@ public abstract class ExternalCatalog
     public void onRefresh(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
-        synchronized (this.lock) {
+        synchronized (this.propLock) {
             this.convertedProperties = null;
         }
         this.invalidCacheInInit = invalidCache;
@@ -432,7 +432,7 @@ public abstract class ExternalCatalog
         if (convertedProperties != null) {
             return convertedProperties;
         }
-        synchronized (lock) {
+        synchronized (propLock) {
             if (convertedProperties != null) {
                 return convertedProperties;
             }
@@ -569,6 +569,7 @@ public abstract class ExternalCatalog
                 }
             }
         }
+        this.propLock = new byte[0];
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
