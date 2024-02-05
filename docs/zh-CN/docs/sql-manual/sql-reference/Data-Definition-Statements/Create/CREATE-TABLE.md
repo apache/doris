@@ -106,7 +106,7 @@ distribution_desc
         HLL_UNION：HLL 类型的列的聚合方式，通过 HyperLogLog 算法聚合。
         BITMAP_UNION：BIMTAP 类型的列的聚合方式，进行位图的并集聚合。
         ```
-    * `AUTO_INCREMENT(auto_inc_start_value)`(2.1版本及以后可用)
+    * <version since="2.1" type="inline">`AUTO_INCREMENT(auto_inc_start_value)`</version>
             
         是否为自增列，自增列可以用来为新插入的行生成一个唯一标识。在插入表数据时如果没有指定自增列的值，则会自动生成一个合法的值。当自增列被显示地插入NULL时，其值也会被替换为生成的合法值。需要注意的是，处于性能考虑，BE会在内存中缓存部分自增列的值，所以自增列自动生成的值只能保证单调性和唯一性，无法保证严格的连续性。
         一张表中至多有一个列是自增列，自增列必须是BIGINT类型，且必须为NOT NULL。
@@ -130,7 +130,7 @@ distribution_desc
             // 只用于DATETIME类型，导入数据缺失该值时系统将赋予当前时间
             dt DATETIME DEFAULT CURRENT_TIMESTAMP
         ```
-  * `on update current_timestamp`
+  * <version since="2.1" type="inline">`on update current_timestamp`</version>
 
         是否在该行有列更新时将该列的值更新为当前时间(`current_timestamp`)。该特性只能在开启了merge-on-write的unique表上使用，开启了这个特性的列必须声明默认值，且默认值必须为`current_timestamp`。如果此处声明了时间戳的精度，则该列默认值中的时间戳精度必须与该处的时间戳精度相同。
 
