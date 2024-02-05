@@ -643,7 +643,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rows
     }
 
     auto segment_num = _num_seg();
-    if (check_segment_num) {
+    if (check_segment_num && config::check_segment_when_build_rowset_meta) {
         auto segments_encoded_key_bounds_size = segments_encoded_key_bounds.size();
         if (segments_encoded_key_bounds_size != segment_num) {
             return Status::InternalError(

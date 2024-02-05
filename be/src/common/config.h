@@ -1256,6 +1256,8 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
 
+DECLARE_mBool(check_segment_when_build_rowset_meta);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
