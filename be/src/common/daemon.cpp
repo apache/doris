@@ -373,8 +373,13 @@ void Daemon::block_spill_gc_thread() {
 
 void Daemon::query_runtime_statistics_thread() {
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(config::report_query_statistics_interval_ms))) {
-        ExecEnv::GetInstance()->runtime_query_statistics_mgr()->report_runtime_query_statistics();
+                   std::chrono::milliseconds(config::report_query_statistics_interval_ms)) &&
+           !k_doris_exit) {
+        if (ExecEnv::GetInstance()->initialized()) {
+            ExecEnv::GetInstance()
+                    ->runtime_query_statistics_mgr()
+                    ->report_runtime_query_statistics();
+        }
     }
 }
 
