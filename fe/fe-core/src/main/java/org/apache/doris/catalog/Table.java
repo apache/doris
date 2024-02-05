@@ -301,6 +301,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return getBaseSchema(Util.showHiddenColumns());
     }
 
+    @Override
+    public List<Column> getSchemaAllIndexes(boolean full) {
+        return getBaseSchema();
+    }
+
     public List<Column> getBaseSchema(boolean full) {
         if (full) {
             return fullSchema;

@@ -247,6 +247,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
+    public List<Column> getSchemaAllIndexes(boolean full) {
+        return getBaseSchema();
+    }
+
+    @Override
     public List<Column> getBaseSchema(boolean full) {
         return getFullSchema();
     }

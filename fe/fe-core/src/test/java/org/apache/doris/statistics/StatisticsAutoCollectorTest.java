@@ -39,12 +39,14 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -134,7 +136,7 @@ public class StatisticsAutoCollectorTest {
             }
 
             @Mock
-            public List<Column> getBaseSchema() {
+            public List<Column> getSchemaAllIndexes(boolean full) {
                 List<Column> columns = new ArrayList<>();
                 columns.add(new Column("c1", PrimitiveType.INT));
                 columns.add(new Column("c2", PrimitiveType.HLL));
@@ -142,10 +144,9 @@ public class StatisticsAutoCollectorTest {
             }
         };
         StatisticsAutoCollector saa = new StatisticsAutoCollector();
-        List<AnalysisInfo> analysisInfos =
-                saa.constructAnalysisInfo(new Database(1, "anydb"));
-        Assertions.assertEquals(1, analysisInfos.size());
-        Assertions.assertEquals("c1", analysisInfos.get(0).colName.split(",")[0]);
+        List<AnalysisInfo> analysisInfoList = saa.constructAnalysisInfo(new Database(1, "anydb"));
+        Assertions.assertEquals(1, analysisInfoList.size());
+        Assertions.assertEquals("c1", analysisInfoList.get(0).colName.split(",")[0]);
     }
 
     @Test
@@ -246,6 +247,16 @@ public class StatisticsAutoCollectorTest {
                 return thresholds[count++];
             }
         };
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
+                HashMap<String, Set<String>> ret = Maps.newHashMap();
+                ret.put("key1", Sets.newHashSet());
+                return ret;
+            }
+        };
+
         AnalysisInfo analysisInfo = new AnalysisInfoBuilder().build();
         StatisticsAutoCollector statisticsAutoCollector = new StatisticsAutoCollector();
         Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo));

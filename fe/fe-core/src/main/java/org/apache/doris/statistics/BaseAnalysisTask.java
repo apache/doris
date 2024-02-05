@@ -62,7 +62,7 @@ public abstract class BaseAnalysisTask {
             + "         SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
             + "         ${dataSizeFunction} AS `data_size`, "
             + "         NOW() AS `update_time` "
-            + " FROM `${catalogName}`.`${dbName}`.`${tblName}`";
+            + " FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}";
 
     protected static final String LINEAR_ANALYZE_TEMPLATE = " SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
@@ -79,7 +79,7 @@ public abstract class BaseAnalysisTask {
             + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleHints} ${limit}";
+            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit}";
 
     protected static final String DUJ1_ANALYZE_TEMPLATE = "SELECT "
             + "CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS `id`, "
@@ -99,7 +99,7 @@ public abstract class BaseAnalysisTask {
             + "FROM ( "
             + "    SELECT t0.`${colName}` as `column_key`, COUNT(1) as `count` "
             + "    FROM "
-            + "    (SELECT `${colName}` FROM `${catalogName}`.`${dbName}`.`${tblName}` "
+            + "    (SELECT `${colName}` FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} "
             + "    ${sampleHints} ${limit}) as `t0` "
             + "    GROUP BY `t0`.`${colName}` "
             + ") as `t1` ";
