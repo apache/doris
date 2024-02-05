@@ -150,13 +150,7 @@ public:
 
     vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
 
-    void set_task_group(taskgroup::TaskGroupPtr& tg) {
-        _task_group = tg;
-        _task_group->add_query(_query_id);
-        _task_group->add_mem_tracker_limiter(query_mem_tracker);
-        _exec_env->task_group_manager()->get_query_scheduler(
-                _task_group->id(), &_task_scheduler, &_scan_task_scheduler, &_non_pipe_thread_pool);
-    }
+    void set_task_group(taskgroup::TaskGroupPtr& tg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout

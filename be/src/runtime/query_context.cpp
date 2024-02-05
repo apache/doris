@@ -202,4 +202,12 @@ ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
     }
 }
 
+void QueryContext::set_task_group(taskgroup::TaskGroupPtr& tg) {
+    _task_group = tg;
+    _task_group->add_query(_query_id);
+    _task_group->add_mem_tracker_limiter(query_mem_tracker);
+    _exec_env->task_group_manager()->get_query_scheduler(
+            _task_group->id(), &_task_scheduler, &_scan_task_scheduler, &_non_pipe_thread_pool);
+}
+
 } // namespace doris
