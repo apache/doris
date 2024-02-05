@@ -20,8 +20,8 @@
 
 package org.apache.doris.plsql.packages;
 
-import org.apache.doris.plsql.plsql.PlsqlMetaClient;
-import org.apache.doris.plsql.plsql.PlsqlPackage;
+import org.apache.doris.plsql.metastore.PlsqlMetaClient;
+import org.apache.doris.plsql.metastore.PlsqlPackage;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;

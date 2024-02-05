@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plsql.plsql;
+package org.apache.doris.plsql.metastore;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Text;

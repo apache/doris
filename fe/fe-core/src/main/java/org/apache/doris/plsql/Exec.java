@@ -133,7 +133,7 @@ import org.apache.doris.plsql.objects.UtlFileClass;
 import org.apache.doris.plsql.packages.DorisPackageRegistry;
 import org.apache.doris.plsql.packages.InMemoryPackageRegistry;
 import org.apache.doris.plsql.packages.PackageRegistry;
-import org.apache.doris.plsql.plsql.PlsqlMetaClient;
+import org.apache.doris.plsql.metastore.PlsqlMetaClient;
 
 import com.google.common.collect.ImmutableList;
 import org.antlr.v4.runtime.ANTLRInputStream;

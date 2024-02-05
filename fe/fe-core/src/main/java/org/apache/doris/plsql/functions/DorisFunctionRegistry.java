@@ -30,8 +30,8 @@ import org.apache.doris.nereids.parser.CaseInsensitiveStream;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.Scope;
 import org.apache.doris.plsql.Var;
-import org.apache.doris.plsql.plsql.PlsqlMetaClient;
-import org.apache.doris.plsql.plsql.PlsqlStoredProcedure;
+import org.apache.doris.plsql.metastore.PlsqlMetaClient;
+import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.qe.ConnectContext;
 
 import org.antlr.v4.runtime.CharStreams;
