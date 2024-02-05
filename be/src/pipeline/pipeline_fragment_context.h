@@ -132,9 +132,6 @@ public:
         return _query_ctx->exec_status();
     }
 
-    [[nodiscard]] taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const {
-        return _task_group_entity;
-    }
     void trigger_report_if_necessary();
     virtual void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(1);
@@ -197,8 +194,6 @@ protected:
     std::vector<std::unique_ptr<DataSink>> _multi_cast_stream_sink_senders;
 
     std::shared_ptr<QueryContext> _query_ctx;
-
-    taskgroup::TaskGroupPipelineTaskEntity* _task_group_entity = nullptr;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
