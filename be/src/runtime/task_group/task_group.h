@@ -97,18 +97,21 @@ public:
     }
 
     void add_query(TUniqueId query_id) {
-        std::unique_lock<std::shared_mutex> wlock;
+        std::unique_lock<std::shared_mutex> wlock(_mutex);
         _query_id_set.insert(query_id);
     }
 
     void remove_query(TUniqueId query_id) {
-        std::unique_lock<std::shared_mutex> wlock;
+        std::unique_lock<std::shared_mutex> wlock(_mutex);
         _query_id_set.erase(query_id);
     }
 
     void shutdown() { _is_shutdown = true; }
 
-    int query_num() { return _query_id_set.size(); }
+    int query_num() {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _query_id_set.size();
+    }
 
     bool is_shutdown() { return _is_shutdown; }
 

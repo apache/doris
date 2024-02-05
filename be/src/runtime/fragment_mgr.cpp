@@ -600,15 +600,13 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
         query_ctx = search->second;
     } else {
-        {
-            // Find _query_ctx_map, in case some other request has already
-            // create the query fragments context.
-            std::lock_guard<std::mutex> lock(_lock);
-            auto search = _query_ctx_map.find(query_id);
-            if (search != _query_ctx_map.end()) {
-                query_ctx = search->second;
-                return Status::OK();
-            }
+        // Find _query_ctx_map, in case some other request has already
+        // create the query fragments context.
+        std::lock_guard<std::mutex> lock(_lock);
+        auto search = _query_ctx_map.find(query_id);
+        if (search != _query_ctx_map.end()) {
+            query_ctx = search->second;
+            return Status::OK();
         }
 
         // This may be a first fragment request of the query.
@@ -663,22 +661,12 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                           << " carried group info but can not find group in be";
             }
         }
-
-        {
-            // Find _query_ctx_map again, in case some other request has already
-            // create the query fragments context.
-            std::lock_guard<std::mutex> lock(_lock);
-            auto search = _query_ctx_map.find(query_id);
-            if (search == _query_ctx_map.end()) {
-                _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
-                LOG(INFO) << "Register query/load memory tracker, query/load id: "
-                          << print_id(query_ctx->query_id()) << " limit: "
-                          << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
-            } else {
-                // Already has a query fragments context, use it
-                query_ctx = search->second;
-            }
-        }
+        // There is some logic in query ctx's dctor, we could not check if exists and delete the
+        // temp query ctx now. For example, the query id maybe removed from task group's queryset.
+        _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
+        LOG(INFO) << "Register query/load memory tracker, query/load id: "
+                  << print_id(query_ctx->query_id())
+                  << " limit: " << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
     }
     return Status::OK();
 }
