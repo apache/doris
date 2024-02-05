@@ -88,13 +88,13 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
                                                   bool build_bf_exactly, bool is_global) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
+    bool has_exist = false;
 
     std::lock_guard<std::mutex> l(_lock);
-    auto iter = _consumer_map.find(key);
-    bool has_exist = false;
-    if (iter != _consumer_map.end()) {
+    if (auto iter = _consumer_map.find(key); iter != _consumer_map.end()) {
         for (auto holder : iter->second) {
             if (holder.node_id == node_id) {
+                *consumer_filter = holder.filter;
                 has_exist = true;
             }
         }
