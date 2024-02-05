@@ -185,12 +185,6 @@ void QueryContext::register_cpu_statistics() {
     }
 }
 
-void QueryContext::set_query_scheduler(uint64_t tg_id) {
-    auto* tg_mgr = _exec_env->task_group_manager();
-    tg_mgr->get_query_scheduler(tg_id, &_task_scheduler, &_scan_task_scheduler,
-                                &_non_pipe_thread_pool);
-}
-
 doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     if (_task_group) {
         if (_task_scheduler) {

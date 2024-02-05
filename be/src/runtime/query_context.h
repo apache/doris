@@ -154,6 +154,8 @@ public:
         _task_group = tg;
         _task_group->add_query(_query_id);
         _task_group->add_mem_tracker_limiter(query_mem_tracker);
+        _exec_env->task_group_manager()->get_query_scheduler(
+                _task_group->id(), &_task_scheduler, &_scan_task_scheduler, &_non_pipe_thread_pool);
     }
 
     int execution_timeout() const {
@@ -195,16 +197,6 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
-    void set_task_scheduler(pipeline::TaskScheduler* task_scheduler) {
-        _task_scheduler = task_scheduler;
-    }
-
-    pipeline::TaskScheduler* get_task_scheduler() { return _task_scheduler; }
-
-    void set_scan_task_scheduler(vectorized::SimplifiedScanScheduler* scan_task_scheduler) {
-        _scan_task_scheduler = scan_task_scheduler;
-    }
-
     vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
@@ -218,8 +210,6 @@ public:
     void register_cpu_statistics();
 
     std::shared_ptr<QueryStatistics> get_cpu_statistics() { return _cpu_statistics; }
-
-    void set_query_scheduler(uint64_t wg_id);
 
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 

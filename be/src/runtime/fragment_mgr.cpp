@@ -652,7 +652,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                 query_ctx->set_task_group(task_group_ptr);
                 _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
                                                                                  tg_id);
-                query_ctx->set_query_scheduler(tg_id);
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << ", use task group: " << task_group_ptr->debug_string()
