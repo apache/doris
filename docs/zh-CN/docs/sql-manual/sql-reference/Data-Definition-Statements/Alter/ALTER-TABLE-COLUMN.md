@@ -32,7 +32,7 @@ ALTER TABLE COLUMN
 
 该语句用于对已有 table 进行 Schema change 操作。schema change 是异步的，任务提交成功则返回，之后可使用[SHOW ALTER TABLE COLUMN](../../Show-Statements/SHOW-ALTER.md) 命令查看进度。
 
-:::note
+:::tip
 Doris 在建表之后有物化索引的概念，在建表成功后为 base 表，物化索引为 base index，基于 base 表可以创建 rollup index。其中 base index 和 rollup index 都是物化索引，在进行 schema change 操作时如果不指定 rollup_index_name 默认基于 base 表进行操作。
 Doris 在 1.2.0 支持了 light schema change 轻量表结构变更，对于值列的加减操作，可以更快地，同步地完成。可以在建表时手动指定 "light_schema_change" = 'true'，2.0.0 及之后版本该参数默认开启。
 :::
@@ -93,10 +93,11 @@ ALTER TABLE [database.]table table_name ADD COLUMN column_name column_type [KEY 
   ADD COLUMN new_col INT KEY DEFAULT "0" FIRST;
   ```
   
-  :::note
+:::tip
   - 聚合模型如果增加 value 列，需要指定 agg_type
   - 非聚合模型（如 DUPLICATE KEY）如果增加key列，需要指定KEY关键字
-  - 不能在 rollup index 中增加 base index 中已经存在的列（如有需要，可以重新创建一个 rollup index）:::
+  - 不能在 rollup index 中增加 base index 中已经存在的列（如有需要，可以重新创建一个 rollup index）
+:::
 
 **2. 添加多列，向指定的 index 位置进行多列添加**
 
@@ -124,11 +125,12 @@ ALTER TABLE [database.]table table_name ADD COLUMN column_name column_type [KEY 
   ADD COLUMN (new_col1 INT key DEFAULT "0" , new_col2 INT DEFAULT "0");
   ```
   
-:::note
+:::tip
   
   - 聚合模型如果增加 value 列，需要指定agg_type
   - 聚合模型如果增加key列，需要指定KEY关键字
-  - 不能在 rollup index 中增加 base index 中已经存在的列（如有需要，可以重新创建一个 rollup index）:::
+  - 不能在 rollup index 中增加 base index 中已经存在的列（如有需要，可以重新创建一个 rollup index）
+:::
 
 **3. 删除列，从指定 index 中删除一列**
 
@@ -147,10 +149,11 @@ ALTER TABLE [database.]table table_name ADD COLUMN column_name column_type [KEY 
     ALTER TABLE example_db.my_table DROP COLUMN col1;
     ```
 
-:::note
+:::tip
   - 不能删除分区列
   - 聚合模型不能删除KEY列
-  - 如果是从 base index 中删除列，则如果 rollup index 中包含该列，也会被删除 :::
+  - 如果是从 base index 中删除列，则如果 rollup index 中包含该列，也会被删除
+:::
 
 **4. 修改指定列类型以及列位置**
 
@@ -172,7 +175,7 @@ ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [K
   MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
   ```
 
-  :::note
+  :::tip
   无论是修改 key 列还是 value 列都需要声明完整的 column 信息
   :::
 
@@ -183,7 +186,7 @@ ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [K
   MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
   ```
 
-  :::note
+  :::tip
   只能修改列的类型，列的其他属性维持原样
   :::
 
@@ -194,7 +197,7 @@ ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [K
   MODIFY COLUMN k3 VARCHAR(50) KEY NULL COMMENT 'to 50';
   ```
   
-  :::note
+:::tip
   - 聚合模型如果修改 value 列，需要指定 agg_type
   - 非聚合类型如果修改key列，需要指定KEY关键字
   - 只能修改列的类型，列的其他属性维持原样（即其他属性需在语句中按照原属性显式的写出，参见 example 8）
@@ -209,7 +212,8 @@ ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [K
     - DATE 转换成 DATETIME(时分秒自动补零， 例如: `2019-12-09` <--> `2019-12-09 00:00:00`)
     - FLOAT 转换成 DOUBLE
     - INT 转换成 DATE (如果INT类型数据不合法则转换失败，原始数据不变)
-    - 除DATE与DATETIME以外都可以转换成STRING，但是STRING不能转换任何其他类型 :::
+    - 除DATE与DATETIME以外都可以转换成STRING，但是STRING不能转换任何其他类型
+:::
 
 **5. 对指定表的列进行重新排序**
 
@@ -288,7 +292,7 @@ ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [K
   +-------+------------+------+-------+---------+-------+
   ```
   
-:::note
+:::tip
   - index 中的所有列都要写出来
   - value 列在 key 列之后
   - key 列只能调整 key 列的范围内进行调整，value 列同理
