@@ -156,6 +156,8 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
             Builder builder = new Builder();
             outputSupplier.get().forEach(builder::addUniformSlot);
             outputSupplier.get().forEach(builder::addUniqueSlot);
+            ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+            builder.addFdItems(fdItems);
             fd = builder.build();
         }
         return fd;
@@ -163,7 +165,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
 
     @Override
     public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getFdItems();
+        ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getFunctionalDependencies().getFdItems();
         if (getLimit() == 1 && !phase.isLocal()) {
             ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
             List<Slot> output = outputSupplier.get();

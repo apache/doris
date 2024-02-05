@@ -41,7 +41,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.apache.commons.math3.util.Precision;
@@ -88,10 +87,7 @@ public class DeriveStatsJobTest {
 
         return (LogicalOlapScan) new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), table1,
                 Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
-                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1),
-                        () -> FunctionalDependencies.EMPTY_FUNC_DEPS,
-                        () -> ImmutableSet.of())),
-                ImmutableList.of());
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> FunctionalDependencies.EMPTY_FUNC_DEPS)), ImmutableList.of());
     }
 
     private LogicalAggregate constructAgg(Plan child) {

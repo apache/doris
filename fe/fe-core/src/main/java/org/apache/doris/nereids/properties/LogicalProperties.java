@@ -43,13 +43,11 @@ public class LogicalProperties {
     protected final Supplier<Map<Slot, Slot>> outputMapSupplier;
     protected final Supplier<Set<ExprId>> outputExprIdSetSupplier;
     protected final Supplier<FunctionalDependencies> fdSupplier;
-    protected final Supplier<ImmutableSet<FdItem>> fdItemsSupplier;
     private Integer hashCode = null;
 
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<FunctionalDependencies> fdSupplier,
-            Supplier<ImmutableSet<FdItem>> fdItemsSupplier) {
-        this(outputSupplier, fdSupplier, fdItemsSupplier, ImmutableList::of);
+            Supplier<FunctionalDependencies> fdSupplier) {
+        this(outputSupplier, fdSupplier, ImmutableList::of);
     }
 
     /**
@@ -60,7 +58,6 @@ public class LogicalProperties {
      */
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
             Supplier<FunctionalDependencies> fdSupplier,
-            Supplier<ImmutableSet<FdItem>> fdItemsSupplier,
             Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
@@ -83,9 +80,6 @@ public class LogicalProperties {
         this.fdSupplier = Suppliers.memoize(
                 Objects.requireNonNull(fdSupplier, "FunctionalDependencies can not be null")
         );
-        this.fdItemsSupplier = Suppliers.memoize(
-                Objects.requireNonNull(fdItemsSupplier, "FunctionalDependencies can not be null")
-        );
     }
 
     public List<Slot> getOutput() {
@@ -106,10 +100,6 @@ public class LogicalProperties {
 
     public FunctionalDependencies getFunctionalDependencies() {
         return fdSupplier.get();
-    }
-
-    public ImmutableSet<FdItem> getFdItems() {
-        return fdItemsSupplier.get();
     }
 
     public List<Id> getOutputExprIds() {

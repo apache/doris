@@ -148,6 +148,8 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
         builder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        builder.addFdItems(fdItems);
         return builder.build();
     }
 

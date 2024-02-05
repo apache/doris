@@ -127,6 +127,8 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
             List<Slot> output = outputSupplier.get();
             output.forEach(builder::addUniformSlot);
             output.forEach(builder::addUniqueSlot);
+            ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+            builder.addFdItems(fdItems);
             fd = builder.build();
         }
         return fd;
@@ -134,7 +136,7 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
 
     @Override
     public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getFdItems();
+        ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getFunctionalDependencies().getFdItems();
         if (getLimit() == 1) {
             ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
             List<Slot> output = outputSupplier.get();

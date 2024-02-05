@@ -142,6 +142,8 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
             builder.addUniformSlot(s);
             builder.addUniqueSlot(s);
         });
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        builder.addFdItems(fdItems);
         return builder.build();
     }
 

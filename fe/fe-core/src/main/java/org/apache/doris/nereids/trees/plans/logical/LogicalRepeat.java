@@ -189,6 +189,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         outputSupplier.get().stream()
                 .filter(child(0).getLogicalProperties().getFunctionalDependencies()::isUniform)
                 .forEach(builder::addUniformSlot);
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        builder.addFdItems(fdItems);
         return builder.build();
     }
 
@@ -196,7 +198,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFdItems();
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
         builder.addAll(childItems);
 
         return builder.build();

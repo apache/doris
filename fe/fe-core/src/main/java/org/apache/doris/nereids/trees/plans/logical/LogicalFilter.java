@@ -147,6 +147,8 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         Builder fdBuilder = new Builder(
                 child().getLogicalProperties().getFunctionalDependencies());
         getConjuncts().forEach(e -> fdBuilder.addUniformSlot(ExpressionUtils.extractUniformSlot(e)));
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        fdBuilder.addFdItems(fdItems);
         return fdBuilder.build();
     }
 
@@ -154,7 +156,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFdItems();
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
         builder.addAll(childItems);
 
         return builder.build();

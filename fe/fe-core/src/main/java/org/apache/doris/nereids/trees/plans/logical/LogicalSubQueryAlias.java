@@ -174,6 +174,8 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
         }
         builder.replace(replaceMap);
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        builder.addFdItems(fdItems);
         return builder.build();
     }
 

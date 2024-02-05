@@ -158,6 +158,8 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
                     .collect(ImmutableSet.toImmutableSet());
             fdBuilder.addUniqueSlot(slotSet);
         });
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        fdBuilder.addFdItems(fdItems);
         return fdBuilder.build();
     }
 

@@ -363,6 +363,10 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         // group by keys is unique
         fdBuilder.addUniqueSlot(groupByKeys);
         fdBuilder.pruneSlots(outputSet);
+
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        fdBuilder.addFdItems(fdItems);
+
         return fdBuilder.build();
     }
 
@@ -376,7 +380,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 .collect(ImmutableSet.toImmutableSet());
 
         // inherit from child
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFdItems();
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
         builder.addAll(childItems);
 
         // todo: fill the table sets

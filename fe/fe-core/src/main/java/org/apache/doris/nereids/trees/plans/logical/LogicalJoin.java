@@ -518,6 +518,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             }
             fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
         }
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        fdBuilder.addFdItems(fdItems);
         return fdBuilder.build();
     }
 
@@ -529,9 +531,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 || !otherJoinConjuncts.isEmpty()) {
             return ImmutableSet.of();
         } else if (joinType.isLeftAntiJoin() || joinType.isLefSemiJoin()) {
-            return left().getLogicalProperties().getFdItems();
+            return left().getLogicalProperties().getFunctionalDependencies().getFdItems();
         } else if (joinType.isRightSemiJoin() || joinType.isRightAntiJoin()) {
-            return right().getLogicalProperties().getFdItems();
+            return right().getLogicalProperties().getFunctionalDependencies().getFdItems();
         } else if (joinType.isInnerJoin()) {
             Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
             if (keys == null) {
@@ -541,7 +543,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             Set<Slot> rightSlotSet = keys.second;
 
             // enhance the fd from candidate to formal
-            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFdItems();
+            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFunctionalDependencies().getFdItems();
             leftItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
                         if (leftSlotSet.containsAll(f.getParentExprs())) {
                             f.setCandidate(false);
@@ -551,7 +553,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             boolean isLeftUnique = leftItems.stream().filter(e -> e.isCandidate())
                     .anyMatch(f -> leftSlotSet.containsAll(f.getParentExprs()));
 
-            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFdItems();
+            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFunctionalDependencies().getFdItems();
             rightItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
                         if (rightSlotSet.containsAll(f.getParentExprs())) {
                             f.setCandidate(false);
@@ -600,7 +602,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             Set<Slot> rightSlotSet = keys.second;
 
             // enhance the fd from candidate to formal
-            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFdItems();
+            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFunctionalDependencies().getFdItems();
             leftItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
                         if (leftSlotSet.containsAll(f.getParentExprs())) {
                             f.setCandidate(false);
@@ -608,7 +610,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                     }
             );
 
-            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFdItems();
+            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFunctionalDependencies().getFdItems();
             boolean isRightUnique = rightItems.stream().filter(e -> e.isCandidate())
                     .anyMatch(f -> rightSlotSet.containsAll(f.getParentExprs()));
             if (isRightUnique) {
@@ -637,11 +639,11 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             Set<Slot> rightSlotSet = keys.second;
 
             // enhance the fd from candidate to formal
-            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFdItems();
+            ImmutableSet<FdItem> leftItems = left().getLogicalProperties().getFunctionalDependencies().getFdItems();
             boolean isLeftUnique = leftItems.stream().filter(e -> e.isCandidate())
                     .anyMatch(f -> leftSlotSet.containsAll(f.getParentExprs()));
 
-            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFdItems();
+            ImmutableSet<FdItem> rightItems = right().getLogicalProperties().getFunctionalDependencies().getFdItems();
             rightItems.stream().filter(e -> e.isCandidate()).forEach(f -> {
                         if (rightSlotSet.containsAll(f.getParentExprs())) {
                             f.setCandidate(false);

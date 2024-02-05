@@ -48,7 +48,7 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
                     || !agg.getGroupByExpressions().stream().allMatch(e -> e instanceof SlotReference)) {
                 return null;
             }
-            ImmutableSet<FdItem> fdItems = childPlan.getLogicalProperties().getFdItems();
+            ImmutableSet<FdItem> fdItems = childPlan.getLogicalProperties().getFunctionalDependencies().getFdItems();
             if (fdItems.isEmpty()) {
                 return null;
             }

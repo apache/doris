@@ -35,7 +35,6 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.base.Supplier;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -75,14 +74,14 @@ public class JoinEstimateTest {
                     public List<Slot> get() {
                         return Lists.newArrayList(a);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS, () -> ImmutableSet.of())));
+                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
         GroupPlan right = new GroupPlan(new Group(idGenerator.getNextId(), new LogicalProperties(
                 new Supplier<List<Slot>>() {
                     @Override
                     public List<Slot> get() {
                         return Lists.newArrayList(b);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS, () -> ImmutableSet.of())));
+                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
         LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(eq),
                 left, right);
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);
@@ -126,14 +125,14 @@ public class JoinEstimateTest {
                     public List<Slot> get() {
                         return Lists.newArrayList(a);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS, () -> ImmutableSet.of())));
+                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
         GroupPlan right = new GroupPlan(new Group(idGenerator.getNextId(), new LogicalProperties(
                 new Supplier<List<Slot>>() {
                     @Override
                     public List<Slot> get() {
                         return Lists.newArrayList(b, c);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS, () -> ImmutableSet.of())));
+                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
         LogicalJoin join = new LogicalJoin(JoinType.LEFT_OUTER_JOIN, Lists.newArrayList(eq),
                 left, right);
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);

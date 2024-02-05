@@ -42,6 +42,8 @@ public interface PropagateFuncDeps extends LogicalPlan {
         children().stream()
                 .map(p -> p.getLogicalProperties().getFunctionalDependencies())
                 .forEach(builder::addFunctionalDependencies);
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        builder.addFdItems(fdItems);
         return builder.build();
     }
 
@@ -50,11 +52,11 @@ public interface PropagateFuncDeps extends LogicalPlan {
         if (children().size() == 1) {
             // Note when changing function dependencies, we always clone it.
             // So it's safe to return a reference
-            return child(0).getLogicalProperties().getFdItems();
+            return child(0).getLogicalProperties().getFunctionalDependencies().getFdItems();
         }
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
         children().stream()
-                .map(p -> p.getLogicalProperties().getFdItems())
+                .map(p -> p.getLogicalProperties().getFunctionalDependencies().getFdItems())
                 .forEach(builder::addAll);
         return builder.build();
     }

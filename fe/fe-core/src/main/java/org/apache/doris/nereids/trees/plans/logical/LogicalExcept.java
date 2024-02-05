@@ -124,6 +124,8 @@ public class LogicalExcept extends LogicalSetOperation {
         if (qualifier == Qualifier.DISTINCT) {
             builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
         }
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        builder.addFdItems(fdItems);
         return builder.build();
     }
 
@@ -142,7 +144,8 @@ public class LogicalExcept extends LogicalSetOperation {
             builder.add(fdItem);
 
             // only inherit from left side
-            ImmutableSet<FdItem> leftFdItems = child(0).getLogicalProperties().getFdItems();
+            ImmutableSet<FdItem> leftFdItems = child(0).getLogicalProperties()
+                    .getFunctionalDependencies().getFdItems();
 
             builder.addAll(leftFdItems);
         }

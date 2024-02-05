@@ -129,6 +129,8 @@ public class LogicalIntersect extends LogicalSetOperation {
         if (qualifier == Qualifier.DISTINCT) {
             builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
         }
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        builder.addFdItems(fdItems);
         return builder.build();
     }
 
@@ -146,8 +148,10 @@ public class LogicalIntersect extends LogicalSetOperation {
             ExprFdItem fdItem = FdFactory.INSTANCE.createExprFdItem(exprs, true, exprs);
             builder.add(fdItem);
             // inherit from both sides
-            ImmutableSet<FdItem> leftFdItems = child(0).getLogicalProperties().getFdItems();
-            ImmutableSet<FdItem> rightFdItems = child(1).getLogicalProperties().getFdItems();
+            ImmutableSet<FdItem> leftFdItems = child(0).getLogicalProperties()
+                    .getFunctionalDependencies().getFdItems();
+            ImmutableSet<FdItem> rightFdItems = child(1).getLogicalProperties()
+                    .getFunctionalDependencies().getFdItems();
 
             builder.addAll(leftFdItems);
             builder.addAll(rightFdItems);

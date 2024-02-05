@@ -247,6 +247,8 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 }
             }
         });
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        builder.addFdItems(fdItems);
         return builder.build();
     }
 
@@ -254,7 +256,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFdItems();
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
         builder.addAll(childItems);
 
         return builder.build();

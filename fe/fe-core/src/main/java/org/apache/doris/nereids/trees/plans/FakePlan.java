@@ -26,8 +26,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.MutableState.MultiMutableState;
 
-import com.google.common.collect.ImmutableSet;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -80,7 +78,7 @@ public class FakePlan implements Plan {
 
     @Override
     public LogicalProperties getLogicalProperties() {
-        return new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS, ImmutableSet::of);
+        return new LogicalProperties(ArrayList::new, () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
     }
 
     @Override

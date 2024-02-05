@@ -192,6 +192,8 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         }
         FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
         builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        builder.addFdItems(fdItems);
         return builder.build();
     }
 

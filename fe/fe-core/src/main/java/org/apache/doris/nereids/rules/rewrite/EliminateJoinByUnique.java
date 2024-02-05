@@ -40,9 +40,6 @@ public class EliminateJoinByUnique extends OneRewriteRuleFactory {
                     join.right().getLogicalProperties().getFunctionalDependencies())) {
                 return project;
             }
-            //if (!JoinUtils.canEliminateByLeft(join, join.right().getLogicalProperties().getFdItems())) {
-            //    return project;
-            //}
             return project.withChildren(join.left());
         }).toRule(RuleType.ELIMINATE_JOIN_BY_UK);
     }
