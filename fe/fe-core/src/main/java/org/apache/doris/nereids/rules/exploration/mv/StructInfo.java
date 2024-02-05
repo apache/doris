@@ -447,38 +447,80 @@ public class StructInfo {
     }
 
     /**
+     * The context for plan check context, make sure that the plan in query and mv is valid or not
+     */
+    public static class PlanCheckContext {
+        // the aggregate above join
+        private boolean containsTopAggregate = false;
+        private boolean alreadyMeetJoin = false;
+        private final Set<JoinType> supportJoinTypes;
+
+        public PlanCheckContext(Set<JoinType> supportJoinTypes) {
+            this.supportJoinTypes = supportJoinTypes;
+        }
+
+        public boolean isContainsTopAggregate() {
+            return containsTopAggregate;
+        }
+
+        public void setContainsTopAggregate(boolean containsTopAggregate) {
+            this.containsTopAggregate = containsTopAggregate;
+        }
+
+        public boolean isAlreadyMeetJoin() {
+            return alreadyMeetJoin;
+        }
+
+        public void setAlreadyMeetJoin(boolean alreadyMeetJoin) {
+            this.alreadyMeetJoin = alreadyMeetJoin;
+        }
+
+        public Set<JoinType> getSupportJoinTypes() {
+            return supportJoinTypes;
+        }
+
+        public static PlanCheckContext of(Set<JoinType> supportJoinTypes) {
+            return new PlanCheckContext(supportJoinTypes);
+        }
+    }
+
+    /**
      * PlanPatternChecker, this is used to check the plan pattern is valid or not
      */
-    public static class PlanPatternChecker extends DefaultPlanVisitor<Boolean, Set<JoinType>> {
+    public static class PlanPatternChecker extends DefaultPlanVisitor<Boolean, PlanCheckContext> {
         @Override
         public Boolean visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-                Set<JoinType> supportJoinTypes) {
-            if (!supportJoinTypes.contains(join.getJoinType())) {
+                PlanCheckContext checkContext) {
+            checkContext.setAlreadyMeetJoin(true);
+            if (!checkContext.getSupportJoinTypes().contains(join.getJoinType())) {
                 return false;
             }
             if (!join.getOtherJoinConjuncts().isEmpty()) {
                 return false;
             }
-            return visit(join, supportJoinTypes);
+            return visit(join, checkContext);
         }
 
         @Override
         public Boolean visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
-                Set<JoinType> supportJoinTypes) {
+                PlanCheckContext checkContext) {
+            if (!checkContext.isContainsTopAggregate() && !checkContext.isAlreadyMeetJoin()) {
+                checkContext.setContainsTopAggregate(true);
+            }
             if (aggregate.getSourceRepeat().isPresent()) {
                 return false;
             }
-            return visit(aggregate, supportJoinTypes);
+            return visit(aggregate, checkContext);
         }
 
         @Override
-        public Boolean visitGroupPlan(GroupPlan groupPlan, Set<JoinType> supportJoinTypes) {
+        public Boolean visitGroupPlan(GroupPlan groupPlan, PlanCheckContext checkContext) {
             return groupPlan.getGroup().getLogicalExpressions().stream()
-                    .anyMatch(logicalExpression -> logicalExpression.getPlan().accept(this, supportJoinTypes));
+                    .anyMatch(logicalExpression -> logicalExpression.getPlan().accept(this, checkContext));
         }
 
         @Override
-        public Boolean visit(Plan plan, Set<JoinType> supportJoinTypes) {
+        public Boolean visit(Plan plan, PlanCheckContext checkContext) {
             if (plan instanceof Filter
                     || plan instanceof Project
                     || plan instanceof CatalogRelation
@@ -486,14 +528,14 @@ public class StructInfo {
                     || plan instanceof LogicalSort
                     || plan instanceof LogicalAggregate
                     || plan instanceof GroupPlan) {
-                return doVisit(plan, supportJoinTypes);
+                return doVisit(plan, checkContext);
             }
             return false;
         }
 
-        private Boolean doVisit(Plan plan, Set<JoinType> supportJoinTypes) {
+        private Boolean doVisit(Plan plan, PlanCheckContext checkContext) {
             for (Plan child : plan.children()) {
-                boolean valid = child.accept(this, supportJoinTypes);
+                boolean valid = child.accept(this, checkContext);
                 if (!valid) {
                     return false;
                 }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -368,7 +369,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     // slot reference equals currently.
     @Override
     protected boolean checkPattern(StructInfo structInfo) {
-        return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, SUPPORTED_JOIN_TYPE_SET);
+        PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
+        return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
+                && checkContext.isContainsTopAggregate();
     }
 
     /**
