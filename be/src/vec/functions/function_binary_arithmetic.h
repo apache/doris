@@ -329,7 +329,8 @@ private:
                     }
                 },
                 make_bool_variant(need_adjust_scale));
-        if (OpTraits::is_multiply && need_adjust_scale && !check_overflow) {
+        if (OpTraits::is_multiply && need_adjust_scale && !check_overflow && !IsDecimalV2<B> &&
+            !IsDecimalV2<A>) {
             adjust_scale(c, size, scale_diff_multiplier);
         }
     }
@@ -363,7 +364,8 @@ private:
                     }
                 },
                 make_bool_variant(need_adjust_scale));
-        if (OpTraits::is_multiply && need_adjust_scale && !check_overflow) {
+        if (OpTraits::is_multiply && need_adjust_scale && !check_overflow && !IsDecimalV2<B> &&
+            !IsDecimalV2<A>) {
             adjust_scale(c, size, scale_diff_multiplier);
         }
     }
