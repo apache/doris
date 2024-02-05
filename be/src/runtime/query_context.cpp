@@ -204,6 +204,11 @@ ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
 }
 
 void QueryContext::set_task_group(taskgroup::TaskGroupPtr& tg) {
+    if (tg->is_shutdown()) {
+        // The task group is marked shutdown, then should not put query task
+        // to the task group anymore, just waiting the existing query finished.
+        return;
+    }
     _task_group = tg;
     _task_group->add_query(_query_id);
     _task_group->add_mem_tracker_limiter(query_mem_tracker);
