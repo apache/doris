@@ -37,6 +37,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
@@ -69,6 +70,7 @@ template <bool negative>
 class FunctionIn : public IFunction {
 public:
     static constexpr auto name = negative ? "not_in" : "in";
+    std::unique_ptr<vectorized::Arena> _predicate_arena = std::make_unique<vectorized::Arena>();
 
     static FunctionPtr create() { return std::make_shared<FunctionIn>(); }
 
@@ -118,7 +120,8 @@ public:
             state->hybrid_set.reset(create_set(TYPE_BOOLEAN, 0));
         } else if (context->get_arg_type(0)->type == PrimitiveType::TYPE_CHAR ||
                    context->get_arg_type(0)->type == PrimitiveType::TYPE_VARCHAR ||
-                   context->get_arg_type(0)->type == PrimitiveType::TYPE_STRING) {
+                   context->get_arg_type(0)->type == PrimitiveType::TYPE_STRING ||
+                   context->get_arg_type(0)->type == PrimitiveType::TYPE_STRUCT) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
             state->hybrid_set.reset(create_string_value_set((size_t)(context->get_num_args() - 1)));
         } else {
@@ -126,6 +129,25 @@ public:
                     create_set(context->get_arg_type(0)->type, get_size_with_out_null(context)));
         }
 
+        if (context->get_arg_type(0)->type == PrimitiveType::TYPE_STRUCT) {
+            for (int i = 1; i < context->get_num_args(); ++i) {
+                const char* beginPosInArea = nullptr;
+                const auto& const_column_ptr = context->get_constant_col(i);
+                if (const_column_ptr != nullptr) {
+                    auto const_data = const_column_ptr->column_ptr->serialize_value_into_arena(
+                            0, *_predicate_arena, beginPosInArea);
+                    if (const_data.data == nullptr) {
+                        state->null_in_set = true;
+                    } else {
+                        state->hybrid_set->insert((void*)const_data.data, const_data.size);
+                    }
+                } else {
+                    state->use_set = false;
+                    break;
+                }
+            }
+            return Status::OK();
+        }
         for (int i = 1; i < context->get_num_args(); ++i) {
             const auto& const_column_ptr = context->get_constant_col(i);
             if (const_column_ptr != nullptr) {
@@ -193,10 +215,22 @@ public:
                 }
 
             } else { // non-nullable
-                if (materialized_column->is_column_string()) {
+                if (WhichDataType(left_arg.type).is_string()) {
                     const auto* column_string_ptr =
                             assert_cast<const vectorized::ColumnString*>(materialized_column.get());
                     search_hash_set(in_state, input_rows_count, vec_res, column_string_ptr);
+                } else if (WhichDataType(left_arg.type).is_struct()) {
+                    // use area to make serialize
+                    MutableColumnPtr trans_args = ColumnString::create();
+                    const ColumnStruct* column_struct_ptr =
+                            assert_cast<const vectorized::ColumnStruct*>(materialized_column.get());
+                    for (size_t i = 0; i < input_rows_count; ++i) {
+                        const char* beginPosInArea = nullptr;
+                        StringRef arg = column_struct_ptr->serialize_value_into_arena(
+                                i, *_predicate_arena, beginPosInArea);
+                        trans_args->insert_data(arg.data, arg.size);
+                    }
+                    search_hash_set(in_state, input_rows_count, vec_res, trans_args.get());
                 } else {
                     search_hash_set(in_state, input_rows_count, vec_res, materialized_column.get());
                 }

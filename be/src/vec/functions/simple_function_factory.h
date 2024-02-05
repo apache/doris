@@ -63,6 +63,7 @@ void register_function_running_difference(SimpleFunctionFactory& factory);
 void register_function_date_time_to_string(SimpleFunctionFactory& factory);
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory);
 void register_function_in(SimpleFunctionFactory& factory);
+void register_function_struct_in(SimpleFunctionFactory& factory);
 void register_function_if(SimpleFunctionFactory& factory);
 void register_function_nullif(SimpleFunctionFactory& factory);
 void register_function_date_time_computation(SimpleFunctionFactory& factory);
@@ -236,6 +237,7 @@ public:
             register_function_time_of_function(instance);
             register_function_string(instance);
             register_function_in(instance);
+            register_function_struct_in(instance);
             register_function_if(instance);
             register_function_nullif(instance);
             register_function_date_time_computation(instance);
