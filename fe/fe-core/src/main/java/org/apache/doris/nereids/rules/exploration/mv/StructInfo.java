@@ -452,6 +452,7 @@ public class StructInfo {
     public static class PlanCheckContext {
         // the aggregate above join
         private boolean containsTopAggregate = false;
+        private int topAggregateNum = 0;
         private boolean alreadyMeetJoin = false;
         private final Set<JoinType> supportJoinTypes;
 
@@ -479,6 +480,14 @@ public class StructInfo {
             return supportJoinTypes;
         }
 
+        public int getTopAggregateNum() {
+            return topAggregateNum;
+        }
+
+        public void plusTopAggregateNum() {
+            this.topAggregateNum += 1;
+        }
+
         public static PlanCheckContext of(Set<JoinType> supportJoinTypes) {
             return new PlanCheckContext(supportJoinTypes);
         }
@@ -504,8 +513,9 @@ public class StructInfo {
         @Override
         public Boolean visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
                 PlanCheckContext checkContext) {
-            if (!checkContext.isContainsTopAggregate() && !checkContext.isAlreadyMeetJoin()) {
+            if (!checkContext.isAlreadyMeetJoin()) {
                 checkContext.setContainsTopAggregate(true);
+                checkContext.plusTopAggregateNum();
             }
             if (aggregate.getSourceRepeat().isPresent()) {
                 return false;

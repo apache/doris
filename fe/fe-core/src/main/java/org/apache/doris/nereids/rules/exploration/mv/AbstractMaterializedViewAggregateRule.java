@@ -373,7 +373,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     protected boolean checkPattern(StructInfo structInfo) {
         PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
-                && checkContext.isContainsTopAggregate();
+                && checkContext.isContainsTopAggregate() && checkContext.getTopAggregateNum() <= 1;
     }
 
     /**
