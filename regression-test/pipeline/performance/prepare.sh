@@ -113,4 +113,4 @@ echo "#### 3. try to kill old doris process"
 # shellcheck source=/dev/null
 # stop_doris
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
-stop_doris
+if stop_doris; then echo; fi

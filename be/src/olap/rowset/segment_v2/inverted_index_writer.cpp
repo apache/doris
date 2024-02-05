@@ -244,23 +244,28 @@ public:
     }
 
     Status create_analyzer(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
-        switch (_parser_type) {
-        case InvertedIndexParserType::PARSER_STANDARD:
-        case InvertedIndexParserType::PARSER_UNICODE:
-            analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
-            break;
-        case InvertedIndexParserType::PARSER_ENGLISH:
-            analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-            break;
-        case InvertedIndexParserType::PARSER_CHINESE:
-            analyzer = create_chinese_analyzer();
-            break;
-        default:
-            analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-            break;
+        try {
+            switch (_parser_type) {
+            case InvertedIndexParserType::PARSER_STANDARD:
+            case InvertedIndexParserType::PARSER_UNICODE:
+                analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
+                break;
+            case InvertedIndexParserType::PARSER_ENGLISH:
+                analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
+                break;
+            case InvertedIndexParserType::PARSER_CHINESE:
+                analyzer = create_chinese_analyzer();
+                break;
+            default:
+                analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
+                break;
+            }
+            setup_analyzer_lowercase(analyzer);
+            return Status::OK();
+        } catch (CLuceneError& e) {
+            return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "inverted index create analyzer failed: {}", e.what());
         }
-        setup_analyzer_lowercase(analyzer);
-        return Status::OK();
     }
 
     void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
