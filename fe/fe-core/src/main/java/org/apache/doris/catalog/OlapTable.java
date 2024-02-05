@@ -2596,4 +2596,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return getPartitionOrAnalysisException(partitionId).getName();
     }
 
+    @Override
+    public boolean needAutoRefresh() {
+        return true;
+    }
+
+    @Override
+    public boolean isPartitionColumnAllowNull() {
+        return false;
+    }
 }

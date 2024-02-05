@@ -87,4 +87,19 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @throws AnalysisException
      */
     String getPartitionName(long partitionId) throws AnalysisException;
+
+    /**
+     * Does the current type of table allow timed triggering
+     *
+     * @return If return false,The method of comparing whether to synchronize will directly return true,
+     * otherwise the snapshot information will be compared
+     */
+    boolean needAutoRefresh();
+
+    /**
+     * if allow partition column `isAllowNull`
+     *
+     * @return
+     */
+    boolean isPartitionColumnAllowNull();
 }
