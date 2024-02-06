@@ -552,6 +552,12 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _column_path.from_protobuf(column.column_path_info());
         _parent_col_unique_id = column.column_path_info().parrent_column_unique_id();
     }
+    for (auto& column_pb : column.sparse_columns()) {
+        TabletColumn column;
+        column.init_from_pb(column_pb);
+        _sparse_cols.emplace_back(std::move(column));
+        _num_sparse_columns++;
+    }
 }
 
 TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
@@ -611,6 +617,10 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     if (!_column_path.empty()) {
         // CHECK_GT(_parent_col_unique_id, 0);
         _column_path.to_protobuf(column->mutable_column_path_info(), _parent_col_unique_id);
+    }
+    for (auto& col : _sparse_cols) {
+        ColumnPB* sparse_column = column->add_sparse_columns();
+        col.to_schema_pb(sparse_column);
     }
 }
 
@@ -810,6 +820,11 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     _field_id_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::move(column));
     _num_columns++;
+}
+
+void TabletColumn::append_sparse_column(TabletColumn column) {
+    _sparse_cols.push_back(std::move(column));
+    _num_sparse_columns++;
 }
 
 void TabletSchema::append_index(TabletIndex index) {
@@ -1134,6 +1149,10 @@ const std::vector<TabletColumn>& TabletSchema::columns() const {
     return _cols;
 }
 
+const std::vector<TabletColumn>& TabletColumn::sparse_columns() const {
+    return _sparse_cols;
+}
+
 std::vector<TabletColumn>& TabletSchema::mutable_columns() {
     return _cols;
 }
@@ -1143,7 +1162,17 @@ const TabletColumn& TabletSchema::column(size_t ordinal) const {
     return _cols[ordinal];
 }
 
+const TabletColumn& TabletColumn::sparse_column_at(size_t ordinal) const {
+    DCHECK(ordinal < _sparse_cols.size())
+            << "ordinal:" << ordinal << ", _num_columns:" << _sparse_cols.size();
+    return _sparse_cols[ordinal];
+}
+
 const TabletColumn& TabletSchema::column_by_uid(int32_t col_unique_id) const {
+    return _cols.at(_field_id_to_index.at(col_unique_id));
+}
+
+TabletColumn& TabletSchema::mutable_column_by_uid(int32_t col_unique_id) {
     return _cols.at(_field_id_to_index.at(col_unique_id));
 }
 
