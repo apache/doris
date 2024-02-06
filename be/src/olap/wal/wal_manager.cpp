@@ -110,7 +110,7 @@ Status WalManager::_init_wal_dirs() {
     bool exists = false;
     for (auto wal_dir : _wal_dirs) {
         std::string tmp_dir = wal_dir + "/" + _tmp;
-        LOG(INFO) << "wal_dir:" << wal_dir << ",tmp_dir:" << tmp_dir;
+        LOG(INFO) << "wal_dir:" << wal_dir << ", tmp_dir:" << tmp_dir;
         RETURN_IF_ERROR(io::global_local_filesystem()->exists(wal_dir, &exists));
         if (!exists) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(wal_dir));
@@ -162,8 +162,7 @@ Status WalManager::_init_wal_dirs_info() {
 
 void WalManager::add_wal_queue(int64_t table_id, int64_t wal_id) {
     std::lock_guard<std::shared_mutex> wrlock(_wal_queue_lock);
-    LOG(INFO) << "add wal queue "
-              << ",table_id:" << table_id << ",wal_id:" << wal_id;
+    LOG(INFO) << "add wal to queue, table_id: " << table_id << ", wal_id: " << wal_id;
     auto it = _wal_queues.find(table_id);
     if (it == _wal_queues.end()) {
         std::set<int64_t> tmp_set;
@@ -178,8 +177,7 @@ void WalManager::erase_wal_queue(int64_t table_id, int64_t wal_id) {
     std::lock_guard<std::shared_mutex> wrlock(_wal_queue_lock);
     auto it = _wal_queues.find(table_id);
     if (it != _wal_queues.end()) {
-        LOG(INFO) << "remove wal queue "
-                  << ",table_id:" << table_id << ",wal_id:" << wal_id;
+        LOG(INFO) << "remove wal from queue, table_id: " << table_id << ", wal_id: " << wal_id;
         it->second.erase(wal_id);
         if (it->second.empty()) {
             _wal_queues.erase(table_id);
@@ -240,7 +238,7 @@ Status WalManager::_scan_wals(const std::string& wal_path) {
     std::vector<io::FileInfo> dbs;
     Status st = io::global_local_filesystem()->list(wal_path, false, &dbs, &exists);
     if (!st.ok()) {
-        LOG(WARNING) << "Failed list files for dir=" << wal_path << ", st=" << st.to_string();
+        LOG(WARNING) << "failed list files for wal_dir=" << wal_path << ", st=" << st.to_string();
         return st;
     }
     for (const auto& database_id : dbs) {
@@ -251,7 +249,8 @@ Status WalManager::_scan_wals(const std::string& wal_path) {
         auto db_path = wal_path + "/" + database_id.file_name;
         st = io::global_local_filesystem()->list(db_path, false, &tables, &exists);
         if (!st.ok()) {
-            LOG(WARNING) << "Failed list files for dir=" << db_path << ", st=" << st.to_string();
+            LOG(WARNING) << "failed to list files for wal_dir=" << db_path
+                         << ", st=" << st.to_string();
             return st;
         }
         for (const auto& table_id : tables) {
@@ -262,7 +261,7 @@ Status WalManager::_scan_wals(const std::string& wal_path) {
             auto table_path = db_path + "/" + table_id.file_name;
             st = io::global_local_filesystem()->list(table_path, false, &wals, &exists);
             if (!st.ok()) {
-                LOG(WARNING) << "Failed list files for dir=" << table_path
+                LOG(WARNING) << "failed to list files for wal_dir=" << table_path
                              << ", st=" << st.to_string();
                 return st;
             }
@@ -300,7 +299,7 @@ Status WalManager::_scan_wals(const std::string& wal_path) {
             count += res.size();
         }
     }
-    LOG(INFO) << "Finish list all wals, size:" << count;
+    LOG(INFO) << "Finish list wal_dir=" << wal_path << ", wal count=" << count;
     return Status::OK();
 }
 
@@ -329,7 +328,7 @@ Status WalManager::_replay() {
             RETURN_IF_ERROR(_thread_pool->submit_func([table_id, this] {
                 auto st = this->_table_map[table_id]->replay_wals();
                 if (!st.ok()) {
-                    LOG(WARNING) << "Failed add replay wal on table " << table_id;
+                    LOG(WARNING) << "failed to submit replay wal for table=" << table_id;
                 }
             }));
         }
@@ -497,9 +496,9 @@ Status WalManager::delete_wal(int64_t table_id, int64_t wal_id, size_t block_que
             wal_path = it->second;
             auto st = io::global_local_filesystem()->delete_file(wal_path);
             if (st.ok()) {
-                LOG(INFO) << "delete file=" << wal_path;
+                LOG(INFO) << "delete wal=" << wal_path;
             } else {
-                LOG(WARNING) << "fail to delete file=" << wal_path;
+                LOG(WARNING) << "failed to delete wal=" << wal_path << ", st=" << st.to_string();
             }
             _wal_path_map.erase(wal_id);
         }
@@ -531,6 +530,7 @@ Status WalManager::rename_to_tmp_path(const std::string wal, int64_t table_id, i
     }
     auto res = std::rename(wal.c_str(), wal_path.string().c_str());
     if (res < 0) {
+        LOG(INFO) << "failed to rename wal from " << wal << " to " << wal_path.string();
         return Status::InternalError("rename fail on path " + wal);
     }
     LOG(INFO) << "rename wal from " << wal << " to " << wal_path.string();
