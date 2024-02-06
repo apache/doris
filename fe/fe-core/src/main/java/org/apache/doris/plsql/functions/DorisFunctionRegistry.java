@@ -27,7 +27,7 @@ import org.apache.doris.nereids.PLParser.Create_procedure_stmtContext;
 import org.apache.doris.nereids.PLParser.Expr_func_paramsContext;
 import org.apache.doris.nereids.PLParserBaseVisitor;
 import org.apache.doris.nereids.parser.CaseInsensitiveStream;
-import org.apache.doris.nereids.trees.plans.commands.info.ProcedureNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.Scope;
 import org.apache.doris.plsql.Var;
@@ -59,15 +59,15 @@ public class DorisFunctionRegistry implements FunctionRegistry {
     }
 
     @Override
-    public boolean exists(String name) {
-        return isCached(name) || getProc(name).isPresent();
+    public boolean exists(FuncNameInfo procedureName) {
+        return isCached(procedureName.toString()) || getProc(procedureName).isPresent();
     }
 
     @Override
-    public void remove(String name) {
+    public void remove(FuncNameInfo procedureName) {
         try {
-            client.dropPlsqlStoredProcedure(name, ConnectContext.get().getCurrentCatalog().getName(),
-                    ConnectContext.get().getDatabase());
+            client.dropPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
+                    procedureName.getDb());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -88,21 +88,21 @@ public class DorisFunctionRegistry implements FunctionRegistry {
 
 
     @Override
-    public boolean exec(String name, Expr_func_paramsContext ctx) {
-        if (builtinFunctions.exec(name, ctx)) { // First look for built-in functions.
+    public boolean exec(FuncNameInfo procedureName, Expr_func_paramsContext ctx) {
+        if (builtinFunctions.exec(procedureName.toString(), ctx)) { // First look for built-in functions.
             return true;
         }
-        if (isCached(name)) {
-            trace(ctx, "EXEC CACHED FUNCTION " + name);
-            execProcOrFunc(ctx, cache.get(qualified(name)), name);
+        if (isCached(procedureName.toString())) {
+            trace(ctx, "EXEC CACHED FUNCTION " + procedureName);
+            execProcOrFunc(ctx, cache.get(qualified(procedureName.toString())), procedureName.toString());
             return true;
         }
-        Optional<PlsqlStoredProcedure> proc = getProc(name);
+        Optional<PlsqlStoredProcedure> proc = getProc(procedureName);
         if (proc.isPresent()) {
-            trace(ctx, "EXEC HMS FUNCTION " + name);
+            trace(ctx, "EXEC HMS FUNCTION " + procedureName);
             ParserRuleContext procCtx = parse(proc.get());
-            execProcOrFunc(ctx, procCtx, name);
-            saveInCache(name, procCtx);
+            execProcOrFunc(ctx, procCtx, procedureName.toString());
+            saveInCache(procedureName.toString(), procCtx);
             return true;
         }
         return false;
@@ -151,10 +151,10 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         return visitor.func != null ? visitor.func : visitor.proc;
     }
 
-    private Optional<PlsqlStoredProcedure> getProc(String name) {
+    private Optional<PlsqlStoredProcedure> getProc(FuncNameInfo procedureName) {
         return Optional.ofNullable(
-                client.getPlsqlStoredProcedure(name, ConnectContext.get().getCurrentCatalog().getName(),
-                        ConnectContext.get().getDatabase()));
+                client.getPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
+                        procedureName.getDb()));
     }
 
     private ArrayList<Var> getActualCallParameters(Expr_func_paramsContext actual) {
@@ -171,7 +171,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
 
     @Override
     public void addUserFunction(Create_function_stmtContext ctx) {
-        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+        FuncNameInfo procedureName = new FuncNameInfo(
                 exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
         if (builtinFunctions.exists(procedureName.toString())) {
             exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be redefined.");
@@ -184,7 +184,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
 
     @Override
     public void addUserProcedure(Create_procedure_stmtContext ctx) {
-        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+        FuncNameInfo procedureName = new FuncNameInfo(
                 exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
         if (builtinFunctions.exists(procedureName.toString())) {
             exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be redefined.");
@@ -195,7 +195,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         saveStoredProc(procedureName, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
     }
 
-    private void saveStoredProc(ProcedureNameInfo procedureName, String source, boolean isForce) {
+    private void saveStoredProc(FuncNameInfo procedureName, String source, boolean isForce) {
         client.addPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
                 procedureName.getDb(),
                 ConnectContext.get().getQualifiedUser(), source, isForce);

@@ -23,17 +23,18 @@ package org.apache.doris.plsql.functions;
 import org.apache.doris.nereids.PLParser.Create_function_stmtContext;
 import org.apache.doris.nereids.PLParser.Create_procedure_stmtContext;
 import org.apache.doris.nereids.PLParser.Expr_func_paramsContext;
+import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 
 public interface FunctionRegistry {
-    boolean exec(String name, Expr_func_paramsContext ctx);
+    boolean exec(FuncNameInfo procedureName, Expr_func_paramsContext ctx);
 
     void addUserFunction(Create_function_stmtContext ctx);
 
     void addUserProcedure(Create_procedure_stmtContext ctx);
 
-    boolean exists(String name);
+    boolean exists(FuncNameInfo procedureName);
 
-    void remove(String name);
+    void remove(FuncNameInfo procedureName);
 
     void removeCached(String name);
 }

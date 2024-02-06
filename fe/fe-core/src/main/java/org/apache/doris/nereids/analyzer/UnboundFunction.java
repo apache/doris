@@ -38,30 +38,24 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     private final String dbName;
     private final String name;
     private final boolean isDistinct;
-    private final String source; // Original SQL, from LogicalPlanBuilder.getOriginSql()
 
     public UnboundFunction(String name, List<Expression> arguments) {
-        this(null, name, false, arguments, null);
+        this(null, name, false, arguments);
     }
 
     public UnboundFunction(String dbName, String name, List<Expression> arguments) {
-        this(dbName, name, false, arguments, null);
+        this(dbName, name, false, arguments);
     }
 
     public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
-        this(null, name, isDistinct, arguments, null);
+        this(null, name, isDistinct, arguments);
     }
 
     public UnboundFunction(String dbName, String name, boolean isDistinct, List<Expression> arguments) {
-        this(dbName, name, isDistinct, arguments, null);
-    }
-
-    public UnboundFunction(String dbName, String name, boolean isDistinct, List<Expression> arguments, String source) {
         super(arguments);
         this.dbName = dbName;
         this.name = Objects.requireNonNull(name, "name cannot be null");
         this.isDistinct = isDistinct;
-        this.source = source;
     }
 
     public String getName() {
@@ -88,10 +82,6 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
         return children();
     }
 
-    public String getSource() {
-        return source;
-    }
-
     @Override
     public String toSql() throws UnboundException {
         String params = children.stream()
@@ -113,7 +103,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     @Override
     public UnboundFunction withChildren(List<Expression> children) {
-        return new UnboundFunction(dbName, name, isDistinct, children, null);
+        return new UnboundFunction(dbName, name, isDistinct, children);
     }
 
     @Override

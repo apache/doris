@@ -24,6 +24,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -31,18 +32,18 @@ import java.util.Objects;
 /**
  * procedure, function, package name info
  */
-public class ProcedureNameInfo {
+public class FuncNameInfo {
     private final List<String> nameParts;
     private String ctl;
     private String db;
     private final String name;
 
     /**
-     * ProcedureNameInfo
+     * FuncNameInfo
      *
      * @param parts like [ctl1,db1,name1] or [db1,name1] or [name1]
      */
-    public ProcedureNameInfo(List<String> parts) {
+    public FuncNameInfo(List<String> parts) {
         nameParts = parts;
         Objects.requireNonNull(parts, "require parts object");
         int size = parts.size();
@@ -54,6 +55,34 @@ public class ProcedureNameInfo {
         if (size >= 3) {
             ctl = parts.get(size - 3);
         }
+    }
+
+    /**
+     * FuncNameInfo
+     *
+     * @param ctl catalogName
+     * @param db dbName
+     * @param name funcName
+     */
+    public FuncNameInfo(String ctl, String db, String name) {
+        Objects.requireNonNull(ctl, "require tbl object");
+        Objects.requireNonNull(db, "require db object");
+        Objects.requireNonNull(name, "require name object");
+        this.ctl = ctl;
+        this.db = db;
+        this.name = name.toUpperCase();
+        this.nameParts = Lists.newArrayList(ctl, db, name);
+    }
+
+    /**
+     * FuncNameInfo
+     *
+     * @param name funcName
+     */
+    public FuncNameInfo(String name) {
+        Objects.requireNonNull(name, "require name object");
+        this.name = name.toUpperCase();
+        this.nameParts = Lists.newArrayList(name);
     }
 
     /**
@@ -86,7 +115,7 @@ public class ProcedureNameInfo {
      * @return ctlName
      */
     public String getCtl() {
-        return ctl;
+        return ctl == null ? "" : ctl;
     }
 
     /**
@@ -95,7 +124,7 @@ public class ProcedureNameInfo {
      * @return dbName
      */
     public String getDb() {
-        return db;
+        return db == null ? "" : db;
     }
 
     /**
@@ -104,7 +133,7 @@ public class ProcedureNameInfo {
      * @return tableName
      */
     public String getName() {
-        return name;
+        return name == null ? "" : name;
     }
 
     public String toString() {

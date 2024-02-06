@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.ProcedureNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.plsql.metastore.PlsqlMetaClient;
 import org.apache.doris.qe.ConnectContext;
@@ -36,7 +36,7 @@ import java.util.Objects;
 @Developing
 public class CreateProcedureCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(CreateProcedureCommand.class);
-    private final ProcedureNameInfo procedureName;
+    private final FuncNameInfo procedureName;
     private final String source; // Original SQL, from LogicalPlanBuilder.getOriginSql()
     private final boolean isForce;
     private final PlsqlMetaClient client;
@@ -44,7 +44,7 @@ public class CreateProcedureCommand extends Command implements ForwardWithSync {
     /**
      * constructor
      */
-    public CreateProcedureCommand(ProcedureNameInfo procedureName, String source, boolean isForce) {
+    public CreateProcedureCommand(FuncNameInfo procedureName, String source, boolean isForce) {
         super(PlanType.CREATE_PROCEDURE_COMMAND);
         this.client = new PlsqlMetaClient();
         this.procedureName = Objects.requireNonNull(procedureName, "procedureName is null");

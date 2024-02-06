@@ -26,7 +26,7 @@ import org.apache.doris.nereids.PLParser.Create_routine_param_itemContext;
 import org.apache.doris.nereids.PLParser.Create_routine_paramsContext;
 import org.apache.doris.nereids.PLParser.ExprContext;
 import org.apache.doris.nereids.PLParser.Expr_func_paramsContext;
-import org.apache.doris.nereids.trees.plans.commands.info.ProcedureNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.Scope;
 import org.apache.doris.plsql.Var;
@@ -56,25 +56,25 @@ public class InMemoryFunctionRegistry implements FunctionRegistry {
     }
 
     @Override
-    public boolean exists(String name) {
-        return funcMap.containsKey(name) || procMap.containsKey(name);
+    public boolean exists(FuncNameInfo procedureName) {
+        return funcMap.containsKey(procedureName.toString()) || procMap.containsKey(procedureName.toString());
     }
 
     @Override
-    public void remove(String name) {
-        funcMap.remove(name);
-        procMap.remove(name);
+    public void remove(FuncNameInfo procedureName) {
+        funcMap.remove(procedureName.toString());
+        procMap.remove(procedureName.toString());
     }
 
     @Override
-    public boolean exec(String name, Expr_func_paramsContext ctx) {
-        if (builtinFunctions.exec(name, ctx)) {
+    public boolean exec(FuncNameInfo procedureName, Expr_func_paramsContext ctx) {
+        if (builtinFunctions.exec(procedureName.toString(), ctx)) {
             return true;
         }
-        if (execFunction(name, ctx)) {
+        if (execFunction(procedureName.toString(), ctx)) {
             return true;
         }
-        return (procMap.get(name) != null && execProc(name, ctx));
+        return (procMap.get(procedureName.toString()) != null && execProc(procedureName.toString(), ctx));
     }
 
     @Override
@@ -225,7 +225,7 @@ public class InMemoryFunctionRegistry implements FunctionRegistry {
 
     @Override
     public void addUserFunction(Create_function_stmtContext ctx) {
-        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+        FuncNameInfo procedureName = new FuncNameInfo(
                 exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
         if (builtinFunctions.exists(procedureName.toString())) {
             exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be redefined.");
@@ -239,7 +239,7 @@ public class InMemoryFunctionRegistry implements FunctionRegistry {
 
     @Override
     public void addUserProcedure(Create_procedure_stmtContext ctx) {
-        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+        FuncNameInfo procedureName = new FuncNameInfo(
                 exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
         if (builtinFunctions.exists(procedureName.toString())) {
             exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be redefined.");

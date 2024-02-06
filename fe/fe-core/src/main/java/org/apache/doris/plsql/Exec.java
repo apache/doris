@@ -104,7 +104,7 @@ import org.apache.doris.nereids.parser.CaseInsensitiveStream;
 import org.apache.doris.nereids.parser.ParserUtils;
 import org.apache.doris.nereids.parser.plsql.PLSqlLogicalPlanBuilder;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.commands.info.ProcedureNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 import org.apache.doris.plsql.Var.Type;
 import org.apache.doris.plsql.exception.PlValidationException;
 import org.apache.doris.plsql.exception.QueryException;
@@ -872,7 +872,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
             initRoutines = true;
             visit(tree);
             initRoutines = false;
-            exec.functions.exec(execMain.toUpperCase(), null);
+            exec.functions.exec(new FuncNameInfo(execMain), null);
         } else {
             visit(tree);
         }
@@ -1378,7 +1378,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
      */
     @Override
     public Integer visitCreate_package_stmt(Create_package_stmtContext ctx) {
-        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+        FuncNameInfo procedureName = new FuncNameInfo(
                 exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
         if (exec.packageLoading) {
             exec.currentPackageDecl = new Package(procedureName.toString(), exec, builtinFunctions);
@@ -1400,7 +1400,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
     @Override
     public Integer visitCreate_package_body_stmt(
             Create_package_body_stmtContext ctx) {
-        ProcedureNameInfo procedureName = new ProcedureNameInfo(
+        FuncNameInfo procedureName = new FuncNameInfo(
                 exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
         if (exec.packageLoading) {
             exec.currentPackageDecl = exec.packages.get(procedureName.toString());
@@ -1527,12 +1527,12 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
     public Integer visitAssignment_stmt_collection_item(
             Assignment_stmt_collection_itemContext ctx) {
         Expr_funcContext lhs = ctx.expr_func();
-        Var var = findVariable(lhs.ident_pl().getText());
+        Var var = findVariable(lhs.multipartIdentifier().getText());
         if (var == null || var.type != Type.PL_OBJECT) {
             stackPush(Var.Null);
             return 0;
         }
-        MethodParams.Arity.UNARY.check(lhs.ident_pl().getText(), lhs.expr_func_params().func_param());
+        MethodParams.Arity.UNARY.check(lhs.multipartIdentifier().getText(), lhs.expr_func_params().func_param());
         Var index = evalPop(lhs.expr_func_params().func_param(0));
         Var value = evalPop(ctx.expr());
         dispatch(ctx, (PlObject) var.value, MethodDictionary.__SETITEM__, Arrays.asList(index, value));
@@ -1583,44 +1583,29 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
      */
     @Override
     public Integer visitExpr_func(Expr_funcContext ctx) {
-        return functionCall(ctx, ctx.ident_pl(), ctx.expr_func_params());
+        return functionCall(ctx, ctx.multipartIdentifier(), ctx.expr_func_params());
     }
 
     private int functionCall(ParserRuleContext ctx, MultipartIdentifierContext ident,
             Expr_func_paramsContext params) {
         List<String> nameParts = logicalPlanBuilder.visitMultipartIdentifier(ident);
-        ProcedureNameInfo procedureName = new ProcedureNameInfo(nameParts);
-        // TODO, suuport use dbName, catalogName.
-        return functionCall(ctx, procedureName.getName(), params);
-    }
-
-    private int functionCall(ParserRuleContext ctx, Ident_plContext ident,
-            Expr_func_paramsContext params) {
-        return functionCall(ctx, ident.getText(), params);
-    }
-
-    private int functionCall(ParserRuleContext ctx, String name,
-            Expr_func_paramsContext params) {
-        name = name.toUpperCase();
+        FuncNameInfo procedureName = new FuncNameInfo(nameParts);
         Package packCallContext = exec.getPackageCallContext();
-        ArrayList<String> qualified = exec.meta.splitIdentifier(name);
         boolean executed = false;
-        if (qualified != null) {
-            Package pack = findPackage(qualified.get(0));
-            if (pack != null) {
-                executed = pack.execFunc(qualified.get(1), params);
-            }
+        Package pack = findPackage(procedureName.getDb());
+        if (pack != null) {
+            executed = pack.execFunc(procedureName.getName(), params);
         }
         if (!executed && packCallContext != null) {
-            executed = packCallContext.execFunc(name, params);
+            executed = packCallContext.execFunc(procedureName.toString(), params);
         }
         if (!executed) {
-            if (!exec.functions.exec(name, params)) {
-                Var var = findVariable(name);
+            if (!exec.functions.exec(procedureName, params)) {
+                Var var = findVariable(procedureName.toString());
                 if (var != null && var.type == Type.PL_OBJECT) {
                     stackPush(dispatch(ctx, (PlObject) var.value, MethodDictionary.__GETITEM__, params));
                 } else {
-                    throw new UndefinedIdentException(ctx, name);
+                    throw new UndefinedIdentException(ctx, procedureName.toString());
                 }
             }
         }
@@ -1659,64 +1644,6 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
             throw new TypeException(ctx, "rowtype table should not be used when selecting into multiple tables");
         }
         return tables;
-    }
-
-    /**
-     * User-defined function in a SQL query
-     */
-    public void execSql(String name, Expr_func_paramsContext ctx) {
-        if (execUserSql(ctx, name)) {
-            return;
-        }
-        StringBuilder sql = new StringBuilder();
-        sql.append(name);
-        sql.append("(");
-        if (ctx != null) {
-            int cnt = ctx.func_param().size();
-            for (int i = 0; i < cnt; i++) {
-                sql.append(evalPop(ctx.func_param(i).expr()));
-                if (i + 1 < cnt) {
-                    sql.append(", ");
-                }
-            }
-        }
-        sql.append(")");
-        exec.stackPush(sql);
-    }
-
-    /**
-     * Execute a PL/SQL user-defined function in a query.
-     * For example converts: select fn(col) from table to select plsql('fn(:1)', col) from table
-     */
-    private boolean execUserSql(Expr_func_paramsContext ctx, String name) {
-        if (!functions.exists(name)) {
-            return false;
-        }
-        StringBuilder sql = new StringBuilder();
-        sql.append("plsql('");
-        sql.append(name);
-        sql.append("(");
-        int cnt = ctx.func_param().size();
-        for (int i = 0; i < cnt; i++) {
-            sql.append(":").append(i + 1);
-            if (i + 1 < cnt) {
-                sql.append(", ");
-            }
-        }
-        sql.append(")'");
-        if (cnt > 0) {
-            sql.append(", ");
-        }
-        for (int i = 0; i < cnt; i++) {
-            sql.append(evalPop(ctx.func_param(i).expr()));
-            if (i + 1 < cnt) {
-                sql.append(", ");
-            }
-        }
-        sql.append(")");
-        exec.stackPush(sql);
-        exec.registerUdf();
-        return true;
     }
 
     /**
@@ -1827,7 +1754,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         exec.inCallStmt = true;
         try {
             if (ctx.expr_func() != null) {
-                functionCall(ctx, ctx.expr_func().ident_pl(), ctx.expr_func().expr_func_params());
+                functionCall(ctx, ctx.expr_func().multipartIdentifier(), ctx.expr_func().expr_func_params());
             } else if (ctx.expr_dot() != null) {
                 visitExpr_dot(ctx.expr_dot());
             } else if (ctx.multipartIdentifier() != null) {
@@ -2016,7 +1943,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
 
         if (var == null && ctx.ident_pl() != null) {
             Package pkg = findPackage(ctx.ident_pl().getText());
-            String pkgFuncName = ctx.expr_func(0).ident_pl().getText().toUpperCase();
+            String pkgFuncName = ctx.expr_func(0).multipartIdentifier().getText().toUpperCase();
             boolean executed = pkg.execFunc(pkgFuncName, ctx.expr_func(0).expr_func_params());
             Package packCallContext = exec.getPackageCallContext();
             if (!executed && packCallContext != null) {
@@ -2028,7 +1955,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         Expr_funcContext method = ctx.expr_func(ctx.expr_func().size() - 1);
         switch (var.type) {
             case PL_OBJECT:
-                Var result = dispatch(ctx, (PlObject) var.value, method.ident_pl().getText(),
+                Var result = dispatch(ctx, (PlObject) var.value, method.multipartIdentifier().getText(),
                         method.expr_func_params());
                 stackPush(result);
                 return 0;
@@ -2149,8 +2076,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
             if (exec.inCallStmt) {
                 exec.stackPush(new Var(Var.Type.IDENT, ident));
             } else {
-                ident = ident.toUpperCase();
-                if (!exec.functions.exec(ident, null)) {
+                if (!exec.functions.exec(new FuncNameInfo(ident), null)) {
                     throw new UndefinedIdentException(ctx, ident);
                 }
             }

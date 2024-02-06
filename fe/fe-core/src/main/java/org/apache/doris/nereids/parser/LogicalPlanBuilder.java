@@ -374,13 +374,13 @@ import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
+import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.ProcedureNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
@@ -3250,19 +3250,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Object visitCallProcedure(CallProcedureContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
-        ProcedureNameInfo procedureName = new ProcedureNameInfo(nameParts);
+        FuncNameInfo procedureName = new FuncNameInfo(nameParts);
         List<Expression> arguments = ctx.expression().stream()
                 .<Expression>map(this::typedVisit)
                 .collect(ImmutableList.toImmutableList());
         UnboundFunction unboundFunction = new UnboundFunction(procedureName.getDb(), procedureName.getName(),
-                true, arguments, getOriginSql(ctx));
-        return new CallCommand(unboundFunction);
+                true, arguments);
+        return new CallCommand(unboundFunction, getOriginSql(ctx));
     }
 
     @Override
     public LogicalPlan visitCreateProcedure(CreateProcedureContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
-        ProcedureNameInfo procedureName = new ProcedureNameInfo(nameParts);
+        FuncNameInfo procedureName = new FuncNameInfo(nameParts);
         return ParserUtils.withOrigin(ctx, () -> {
             LogicalPlan createProcedurePlan;
             createProcedurePlan = new CreateProcedureCommand(procedureName, getOriginSql(ctx),

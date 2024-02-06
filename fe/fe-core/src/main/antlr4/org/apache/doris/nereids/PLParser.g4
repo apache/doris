@@ -687,7 +687,7 @@ expr_spec_func :
      ;
 
 expr_func :
-       ident_pl LEFT_PAREN expr_func_params? RIGHT_PAREN
+       multipartIdentifier LEFT_PAREN expr_func_params? RIGHT_PAREN
      ;
 
 expr_dot :

@@ -50,6 +50,7 @@ import org.apache.doris.nereids.PLParser.Signal_stmtContext;
 import org.apache.doris.nereids.PLParser.Unconditional_loop_stmtContext;
 import org.apache.doris.nereids.PLParser.Values_into_stmtContext;
 import org.apache.doris.nereids.PLParser.While_stmtContext;
+import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 import org.apache.doris.plsql.Var.Type;
 import org.apache.doris.plsql.exception.QueryException;
 import org.apache.doris.plsql.exception.UndefinedIdentException;
@@ -809,10 +810,7 @@ public class Stmt {
      */
     public Boolean execProc(Exec_stmtContext ctx) {
         String name = evalPop(ctx.expr()).toString().toUpperCase();
-        if (exec.functions.exec(name, ctx.expr_func_params())) {
-            return true;
-        }
-        return false;
+        return exec.functions.exec(new FuncNameInfo(name), ctx.expr_func_params());
     }
 
     /**
