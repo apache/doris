@@ -77,6 +77,7 @@ public class Array extends ScalarFunction
      */
     public Array(Expression... varArgs) {
         super("array", varArgs);
+        throw new UnsupportedOperationException("Array function is not supported yet.");
     }
 
     @Override
