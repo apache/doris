@@ -271,7 +271,7 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
     _blocks.clear();
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
         if (_load_block_queue) {
-            _load_block_queue->remove_pre_allocated();
+            _remove_pre_allocated();
             _load_block_queue->remove_load_id(_load_id);
         }
         if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
