@@ -111,16 +111,10 @@ suite("test_base_insert_job") {
             "replication_allocation" = "tag.location.default: 1"
         );
         """
-    // Enlarge this parameter to avoid other factors that cause time verification to fail when submitting.
-    def currentMs = System.currentTimeMillis() + 20000;
-    def dateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(currentMs), ZoneId.systemDefault());
-
-    def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    def startTime = dateTime.format(formatter);
     def dataCount = sql """select count(*) from ${tableName}"""
     assert dataCount.get(0).get(0) == 0
     sql """
-          CREATE JOB ${jobName}  ON SCHEDULE at '${startTime}'   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(10000), 1001);
+          CREATE JOB ${jobName}  ON SCHEDULE at current_timestamp   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(10000), 1001);
      """
 
     Thread.sleep(25000)
@@ -153,9 +147,21 @@ suite("test_base_insert_job") {
     //assert comment
     assert oncejob.get(0).get(1) == "test for test&68686781jbjbhj//ncsa"
     sql """
-        DROP JOB IF EXISTS where jobname =  '${jobName}'
+        DROP JOB IF EXISTS where jobname =  'press'
     """
 
+    sql """
+          CREATE JOB press  ON SCHEDULE every 10 hour starts CURRENT_TIMESTAMP  comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', 99, 99);
+     """
+    Thread.sleep(5000)
+    def pressJob = sql """ select * from jobs("type"="insert") where name='press' """
+    println pressJob
+    
+    def recurringTableDatas = sql """ select count(1) from ${tableName} where user_id=99 and type=99 """
+    assert recurringTableDatas.get(0).get(0) == 1
+    sql """
+        DROP JOB IF EXISTS where jobname =  '${jobName}'
+    """
     sql """
           CREATE JOB ${jobName}  ON SCHEDULE every 1 second   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(10000), 1001);
      """
@@ -198,7 +204,7 @@ suite("test_base_insert_job") {
     // assert not support stmt
     try {
         sql """
-            CREATE JOB ${jobName}  ON SCHEDULE at '${startTime}'   comment 'test' DO update ${tableName} set type=2 where type=1;
+            CREATE JOB ${jobName}  ON SCHEDULE at current_timestamp   comment 'test' DO update ${tableName} set type=2 where type=1;
         """
     } catch (Exception e) {
         assert e.getMessage().contains("Not support UpdateStmt type in job")
@@ -206,7 +212,7 @@ suite("test_base_insert_job") {
     // assert start time greater than current time
     try {
         sql """
-            CREATE JOB ${jobName}  ON SCHEDULE at '${startTime}'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+            CREATE JOB ${jobName}  ON SCHEDULE at '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
         assert e.getMessage().contains("startTimeMs must be greater than current time")

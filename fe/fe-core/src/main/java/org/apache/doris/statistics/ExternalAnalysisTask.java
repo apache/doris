@@ -164,6 +164,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         commonParams.put("sampleHints", getSampleHint());
         commonParams.put("limit", "");
         commonParams.put("scaleFactor", "1");
+        commonParams.put("index", "");
         if (col != null) {
             commonParams.put("type", col.getType().toString());
         }
@@ -223,16 +224,6 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
             }
         }
         return Pair.of(Math.max(((double) total) / cumulate, 1), cumulate);
-    }
-
-    @Override
-    protected void afterExecution() {
-        // Table level task doesn't need to sync any value to sync stats, it stores the value in metadata.
-        // Partition only task doesn't need to refresh cached.
-        if (isTableLevelTask || isPartitionOnly) {
-            return;
-        }
-        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 
     /**

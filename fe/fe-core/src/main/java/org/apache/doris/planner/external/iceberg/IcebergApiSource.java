@@ -24,7 +24,6 @@ import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileAttributes;
 
@@ -48,11 +47,9 @@ public class IcebergApiSource implements IcebergSource {
         this.icebergExtTable = table;
 
         this.originTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
-            ((IcebergExternalCatalog) icebergExtTable.getCatalog()).getCatalog(),
-            icebergExtTable.getCatalog().getId(),
-            icebergExtTable.getDbName(),
-            icebergExtTable.getName(),
-            icebergExtTable.getCatalog().getProperties());
+                icebergExtTable.getCatalog(),
+                icebergExtTable.getDbName(),
+                icebergExtTable.getName());
 
         this.desc = desc;
     }

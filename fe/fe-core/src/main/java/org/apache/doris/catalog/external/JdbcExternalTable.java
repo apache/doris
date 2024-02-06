@@ -82,6 +82,7 @@ public class JdbcExternalTable extends ExternalTable {
         JdbcExternalCatalog jdbcCatalog = (JdbcExternalCatalog) catalog;
         String fullDbName = this.dbName + "." + this.name;
         JdbcTable jdbcTable = new JdbcTable(this.id, fullDbName, schema, TableType.JDBC_EXTERNAL_TABLE);
+        jdbcTable.setCatalogId(jdbcCatalog.getId());
         jdbcTable.setExternalTableName(fullDbName);
         jdbcTable.setRealDatabaseName(((JdbcExternalCatalog) catalog).getJdbcClient().getRealDatabaseName(this.dbName));
         jdbcTable.setRealTableName(
@@ -96,11 +97,11 @@ public class JdbcExternalTable extends ExternalTable {
         jdbcTable.setDriverUrl(jdbcCatalog.getDriverUrl());
         jdbcTable.setResourceName(jdbcCatalog.getResource());
         jdbcTable.setCheckSum(jdbcCatalog.getCheckSum());
-        jdbcTable.setMinPoolSize(jdbcCatalog.getMinPoolSize());
-        jdbcTable.setMaxPoolSize(jdbcCatalog.getMaxPoolSize());
-        jdbcTable.setMaxIdleTime(jdbcCatalog.getMaxIdleTime());
-        jdbcTable.setMaxWaitTime(jdbcCatalog.getMaxWaitTime());
-        jdbcTable.setKeepAlive(jdbcCatalog.getKeepAlive());
+        jdbcTable.setConnectionPoolMinSize(jdbcCatalog.getConnectionPoolMinSize());
+        jdbcTable.setConnectionPoolMaxSize(jdbcCatalog.getConnectionPoolMaxSize());
+        jdbcTable.setConnectionPoolMaxLifeTime(jdbcCatalog.getConnectionPoolMaxLifeTime());
+        jdbcTable.setConnectionPoolMaxWaitTime(jdbcCatalog.getConnectionPoolMaxWaitTime());
+        jdbcTable.setConnectionPoolKeepAlive(jdbcCatalog.isConnectionPoolKeepAlive());
         return jdbcTable;
     }
 

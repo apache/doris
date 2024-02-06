@@ -44,11 +44,6 @@ using std::vector;
 using std::string;
 using std::stringstream;
 
-using boost::regex;
-using boost::regex_error;
-using boost::regex_match;
-using boost::smatch;
-
 using ::google::protobuf::RepeatedPtrField;
 
 namespace doris {
@@ -303,15 +298,15 @@ Status DeleteHandler::parse_condition(const std::string& condition_str, TConditi
         //  group3:  ((?:[\s\S]+)?) matches "1597751948193618247  and length(source)<1;\n;\n"
         const char* const CONDITION_STR_PATTERN =
                 R"(([\w$#%]+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
-        regex ex(CONDITION_STR_PATTERN);
-        if (regex_match(condition_str, what, ex)) {
+        boost::regex ex(CONDITION_STR_PATTERN);
+        if (boost::regex_match(condition_str, what, ex)) {
             if (condition_str.size() != what[0].str().size()) {
                 matched = false;
             }
         } else {
             matched = false;
         }
-    } catch (regex_error& e) {
+    } catch (boost::regex_error& e) {
         VLOG_NOTICE << "fail to parse expr. [expr=" << condition_str << "; error=" << e.what()
                     << "]";
         matched = false;

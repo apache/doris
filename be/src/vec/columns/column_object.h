@@ -222,6 +222,10 @@ private:
     // this structure and fill with Subcolumns sub items
     mutable std::shared_ptr<rapidjson::Document> doc_structure;
 
+    // column with raw json strings
+    // used for quickly row store encoding
+    ColumnPtr rowstore_column;
+
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
@@ -240,6 +244,10 @@ public:
         }
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
     }
+
+    void set_rowstore_column(ColumnPtr col) { rowstore_column = col; }
+
+    ColumnPtr get_rowstore_column() const { return rowstore_column; }
 
     bool serialize_one_row_to_string(int row, std::string* output) const;
 

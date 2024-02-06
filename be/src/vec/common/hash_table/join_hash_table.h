@@ -68,6 +68,7 @@ public:
 
     std::vector<uint8_t>& get_visited() { return visited; }
 
+    template <int JoinOpType, bool with_other_conjuncts>
     void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
                size_t num_elem) {
         build_keys = keys;
@@ -76,23 +77,29 @@ public:
             next[i] = first[bucket_num];
             first[bucket_num] = i;
         }
-        first[bucket_size] = 0; // index = bucket_num means null
+        if constexpr ((JoinOpType != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                       JoinOpType != TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) ||
+                      !with_other_conjuncts) {
+            /// Only null aware join with other conjuncts need to access the null value in hash table
+            first[bucket_size] = 0; // index = bucket_num means null
+        }
     }
 
     template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join, bool need_judge_null>
     auto find_batch(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
                     int probe_idx, uint32_t build_idx, int probe_rows,
                     uint32_t* __restrict probe_idxs, bool& probe_visited,
-                    uint32_t* __restrict build_idxs, vectorized::ColumnFilterHelper* mark_column) {
+                    uint32_t* __restrict build_idxs) {
         if constexpr (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             if (_empty_build_side) {
                 return _process_null_aware_left_anti_join_for_empty_build_side<
-                        JoinOpType, with_other_conjuncts, is_mark_join>(
-                        probe_idx, probe_rows, probe_idxs, build_idxs, mark_column);
+                        JoinOpType, with_other_conjuncts, is_mark_join>(probe_idx, probe_rows,
+                                                                        probe_idxs, build_idxs);
             }
         }
 
-        if constexpr (with_other_conjuncts || is_mark_join) {
+        if constexpr (with_other_conjuncts ||
+                      (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN)) {
             return _find_batch_conjunct<JoinOpType, need_judge_null>(
                     keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
         }
@@ -128,51 +135,48 @@ public:
      * select 'a' not in ('b', null) => null => 'a' != 'b' and 'a' != null => true and null => null
      * select 'a' not in ('a', 'b', null) => false
      */
-    auto find_null_aware_with_other_conjuncts(
-            const Key* __restrict keys, const uint32_t* __restrict build_idx_map, int probe_idx,
-            uint32_t build_idx, int probe_rows, uint32_t* __restrict probe_idxs,
-            uint32_t* __restrict build_idxs, std::set<uint32_t>& null_result,
-            const std::vector<uint32_t>& build_indexes_null, const size_t build_block_count) {
+    auto find_null_aware_with_other_conjuncts(const Key* __restrict keys,
+                                              const uint32_t* __restrict build_idx_map,
+                                              int probe_idx, uint32_t build_idx, int probe_rows,
+                                              uint32_t* __restrict probe_idxs,
+                                              uint32_t* __restrict build_idxs,
+                                              uint8_t* __restrict null_flags,
+                                              bool picking_null_keys) {
         auto matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
-        bool has_matched = false;
         auto do_the_probe = [&]() {
+            /// If no any rows match the probe key, here start to handle null keys in build side.
+            /// The result of "Any = null" is null.
+            if (build_idx == 0 && !picking_null_keys) {
+                build_idx = first[bucket_size];
+                picking_null_keys = true; // now pick null from build side
+            }
+
             while (build_idx && matched_cnt < batch_size) {
-                if (build_idx == bucket_size) {
-                    /// All rows in build side should be executed with other join conjuncts.
-                    for (size_t i = 1; i != build_block_count; ++i) {
-                        build_idxs[matched_cnt] = i;
-                        probe_idxs[matched_cnt] = probe_idx;
-                        matched_cnt++;
-                    }
-                    null_result.emplace(probe_idx);
-                    build_idx = 0;
-                    has_matched = true;
-                    break;
-                } else if (keys[probe_idx] == build_keys[build_idx]) {
+                if (picking_null_keys || keys[probe_idx] == build_keys[build_idx]) {
                     build_idxs[matched_cnt] = build_idx;
                     probe_idxs[matched_cnt] = probe_idx;
+                    null_flags[matched_cnt] = picking_null_keys;
                     matched_cnt++;
-                    has_matched = true;
                 }
 
                 build_idx = next[build_idx];
+
+                // If `build_idx` is 0, all matched keys are handled,
+                // now need to handle null keys in build side.
+                if (!build_idx && !picking_null_keys) {
+                    build_idx = first[bucket_size];
+                    picking_null_keys = true; // now pick null keys from build side
+                }
             }
 
             // may over batch_size when emplace 0 into build_idxs
             if (!build_idx) {
-                if (!has_matched) { // has no any row matched
-                    for (auto index : build_indexes_null) {
-                        build_idxs[matched_cnt] = index;
-                        probe_idxs[matched_cnt] = probe_idx;
-                        matched_cnt++;
-                    }
-                }
                 probe_idxs[matched_cnt] = probe_idx;
                 build_idxs[matched_cnt] = 0;
+                picking_null_keys = false;
                 matched_cnt++;
-                has_matched = false;
             }
 
             probe_idx++;
@@ -184,15 +188,25 @@ public:
 
         while (probe_idx < probe_rows && matched_cnt < batch_size) {
             build_idx = build_idx_map[probe_idx];
+
+            /// If the probe key is null
+            if (build_idx == bucket_size) {
+                probe_idx++;
+                break;
+            }
             do_the_probe();
+            if (picking_null_keys) {
+                break;
+            }
         }
 
         probe_idx -= (build_idx != 0);
-        return std::tuple {probe_idx, build_idx, matched_cnt};
+        return std::tuple {probe_idx, build_idx, matched_cnt, picking_null_keys};
     }
 
-    template <int JoinOpType>
-    bool iterate_map(std::vector<uint32_t>& build_idxs) const {
+    template <int JoinOpType, bool is_mark_join>
+    bool iterate_map(std::vector<uint32_t>& build_idxs,
+                     vectorized::ColumnFilterHelper* mark_column_helper) const {
         const auto batch_size = max_batch_size;
         const auto elem_num = visited.size();
         int count = 0;
@@ -201,10 +215,15 @@ public:
         while (count < batch_size && iter_idx < elem_num) {
             const auto matched = visited[iter_idx];
             build_idxs[count] = iter_idx;
-            if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
-                count += !matched;
+            if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
+                if constexpr (is_mark_join) {
+                    mark_column_helper->insert_value(matched);
+                    ++count;
+                } else {
+                    count += matched;
+                }
             } else {
-                count += matched;
+                count += !matched;
             }
             iter_idx++;
         }
@@ -215,21 +234,23 @@ public:
 
     bool has_null_key() { return _has_null_key; }
 
-    void pre_build_idxs(std::vector<uint32>& bucksets, const uint8_t* null_map) {
+    void pre_build_idxs(std::vector<uint32>& buckets, const uint8_t* null_map) const {
         if (null_map) {
-            first[bucket_size] = bucket_size; // distinguish between not matched and null
-        }
-
-        for (uint32_t i = 0; i < bucksets.size(); i++) {
-            bucksets[i] = first[bucksets[i]];
+            for (unsigned int& bucket : buckets) {
+                bucket = bucket == bucket_size ? bucket_size : first[bucket];
+            }
+        } else {
+            for (unsigned int& bucket : buckets) {
+                bucket = first[bucket];
+            }
         }
     }
 
 private:
     template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join>
-    auto _process_null_aware_left_anti_join_for_empty_build_side(
-            int probe_idx, int probe_rows, uint32_t* __restrict probe_idxs,
-            uint32_t* __restrict build_idxs, vectorized::ColumnFilterHelper* mark_column) {
+    auto _process_null_aware_left_anti_join_for_empty_build_side(int probe_idx, int probe_rows,
+                                                                 uint32_t* __restrict probe_idxs,
+                                                                 uint32_t* __restrict build_idxs) {
         static_assert(JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN);
         auto matched_cnt = 0;
         const auto batch_size = max_batch_size;
@@ -238,11 +259,6 @@ private:
             probe_idxs[matched_cnt] = probe_idx++;
             build_idxs[matched_cnt] = 0;
             ++matched_cnt;
-        }
-
-        if constexpr (is_mark_join && !with_other_conjuncts) {
-            // we will flip the mark column later for anti join, so here set 0 into mark column.
-            mark_column->resize_fill(matched_cnt, 0);
         }
 
         return std::tuple {probe_idx, 0U, matched_cnt};

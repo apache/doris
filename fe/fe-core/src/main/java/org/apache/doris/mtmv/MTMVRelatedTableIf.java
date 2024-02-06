@@ -41,16 +41,6 @@ public interface MTMVRelatedTableIf extends TableIf {
     Map<Long, PartitionItem> getPartitionItems();
 
     /**
-     * Obtain the latest update time of partition data
-     *
-     * @param partitionId
-     * @param item
-     * @return millisecond
-     * @throws AnalysisException
-     */
-    long getPartitionLastModifyTime(long partitionId, PartitionItem item) throws AnalysisException;
-
-    /**
      * getPartitionType LIST/RANGE/UNPARTITIONED
      *
      * @return
@@ -66,17 +56,50 @@ public interface MTMVRelatedTableIf extends TableIf {
     Set<String> getPartitionColumnNames() throws DdlException;
 
     /**
-     * Obtain the latest update time of table data
-     *
-     * @return
-     * @throws AnalysisException
-     */
-    long getLastModifyTime() throws AnalysisException;
-
-    /**
      * getPartitionColumns
      *
      * @return
      */
     List<Column> getPartitionColumns();
+
+    /**
+     * getPartitionSnapshot
+     *
+     * @param partitionId
+     * @return partition snapshot at current time
+     * @throws AnalysisException
+     */
+    MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException;
+
+    /**
+     * getTableSnapshot
+     *
+     * @return table snapshot at current time
+     * @throws AnalysisException
+     */
+    MTMVSnapshotIf getTableSnapshot() throws AnalysisException;
+
+    /**
+     * getPartitionName
+     *
+     * @param partitionId
+     * @return partitionName
+     * @throws AnalysisException
+     */
+    String getPartitionName(long partitionId) throws AnalysisException;
+
+    /**
+     * Does the current type of table allow timed triggering
+     *
+     * @return If return false,The method of comparing whether to synchronize will directly return true,
+     * otherwise the snapshot information will be compared
+     */
+    boolean needAutoRefresh();
+
+    /**
+     * if allow partition column `isAllowNull`
+     *
+     * @return
+     */
+    boolean isPartitionColumnAllowNull();
 }

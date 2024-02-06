@@ -27,8 +27,9 @@ import com.google.common.collect.ImmutableList;
 public class CloudPropertyAnalyzer extends PropertyAnalyzer {
 
     public CloudPropertyAnalyzer() {
+        // Ignore unsupported properties in cloud mode
         forceProperties = ImmutableList.of(
-                RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_INMEMORY, "true"),
+                RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_INMEMORY),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM),
                 RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "V2"),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY),
@@ -44,7 +45,9 @@ public class CloudPropertyAnalyzer extends PropertyAnalyzer {
                 RewriteProperty.replace(DynamicPartitionProperty.REPLICATION_NUM,
                         String.valueOf(ReplicaAllocation.DEFAULT_ALLOCATION.getTotalReplicaNum())),
                 RewriteProperty.replace(DynamicPartitionProperty.REPLICATION_ALLOCATION,
-                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt())
+                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt()),
+                // FIXME: MOW is not supported in cloud mode yet.
+                RewriteProperty.replace(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false")
                 );
     }
 

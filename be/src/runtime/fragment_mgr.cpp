@@ -221,13 +221,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
     DCHECK(req.runtime_state != nullptr);
 
-    if (req.query_statistics) {
-        // use to report 'insert into select'
-        TQueryStatistics queryStatistics;
-        req.query_statistics->to_thrift(&queryStatistics);
-        params.__set_query_statistics(queryStatistics);
-    }
-
     if (req.runtime_state->query_type() == TQueryType::LOAD && !req.done && req.status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
@@ -607,15 +600,13 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
         query_ctx = search->second;
     } else {
-        {
-            // Find _query_ctx_map, in case some other request has already
-            // create the query fragments context.
-            std::lock_guard<std::mutex> lock(_lock);
-            auto search = _query_ctx_map.find(query_id);
-            if (search != _query_ctx_map.end()) {
-                query_ctx = search->second;
-                return Status::OK();
-            }
+        // Find _query_ctx_map, in case some other request has already
+        // create the query fragments context.
+        std::lock_guard<std::mutex> lock(_lock);
+        auto search = _query_ctx_map.find(query_id);
+        if (search != _query_ctx_map.end()) {
+            query_ctx = search->second;
+            return Status::OK();
         }
 
         // This may be a first fragment request of the query.
@@ -643,39 +634,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
 
         query_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(pipeline);
-        query_ctx->timeout_second = params.query_options.execution_timeout;
         _set_scan_concurrency(params, query_ctx.get());
-
-        bool has_query_mem_tracker =
-                params.query_options.__isset.mem_limit && (params.query_options.mem_limit > 0);
-        int64_t bytes_limit = has_query_mem_tracker ? params.query_options.mem_limit : -1;
-        if (bytes_limit > MemInfo::mem_limit()) {
-            VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
-                        << " exceeds process memory limit of "
-                        << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
-                        << ". Using process memory limit instead";
-            bytes_limit = MemInfo::mem_limit();
-        }
-        if (params.query_options.query_type == TQueryType::SELECT) {
-            query_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
-                    MemTrackerLimiter::Type::QUERY,
-                    fmt::format("Query#Id={}", print_id(query_ctx->query_id())), bytes_limit);
-        } else if (params.query_options.query_type == TQueryType::LOAD) {
-            query_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
-                    MemTrackerLimiter::Type::LOAD,
-                    fmt::format("Load#Id={}", print_id(query_ctx->query_id())), bytes_limit);
-        } else { // EXTERNAL
-            query_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
-                    MemTrackerLimiter::Type::LOAD,
-                    fmt::format("External#Id={}", print_id(query_ctx->query_id())), bytes_limit);
-        }
-        if (params.query_options.__isset.is_report_success &&
-            params.query_options.is_report_success) {
-            query_ctx->query_mem_tracker->enable_print_log_usage();
-        }
-
-        query_ctx->register_memory_statistics();
-        query_ctx->register_cpu_statistics();
 
         bool is_pipeline = false;
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
@@ -684,16 +643,12 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
             uint64_t tg_id = params.workload_groups[0].id;
-            auto* tg_mgr = _exec_env->task_group_manager();
-            taskgroup::TaskGroupPtr task_group_ptr = nullptr;
-            Status ret = tg_mgr->add_query_to_group(tg_id, query_ctx->query_id(), &task_group_ptr);
-            if (ret.ok()) {
-                task_group_ptr->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
-                query_ctx->set_task_group(task_group_ptr);
+            taskgroup::TaskGroupPtr task_group_ptr =
+                    _exec_env->task_group_manager()->get_task_group_by_id(tg_id);
+            if (task_group_ptr != nullptr) {
+                RETURN_IF_ERROR(query_ctx->set_task_group(task_group_ptr));
                 _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
                                                                                  tg_id);
-                query_ctx->set_query_scheduler(tg_id);
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << ", use task group: " << task_group_ptr->debug_string()
@@ -702,26 +657,15 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                           << ((int)config::enable_cgroup_cpu_soft_limit);
             } else {
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << " carried group info but can not find group in be, reason: "
-                          << ret.to_string();
+                          << " carried group info but can not find group in be";
             }
         }
-
-        {
-            // Find _query_ctx_map again, in case some other request has already
-            // create the query fragments context.
-            std::lock_guard<std::mutex> lock(_lock);
-            auto search = _query_ctx_map.find(query_id);
-            if (search == _query_ctx_map.end()) {
-                _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
-                LOG(INFO) << "Register query/load memory tracker, query/load id: "
-                          << print_id(query_ctx->query_id())
-                          << " limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
-            } else {
-                // Already has a query fragments context, use it
-                query_ctx = search->second;
-            }
-        }
+        // There is some logic in query ctx's dctor, we could not check if exists and delete the
+        // temp query ctx now. For example, the query id maybe removed from task group's queryset.
+        _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
+        LOG(INFO) << "Register query/load memory tracker, query/load id: "
+                  << print_id(query_ctx->query_id())
+                  << " limit: " << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
     }
     return Status::OK();
 }

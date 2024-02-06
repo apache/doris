@@ -25,6 +25,7 @@
 #include "client_cache.h"
 #include "common/compiler_util.h"
 #include "common/config.h"
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "util/debug_points.h"
@@ -64,8 +65,6 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
             _block_queue.push_back(block);
             _data_bytes += block->bytes();
             _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
-        } else {
-            LOG(INFO) << "skip adding block to queue on txn " << txn_id;
         }
         if (write_wal || config::group_commit_wait_replay_wal_finish) {
             auto st = _v_wal_writer->write_wal(block.get());
@@ -205,7 +204,9 @@ Status GroupCommitTable::get_first_block_load_queue(
                 }
             }
             if (!is_schema_version_match) {
-                return Status::DataQualityError<false>("schema version not match");
+                return Status::DataQualityError<false>(
+                        "schema version not match, maybe a schema change is in process. Please "
+                        "retry this load manually.");
             }
             if (!_need_plan_fragment) {
                 _need_plan_fragment = true;
@@ -221,7 +222,9 @@ Status GroupCommitTable::get_first_block_load_queue(
                         return Status::OK();
                     }
                 } else if (base_schema_version < load_block_queue->schema_version) {
-                    return Status::DataQualityError<false>("schema version not match");
+                    return Status::DataQualityError<false>(
+                            "schema version not match, maybe a schema change is in process. Please "
+                            "retry this load manually.");
                 }
                 load_block_queue.reset();
             }
@@ -392,19 +395,24 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     // status: exec_plan_fragment result
     // st: commit txn rpc status
     // result_status: commit txn result
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
+                    { st = Status::InternalError(""); });
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
         if (!config::group_commit_wait_replay_wal_finish) {
             auto delete_st = _exec_env->wal_mgr()->delete_wal(
                     table_id, txn_id, load_block_queue->block_queue_pre_allocated());
             if (!delete_st.ok()) {
-                LOG(WARNING) << "fail to delete wal " << txn_id;
+                LOG(WARNING) << "fail to delete wal " << txn_id << ", st=" << delete_st.to_string();
             }
         }
     } else {
         std::string wal_path;
         RETURN_IF_ERROR(_exec_env->wal_mgr()->get_wal_path(txn_id, wal_path));
         RETURN_IF_ERROR(_exec_env->wal_mgr()->add_recover_wal(db_id, table_id, txn_id, wal_path));
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->update_wal_dir_pre_allocated(
+                WalManager::get_base_wal_path(wal_path), 0,
+                load_block_queue->block_queue_pre_allocated()));
     }
     std::stringstream ss;
     ss << "finish group commit, db_id=" << db_id << ", table_id=" << table_id << ", label=" << label
@@ -419,6 +427,12 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         ss << ", rows=" << state->num_rows_load_success();
     }
     LOG(INFO) << ss.str();
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
+        std ::string msg = _exec_env->wal_mgr()->get_wal_dirs_info_string();
+        LOG(INFO) << "debug promise set: " << msg;
+        ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.set_value(
+                Status ::InternalError(msg));
+    };);
     return st;
 }
 
@@ -529,7 +543,7 @@ bool LoadBlockQueue::has_enough_wal_disk_space(size_t pre_allocated) {
     {
         Status st = wal_mgr->get_wal_dir_available_size(_wal_base_path, &available_bytes);
         if (!st.ok()) {
-            LOG(WARNING) << "get wal disk available size filed!";
+            LOG(WARNING) << "get wal dir available size failed, st=" << st.to_string();
         }
     }
     if (pre_allocated < available_bytes) {

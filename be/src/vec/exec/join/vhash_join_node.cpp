@@ -180,12 +180,6 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 #endif
 
-    if ((_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-         _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
-        _have_other_join_conjunct) {
-        _build_indexes_null = std::make_shared<std::vector<uint32_t>>();
-    }
-
     _runtime_filters.resize(_runtime_filter_descs.size());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
@@ -437,7 +431,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                             using HashTableCtxType = std::decay_t<decltype(arg)>;
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                                 st = process_hashtable_ctx.process_data_in_hashtable(
-                                        arg, mutable_join_block, &temp_block, eos);
+                                        arg, mutable_join_block, &temp_block, eos, _is_mark_join);
                             } else {
                                 st = Status::InternalError("uninited hash table");
                             }
@@ -761,7 +755,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             // arena will be shared with other instances.
             _shared_hash_table_context->arena = _arena;
             _shared_hash_table_context->block = _build_block;
-            _shared_hash_table_context->build_indexes_null = _build_indexes_null;
             _shared_hash_table_context->hash_table_variants = _hash_table_variants;
             _shared_hash_table_context->short_circuit_for_null_in_probe_side =
                     _has_null_in_build_side;
@@ -794,7 +787,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                 *std::static_pointer_cast<HashTableVariants>(
                         _shared_hash_table_context->hash_table_variants));
         _build_block = _shared_hash_table_context->block;
-        _build_indexes_null = _shared_hash_table_context->build_indexes_null;
 
         if (!_shared_hash_table_context->runtime_filters.empty()) {
             auto ret = std::visit(

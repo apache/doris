@@ -148,7 +148,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
-          _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
           _stream_load_recorder(nullptr),
           _create_tablet_idx_lru_cache(

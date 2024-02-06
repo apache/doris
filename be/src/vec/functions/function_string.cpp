@@ -1000,6 +1000,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubstringIndex>();
     factory.register_function<FunctionExtractURLParameter>();
     factory.register_function<FunctionStringParseUrl>();
+    factory.register_function<FunctionUrlDecode>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
@@ -1020,6 +1021,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alternative_function<FunctionSubstringOld<Substr2ImplOld>>();
     factory.register_alternative_function<FunctionLeftOld>();
     factory.register_alternative_function<FunctionRightOld>();
+    factory.register_alternative_function<FunctionSubstringIndexOld>();
+    factory.register_alternative_function<FunctionStringRepeatOld>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

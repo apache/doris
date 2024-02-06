@@ -602,18 +602,25 @@ public class Coordinator implements CoordInterface {
     @Override
     public void exec() throws Exception {
         // LoadTask does not have context, not controlled by queue now
-        if (Config.enable_workload_group && Config.enable_query_queue && context != null) {
-            queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
-            if (queryQueue == null) {
-                // This logic is actually useless, because when could not find query queue, it will
-                // throw exception during workload group manager.
-                throw new UserException("could not find query queue");
-            }
-            queueToken = queryQueue.getToken();
-            if (!queueToken.waitSignal(this.queryOptions.getExecutionTimeout() * 1000)) {
-                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
-                queryQueue.returnToken(queueToken);
-                throw new UserException(queueToken.getOfferResultDetail());
+        if (context != null) {
+            if (Config.enable_workload_group) {
+                this.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+                if (Config.enable_query_queue) {
+                    queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
+                    if (queryQueue == null) {
+                        // This logic is actually useless, because when could not find query queue, it will
+                        // throw exception during workload group manager.
+                        throw new UserException("could not find query queue");
+                    }
+                    queueToken = queryQueue.getToken();
+                    if (!queueToken.waitSignal(this.queryOptions.getExecutionTimeout() * 1000)) {
+                        LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
+                        queryQueue.returnToken(queueToken);
+                        throw new UserException(queueToken.getOfferResultDetail());
+                    }
+                }
+            } else {
+                context.setWorkloadGroupName("");
             }
         }
         execInternal();

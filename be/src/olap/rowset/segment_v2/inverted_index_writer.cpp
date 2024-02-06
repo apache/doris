@@ -46,6 +46,7 @@
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/collection_value.h"
@@ -108,14 +109,25 @@ public:
             _index_writer->close();
             if (config::enable_write_index_searcher_cache) {
                 // open index searcher into cache
+                auto mem_tracker =
+                        std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
+                io::Path index_dir(_directory);
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
                         _segment_file_name, _index_meta->index_id(),
                         _index_meta->get_index_suffix());
-                auto st = InvertedIndexSearcherCache::instance()->insert(
-                        _fs, _directory, index_file_name, InvertedIndexReaderType::FULLTEXT);
-                if (!st.ok()) {
+                IndexSearcherPtr searcher;
+                auto st = InvertedIndexReader::create_index_searcher(
+                        &searcher, _fs, index_dir, index_file_name, mem_tracker.get(),
+                        InvertedIndexReaderType::FULLTEXT);
+                if (UNLIKELY(!st.ok())) {
                     LOG(ERROR) << "insert inverted index searcher cache error:" << st;
+                    return;
                 }
+                auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
+                        std::move(searcher), mem_tracker->consumption(), UnixMillis());
+                InvertedIndexSearcherCache::CacheKey searcher_cache_key(
+                        (index_dir / index_file_name).native());
+                InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value);
             }
         }
     }
@@ -232,23 +244,28 @@ public:
     }
 
     Status create_analyzer(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
-        switch (_parser_type) {
-        case InvertedIndexParserType::PARSER_STANDARD:
-        case InvertedIndexParserType::PARSER_UNICODE:
-            analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
-            break;
-        case InvertedIndexParserType::PARSER_ENGLISH:
-            analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-            break;
-        case InvertedIndexParserType::PARSER_CHINESE:
-            analyzer = create_chinese_analyzer();
-            break;
-        default:
-            analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-            break;
+        try {
+            switch (_parser_type) {
+            case InvertedIndexParserType::PARSER_STANDARD:
+            case InvertedIndexParserType::PARSER_UNICODE:
+                analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
+                break;
+            case InvertedIndexParserType::PARSER_ENGLISH:
+                analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
+                break;
+            case InvertedIndexParserType::PARSER_CHINESE:
+                analyzer = create_chinese_analyzer();
+                break;
+            default:
+                analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
+                break;
+            }
+            setup_analyzer_lowercase(analyzer);
+            return Status::OK();
+        } catch (CLuceneError& e) {
+            return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "inverted index create analyzer failed: {}", e.what());
         }
-        setup_analyzer_lowercase(analyzer);
-        return Status::OK();
     }
 
     void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {

@@ -1525,11 +1525,6 @@ public class StmtExecutor {
             coordBase = new PointQueryExec(planner, analyzer);
         } else {
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-            if (Config.enable_workload_group) {
-                coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
-            } else {
-                context.setWorkloadGroupName("");
-            }
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
             profile.setExecutionProfile(coord.getExecutionProfile());
@@ -1566,6 +1561,13 @@ public class StmtExecutor {
                 }
                 return;
             }
+
+            if (context.isRunProcedure()) {
+                // plsql will get the returned results without sending them to mysql client.
+                // see org/apache/doris/plsql/executor/DorisRowResult.java
+                return;
+            }
+
             while (true) {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
@@ -2836,6 +2838,18 @@ public class StmtExecutor {
             resultRows.add(resultRow);
         }
         return resultRows;
+    }
+
+    public Coordinator getCoord() {
+        return coord;
+    }
+
+    public List<String> getColumns() {
+        return parsedStmt.getColLabels();
+    }
+
+    public List<Type> getReturnTypes() {
+        return exprToType(parsedStmt.getResultExprs());
     }
 
     public SummaryProfile getSummaryProfile() {

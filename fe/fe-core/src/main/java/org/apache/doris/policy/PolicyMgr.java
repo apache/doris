@@ -26,6 +26,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -153,9 +154,14 @@ public class PolicyMgr implements Writable {
                 List<Table> tables = db.getTables();
                 for (Table table : tables) {
                     if (table instanceof OlapTable) {
-                        if (((OlapTable) table).getStoragePolicy().equals(dropPolicyLog.getPolicyName())) {
-                            throw new DdlException("the policy " + dropPolicyLog.getPolicyName() + " is used by table: "
+                        OlapTable olapTable = (OlapTable) table;
+                        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                        for (Long partitionId : olapTable.getPartitionIds()) {
+                            String policyName = partitionInfo.getDataProperty(partitionId).getStoragePolicy();
+                            if (policyName.equals(dropPolicyLog.getPolicyName())) {
+                                throw new DdlException("the policy " + policyName + " is used by table: "
                                     + table.getName());
+                            }
                         }
                     }
                 }

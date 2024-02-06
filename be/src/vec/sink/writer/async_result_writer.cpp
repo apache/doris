@@ -92,15 +92,27 @@ void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profil
     // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
-    static_cast<void>(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this, state, profile, task_ctx]() {
-                auto task_lock = task_ctx.lock();
-                if (task_lock == nullptr) {
-                    _writer_thread_closed = true;
-                    return;
-                }
-                this->process_block(state, profile);
-            }));
+    if (state->get_query_ctx() && state->get_query_ctx()->get_non_pipe_exec_thread_pool()) {
+        ThreadPool* pool_ptr = state->get_query_ctx()->get_non_pipe_exec_thread_pool();
+        static_cast<void>(pool_ptr->submit_func([this, state, profile, task_ctx]() {
+            auto task_lock = task_ctx.lock();
+            if (task_lock == nullptr) {
+                _writer_thread_closed = true;
+                return;
+            }
+            this->process_block(state, profile);
+        }));
+    } else {
+        static_cast<void>(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
+                [this, state, profile, task_ctx]() {
+                    auto task_lock = task_ctx.lock();
+                    if (task_lock == nullptr) {
+                        _writer_thread_closed = true;
+                        return;
+                    }
+                    this->process_block(state, profile);
+                }));
+    }
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {

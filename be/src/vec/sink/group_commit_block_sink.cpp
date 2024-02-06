@@ -19,12 +19,14 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <future>
 #include <shared_mutex>
 
 #include "common/exception.h"
 #include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_finder.h"
@@ -245,7 +247,9 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
                 if (_group_commit_mode == TGroupCommitMode::SYNC_MODE) {
                     LOG(INFO) << "Load id=" << print_id(_state->query_id())
                               << ", use group commit label=" << _load_block_queue->label
-                              << " will not write wal because wal disk space usage reach max limit";
+                              << " will not write wal because wal disk space usage reach max "
+                                 "limit. Detail info: "
+                              << _state->exec_env()->wal_mgr()->get_wal_dirs_info_string();
                 }
             }
             _state->set_import_label(_load_block_queue->label);
@@ -260,6 +264,20 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
     }
     _is_block_appended = true;
     _blocks.clear();
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
+        if (_load_block_queue) {
+            _load_block_queue->remove_load_id(_load_id);
+        }
+        if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
+                    std ::chrono ::seconds(60)) == std ::future_status ::ready) {
+            auto st = ExecEnv::GetInstance()->group_commit_mgr()->debug_future.get();
+            ExecEnv::GetInstance()->group_commit_mgr()->debug_promise = std::promise<Status>();
+            ExecEnv::GetInstance()->group_commit_mgr()->debug_future =
+                    ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.get_future();
+            LOG(INFO) << "debug future output: " << st.to_string();
+            RETURN_IF_ERROR(st);
+        }
+    });
     return Status::OK();
 }
 

@@ -82,7 +82,7 @@ public:
         return Status::OK();
     }
 
-    bool empty() { return _runtime_filters.empty(); }
+    bool empty() const { return _runtime_filters.empty(); }
 
 private:
     const std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
