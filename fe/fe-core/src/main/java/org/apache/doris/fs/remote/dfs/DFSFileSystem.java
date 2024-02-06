@@ -55,6 +55,9 @@ import java.security.PrivilegedAction;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
@@ -496,6 +499,89 @@ public class DFSFileSystem extends RemoteFileSystem {
     @Override
     public Status makeDir(String remotePath) {
         return new Status(Status.ErrCode.COMMON_ERROR, "mkdir is not implemented.");
+    }
+
+    public void asyncRenameFiles(List<CompletableFuture<?>> renameFileFutures,
+                                 AtomicBoolean cancelled,
+                                 Path writePath,
+                                 Path targetPath,
+                                 List<String> fileNames,
+                                 Executor updateFileExecutor) {
+        FileSystem fileSystem = getNativeFileSystem(writePath);
+
+        for (String fileName : fileNames) {
+            Path source = new Path(writePath, fileName);
+            Path target = new Path(targetPath, fileName);
+            renameFileFutures.add(CompletableFuture.runAsync(() -> {
+                if (cancelled.get()) {
+                    return;
+                }
+                try {
+                    if (fileSystem.exists(target)) {
+                        throw new RuntimeException(String.format("Failed to rename files from %s to %s. "
+                                + "msg: target location already exists", source, target));
+                    }
+                    if (!fileSystem.rename(source, target)) {
+                        throw new RuntimeException(String.format("Failed to rename files from %s to %s. "
+                                + "msg: rename operations failed", source, target));
+                    }
+                } catch (Exception e) {
+                    LOG.error("Failed to rename files", e);
+                    throw new RuntimeException(String.format("Failed to rename files from %s to %s. msg: %s",
+                            source, target, e.getMessage()));
+                }
+            }, updateFileExecutor));
+        }
+    }
+
+    public FileStatus[] listStatus(Path path) {
+        FileSystem fileSystem = getNativeFileSystem(path);
+        try {
+            return fileSystem.listStatus(path);
+        } catch (Exception e) {
+            LOG.error("Failed to list path {}", path, e);
+            throw new RuntimeException(String.format("Failed to list path %s. msg: %s",
+                    path.toString(), e.getMessage()));
+        }
+    }
+
+    /**
+     * Delete file if the file exists, return false if exception raise when deleting.
+     */
+    public boolean deleteIfExists(Path path, boolean recursive) {
+        FileSystem fileSystem = getNativeFileSystem(path);
+        try {
+            if (fileSystem.delete(path, recursive)) {
+                return true;
+            }
+            return !fileSystem.exists(path);
+        } catch (FileNotFoundException ignore) {
+            return true;
+        } catch (Exception ignore) {
+            LOG.error("Failed to delete remote path {}", path);
+        }
+        return false;
+    }
+
+    public boolean exists(Path path) {
+        FileSystem fileSystem = getNativeFileSystem(path);
+        try {
+            return fileSystem.exists(path);
+        } catch (Exception e) {
+            LOG.error("Failed to check path {}", path, e);
+            throw new RuntimeException(
+                    String.format("Failed to check path: %s. msg: %s", path, e.getMessage()));
+        }
+    }
+
+    private FileSystem getNativeFileSystem(Path path) {
+        try {
+            return nativeFileSystem(path.toString());
+        } catch (Exception e) {
+            LOG.error("Failed to get native fileSystem", e);
+            throw new RuntimeException(
+                String.format("Failed to get fileSystem on path: %s. msg: %s", path, e.getMessage()));
+        }
     }
 }
 

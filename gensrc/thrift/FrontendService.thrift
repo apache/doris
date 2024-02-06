@@ -1335,6 +1335,17 @@ struct TGetColumnInfoRequest {
     2: optional i64 table_id
 }
 
+struct TRefreshTableCacheRequest {
+    1: optional string catalog_name
+    2: optional string db_name
+    3: optional string table_name
+    4: optional list<string> partitions
+}
+
+struct TRefreshTableCacheResponse {
+    1: required Status.TStatus status
+}
+
 struct TGetColumnInfoResult {
     1: optional Status.TStatus status
     2: optional list<TColumnInfo> columns
@@ -1417,4 +1428,6 @@ service FrontendService {
     TGetColumnInfoResult getColumnInfo(1: TGetColumnInfoRequest request)
 
     Status.TStatus invalidateStatsCache(1: TInvalidateFollowerStatsCacheRequest request)
+
+    TRefreshTableCacheResponse refreshTableCache(1:TRefreshTableCacheRequest request)
 }
