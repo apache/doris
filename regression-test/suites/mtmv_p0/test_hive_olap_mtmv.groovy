@@ -58,7 +58,7 @@ suite("test_hive_olap_mtmv", "p0,external,hive,external_docker,external_docker_h
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT t1.`id`,t1.`value`,t2.`username` FROM ${catalog_name}.`default`.mtmv_base1 t1 left join ${tableName} t2 on t1.id = t2.id;
+                SELECT t1.`id`,t1.`part_col`,t2.`username` FROM ${catalog_name}.`default`.mtmv_base1 t1 left join ${tableName} t2 on t1.id = t2.id;
             """
         def showPartitionsResult = sql """show partitions from ${mvName}"""
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
