@@ -172,5 +172,9 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
         """
        waitingMTMVTaskFinishedNotNeedSuccess(jobName)
        order_qt_task_recover "select Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"
+
+       sql """drop materialized view if exists ${mvName};"""
+
+       sql """drop catalog if exists ${catalog_name}"""
 }
 
