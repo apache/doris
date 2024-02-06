@@ -47,6 +47,10 @@ suite("test_agg_table_mtmv") {
             SELECT * FROM ${tableName};
     """
 
+    def jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+
     order_qt_select "SELECT * FROM ${mvName}"
 
     sql """drop table if exists `${tableName}`"""
