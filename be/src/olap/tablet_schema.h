@@ -149,6 +149,11 @@ public:
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
 
+    void append_sparse_column(TabletColumn column);
+    const TabletColumn& sparse_column_at(size_t oridinal) const;
+    const std::vector<TabletColumn>& sparse_columns() const;
+    size_t num_sparse_columns() const { return _num_sparse_columns; }
+
 private:
     int32_t _unique_id = -1;
     std::string _col_name;
@@ -183,6 +188,14 @@ private:
 
     bool _result_is_nullable = false;
     vectorized::PathInData _column_path;
+
+    // Record information about columns merged into a sparse column within a variant
+    // `{"id": 100, "name" : "jack", "point" : 3.9}`
+    // If the information mentioned above is inserted into the variant column,
+    // 'id' and 'name' are correctly extracted, while 'point' is merged into the sparse column due to its sparsity.
+    // The path_info and type of 'point' will be recorded using the TabletColumn.
+    std::vector<TabletColumn> _sparse_cols;
+    size_t _num_sparse_columns = 0;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -262,6 +275,7 @@ public:
     const TabletColumn& column(const std::string& field_name) const;
     Status have_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
+    TabletColumn& mutable_column_by_uid(int32_t col_unique_id);
     const std::vector<TabletColumn>& columns() const;
     std::vector<TabletColumn>& mutable_columns();
     size_t num_columns() const { return _num_columns; }
@@ -392,6 +406,7 @@ private:
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;
     std::vector<TabletColumn> _cols;
+
     std::vector<TabletIndex> _indexes;
     std::unordered_map<std::string, int32_t> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
