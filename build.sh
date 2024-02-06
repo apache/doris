@@ -324,9 +324,6 @@ fi
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
 fi
-if [[ -z "${WITH_LZO}" ]]; then
-    WITH_LZO='OFF'
-fi
 if [[ -z "${USE_LIBCPP}" ]]; then
     if [[ "$(uname -s)" != 'Darwin' ]]; then
         USE_LIBCPP='OFF'
@@ -422,7 +419,6 @@ echo "Get params:
     PARALLEL                    -- ${PARALLEL}
     CLEAN                       -- ${CLEAN}
     WITH_MYSQL                  -- ${WITH_MYSQL}
-    WITH_LZO                    -- ${WITH_LZO}
     GLIBC_COMPATIBILITY         -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                    -- ${USE_AVX2}
     USE_LIBCPP                  -- ${USE_LIBCPP}
@@ -509,7 +505,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DWITH_MYSQL="${WITH_MYSQL}" \
-        -DWITH_LZO="${WITH_LZO}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
