@@ -158,7 +158,7 @@ suite("regression_test_variant", "nonConcurrent"){
         qt_sql_12 "select v['A'], v from ${table_name} where cast(v['A'] as bigint) > 1 order by k"
         // ----%%----
         qt_sql_13 "select v['a'], v['A'] from simple_select_variant where 1=1 and cast(v['a'] as json) is null  and cast(v['A'] as bigint) >= 1  order by k;"
-        qt_sql_14 """select  v['a'], v['A'], v from simple_select_variant where cast(v['A'] as bigint) > 0 and cast(v['A'] as bigint) = 123456 limit 1;"""
+        qt_sql_14 """select v['A'], v from simple_select_variant where cast(v['A'] as bigint) > 0 and cast(v['A'] as bigint) = 123456 limit 1;"""
 
         sql """insert into simple_select_variant values (12, '{"oamama": 1.1}')"""
         qt_sql_18 "select  cast(v['a'] as text), v['A'], v, v['oamama'] from simple_select_variant where cast(v['oamama'] as double) is null  order by k;"
