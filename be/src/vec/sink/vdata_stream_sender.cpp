@@ -28,10 +28,12 @@
 #include <algorithm>
 #include <functional>
 #include <map>
+#include <memory>
 #include <random>
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exec/tablet_info.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "runtime/descriptors.h"
@@ -45,6 +47,8 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
+#include "vec/sink/vrow_distribution.h"
+#include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris::vectorized {
 
@@ -413,6 +417,13 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
         RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
+    } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        _schema = std::make_shared<OlapTableSchemaParam>();
+        RETURN_IF_ERROR(_schema->init(t_stream_sink.schema));
+        _vpartition = std::make_unique<VOlapTablePartitionParam>(_schema, t_stream_sink.partition);
+        RETURN_IF_ERROR(_vpartition->init());
+        auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
+        _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
     } else {
         // UNPARTITIONED
     }
@@ -628,6 +639,37 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                                              (uint32_t*)_partitioner->get_channel_ids(), rows,
                                              block, _enable_pipeline_exec ? eos : false));
         }
+    } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        auto num_rows = block->rows();
+        //skip the precess of validate_and_convert_block
+        _tablet_finder->filter_bitmap().Reset(num_rows);
+        //reuse vars for find_tablets
+        _partitions.assign(num_rows, nullptr);
+        _skip.assign(num_rows, false);
+        _tablet_indexes.assign(num_rows, 0);
+
+        bool stop_processing = false;
+        RETURN_IF_ERROR(_tablet_finder->find_tablets(state, block, num_rows, _partitions,
+                                                     _tablet_indexes, stop_processing, _skip));
+
+        auto num_channels = _channels.size();
+        std::vector<std::vector<uint32>> channel2rows;
+        channel2rows.resize(num_channels);
+        for (int index_idx = 0; index_idx < _schema->indexes().size(); index_idx++) {
+            for (int row_idx = 0; row_idx < block->rows(); row_idx++) {
+                if (_skip[row_idx]) {
+                    continue;
+                }
+                auto& partition = _partitions[row_idx];
+                auto& tablet_index = _tablet_indexes[row_idx];
+                auto& index = partition->indexes[index_idx];
+                auto tablet_id = index.tablets[tablet_index];
+                channel2rows[tablet_id % num_channels].emplace_back(row_idx);
+            }
+        }
+        // need to know _channels or _channel_shared_ptrs num_channels?
+        RETURN_IF_ERROR(channel_add_rows_with_idx(state, _channels, num_channels, channel2rows,
+                                                  block, _enable_pipeline_exec ? eos : false));
     } else {
         // Range partition
         // 1. calculate range

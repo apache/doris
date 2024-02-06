@@ -39,6 +39,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/data_sink.h"
+#include "exec/tablet_info.h"
 #include "pipeline/exec/exchange_sink_buffer.h"
 #include "service/backend_options.h"
 #include "util/ref_count_closure.h"
@@ -48,6 +49,8 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/partitioner.h"
 #include "vec/runtime/vdata_stream_recvr.h"
+#include "vec/sink/vrow_distribution.h"
+#include "vec/sink/vtablet_finder.h"
 
 namespace doris {
 class ObjectPool;
@@ -160,6 +163,10 @@ protected:
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
                             const HashValueType* __restrict channel_ids, int rows, Block* block,
                             bool eos);
+    template <typename Channels>
+    Status channel_add_rows_with_idx(RuntimeState* state, Channels& channels, int num_channels,
+                                     std::vector<std::vector<uint32_t>>& channel2rows, Block* block,
+                                     bool eos);
 
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
@@ -221,6 +228,15 @@ protected:
     bool _enable_pipeline_exec = false;
 
     BlockSerializer<VDataStreamSender> _serializer;
+
+    // for shuffle data by partition and tablet
+    std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
+    std::unique_ptr<OlapTabletFinder> _tablet_finder = nullptr;
+    std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
+    // reuse for find_tablet.
+    std::vector<VOlapTablePartition*> _partitions;
+    std::vector<bool> _skip;
+    std::vector<uint32_t> _tablet_indexes;
 };
 
 template <typename Parent = VDataStreamSender>
@@ -402,12 +418,20 @@ Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channe
                                            int num_channels,
                                            const HashValueType* __restrict channel_ids, int rows,
                                            Block* block, bool eos) {
-    std::vector<uint32_t> channel2rows[num_channels];
-
+    std::vector<std::vector<uint32_t>> channel2rows;
+    channel2rows.resize(num_channels);
     for (uint32_t i = 0; i < rows; i++) {
         channel2rows[channel_ids[i]].emplace_back(i);
     }
+    RETURN_IF_ERROR(
+            channel_add_rows_with_idx(state, channels, num_channels, channel2rows, block, eos));
+    return Status::OK();
+}
 
+template <typename Channels>
+Status VDataStreamSender::channel_add_rows_with_idx(
+        RuntimeState* state, Channels& channels, int num_channels,
+        std::vector<std::vector<uint32_t>>& channel2rows, Block* block, bool eos) {
     Status status;
     for (int i = 0; i < num_channels; ++i) {
         if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {
@@ -424,7 +448,6 @@ Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channe
             }
         }
     }
-
     return Status::OK();
 }
 
