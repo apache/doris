@@ -223,9 +223,6 @@ void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) 
         // there's no block in queue before current block, so the consumer is waiting
         _total_wait_block_time += UnixMillis() - _last_fetch_time;
     }
-    if (scan_task->is_eos()) {
-        _num_finished_scanners++;
-    }
     _num_scheduled_scanners--;
     _blocks_queue.emplace_back(scan_task);
     _blocks_queue_added_cv.notify_one();
@@ -242,11 +239,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     if (wait) {
         // scanner batch wait time
         SCOPED_TIMER(_scanner_wait_batch_timer);
-        while (!done() && _blocks_queue.empty()) {
-            if (_num_finished_scanners == _all_scanners.size() && _blocks_queue.empty()) {
-                _is_finished = true;
-                break;
-            }
+        while (!done() && _blocks_queue.empty() && _process_status.ok()) {
             _blocks_queue_added_cv.wait_for(l, 1s);
         }
     }
@@ -275,6 +268,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                                                                         _batch_size, true);
         }
         if (scan_task->is_eos()) { // current scanner is finished, and no more data to read
+            _num_finished_scanners++;
             std::weak_ptr<ScannerDelegate> next_scanner;
             // submit one of the remaining scanners
             if (_scanners.try_dequeue(next_scanner)) {
