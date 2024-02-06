@@ -71,7 +71,4 @@ suite("test_partition_limit_mtmv") {
         }
     sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
-
-
-
 }
