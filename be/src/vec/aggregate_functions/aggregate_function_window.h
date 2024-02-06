@@ -205,7 +205,8 @@ public:
         int64_t peer_group_count = frame_end - frame_start;
         if (WindowFunctionPercentRank::data(place).peer_group_start != frame_start) {
             WindowFunctionPercentRank::data(place).peer_group_start = frame_start;
-            WindowFunctionPercentRank::data(place).rank += WindowFunctionPercentRank::data(place).count;
+            WindowFunctionPercentRank::data(place).rank +=
+                    WindowFunctionPercentRank::data(place).count;
         }
         WindowFunctionPercentRank::data(place).count = peer_group_count;
         // some variables are partition related, but there is no chance to init them
