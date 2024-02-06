@@ -172,5 +172,16 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
         """
        waitingMTMVTaskFinishedNotNeedSuccess(jobName)
        order_qt_task_recover "select Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"
+
+
+        // Simulate not connecting to catalog
+       sql """
+               ALTER CATALOG ${catalog_name} SET PROPERTIES ('hive.metastore.uris'='thrift://1.2.3.4:1111');
+           """
+         sql """
+                REFRESH MATERIALIZED VIEW ${mvName} complete
+            """
+         waitingMTMVTaskFinishedNotNeedSuccess(jobName)
+         order_qt_task_connect_failed "select * from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"
 }
 
