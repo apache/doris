@@ -173,7 +173,6 @@ std::string WalDirsInfo::get_wal_dirs_info_string() {
 
 Status WalDirsInfo::update_wal_dir_limit(const std::string& wal_dir, size_t limit) {
     for (const auto& wal_dir_info : _wal_dirs_info_vec) {
-        LOG(INFO) << "wal_dir_info:" << wal_dir_info->get_wal_dir();
         if (wal_dir_info->get_wal_dir() == wal_dir) {
             return wal_dir_info->update_wal_dir_limit(limit);
         }
