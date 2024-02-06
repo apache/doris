@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -72,6 +74,9 @@ public class UnCorrelatedApplyAggregateFilter extends OneRewriteRuleFactory {
             // the representative has experienced the rule and added the correlated predicate to the apply node
             if (correlatedPredicate.isEmpty()) {
                 return apply;
+            } else if (!correlatedPredicate.stream().allMatch(EqualTo.class::isInstance)) {
+                throw new AnalysisException("Unsupported correlated NO-EQ subquery conjuncts with a group by clause: "
+                                + correlatedPredicate);
             }
 
             List<NamedExpression> newAggOutput = new ArrayList<>(agg.getOutputExpressions());
