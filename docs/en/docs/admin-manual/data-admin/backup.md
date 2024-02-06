@@ -58,9 +58,26 @@ ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
 
 1. Create a hdfs remote warehouse example_repo:
 
+   **WITH HDFS (Recommended)**
+
    ```sql
    CREATE REPOSITORY `example_repo`
-   WITH BROKER `hdfs_broker`
+   WITH HDFS
+   ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
+   PROPERTIES
+   (
+   "fs.defaultFS"="hdfs://hdfs_host:port",
+   "hadoop.username" = "hadoop"
+   );
+   ```
+
+   **WITH BROKER**
+
+   This requires starting a broker process first.
+
+   ```sql
+   CREATE REPOSITORY `example_repo`
+   WITH BROKER `broker_name`
    ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
    PROPERTIES
    (

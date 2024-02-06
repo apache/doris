@@ -52,6 +52,8 @@ Export's detailed commands can be passed through `HELP EXPORT;` in mysql client.
 
 ### Export to HDFS
 
+**WITH HDFS (Recommended)**
+
 ```sql
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
@@ -62,12 +64,11 @@ PROPERTIES
     "label" = "mylabel",
     "column_separator"=",",
     "columns" = "col1,col2",
-    "parallelusm" = "3"
+    "parallelism" = "3"
 )
-WITH BROKER "hdfs"
-(
-    "username" = "user",
-    "password" = "passwd"
+with HDFS (
+"fs.defaultFS"="hdfs://hdfs_host:port",
+"hadoop.username" = "hadoop"
 );
 ```
 
@@ -75,7 +76,30 @@ WITH BROKER "hdfs"
 * `column_separator`: Column separator. The default is `\t`. Supports invisible characters, such as'\x07'.
 * `column`: columns to be exported, separated by commas, if this parameter is not filled in, all columns of the table will be exported by default.
 * `line_delimiter`: Line separator. The default is `\n`. Supports invisible characters, such as'\x07'.
-* `parallelusm`：Exporting with 3 concurrent threads.
+* `parallelism`：Exporting with 3 concurrent threads.
+
+**WITH BROKER**
+
+This requires starting a broker process first.
+
+```sql
+EXPORT TABLE db1.tbl1 
+PARTITION (p1,p2)
+[WHERE [expr]]
+TO "hdfs://host/path/to/export/"
+PROPERTIES
+(
+    "label" = "mylabel",
+    "column_separator"=",",
+    "columns" = "col1,col2",
+    "parallelism" = "3"
+)
+WITH BROKER "broker_name" 
+(
+  "username"="xxx",
+  "password"="yyy"
+);
+```
 
 ### Export to Object Storage (Supports S3 Protocol)
 
