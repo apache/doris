@@ -75,7 +75,7 @@ suite("test_hive_olap_mtmv", "p0,external,hive,external_docker,external_docker_h
         order_qt_refresh_complete "SELECT * FROM ${mvName} order by id"
 
          sql """
-                INSERT INTO ${tableName} VALUES(1,"clz"),(2,"zhangsang");
+                INSERT INTO ${tableName} VALUES(3,"ff"),(4,"gg");
             """
            sql """
                    REFRESH MATERIALIZED VIEW ${mvName}
