@@ -145,8 +145,7 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
 
         // hive rename column name
           def rename_column_str = """
-                                               alter table ${hive_database}.${hive_table} RENAME COLUMN num
-                                               to num1;
+                                               alter table ${hive_database}.${hive_table} CHANGE COLUMN num num1 int;
                                            """
            logger.info("hive sql: " + rename_column_str)
            hive_docker """ ${rename_column_str} """
