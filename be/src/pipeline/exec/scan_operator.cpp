@@ -1452,11 +1452,11 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         }
     }};
 
-    if (state->is_cancelled() || local_state._scanner_ctx == nullptr) {
+    if (state->is_cancelled()) {
         if (local_state._scanner_ctx) {
             local_state._scanner_ctx->stop_scanners(state);
         }
-        return Status::Cancelled("query cancelled");
+        return Status::Cancelled("Query cancelled in ScanOperator");
     }
 
     if (local_state._eos) {

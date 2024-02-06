@@ -243,11 +243,11 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         }
     }};
 
-    if (state->is_cancelled() || _scanner_ctx == nullptr) {
+    if (state->is_cancelled()) {
         if (_scanner_ctx) {
             _scanner_ctx->stop_scanners(state);
         }
-        return Status::Cancelled("query cancelled");
+        return Status::Cancelled("Query cancelled in ScanNode");
     }
 
     if (_eos) {
