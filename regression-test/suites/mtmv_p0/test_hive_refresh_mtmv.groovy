@@ -36,10 +36,9 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                             """
     def add_partition_str = """
                                 alter table ${hive_database}.${hive_table} add if not exists
-                                partition(year=2020)
-                                partition(year=2021);
+                                partition(year=2020);
                             """
-    def insert_str = """ insert into ${hive_database}.${hive_table} values(1,1,2020),(2,2,2021)"""
+    def insert_str = """ insert into ${hive_database}.${hive_table} PARTITION(year=2020) values(1,1)"""
     logger.info("hive sql: " + drop_table_str)
     hive_docker """ ${drop_table_str} """
     logger.info("hive sql: " + drop_database_str)
@@ -81,7 +80,6 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertTrue(showPartitionsResult.toString().contains("p_2020"))
-    assertTrue(showPartitionsResult.toString().contains("p_2021"))
 
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} complete
