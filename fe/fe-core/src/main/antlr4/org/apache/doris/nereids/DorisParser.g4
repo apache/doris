@@ -338,6 +338,7 @@ fromClause
 
 relation
     : relationPrimary joinRelation*
+    | LEFT_PAREN relationPrimary joinRelation* RIGHT_PAREN
     ;
 
 joinRelation
@@ -451,6 +452,7 @@ relationPrimary
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                               #tableValuedFunction
+    | LEFT_PAREN relation (COMMA relation)* RIGHT_PAREN                    #relationList
     ;
 
 materializedViewName

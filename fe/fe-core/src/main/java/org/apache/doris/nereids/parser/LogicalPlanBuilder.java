@@ -2251,6 +2251,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> withRelations(null, ctx.relation()));
     }
 
+    @Override
+    public LogicalPlan visitRelationList(DorisParser.RelationListContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> withRelations(null, ctx.relation()));
+    }
+
     /* ********************************************************************************************
      * Table Identifier parsing
      * ******************************************************************************************** */
