@@ -15,29 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.util.List;
-import java.util.function.Supplier;
-
 /**
- * Block fd propagation, it always returns an empty fd
+ * Expression level function dependence items.
  */
-public interface BlockFuncDepsPropagation extends LogicalPlan {
-    @Override
-    default FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        return FunctionalDependencies.EMPTY_FUNC_DEPS;
+public class ExprFdItem extends FdItem {
+    private ImmutableSet<SlotReference> childExprs;
+
+    public ExprFdItem(ImmutableSet<SlotReference> parentExprs, boolean isUnique,
+            ImmutableSet<SlotReference> childExprs) {
+        super(parentExprs, isUnique, false);
+        this.childExprs = ImmutableSet.copyOf(childExprs);
     }
 
     @Override
-    default ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        return ImmutableSet.of();
+    public boolean checkExprInChild(SlotReference slot, LogicalPlan childPlan) {
+        return childExprs.contains(slot);
     }
 }
