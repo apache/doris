@@ -561,6 +561,7 @@ Status CsvReader::_create_decompressor() {
             compress_type = CompressType::GZIP;
             break;
         case TFileCompressType::LZO:
+        case TFileCompressType::LZOP:
             compress_type = CompressType::LZOP;
             break;
         case TFileCompressType::BZ2:
