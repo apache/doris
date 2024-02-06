@@ -75,6 +75,8 @@ DEFINE_string(pb_meta_path, "", "pb meta file path");
 DEFINE_string(tablet_file, "", "file to save a set of tablets");
 DEFINE_string(file, "", "segment file path");
 
+static doris::StorageEngine* engine_ref = nullptr;
+
 std::string get_usage(const std::string& progname) {
     std::stringstream ss;
     ss << progname << " is the Doris BE Meta tool.\n";
@@ -159,12 +161,12 @@ Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
     doris::config::delete_bitmap_agg_cache_capacity = 104857600;
 
     doris::ExecEnv::GetInstance()->set_cache_manager(doris::CacheManager::create_global_instance());
-    doris::ExecEnv::GetInstance()->set_dummy_lru_cache(std::make_shared<doris::DummyLRUCache>());
 
     std::unique_ptr<doris::StorageEngine> _engine =
             std::make_unique<doris::StorageEngine>(doris::EngineOptions {});
+    engine_ref = _engine.get();
     std::unique_ptr<DataDir> p(new (std::nothrow) DataDir(
-            *_engine.get(), path.path, path.capacity_bytes, path.storage_medium));
+            *engine_ref, path.path, path.capacity_bytes, path.storage_medium));
     if (p == nullptr) {
         std::cout << "new data dir failed" << std::endl;
         return Status::InternalError("new data dir failed");
@@ -382,6 +384,7 @@ int main(int argc, char** argv) {
             return -1;
         }
     }
+    engine_ref = nullptr;
     gflags::ShutDownCommandLineFlags();
     return 0;
 }
