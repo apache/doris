@@ -90,6 +90,7 @@ void register_function_array(SimpleFunctionFactory& factory);
 void register_function_map(SimpleFunctionFactory& factory);
 void register_function_struct(SimpleFunctionFactory& factory);
 void register_function_struct_element(SimpleFunctionFactory& factory);
+void register_function_variant_element(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
@@ -178,8 +179,12 @@ public:
 
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
-            LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
-            return nullptr;
+            // use original name as signature without variadic arguments
+            iter = function_creators.find(name);
+            if (iter == function_creators.end()) {
+                LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
+                return nullptr;
+            }
         }
 
         return iter->second()->build(arguments, return_type);
@@ -280,6 +285,7 @@ public:
             register_function_ip(instance);
             register_function_tokenize(instance);
             register_function_ignore(instance);
+            register_function_variant_element(instance);
         });
         return instance;
     }
