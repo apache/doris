@@ -831,6 +831,7 @@ public class TabletScheduler extends MasterDaemon {
                 || deleteReplicaOnSameHost(tabletCtx, force)
                 || deleteReplicaNotInValidTag(tabletCtx, force)
                 || deleteReplicaChosenByRebalancer(tabletCtx, force)
+                || deleteReplicaOnUrgentHighDisk(tabletCtx, force)
                 || deleteReplicaOnHighLoadBackend(tabletCtx, force)) {
             // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
             // to remove this tablet from the pendingTablets(consider it as finished)
@@ -979,6 +980,34 @@ public class TabletScheduler extends MasterDaemon {
         return true;
     }
 
+    private boolean deleteReplicaOnUrgentHighDisk(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
+        Tag tag = chooseProperTag(tabletCtx, false);
+        LoadStatisticForTag statistic = statisticMap.get(tag);
+        if (statistic == null) {
+            return false;
+        }
+
+        Replica chosenReplica = null;
+        double maxUsages = -1;
+        for (Replica replica : tabletCtx.getReplicas()) {
+            BackendLoadStatistic beStatistic = statistic.getBackendLoadStatistic(replica.getBackendId());
+            if (beStatistic == null) {
+                continue;
+            }
+            RootPathLoadStatistic path = beStatistic.getPathStatisticByPathHash(replica.getPathHash());
+            if (path != null && path.isGlobalHighUsage() && path.getUsedPercent() > maxUsages) {
+                maxUsages = path.getUsedPercent();
+                chosenReplica = replica;
+            }
+        }
+
+        if (chosenReplica != null) {
+            deleteReplicaInternal(tabletCtx, chosenReplica, "high usage disk", force);
+            return true;
+        }
+        return false;
+    }
+
     private boolean deleteReplicaOnHighLoadBackend(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         Tag tag = chooseProperTag(tabletCtx, false);
         LoadStatisticForTag statistic = statisticMap.get(tag);
@@ -1026,7 +1055,7 @@ public class TabletScheduler extends MasterDaemon {
         }
 
         if (chosenReplica != null) {
-            deleteReplicaInternal(tabletCtx, chosenReplica, "high load", force);
+            deleteReplicaInternal(tabletCtx, chosenReplica, "high load backend", force);
             return true;
         }
         return false;
@@ -1239,46 +1268,69 @@ public class TabletScheduler extends MasterDaemon {
             return;
         }
 
-        // No need to prefetch too many balance task to pending queue.
-        // Because for every sched, it will re select the balance task.
-        int needAddBalanceNum = Math.min(Config.schedule_batch_size - getPendingNum(),
-                    Config.max_balancing_tablets - getBalanceTabletsNumber());
-        if (needAddBalanceNum <= 0) {
-            return;
+        // TODO: too ugly, remove balance_be_then_disk later.
+        if (Config.balance_be_then_disk) {
+            boolean hasBeBalance = selectTabletsForBeBalance();
+            selectTabletsForDiskBalance(hasBeBalance);
+        } else {
+            selectTabletsForDiskBalance(false);
+            selectTabletsForBeBalance();
+        }
+    }
+
+    private boolean selectTabletsForBeBalance() {
+        int limit = getBalanceSchedQuotoLeft();
+        if (limit <= 0) {
+            return false;
         }
 
+        int addNum = 0;
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         Collections.shuffle(alternativeTablets);
         for (TabletSchedCtx tabletCtx : alternativeTablets) {
-            if (needAddBalanceNum > 0 && addTablet(tabletCtx, false) == AddResult.ADDED) {
-                needAddBalanceNum--;
+            if (addNum >= limit) {
+                break;
+            }
+            if (addTablet(tabletCtx, false) == AddResult.ADDED) {
+                addNum++;
             } else {
                 rebalancer.onTabletFailed(tabletCtx);
             }
         }
-        if (needAddBalanceNum <= 0) {
-            return;
-        }
+        return addNum > 0;
+    }
+
+    private void selectTabletsForDiskBalance(boolean hasBeBalance) {
         if (Config.disable_disk_balance) {
             LOG.info("disk balance is disabled. skip selecting tablets for disk balance");
             return;
         }
-        List<TabletSchedCtx> diskBalanceTablets = Lists.newArrayList();
-        // if default rebalancer can not get new task or user given prio BEs, then use disk rebalancer to get task
-        if (diskRebalancer.hasPrioBackends() || alternativeTablets.isEmpty()) {
-            diskBalanceTablets = diskRebalancer.selectAlternativeTablets();
+
+        int limit = getBalanceSchedQuotoLeft();
+        if (limit <= 0) {
+            return;
         }
-        for (TabletSchedCtx tabletCtx : diskBalanceTablets) {
+
+        int addNum = 0;
+        for (TabletSchedCtx tabletCtx : diskRebalancer.selectAlternativeTablets()) {
+            if (addNum >= limit) {
+                break;
+            }
             // add if task from prio backend or cluster is balanced
-            if (alternativeTablets.isEmpty() || tabletCtx.getPriority() == TabletSchedCtx.Priority.NORMAL) {
+            if (!hasBeBalance || Config.be_rebalancer_idle_seconds <= 0
+                    || tabletCtx.getPriority() == TabletSchedCtx.Priority.NORMAL) {
                 if (addTablet(tabletCtx, false) == AddResult.ADDED) {
-                    needAddBalanceNum--;
-                    if (needAddBalanceNum <= 0) {
-                        break;
-                    }
+                    addNum++;
                 }
             }
         }
+    }
+
+    private int getBalanceSchedQuotoLeft() {
+        // No need to prefetch too many balance task to pending queue.
+        // Because for every sched, it will re select the balance task.
+        return Math.min(Config.schedule_batch_size - getPendingNum(),
+                Config.max_balancing_tablets - getBalanceTabletsNumber());
     }
 
     /**
