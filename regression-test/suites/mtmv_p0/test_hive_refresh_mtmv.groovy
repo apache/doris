@@ -118,6 +118,7 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
       sql """
           REFRESH MATERIALIZED VIEW ${mvName} complete
       """
+      waitingMTMVTaskFinished(jobName)
       showPartitionsResult = sql """show partitions from ${mvName}"""
       logger.info("showPartitionsResult: " + showPartitionsResult.toString())
       assertTrue(showPartitionsResult.toString().contains("p_2020"))
@@ -136,6 +137,7 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
         sql """
             REFRESH MATERIALIZED VIEW ${mvName} complete
         """
+        waitingMTMVTaskFinished(jobName)
         showPartitionsResult = sql """show partitions from ${mvName}"""
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
         assertTrue(showPartitionsResult.toString().contains("p_2020"))
