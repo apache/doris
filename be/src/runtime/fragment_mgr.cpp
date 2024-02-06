@@ -646,8 +646,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             taskgroup::TaskGroupPtr task_group_ptr =
                     _exec_env->task_group_manager()->get_task_group_by_id(tg_id);
             if (task_group_ptr != nullptr) {
-                // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
-                query_ctx->set_task_group(task_group_ptr);
+                RETURN_IF_ERROR(query_ctx->set_task_group(task_group_ptr));
                 _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
                                                                                  tg_id);
 

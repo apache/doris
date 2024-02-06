@@ -33,7 +33,6 @@
 
 namespace doris {
 
-class TPipelineWorkloadGroup;
 class MemTrackerLimiter;
 
 namespace pipeline {
@@ -96,9 +95,17 @@ public:
         return _memory_limit > 0;
     }
 
-    void add_query(TUniqueId query_id) {
+    Status add_query(TUniqueId query_id) {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
+        if (_is_shutdown) {
+            // If the task group is set shutdown, then should not run any more,
+            // because the scheduler pool and other pointer may be released.
+            return Status::InternalError(
+                    "Failed add query to workload group, the workload group is shutdown. host: {}",
+                    BackendOptions::get_localhost());
+        }
         _query_id_set.insert(query_id);
+        return Status::OK();
     }
 
     void remove_query(TUniqueId query_id) {
@@ -106,14 +113,15 @@ public:
         _query_id_set.erase(query_id);
     }
 
-    void shutdown() { _is_shutdown = true; }
+    void shutdown() {
+        std::unique_lock<std::shared_mutex> wlock(_mutex);
+        _is_shutdown = true;
+    }
 
     int query_num() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _query_id_set.size();
     }
-
-    bool is_shutdown() { return _is_shutdown; }
 
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
