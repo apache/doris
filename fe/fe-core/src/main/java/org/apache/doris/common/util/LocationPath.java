@@ -297,10 +297,11 @@ public class LocationPath {
 
     /**
      * provide file type for BE.
+     *
      * @param location the location is from fs.listFile
      * @return on BE, we will use TFileType to get the suitable client to access storage.
      */
-    public static TFileType getTFileType(String location) {
+    public static TFileType getTFileTypeForBE(String location) {
         if (location == null || location.isEmpty()) {
             return null;
         }
@@ -314,12 +315,13 @@ public class LocationPath {
             case OBS:
             case BOS:
             case GCS:
+                // ATTN, for COSN, on FE side, use HadoopFS to access, but on BE, use S3 client to access.
+            case COSN:
                 // now we only support S3 client for object storage on BE
                 return TFileType.FILE_S3;
             case HDFS:
             case OSS_HDFS: // if hdfs service is enabled on oss, use hdfs lib to access oss.
             case VIEWFS:
-            case COSN:
                 return TFileType.FILE_HDFS;
             case GFS:
             case JFS:
@@ -346,12 +348,12 @@ public class LocationPath {
             case OBS:
             case BOS:
             case GCS:
+            case COSN:
                 // All storage will use s3 client to access on BE, so need convert to s3
                 return new Path(convertToS3(location));
             case HDFS:
             case OSS_HDFS:
             case VIEWFS:
-            case COSN:
             case GFS:
             case JFS:
             case OFS:
