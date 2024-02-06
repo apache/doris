@@ -304,7 +304,7 @@ suite("partition_mv_rewrite_dimension_2_5") {
             o_comment """
     explain {
         sql("${sql_stmt_5}")
-        contains "${mv_name_5}(${mv_name_5})"
+        notContains "${mv_name_5}(${mv_name_5})"
     }
     compare_res(sql_stmt_5 + " order by 1,2,3")
 
@@ -318,7 +318,7 @@ suite("partition_mv_rewrite_dimension_2_5") {
             o_comment """
     explain {
         sql("${sql_stmt_5_2}")
-        contains "${mv_name_5}(${mv_name_5})"
+        notContains "${mv_name_5}(${mv_name_5})"
     }
     compare_res(sql_stmt_5_2 + " order by 1,2,3")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_5};"""
