@@ -1000,6 +1000,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubstringIndex>();
     factory.register_function<FunctionExtractURLParameter>();
     factory.register_function<FunctionStringParseUrl>();
+    factory.register_function<FunctionUrlDecode>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();

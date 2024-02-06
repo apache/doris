@@ -807,6 +807,7 @@ public class HiveMetaStoreClientHelper {
         UserGroupInformation ugi = getUserGroupInformation(conf);
         try {
             if (ugi != null) {
+                ugi.checkTGTAndReloginFromKeytab();
                 return ugi.doAs(action);
             } else {
                 return action.run();

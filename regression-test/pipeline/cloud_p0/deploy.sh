@@ -28,15 +28,13 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 
 if ${DEBUG:-false}; then
-    pull_request_num="30772"
-    commit_id="8a0077c2cfc492894d9ff68916e7e131f9a99b65"
-    target_branch="master"
+    pr_num_from_trigger=${pr_num_from_debug:-"30772"}
+    commit_id_from_trigger=${commit_id_from_debug:-"8a0077c2cfc492894d9ff68916e7e131f9a99b65"}
 fi
 echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
-if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 1; fi
-if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 1; fi
-if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
+if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger not set" && exit 1; fi
+if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
 
 echo "#### Deploy Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
@@ -46,9 +44,9 @@ exit_flag=0
     echo "#### 1. download doris binary"
     cd "${teamcity_build_checkoutDir}"
     export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile_result"}"
-    if download_oss_file "${pull_request_num}_${commit_id}.tar.gz"; then
+    if download_oss_file "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.gz"; then
         rm -rf "${teamcity_build_checkoutDir}"/output/*
-        tar -I pigz -xf "${pull_request_num}_${commit_id}.tar.gz"
+        tar -I pigz -xf "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.gz"
     else exit 1; fi
 
     echo "#### 2. try to kill old doris process and clean foundationdb"
@@ -92,7 +90,7 @@ if [[ ${exit_flag} != "0" ]]; then
     stop_doris
     print_doris_fe_log
     print_doris_be_log
-    if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
+    if file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_doris_logs.tar.gz"); then
         upload_doris_log_to_oss "${file_name}"
     fi
 fi

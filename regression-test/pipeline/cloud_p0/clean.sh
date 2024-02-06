@@ -27,4 +27,4 @@ echo "#### Run tpcds test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 stop_doris
-clean_fdb
+clean_fdb "cloud_instance_0"

@@ -234,17 +234,16 @@ public:
 
     bool has_null_key() { return _has_null_key; }
 
-    void pre_build_idxs(std::vector<uint32>& buckets, const uint8_t* null_map) {
-        const auto first_at_bucket_size = first[bucket_size];
+    void pre_build_idxs(std::vector<uint32>& buckets, const uint8_t* null_map) const {
         if (null_map) {
-            first[bucket_size] = bucket_size; // distinguish between not matched and null
+            for (unsigned int& bucket : buckets) {
+                bucket = bucket == bucket_size ? bucket_size : first[bucket];
+            }
+        } else {
+            for (unsigned int& bucket : buckets) {
+                bucket = first[bucket];
+            }
         }
-
-        for (unsigned int& bucket : buckets) {
-            bucket = first[bucket];
-        }
-
-        first[bucket_size] = first_at_bucket_size;
     }
 
 private:
