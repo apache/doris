@@ -1157,6 +1157,55 @@ struct TRestoreSnapshotResult {
     2: optional Types.TNetworkAddress master_address
 }
 
+struct TPlsqlStoredProcedure {
+    1: optional string name
+    2: optional string catalogName
+    3: optional string dbName
+    4: optional string ownerName
+    5: optional string source
+}
+
+struct TPlsqlPackage {
+    1: optional string name
+    2: optional string catalogName
+    3: optional string dbName
+    4: optional string ownerName
+    5: optional string header
+    6: optional string body
+}
+
+struct TPlsqlProcedureKey {
+    1: optional string name
+    2: optional string catalogName
+    3: optional string dbName
+}
+
+struct TAddPlsqlStoredProcedureRequest {
+    1: optional TPlsqlStoredProcedure plsqlStoredProcedure
+    2: optional bool isForce
+}
+
+struct TDropPlsqlStoredProcedureRequest {
+    1: optional TPlsqlProcedureKey plsqlProcedureKey
+}
+
+struct TPlsqlStoredProcedureResult {
+    1: optional Status.TStatus status
+}
+
+struct TAddPlsqlPackageRequest {
+    1: optional TPlsqlPackage plsqlPackage
+    2: optional bool isForce
+}
+
+struct TDropPlsqlPackageRequest {
+    1: optional TPlsqlProcedureKey plsqlProcedureKey
+}
+
+struct TPlsqlPackageResult {
+    1: optional Status.TStatus status
+}
+
 struct TGetMasterTokenRequest {
     1: optional string cluster
     2: optional string user
@@ -1399,6 +1448,11 @@ service FrontendService {
     TQueryStatsResult getQueryStats(1: TGetQueryStatsRequest request)
 
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
+
+    TPlsqlStoredProcedureResult addPlsqlStoredProcedure(1: TAddPlsqlStoredProcedureRequest request)
+    TPlsqlStoredProcedureResult dropPlsqlStoredProcedure(1: TDropPlsqlStoredProcedureRequest request)
+    TPlsqlPackageResult addPlsqlPackage(1: TAddPlsqlPackageRequest request)
+    TPlsqlPackageResult dropPlsqlPackage(1: TDropPlsqlPackageRequest request)
 
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
 
