@@ -140,6 +140,8 @@ public:
     // append the running scanner and its cached block to `_blocks_queue`
     virtual void append_block_to_queue(std::shared_ptr<ScanTask> scan_task);
 
+    void set_status_on_error(const Status& status);
+
     // Return true if this ScannerContext need no more process
     bool done() const { return _is_finished || _should_stop; }
     bool is_finished() { return _is_finished.load(); }
@@ -199,6 +201,7 @@ protected:
     std::condition_variable _blocks_queue_added_cv;
     std::list<std::shared_ptr<ScanTask>> _blocks_queue;
 
+    Status _process_status = Status::OK();
     std::atomic_bool _should_stop = false;
     std::atomic_bool _is_finished = false;
 

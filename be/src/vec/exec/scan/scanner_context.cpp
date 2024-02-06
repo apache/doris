@@ -213,6 +213,9 @@ void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) 
         }
     }
     std::lock_guard<std::mutex> l(_transfer_lock);
+    if (!scan_task->status_ok()) {
+        _process_status = scan_task->get_status();
+    }
     if (_last_scale_up_time == 0) {
         _last_scale_up_time = UnixMillis();
     }
@@ -246,6 +249,10 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             }
             _blocks_queue_added_cv.wait_for(l, 1s);
         }
+    }
+    if (!_process_status.ok()) {
+        _set_scanner_done();
+        return _process_status;
     }
     std::shared_ptr<ScanTask> scan_task = nullptr;
     if (!_blocks_queue.empty()) {
@@ -399,6 +406,15 @@ Status ScannerContext::validate_block_schema(Block* block) {
         }
     }
     return Status::OK();
+}
+
+void ScannerContext::set_status_on_error(const Status& status) {
+    {
+        std::lock_guard<std::mutex> l(_transfer_lock);
+        _process_status = status;
+        _blocks_queue_added_cv.notify_one();
+    }
+    stop_scanners(_state);
 }
 
 void ScannerContext::stop_scanners(RuntimeState* state) {
