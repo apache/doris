@@ -48,6 +48,8 @@ import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.plsql.Exec;
+import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
@@ -187,6 +189,8 @@ public class ConnectContext {
     // If set to false, the system will not restrict query resources.
     private boolean isResourceTagsSet = false;
 
+    private PlSqlOperation plSqlOperation = null;
+
     private String sqlHash;
 
     private JSONObject minidump = null;
@@ -216,6 +220,8 @@ public class ConnectContext {
     // but the internal implementation will call the logic of `AlterTable`.
     // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
     private boolean skipAuth = false;
+    private Exec exec;
+    private boolean runProcedure = false;
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -332,6 +338,18 @@ public class ConnectContext {
             mysqlChannel = new DummyMysqlChannel();
         }
         init();
+    }
+
+    public ConnectContext cloneContext() {
+        ConnectContext context = new ConnectContext();
+        context.mysqlChannel = mysqlChannel;
+        context.setSessionVariable(VariableMgr.cloneSessionVariable(sessionVariable)); // deep copy
+        context.setEnv(env);
+        context.setDatabase(currentDb);
+        context.setQualifiedUser(qualifiedUser);
+        context.setCurrentUserIdentity(currentUserIdentity);
+        context.setProcedureExec(exec);
+        return context;
     }
 
     public boolean isTxnModel() {
@@ -758,6 +776,13 @@ public class ConnectContext {
         return executor;
     }
 
+    public PlSqlOperation getPlSqlOperation() {
+        if (plSqlOperation == null) {
+            plSqlOperation = new PlSqlOperation();
+        }
+        return plSqlOperation;
+    }
+
     protected void closeChannel() {
         if (mysqlChannel != null) {
             mysqlChannel.close();
@@ -1032,6 +1057,22 @@ public class ConnectContext {
 
     public void setSkipAuth(boolean skipAuth) {
         this.skipAuth = skipAuth;
+    }
+
+    public boolean isRunProcedure() {
+        return runProcedure;
+    }
+
+    public void setRunProcedure(boolean runProcedure) {
+        this.runProcedure = runProcedure;
+    }
+
+    public void setProcedureExec(Exec exec) {
+        this.exec = exec;
+    }
+
+    public Exec getProcedureExec() {
+        return exec;
     }
 
     public int getNetReadTimeout() {

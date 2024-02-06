@@ -855,7 +855,12 @@ under the License.
                 <configuration>
                     <visitor>true</visitor>
                     <sourceDirectory>src/main/antlr4</sourceDirectory>
-                    <treatWarningsAsErrors>true</treatWarningsAsErrors>
+                    <!-->import DorisParser in PLParser.g4 will prompt warning options { tokenVocab = DorisLexer; }
+                    ignored, this is expected behavior, antlr/antlr4#2209, hope to ignore this warning alone,
+                    but it seems that can only delete this treatWarningsAsErrors.
+                    Other warnings should not be ignored.<-->
+                    <!--<treatWarningsAsErrors>true</treatWarningsAsErrors>-->
+                    <libDirectory>src/main/antlr4/org/apache/doris/nereids</libDirectory>
                 </configuration>
             </plugin>
             <!-- jmockit -->
