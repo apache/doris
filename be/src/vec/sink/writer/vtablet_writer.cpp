@@ -306,6 +306,8 @@ void VNodeChannel::clear_all_blocks() {
     _cur_mutable_block.reset();
 }
 
+// we don't need to send tablet_writer_cancel rpc request when
+// init failed, so set _is_closed to true.
 // if "_cancelled" is set to true,
 // no need to set _cancel_msg because the error will be
 // returned directly via "TabletSink::prepare()" method.
@@ -322,6 +324,7 @@ Status VNodeChannel::init(RuntimeState* state) {
     const auto* node = _parent->_nodes_info->find_node(_node_id);
     if (node == nullptr) {
         _cancelled = true;
+        _is_closed = true;
         return Status::InternalError("unknown node id, id={}", _node_id);
     }
     _node_info = *node;
@@ -336,6 +339,7 @@ Status VNodeChannel::init(RuntimeState* state) {
                                                                         _node_info.brpc_port);
     if (_stub == nullptr) {
         _cancelled = true;
+        _is_closed = true;
         return Status::InternalError("Get rpc stub failed, host={}, port={}, info={}",
                                      _node_info.host, _node_info.brpc_port, channel_info());
     }
@@ -840,8 +844,10 @@ void VNodeChannel::_add_block_failed_callback(bool is_last_rpc) {
     }
 }
 
+// When _cancelled is true, we still need to send a tablet_writer_cancel
+// rpc request to truly release the load channel
 void VNodeChannel::cancel(const std::string& cancel_msg) {
-    if (_is_closed || _cancelled) {
+    if (_is_closed) {
         // skip the channels that have been canceled or close_wait.
         return;
     }
