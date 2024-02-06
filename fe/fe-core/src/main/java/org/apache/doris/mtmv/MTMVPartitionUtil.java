@@ -38,7 +38,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -89,12 +88,10 @@ public class MTMVPartitionUtil {
      */
     public static void alignMvPartition(MTMV mtmv, MTMVRelatedTableIf relatedTable)
             throws DdlException, AnalysisException {
-        Map<Long, PartitionItem> relatedTableItems = relatedTable.getPartitionItems();
+        Map<Long, PartitionItem> relatedTableItems = Maps.newHashMap(relatedTable.getPartitionItems());
         Map<Long, PartitionItem> mtmvItems = mtmv.getPartitionItems();
         // drop partition of mtmv
-        Iterator<Entry<Long, PartitionItem>> iterator = mtmvItems.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Entry<Long, PartitionItem> entry = iterator.next();
+        for (Entry<Long, PartitionItem> entry : mtmvItems.entrySet()) {
             long partitionId = getExistPartitionId(entry.getValue(), relatedTableItems);
             if (partitionId == -1L) {
                 dropPartition(mtmv, entry.getKey());

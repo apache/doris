@@ -145,24 +145,23 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
 
         // hive rename column name
           def rename_column_str = """
-                                               alter table ${hive_database}.${hive_table} CHANGE COLUMN num num1 int;
-                                           """
-           logger.info("hive sql: " + rename_column_str)
-           hive_docker """ ${rename_column_str} """
-           sql """
-                   REFRESH catalog ${catalog_name}
-               """
-            sql """
-                REFRESH MATERIALIZED VIEW ${mvName} complete
-            """
-            waitingMTMVTaskFinishedNotNeedSuccess(jobName)
-           order_qt_task_error "select * from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"
+                                       alter table ${hive_database}.${hive_table} CHANGE COLUMN num num1 int;
+                                   """
+       logger.info("hive sql: " + rename_column_str)
+       hive_docker """ ${rename_column_str} """
+       sql """
+               REFRESH catalog ${catalog_name}
+           """
+        sql """
+            REFRESH MATERIALIZED VIEW ${mvName} complete
+        """
+        waitingMTMVTaskFinishedNotNeedSuccess(jobName)
+        order_qt_task_error "select Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"
 
-        // hive recover column name
-      def recover_column_str = """
-                                           alter table ${hive_database}.${hive_table} RENAME COLUMN num
-                                           to num1;
-                                       """
+       // hive recover column name
+       def recover_column_str = """
+                                   alter table ${hive_database}.${hive_table} CHANGE COLUMN num1 num int;
+                               """
        logger.info("hive sql: " + recover_column_str)
        hive_docker """ ${recover_column_str} """
        sql """
@@ -172,6 +171,6 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
             REFRESH MATERIALIZED VIEW ${mvName} complete
         """
        waitingMTMVTaskFinishedNotNeedSuccess(jobName)
-       order_qt_task_recover "select * from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"
+       order_qt_task_recover "select Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"
 }
 
