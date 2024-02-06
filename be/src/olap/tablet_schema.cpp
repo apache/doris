@@ -552,7 +552,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _column_path.from_protobuf(column.column_path_info());
         _parent_col_unique_id = column.column_path_info().parrent_column_unique_id();
     }
-    for (auto& column_pb : column.sparse_column()) {
+    for (auto& column_pb : column.sparse_columns()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
         _sparse_cols.emplace_back(std::move(column));
@@ -619,7 +619,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         _column_path.to_protobuf(column->mutable_column_path_info(), _parent_col_unique_id);
     }
     for (auto& col : _sparse_cols) {
-        ColumnPB* sparse_column = column->add_sparse_column();
+        ColumnPB* sparse_column = column->add_sparse_columns();
         col.to_schema_pb(sparse_column);
     }
 }

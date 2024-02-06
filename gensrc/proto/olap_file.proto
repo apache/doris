@@ -294,7 +294,7 @@ message ColumnPB {
     // persist info for PathInData that represents path in document, e.g. JSON.
     optional segment_v2.ColumnPathInfo column_path_info = 20;
     // sparse column within a variant column
-    repeated ColumnPB sparse_column = 21;
+    repeated ColumnPB sparse_columns = 21;
 }
 
 enum IndexType {

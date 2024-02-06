@@ -507,19 +507,20 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
         return Status::OK();
     }
 
-    if (node != nullptr && node->is_leaf_node() && sparse_node == nullptr) {
-        // Node contains column without any child sub columns and no corresponding sparse columns
-        // Direct read extracted columns
-        const auto* node = _sub_column_tree.find_leaf(tablet_column.path_info());
-        ColumnIterator* it;
-        RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
-        iter->reset(it);
-    } else if ((node != nullptr && node->is_none_leaf_node()) ||
-               (node != nullptr && sparse_node != nullptr)) {
-        // Node contains column with children columns or has correspoding sparse columns
-        // Create reader with hirachical data
-        RETURN_IF_ERROR(
-                HierarchicalDataReader::create(iter, tablet_column.path_info(), node, root));
+    if (node != nullptr) {
+        if (node->is_leaf_node() && sparse_node == nullptr) {
+            // Node contains column without any child sub columns and no corresponding sparse columns
+            // Direct read extracted columns
+            const auto* node = _sub_column_tree.find_leaf(tablet_column.path_info());
+            ColumnIterator* it;
+            RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+            iter->reset(it);
+        } else {
+            // Node contains column with children columns or has correspoding sparse columns
+            // Create reader with hirachical data
+            RETURN_IF_ERROR(
+                    HierarchicalDataReader::create(iter, tablet_column.path_info(), node, root));
+        }
     } else {
         // No such node, read from either sparse column or default column
         if (sparse_node != nullptr) {
@@ -531,6 +532,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
         }
     }
+
     return Status::OK();
 }
 
