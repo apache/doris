@@ -47,6 +47,10 @@ suite("test_agg_table_mtmv") {
             SELECT * FROM ${tableName};
     """
 
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName};
+    """
+
     def jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
