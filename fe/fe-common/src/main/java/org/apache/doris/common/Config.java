@@ -1021,11 +1021,16 @@ public class Config extends ConfigBase {
     public static double urgent_balance_disk_usage_extra_threshold = 0.05;
 
     // when run urgent disk balance, shuffle the top large tablets
+    // range: [ 0 ~ 100 ]
     @ConfField(mutable = true, masterOnly = true)
-    public static double urgent_balance_shuffle_large_tablet_percentage = 0.01;
+    public static int urgent_balance_shuffle_large_tablet_percentage = 1;
 
     @ConfField(mutable = true, masterOnly = true)
     public static double urgent_balance_pick_large_tablet_num_threshold = 1000;
+
+    // range: 0 ~ 100
+    @ConfField(mutable = true, masterOnly = true)
+    public static int urgent_balance_pick_large_disk_usage_percentage = 80;
 
     // there's a case, all backend has a high disk, by default, it will not run urgent disk balance.
     // if set this value to true, urgent disk balance will always run,

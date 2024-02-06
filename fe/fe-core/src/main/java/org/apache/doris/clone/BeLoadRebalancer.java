@@ -160,10 +160,16 @@ public class BeLoadRebalancer extends Rebalancer {
                 pathHigh.addAll(pathMid);
             }
 
+            double highDiskMaxUsage = 0;
             for (Long pathHash : pathHigh) {
                 int availBalanceNum = pathSlot.getAvailableBalanceNum(pathHash);
                 if (availBalanceNum > 0) {
                     remainingPaths.put(pathHash, availBalanceNum);
+                }
+
+                RootPathLoadStatistic pathStat = beStat.getPathStatisticByPathHash(pathHash);
+                if (pathStat != null) {
+                    highDiskMaxUsage = Math.max(highDiskMaxUsage, pathStat.getUsedPercent());
                 }
             }
 
@@ -177,15 +183,17 @@ public class BeLoadRebalancer extends Rebalancer {
             // get all tablets on this backend, and shuffle them for random selection
             List<Pair<Long, Long>> tabletIdSizes = invertedIndex.getTabletSizeByBackendIdAndStorageMedium(
                     beStat.getBeId(), medium);
-            if (!isUrgent || tabletIdSizes.size() < Config.urgent_balance_pick_large_tablet_num_threshold
-                    || Config.urgent_balance_shuffle_large_tablet_percentage >= 1.0
+            if (!isUrgent
+                    || tabletIdSizes.size() < Config.urgent_balance_pick_large_tablet_num_threshold
+                    || highDiskMaxUsage < (double) Config.urgent_balance_pick_large_disk_usage_percentage / 100.0
+                    || Config.urgent_balance_shuffle_large_tablet_percentage >= 100
                     || Config.urgent_balance_shuffle_large_tablet_percentage < 0) {
                 Collections.shuffle(tabletIdSizes);
             } else {
                 Collections.sort(tabletIdSizes, new Pair.PairComparator<Pair<Long, Long>>());
                 if (Config.urgent_balance_shuffle_large_tablet_percentage > 0) {
                     int startIndex = (int) (tabletIdSizes.size()
-                            * (1 - Config.urgent_balance_shuffle_large_tablet_percentage));
+                            * (1 - (double) Config.urgent_balance_shuffle_large_tablet_percentage / 100.0));
                     Collections.shuffle(tabletIdSizes.subList(startIndex, tabletIdSizes.size()));
                 }
             }
