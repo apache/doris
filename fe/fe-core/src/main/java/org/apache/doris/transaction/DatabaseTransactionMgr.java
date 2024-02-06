@@ -2108,17 +2108,6 @@ public class DatabaseTransactionMgr {
         return msgBuilder.toString();
     }
 
-    public void putTransactionTableNames(long transactionId, List<Long> tableIds) {
-        if (CollectionUtils.isEmpty(tableIds)) {
-            return;
-        }
-        if (multiTableRunningTransactionTableIdMaps.contains(transactionId)) {
-            multiTableRunningTransactionTableIdMaps.get(transactionId).addAll(tableIds);
-            return;
-        }
-        multiTableRunningTransactionTableIdMaps.put(transactionId, tableIds);
-    }
-
     /**
      * Update transaction table ids by transaction id.
      * it's used for multi table transaction.
