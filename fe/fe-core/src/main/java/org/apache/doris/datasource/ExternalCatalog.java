@@ -104,6 +104,10 @@ public abstract class ExternalCatalog
 
     private ExternalSchemaCache schemaCache;
     private String comment;
+    // A cached and being converted properties for external catalog.
+    // generated from catalog properties.
+    private byte[] propLock = new byte[0];
+    private Map<String, String> convertedProperties = null;
 
     public ExternalCatalog() {
     }
@@ -298,6 +302,9 @@ public abstract class ExternalCatalog
     public void onRefresh(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
+        synchronized (this.propLock) {
+            this.convertedProperties = null;
+        }
         this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
@@ -421,7 +428,17 @@ public abstract class ExternalCatalog
 
     @Override
     public Map<String, String> getProperties() {
-        return PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
+        // convert properties may be a heavy operation, so we cache the result.
+        if (convertedProperties != null) {
+            return convertedProperties;
+        }
+        synchronized (propLock) {
+            if (convertedProperties != null) {
+                return convertedProperties;
+            }
+            convertedProperties = PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
+            return convertedProperties;
+        }
     }
 
     @Override
@@ -552,6 +569,7 @@ public abstract class ExternalCatalog
                 }
             }
         }
+        this.propLock = new byte[0];
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {

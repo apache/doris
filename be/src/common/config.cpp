@@ -942,7 +942,7 @@ DEFINE_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 DEFINE_Bool(hide_webserver_config_page, "false");
 
-DEFINE_Bool(enable_segcompaction, "false");
+DEFINE_Bool(enable_segcompaction, "true");
 
 // Max number of segments allowed in a single segcompaction task.
 DEFINE_Int32(segcompaction_batch_size, "10");
@@ -1175,6 +1175,8 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 
 // create tablet in partition random robin idx lru size, default 10000
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
+
+DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 // clang-format off
 #ifdef BE_TEST
