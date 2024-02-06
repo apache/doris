@@ -74,6 +74,14 @@ suite("test_hive_olap_mtmv", "p0,external,hive,external_docker,external_docker_h
         waitingMTMVTaskFinished(jobName)
         order_qt_refresh_complete "SELECT * FROM ${mvName} order by id"
 
+         sql """
+                INSERT INTO ${tableName} VALUES(1,"clz"),(2,"zhangsang");
+            """
+           sql """
+                   REFRESH MATERIALIZED VIEW ${mvName}
+               """
+          waitingMTMVTaskFinished(jobName)
+          order_qt_refresh_2 "SELECT * FROM ${mvName} order by id"
         sql """drop materialized view if exists ${mvName};"""
 
         sql """drop catalog if exists ${catalog_name}"""
