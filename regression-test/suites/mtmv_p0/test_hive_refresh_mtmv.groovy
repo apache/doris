@@ -29,7 +29,7 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
     def create_database_str = """ create database ${hive_database}"""
     def create_table_str = """ CREATE TABLE ${hive_database}.${hive_table} (
                                     user_id INT,
-                                    num INT,
+                                    num INT
                                 )
                                 STORED AS ORC;
                             """
