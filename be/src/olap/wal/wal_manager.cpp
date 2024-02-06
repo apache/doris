@@ -488,7 +488,7 @@ Status WalManager::get_lock_and_cv(int64_t wal_id, std::shared_ptr<std::mutex>& 
     return Status::OK();
 }
 
-Status WalManager::delete_wal(int64_t table_id, int64_t wal_id, size_t block_queue_pre_allocated) {
+Status WalManager::delete_wal(int64_t table_id, int64_t wal_id) {
     std::string wal_path;
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_path_lock);

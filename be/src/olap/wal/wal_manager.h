@@ -67,7 +67,7 @@ public:
     Status create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
                            const std::string& label, std::string& base_path);
     Status get_wal_path(int64_t wal_id, std::string& wal_path);
-    Status delete_wal(int64_t table_id, int64_t wal_id, size_t block_queue_pre_allocated = 0);
+    Status delete_wal(int64_t table_id, int64_t wal_id);
     Status rename_to_tmp_path(const std::string wal, int64_t table_id, int64_t wal_id);
     Status add_recover_wal(int64_t db_id, int64_t table_id, int64_t wal_id, std::string wal);
     void add_wal_queue(int64_t table_id, int64_t wal_id);

@@ -46,7 +46,7 @@ GroupCommitBlockSink::GroupCommitBlockSink(ObjectPool* pool, const RowDescriptor
 
 GroupCommitBlockSink::~GroupCommitBlockSink() {
     if (_load_block_queue) {
-        _load_block_queue->remove_pre_allocated();
+        _remove_pre_allocated();
         _load_block_queue->remove_load_id(_load_id);
     }
 }
@@ -119,7 +119,7 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
         RETURN_IF_ERROR(_add_blocks(state, true));
     }
     if (_load_block_queue) {
-        _load_block_queue->remove_pre_allocated();
+        _remove_pre_allocated();
         _load_block_queue->remove_load_id(_load_id);
     }
     // wait to wal
@@ -243,7 +243,7 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
                     _db_id, _table_id, _base_schema_version, load_id, _load_block_queue,
                     _state->be_exec_version()));
             if (_group_commit_mode == TGroupCommitMode::ASYNC_MODE) {
-                size_t pre_allocated = _pre_allocated(is_blocks_contain_all_load_data);
+                size_t pre_allocated = _calculate_pre_allocated(is_blocks_contain_all_load_data);
                 _group_commit_mode = _load_block_queue->has_enough_wal_disk_space(pre_allocated)
                                              ? TGroupCommitMode::ASYNC_MODE
                                              : TGroupCommitMode::SYNC_MODE;
@@ -253,6 +253,8 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
                               << " will not write wal because wal disk space usage reach max "
                                  "limit. Detail info: "
                               << _state->exec_env()->wal_mgr()->get_wal_dirs_info_string();
+                } else {
+                    _pre_allocated = pre_allocated;
                 }
             }
             _state->set_import_label(_load_block_queue->label);
@@ -285,7 +287,7 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
     return Status::OK();
 }
 
-size_t GroupCommitBlockSink::_pre_allocated(bool is_blocks_contain_all_load_data) {
+size_t GroupCommitBlockSink::_calculate_pre_allocated(bool is_blocks_contain_all_load_data) {
     size_t blocks_size = 0;
     for (auto block : _blocks) {
         blocks_size += block->bytes();
@@ -295,6 +297,27 @@ size_t GroupCommitBlockSink::_pre_allocated(bool is_blocks_contain_all_load_data
                    : (blocks_size > _state->content_length() ? blocks_size
                                                              : _state->content_length());
 }
+
+void GroupCommitBlockSink::_remove_pre_allocated() {
+    if (!_is_pre_allocated_removed) {
+        std::string wal_path;
+        Status st = ExecEnv::GetInstance()->wal_mgr()->get_wal_path(_load_block_queue->txn_id,
+                                                                    wal_path);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to get wal path in remove pre allocated, reason: "
+                         << st.to_string();
+            return;
+        }
+        st = ExecEnv::GetInstance()->wal_mgr()->update_wal_dir_pre_allocated(
+                WalManager::get_base_wal_path(wal_path), 0, _pre_allocated);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to remove pre allocated, reason: " << st.to_string();
+            return;
+        }
+        _is_pre_allocated_removed = true;
+        _load_block_queue->block_queue_pre_allocated.fetch_sub(_pre_allocated);
+    }
+};
 
 } // namespace vectorized
 } // namespace doris

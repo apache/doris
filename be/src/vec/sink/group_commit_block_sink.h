@@ -48,7 +48,8 @@ public:
 private:
     Status _add_block(RuntimeState* state, std::shared_ptr<vectorized::Block> block);
     Status _add_blocks(RuntimeState* state, bool is_blocks_contain_all_load_data);
-    size_t _pre_allocated(bool is_blocks_contain_all_load_data);
+    size_t _calculate_pre_allocated(bool is_blocks_contain_all_load_data);
+    void _remove_pre_allocated();
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
@@ -78,6 +79,8 @@ private:
     std::vector<VOlapTablePartition*> _partitions;
     Bitmap _filter_bitmap;
     bool _has_filtered_rows = false;
+    size_t _pre_allocated = 0;
+    bool _is_pre_allocated_removed = false;
 };
 
 } // namespace vectorized

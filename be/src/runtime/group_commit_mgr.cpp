@@ -152,26 +152,10 @@ void LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
         _load_ids.erase(load_id);
         _get_cond.notify_all();
     }
-}
-
-void LoadBlockQueue::remove_pre_allocated() {
-    if (!_is_pre_allocated_removed) {
-        std::string wal_path;
-        Status st = ExecEnv::GetInstance()->wal_mgr()->get_wal_path(txn_id, wal_path);
-        if (!st.ok()) {
-            LOG(WARNING) << "Failed to get wal path in remove pre allocated, reason: "
-                         << st.to_string();
-            return;
-        }
-        st = ExecEnv::GetInstance()->wal_mgr()->update_wal_dir_pre_allocated(
-                WalManager::get_base_wal_path(wal_path), 0, block_queue_pre_allocated());
-        if (!st.ok()) {
-            LOG(WARNING) << "Failed to remove pre allocated, reason: " << st.to_string();
-            return;
-        }
-        _is_pre_allocated_removed = true;
+    if (_load_ids.empty()) {
+        DCHECK_EQ(0, block_queue_pre_allocated);
     }
-};
+}
 
 Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
     std::unique_lock l(mutex);
@@ -420,8 +404,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
         if (!config::group_commit_wait_replay_wal_finish) {
-            auto delete_st = _exec_env->wal_mgr()->delete_wal(
-                    table_id, txn_id, load_block_queue->block_queue_pre_allocated());
+            auto delete_st = _exec_env->wal_mgr()->delete_wal(table_id, txn_id);
             if (!delete_st.ok()) {
                 LOG(WARNING) << "fail to delete wal " << txn_id << ", st=" << delete_st.to_string();
             }
@@ -570,7 +553,7 @@ bool LoadBlockQueue::has_enough_wal_disk_space(size_t pre_allocated) {
         if (!st.ok()) {
             LOG(WARNING) << "update wal dir pre_allocated failed, reason: " << st.to_string();
         }
-        _block_queue_pre_allocated.fetch_add(pre_allocated);
+        block_queue_pre_allocated.fetch_add(pre_allocated);
         return true;
     } else {
         return false;

@@ -72,14 +72,13 @@ public:
                       int be_exe_version);
     Status close_wal();
     bool has_enough_wal_disk_space(size_t pre_allocated);
-    size_t block_queue_pre_allocated() { return _block_queue_pre_allocated.load(); }
-    void remove_pre_allocated();
 
     UniqueId load_instance_id;
     std::string label;
     int64_t txn_id;
     int64_t schema_version;
     bool wait_internal_group_commit_finish = false;
+    std::atomic_size_t block_queue_pre_allocated = 0;
 
     // the execute status of this internal group commit
     std::mutex mutex;
@@ -97,7 +96,6 @@ private:
     // wal
     std::string _wal_base_path;
     std::shared_ptr<vectorized::VWalWriter> _v_wal_writer;
-    std::atomic_size_t _block_queue_pre_allocated = 0;
 
     // commit
     bool _need_commit = false;
@@ -112,7 +110,6 @@ private:
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;
-    bool _is_pre_allocated_removed = false;
     static constexpr size_t MEM_BACK_PRESSURE_WAIT_TIME = 1000;      // 1s
     static constexpr size_t MEM_BACK_PRESSURE_WAIT_TIMEOUT = 120000; // 120s
 };
