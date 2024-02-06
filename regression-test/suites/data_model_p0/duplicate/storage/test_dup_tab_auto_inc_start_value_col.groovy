@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_dup_table_auto_inc_col") {
+suite("test_dup_table_auto_inc_start_value_col") {
 
-    def table1 = "test_dup_tab_auto_inc_col1"
+    def table1 = "test_dup_tab_auto_inc_start_value_col1"
     sql "drop table if exists ${table1}"
     sql """
         CREATE TABLE IF NOT EXISTS `${table1}` (
-          `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT "",
+          `id` BIGINT NOT NULL AUTO_INCREMENT(10000) COMMENT "",
           `value` int(11) NOT NULL COMMENT ""
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
@@ -38,12 +38,12 @@ suite("test_dup_table_auto_inc_col") {
     assertTrue(res.size() != 0)
 
     // duplicate table with a auto-increment value column
-    def table2 = "test_dup_tab_auto_inc_col2"
+    def table2 = "test_dup_tab_auto_inc_start_value_col2"
     sql "drop table if exists ${table2}"
     sql """
         CREATE TABLE IF NOT EXISTS `${table2}` (
           `id` int(11) NOT NULL COMMENT "",
-          `value` BIGINT NOT NULL AUTO_INCREMENT COMMENT ""
+          `value` BIGINT NOT NULL AUTO_INCREMENT(10000) COMMENT ""
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
         COMMENT "OLAP"
@@ -59,13 +59,13 @@ suite("test_dup_table_auto_inc_col") {
     assertTrue(res.size() != 0)
 
     // duplicate table with two auto-increment columns
-    def table3 = "test_dup_tab_auto_inc_col3"
+    def table3 = "test_dup_tab_auto_inc_start_value_col3"
     sql "drop table if exists ${table3}"
     test {
         sql """
             CREATE TABLE IF NOT EXISTS `${table3}` (
-              `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT "",
-              `value` BIGINT NOT NULL AUTO_INCREMENT COMMENT ""
+              `id` BIGINT NOT NULL AUTO_INCREMENT(10000) COMMENT "",
+              `value` BIGINT NOT NULL AUTO_INCREMENT(10000) COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
             COMMENT "OLAP"
@@ -81,11 +81,11 @@ suite("test_dup_table_auto_inc_col") {
 
     // duplicate table with a auto-increment key column
     // insert values and check query
-    def table4 = "test_dup_tab_basic_int_tab1"
+    def table4 = "test_dup_tab_start_value_basic_int_tab1"
     sql "drop table if exists ${table4}"
     sql """
 CREATE TABLE IF NOT EXISTS `${table4}` (
-  `siteid` BIGINT NOT NULL AUTO_INCREMENT COMMENT "",
+  `siteid` BIGINT NOT NULL AUTO_INCREMENT(10000) COMMENT "",
   `citycode` int(11) NOT NULL COMMENT "",
   `userid` int(11) NOT NULL COMMENT "",
   `pv` int(11) NOT NULL COMMENT ""
@@ -122,12 +122,12 @@ PROPERTIES (
 
     // duplicate table with a auto-increment value column
     // insert values and check query
-    def table5 = "test_dup_tab_basic_int_tab2"
+    def table5 = "test_dup_tab_start_value_basic_int_tab2"
     sql "drop table if exists ${table5}"
     sql """
 CREATE TABLE IF NOT EXISTS `${table5}` (
   `siteid` int(11) NOT NULL COMMENT "",
-  `citycode` BIGINT NOT NULL AUTO_INCREMENT COMMENT "",
+  `citycode` BIGINT NOT NULL AUTO_INCREMENT(10000) COMMENT "",
   `userid` int(11) NOT NULL COMMENT "",
   `pv` int(11) NOT NULL COMMENT ""
 ) ENGINE=OLAP
@@ -160,13 +160,13 @@ PROPERTIES (
     sql """select citycode from ${table5} order by citycode"""
     sql "drop table if exists ${table5}"
 
-    def table_check = "test_dup_tab_auto_inc_col_check"
+    def table_check = "test_dup_tab_auto_inc_start_value_col_check"
     sql "drop table if exists ${table_check}"
 
     test {
         sql """
             CREATE TABLE IF NOT EXISTS `${table_check}` (
-              `id` BIGINT AUTO_INCREMENT COMMENT "",
+              `id` BIGINT AUTO_INCREMENT(10000) COMMENT "",
               `value` int(11) NOT NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
@@ -185,7 +185,7 @@ PROPERTIES (
     test {
         sql """
             CREATE TABLE IF NOT EXISTS `${table_check}` (
-              `id` VARCHAR NOT NULL AUTO_INCREMENT COMMENT "",
+              `id` VARCHAR NOT NULL AUTO_INCREMENT(10000) COMMENT "",
               `value` int(11) NOT NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
@@ -220,10 +220,29 @@ PROPERTIES (
     }
 
     sql "drop table if exists ${table_check}"
+    test {
+        sql """
+            CREATE TABLE IF NOT EXISTS `${table_check}` (
+              `id` BIGINT NOT NULL AUTO_INCREMENT(-1)  COMMENT "",
+              `value` int(11) NOT NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            )
+        """
+        exception "AUTO_INCREMENT start value can not be negative."
+    }
+
+    sql "drop table if exists ${table_check}"
     try {
         sql """
             CREATE TABLE IF NOT EXISTS `${table_check}` (
-              AUTO_INCREMENT BIGINT NOT NULL AUTO_INCREMENT COMMENT "",
+              AUTO_INCREMENT BIGINT NOT NULL AUTO_INCREMENT(100) COMMENT "",
               VALUE int(11) NOT NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(AUTO_INCREMENT)
