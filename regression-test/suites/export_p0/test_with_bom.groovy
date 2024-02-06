@@ -86,6 +86,13 @@ suite("test_with_bom", "p0") {
         }
     }
 
+    def check_bytes = { except_bytes, export_label -> 
+        def show_export_res = sql_return_maparray """ show export where label = "${export_label}"; """
+        def export_job = show_export_res[0]
+        def outfile_json = parseJson(export_job.OutfileInfo)
+        assertEquals(except_bytes, outfile_json[0][0].fileSize)
+    }
+
     // 1. exec export without bom
     def uuid = UUID.randomUUID().toString()
     def outFilePath = """${outfile_path_prefix}_${uuid}"""
@@ -115,8 +122,12 @@ suite("test_with_bom", "p0") {
                                     "region" = "${region}"
                                 ) ORDER BY c1;
                                 """
+
+        // check outfile bytes
+        check_bytes("145bytes", label)
     } finally {
     }
+
 
     // 2. exec export with bom
     uuid = UUID.randomUUID().toString()
@@ -148,6 +159,9 @@ suite("test_with_bom", "p0") {
                                     "region" = "${region}"
                                 ) ORDER BY c1;
                                 """
+
+        // check outfile bytes
+        check_bytes("148bytes", label)
     } finally {
     }
 
@@ -182,6 +196,9 @@ suite("test_with_bom", "p0") {
                                     "region" = "${region}"
                                 ) ORDER BY user_id;
                                 """
+
+        // check outfile bytes
+        check_bytes("161bytes", label)
     } finally {
     }
 
@@ -216,27 +233,9 @@ suite("test_with_bom", "p0") {
                                     "region" = "${region}"
                                 ) ORDER BY user_id;
                                 """
+
+        // check outfile bytes
+        check_bytes("172bytes", label)
     } finally {
     }
-
-    // test show export
-    def show_export_res = sql_return_maparray "show export;"
-    assertEquals(4, show_export_res.size())
-    
-    def export_job1 = show_export_res[0]
-    def outfile_json1 = parseJson(export_job1.OutfileInfo)
-    assertEquals("145bytes", outfile_json1[0][0].fileSize)
-
-
-    def export_job2 = show_export_res[1]
-    def outfile_json2 = parseJson(export_job2.OutfileInfo)
-    assertEquals("148bytes", outfile_json2[0][0].fileSize)
-
-    def export_job3 = show_export_res[2]
-    def outfile_json3 = parseJson(export_job3.OutfileInfo)
-    assertEquals("161bytes", outfile_json3[0][0].fileSize)
-
-    def export_job4 = show_export_res[3]
-    def outfile_json4 = parseJson(export_job4.OutfileInfo)
-    assertEquals("172bytes", outfile_json4[0][0].fileSize)
 }
