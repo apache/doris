@@ -316,12 +316,13 @@ public class PolicyMgr implements Writable {
             if (policy.matchPolicy(log)) {
                 if (policy instanceof StoragePolicy) {
                     ((StoragePolicy) policy).removeResourceReference();
+                    StoragePolicy storagePolicy = (StoragePolicy) policy;
+                    LOG.info("the policy {} with id {} resource {} has been dropped",
+                        storagePolicy.getPolicyName(), storagePolicy.getId(), storagePolicy.getStorageResource());
                 }
                 if (policy instanceof RowPolicy) {
                     dropTablePolicies((RowPolicy) policy);
                 }
-                LOG.info("the policy {} with id {} has been dropped", policy.getPolicyName(),
-                        policy.getId());
                 return true;
             }
             return false;
