@@ -1657,7 +1657,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputFragment;
     }
 
-    // Get top most PushDownToProjectionFunction from expression
+    // collect all valid PushDownToProjectionFunction from expression
     private List<Expression> getPushDownToProjectionFunctionForRewritten(NamedExpression expression) {
         List<Expression> targetExprList = expression.collectToList(PushDownToProjectionFunction.class::isInstance);
         return targetExprList.stream()
