@@ -150,7 +150,7 @@ public:
 
     vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
 
-    void set_task_group(taskgroup::TaskGroupPtr& tg);
+    Status set_task_group(taskgroup::TaskGroupPtr& tg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
