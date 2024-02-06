@@ -16,6 +16,15 @@
 // under the License.
 
 suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
+    def isCloudMode = {
+        def ret = sql_return_maparray  """show backends"""
+        ret.Tag[0].contains("cloud_cluster_namex")
+    }
+    def cloudMode = isCloudMode.call()
+    log.info("is cloud mode $cloudMode")
+    if (!cloudMode) {
+        return
+    }
     def role = "admin"
     def user1 = "regression_test_cloud_user1"
     def user2 = "regression_test_cloud_user2"
