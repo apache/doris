@@ -40,11 +40,17 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                                 partition(year=2021);
                             """
     def insert_str = """ insert into ${hive_database}.${hive_table} values(1,1,2020),(2,2,2021)"""
-
+    logger.info("hive sql: " + drop_table_str)
     hive_docker """ ${drop_table_str} """
+    logger.info("hive sql: " + drop_database_str)
     hive_docker """ ${drop_database_str} """
+    logger.info("hive sql: " + create_database_str)
     hive_docker """ ${create_database_str}"""
+    logger.info("hive sql: " + create_table_str)
     hive_docker """ ${create_table_str} """
+    logger.info("hive sql: " + add_partition_str)
+    hive_docker """ ${add_partition_str} """
+    logger.info("hive sql: " + insert_str)
     hive_docker """ ${insert_str} """
 
     String hms_port = context.config.otherConfigs.get("hms_port")
