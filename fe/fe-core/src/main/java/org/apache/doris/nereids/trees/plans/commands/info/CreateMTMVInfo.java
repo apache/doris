@@ -31,7 +31,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeNameFormat;
@@ -244,7 +243,7 @@ public class CreateMTMVInfo {
         }
         getRelation(planner);
         getColumns(plan);
-        analyzePartition(planner);
+        analyzePartition(planner, ctx);
     }
 
     private void getRelation(NereidsPlanner planner) {
@@ -267,7 +266,7 @@ public class CreateMTMVInfo {
         this.relation = MTMVPlanUtil.generateMTMVRelation(plan);
     }
 
-    private void analyzePartition(NereidsPlanner planner) {
+    private void analyzePartition(NereidsPlanner planner, ConnectContext ctx) {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
 
             CascadesContext cascadesContext = planner.getCascadesContext();
@@ -310,7 +309,7 @@ public class CreateMTMVInfo {
                 }
                 mvPartitionInfo.setRelatedTable(relatedTableInfo.get().getTableInfo());
                 mvPartitionInfo.setRelatedCol(relatedTableInfo.get().getColumn());
-                partitionDesc = generatePartitionDesc(mtmvBaseRealtedTable);
+                partitionDesc = generatePartitionDesc(mtmvBaseRealtedTable, ctx);
             } finally {
                 // after operate, roll back the disable rules
                 sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
@@ -319,7 +318,7 @@ public class CreateMTMVInfo {
         }
     }
 
-    private PartitionDesc generatePartitionDesc(MTMVRelatedTableIf relatedTable) {
+    private PartitionDesc generatePartitionDesc(MTMVRelatedTableIf relatedTable, ConnectContext ctx) {
         List<AllPartitionDesc> allPartitionDescs = null;
         try {
             allPartitionDescs = MTMVPartitionUtil
@@ -327,12 +326,12 @@ public class CreateMTMVInfo {
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException("getPartitionDescsByRelatedTable failed", e);
         }
-        if (allPartitionDescs.size() > Config.create_table_partition_max_num) {
+        if (allPartitionDescs.size() > ctx.getSessionVariable().getCreateTablePartitionMaxNum()) {
             throw new AnalysisException(String.format(
                     "The number of partitions to be created is [%s], exceeding the maximum value of [%s]. "
                             + "Creating too many partitions can be time-consuming. If necessary, "
-                            + "you can modify the configuration item 'create_table_partition_max_num' in FE.",
-                    allPartitionDescs.size(), Config.create_table_partition_max_num));
+                            + "You can set the session variable 'create_table_partition_max_num' to a larger value.",
+                    allPartitionDescs.size(), ctx.getSessionVariable().getCreateTablePartitionMaxNum()));
         }
         try {
             PartitionType type = relatedTable.getPartitionType();

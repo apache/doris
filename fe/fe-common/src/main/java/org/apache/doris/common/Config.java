@@ -1636,10 +1636,6 @@ public class Config extends ConfigBase {
     public static boolean enable_job_schedule_second_for_test = false;
 
     /*---------------------- JOB CONFIG END------------------------*/
-    @ConfField(description = {"建表时创建分区的最大数量",
-            "The maximum number of partitions created during table creation."})
-    public static int create_table_partition_max_num = 10000;
-
     /**
      * The number of async tasks that can be queued. @See TaskDisruptor
      * if consumer is slow, the queue will be full, and the producer will be blocked.
