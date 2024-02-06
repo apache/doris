@@ -297,6 +297,7 @@ public class LoadStatisticForTag {
         double avgDiskUsage = totalDiskUsages / totalDiskNum;
         double urgentDiskUsage = avgDiskUsage + urgentDiffUsageThreshold;
 
+        boolean hasHighDisk = false;
         for (BackendLoadStatistic beStat : getBackendLoadStatistics()) {
             if (!beStat.isAvailable()) {
                 continue;
@@ -306,11 +307,20 @@ public class LoadStatisticForTag {
                     double usage = pathStat.getUsedPercent();
                     if (usage > urgentDiskUsage) {
                         pathStat.setGlobalClazz(Classification.HIGH);
+                        hasHighDisk = true;
                     } else if (usage > avgDiskUsage) {
                         pathStat.setGlobalClazz(Classification.MID);
                     } else {
                         pathStat.setGlobalClazz(Classification.LOW);
                     }
+                }
+            }
+        }
+
+        if (!hasHighDisk) {
+            for (BackendLoadStatistic beStat : getBackendLoadStatistics()) {
+                for (RootPathLoadStatistic pathStat : beStat.getAvailPaths(medium)) {
+                    pathStat.setGlobalClazz(Classification.MID);
                 }
             }
         }
