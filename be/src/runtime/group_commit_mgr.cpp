@@ -154,7 +154,7 @@ void LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
     }
 }
 
-void LoadBlockQueue::remote_pre_allocated() {
+void LoadBlockQueue::remove_pre_allocated() {
     if (!_is_pre_allocated_removed) {
         std::string wal_path;
         Status st = ExecEnv::GetInstance()->wal_mgr()->get_wal_path(txn_id, wal_path);

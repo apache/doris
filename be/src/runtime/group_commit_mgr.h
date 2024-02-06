@@ -73,7 +73,7 @@ public:
     Status close_wal();
     bool has_enough_wal_disk_space(size_t pre_allocated);
     size_t block_queue_pre_allocated() { return _block_queue_pre_allocated.load(); }
-    void remote_pre_allocated();
+    void remove_pre_allocated();
 
     UniqueId load_instance_id;
     std::string label;
