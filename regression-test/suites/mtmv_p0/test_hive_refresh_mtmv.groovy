@@ -21,7 +21,8 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
         logger.info("diable Hive test.")
         return;
     }
-     def hive_database = "mtmv_test_db"
+    // prepare data in hive
+    def hive_database = "mtmv_test_db"
     def hive_table = "test_hive_refresh_mtmv_t1"
 
     def drop_table_str = """ drop table if exists ${hive_database}.${hive_table} """
@@ -52,6 +53,8 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
     logger.info("hive sql: " + insert_str)
     hive_docker """ ${insert_str} """
 
+
+    // prepare catalog
     String hms_port = context.config.otherConfigs.get("hms_port")
     String catalog_name = "hive_test_mtmv"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -64,6 +67,8 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
 
     order_qt_test "SELECT * FROM ${catalog_name}.${hive_database}.${hive_table}"
 
+
+    // prepare mtmv
     def mvName = "test_hive_refresh_mtmv"
     def dbName = "regression_test_mtmv_p0"
     sql """drop materialized view if exists ${mvName};"""
@@ -86,6 +91,54 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
         """
     def jobName = getJobName(dbName, mvName);
     waitingMTMVTaskFinished(jobName)
-    order_qt_refresh_complete "SELECT * FROM ${mvName} order by user_id"
+    order_qt_mtmv_1 "SELECT * FROM ${mvName} order by user_id"
+
+    // hive data change
+    logger.info("hive sql: " + insert_str)
+    hive_docker """ ${insert_str} """
+    sql """
+            REFRESH catalog ${catalog_name}
+        """
+     sql """
+         REFRESH MATERIALIZED VIEW ${mvName} complete
+     """
+     waitingMTMVTaskFinished(jobName)
+     order_qt_mtmv_2 "SELECT * FROM ${mvName} order by user_id"
+
+     // hive add partition
+      def add_partition2021_str = """
+                                     alter table ${hive_database}.${hive_table} add if not exists
+                                     partition(year=2021);
+                                 """
+     logger.info("hive sql: " + add_partition2021_str)
+     hive_docker """ ${add_partition2021_str} """
+     sql """
+             REFRESH catalog ${catalog_name}
+         """
+      sql """
+          REFRESH MATERIALIZED VIEW ${mvName} complete
+      """
+      showPartitionsResult = sql """show partitions from ${mvName}"""
+      logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+      assertTrue(showPartitionsResult.toString().contains("p_2020"))
+      assertTrue(showPartitionsResult.toString().contains("p_2021"))
+
+      // hive drop partition
+      def drop_partition2021_str = """
+                                           alter table ${hive_database}.${hive_table} drop if exists
+                                           partition(year=2021);
+                                       """
+       logger.info("hive sql: " + drop_partition2021_str)
+       hive_docker """ ${drop_partition2021_str} """
+       sql """
+               REFRESH catalog ${catalog_name}
+           """
+        sql """
+            REFRESH MATERIALIZED VIEW ${mvName} complete
+        """
+        showPartitionsResult = sql """show partitions from ${mvName}"""
+        logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+        assertTrue(showPartitionsResult.toString().contains("p_2020"))
+        assertFalse(showPartitionsResult.toString().contains("p_2021"))
 }
 
