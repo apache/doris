@@ -31,9 +31,15 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                                     user_id INT,
                                     num INT
                                 )
+                                partitioned by(year int )
                                 STORED AS ORC;
                             """
-    def insert_str = """ insert into ${hive_database}.${hive_table} values(1,1),(2,2)"""
+    def add_partition_str = """
+                                alter table ${hive_database}.${hive_table} add if not exists
+                                partition(year=2020)
+                                partition(year=2021);
+                            """
+    def insert_str = """ insert into ${hive_database}.${hive_table} values(1,1,2020),(2,2,2021)"""
 
     hive_docker """ ${drop_table_str} """
     hive_docker """ ${drop_database_str} """
@@ -52,5 +58,30 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
     );"""
 
     order_qt_test "SELECT * FROM ${catalog_name}.${hive_database}.${hive_table}"
+
+    def mvName = "test_hive_refresh_mtmv"
+    def dbName = "regression_test_mtmv_p0"
+    sql """drop materialized view if exists ${mvName};"""
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`year`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalog_name}.${hive_database}.${hive_table};
+        """
+    def showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertTrue(showPartitionsResult.toString().contains("p_2020"))
+    assertTrue(showPartitionsResult.toString().contains("p_2021"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} complete
+        """
+    def jobName = getJobName(dbName, mvName);
+    waitingMTMVTaskFinished(jobName)
+    order_qt_refresh_complete "SELECT * FROM ${mvName} order by user_id"
 }
 
