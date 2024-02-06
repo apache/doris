@@ -318,7 +318,7 @@ public class PolicyMgr implements Writable {
                     ((StoragePolicy) policy).removeResourceReference();
                     StoragePolicy storagePolicy = (StoragePolicy) policy;
                     LOG.info("the policy {} with id {} resource {} has been dropped",
-                        storagePolicy.getPolicyName(), storagePolicy.getId(), storagePolicy.getStorageResource());
+                            storagePolicy.getPolicyName(), storagePolicy.getId(), storagePolicy.getStorageResource());
                 }
                 if (policy instanceof RowPolicy) {
                     dropTablePolicies((RowPolicy) policy);
