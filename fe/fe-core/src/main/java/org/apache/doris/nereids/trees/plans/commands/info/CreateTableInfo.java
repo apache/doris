@@ -814,7 +814,7 @@ public class CreateTableInfo {
                             : null;
 
             int createTablePartitionMaxNum = ConnectContext.get().getSessionVariable().getCreateTablePartitionMaxNum();
-            if (partitionDescs.size() > createTablePartitionMaxNum) {
+            if (partitionDescs != null && partitionDescs.size() > createTablePartitionMaxNum) {
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(String.format(
                         "The number of partitions to be created is [%s], exceeding the maximum value of [%s]. "
                                 + "Creating too many partitions can be time-consuming. If necessary, "
