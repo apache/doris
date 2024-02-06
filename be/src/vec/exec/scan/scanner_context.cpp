@@ -196,9 +196,11 @@ void ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
 }
 
 void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) {
-    Status st = validate_block_schema(scan_task->current_block.get());
-    if (!st.ok()) {
-        scan_task->set_status(st);
+    if (scan_task->status_ok() && scan_task->current_block->rows() > 0) {
+        Status st = validate_block_schema(scan_task->current_block.get());
+        if (!st.ok()) {
+            scan_task->set_status(st);
+        }
     }
     // We can only know the block size after reading at least one block
     // Just take the size of first block as `_estimated_block_size`
@@ -403,12 +405,9 @@ Status ScannerContext::validate_block_schema(Block* block) {
 }
 
 void ScannerContext::set_status_on_error(const Status& status) {
-    {
-        std::lock_guard<std::mutex> l(_transfer_lock);
-        _process_status = status;
-        _blocks_queue_added_cv.notify_one();
-    }
-    stop_scanners(_state);
+    std::lock_guard<std::mutex> l(_transfer_lock);
+    _process_status = status;
+    _blocks_queue_added_cv.notify_one();
 }
 
 void ScannerContext::stop_scanners(RuntimeState* state) {
