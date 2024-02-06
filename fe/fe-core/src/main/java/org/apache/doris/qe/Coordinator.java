@@ -571,7 +571,7 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private void processFragmentAssignmentAndParams() throws Exception {
+    protected void processFragmentAssignmentAndParams() throws Exception {
         // prepare information
         prepare();
         // compute Fragment Instance

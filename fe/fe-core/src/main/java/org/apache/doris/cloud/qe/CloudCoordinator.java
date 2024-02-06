@@ -79,4 +79,15 @@ public class CloudCoordinator extends Coordinator {
         this.idToBackend = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudIdToBackend(cluster);
         super.prepare();
     }
+
+    protected void processFragmentAssignmentAndParams() throws Exception {
+        super.processFragmentAssignmentAndParams();
+        if (idToBackend == null || idToBackend.isEmpty()) {
+            LOG.warn("no available backends, idToBackend {}", idToBackend);
+            String clusterName = ConnectContext.get() != null
+                    ? ConnectContext.get().getCloudCluster() : "ctx empty cant get clusterName";
+            throw new Exception("no available backends, the cluster maybe not be set or been dropped clusterName = "
+                + clusterName);
+        }
+    }
 }

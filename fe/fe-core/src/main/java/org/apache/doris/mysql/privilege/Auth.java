@@ -448,21 +448,20 @@ public class Auth implements Writable {
     // create user
     public void createUser(CreateUserStmt stmt) throws DdlException {
         createUserInternal(stmt.getUserIdent(), stmt.getQualifiedRole(),
-                stmt.getPassword(), stmt.isIfNotExist(), stmt.getPasswordOptions(), false, stmt.getUserId());
+                stmt.getPassword(), stmt.isIfNotExist(), stmt.getPasswordOptions(), false);
     }
 
     public void replayCreateUser(PrivInfo privInfo) {
         try {
             createUserInternal(privInfo.getUserIdent(), privInfo.getRole(), privInfo.getPasswd(), false,
-                    privInfo.getPasswordOptions(), true, privInfo.getUserId());
+                    privInfo.getPasswordOptions(), true);
         } catch (DdlException e) {
             LOG.error("should not happen", e);
         }
     }
 
     private void createUserInternal(UserIdentity userIdent, String roleName, byte[] password,
-            boolean ignoreIfExists, PasswordOptions passwordOptions, boolean isReplay,
-                                    String userId) throws DdlException {
+            boolean ignoreIfExists, PasswordOptions passwordOptions, boolean isReplay) throws DdlException {
         writeLock();
         try {
             // check if role exist
@@ -486,10 +485,7 @@ public class Auth implements Writable {
             // create user
             try {
                 // we should not throw AnalysisException at here,so transfer it
-                User user = userManager.createUser(userIdent, password, null, false);
-                if (Strings.isNullOrEmpty(user.getUserId())) {
-                    user.setUserId(userId);
-                }
+                userManager.createUser(userIdent, password, null, false);
             } catch (PatternMatcherException e) {
                 throw new DdlException("create user failed,", e);
             }
@@ -511,8 +507,7 @@ public class Auth implements Writable {
             passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);
 
             if (!isReplay) {
-                LOG.debug("userId {} userName {}", userId, userIdent.getQualifiedUser());
-                PrivInfo privInfo = new PrivInfo(userIdent, null, password, roleName, passwordOptions, userId);
+                PrivInfo privInfo = new PrivInfo(userIdent, null, password, roleName, passwordOptions);
                 Env.getCurrentEnv().getEditLog().logCreateUser(privInfo);
             }
             LOG.info("finished to create user: {}, is replay: {}", userIdent, isReplay);
@@ -874,9 +869,7 @@ public class Auth implements Writable {
             }
 
             if (!isReplay) {
-                String userId = getUserId(userIdent.getQualifiedUser());
-                LOG.debug("get userId {} userName {}", userId, userIdent.getQualifiedUser());
-                PrivInfo info = new PrivInfo(userIdent, null, password, null, null, userId);
+                PrivInfo info = new PrivInfo(userIdent, null, password, null, null);
                 Env.getCurrentEnv().getEditLog().logSetPassword(info);
             }
         } finally {
@@ -928,7 +921,7 @@ public class Auth implements Writable {
             roleManager.addOrMergeRole(emptyPrivsRole, true /* err on exist */);
 
             if (!isReplay) {
-                PrivInfo info = new PrivInfo(null, null, null, role, null, null);
+                PrivInfo info = new PrivInfo(null, null, null, role, null);
                 Env.getCurrentEnv().getEditLog().logCreateRole(info);
             }
         } finally {
@@ -961,7 +954,7 @@ public class Auth implements Writable {
             roleManager.dropRole(role, true /* err on non exist */);
             userRoleManager.dropRole(role);
             if (!isReplay) {
-                PrivInfo info = new PrivInfo(null, null, null, role, null, null);
+                PrivInfo info = new PrivInfo(null, null, null, role, null);
                 Env.getCurrentEnv().getEditLog().logDropRole(info);
             }
         } finally {
@@ -1376,11 +1369,11 @@ public class Auth implements Writable {
             UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
             rootUser.setIsAnalyzed();
             createUserInternal(rootUser, Role.OPERATOR_ROLE, new byte[0],
-                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */, ROOT_USER);
+                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
             UserIdentity adminUser = new UserIdentity(ADMIN_USER, "%");
             adminUser.setIsAnalyzed();
             createUserInternal(adminUser, Role.ADMIN_ROLE, new byte[0],
-                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */, ADMIN_USER);
+                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
         } catch (DdlException e) {
             LOG.error("should not happened", e);
         }
@@ -1832,10 +1825,6 @@ public class Auth implements Writable {
 
     public Set<String> getAllUsers() {
         return userManager.getAllUsers();
-    }
-
-    public String getUserId(String userName) {
-        return userManager.getUserId(userName);
     }
 
     // just for ut

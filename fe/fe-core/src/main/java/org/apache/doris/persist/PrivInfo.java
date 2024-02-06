@@ -73,7 +73,7 @@ public class PrivInfo implements Writable, GsonPostProcessable {
 
     // For create user/set password/create role/drop role
     public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
-            PasswordOptions passwordOptions, String userId) {
+            PasswordOptions passwordOptions) {
         this.userIdent = userIdent;
         this.tblPattern = null;
         this.resourcePattern = null;
@@ -81,7 +81,6 @@ public class PrivInfo implements Writable, GsonPostProcessable {
         this.passwd = passwd;
         this.role = role;
         this.passwordOptions = passwordOptions;
-        this.userId = userId;
     }
 
     // For grant/revoke
