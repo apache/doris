@@ -20,6 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.PrivBitSet;
@@ -35,6 +37,7 @@ import org.apache.commons.collections.MapUtils;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 // REVOKE STMT
 // revoke privilege from some user, this is an administrator operation.
@@ -165,6 +168,10 @@ public class RevokeStmt extends DdlStmt {
             GrantStmt.checkWorkloadGroupPrivileges(privileges, workloadGroupPattern);
         } else if (roles != null) {
             GrantStmt.checkRolePrivileges();
+            if (roles.stream().map(String::toLowerCase).collect(Collectors.toList()).contains("admin")
+                    && userIdent.isAdminUser()) {
+                ErrorReport.reportAnalysisException("Unsupported operation");
+            }
         }
     }
 
