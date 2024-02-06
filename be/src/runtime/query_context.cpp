@@ -203,7 +203,7 @@ ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
     }
 }
 
-void QueryContext::set_task_group(taskgroup::TaskGroupPtr& tg) {
+Status QueryContext::set_task_group(taskgroup::TaskGroupPtr& tg) {
     _task_group = tg;
     // Should add query first, then the task group will not be deleted.
     // see task_group_manager::delete_task_group_by_ids
