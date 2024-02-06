@@ -154,6 +154,25 @@ void LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
     }
 }
 
+void LoadBlockQueue::remote_pre_allocated() {
+    if (!_is_pre_allocated_removed) {
+        std::string wal_path;
+        Status st = ExecEnv::GetInstance()->wal_mgr()->get_wal_path(txn_id, wal_path);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to get wal path in remove pre allocated, reason: "
+                         << st.to_string();
+            return;
+        }
+        st = ExecEnv::GetInstance()->wal_mgr()->update_wal_dir_pre_allocated(
+                WalManager::get_base_wal_path(wal_path), 0, block_queue_pre_allocated());
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to remove pre allocated, reason: " << st.to_string();
+            return;
+        }
+        _is_pre_allocated_removed = true;
+    }
+};
+
 Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
     std::unique_lock l(mutex);
     if (_need_commit) {
@@ -411,9 +430,6 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         std::string wal_path;
         RETURN_IF_ERROR(_exec_env->wal_mgr()->get_wal_path(txn_id, wal_path));
         RETURN_IF_ERROR(_exec_env->wal_mgr()->add_recover_wal(db_id, table_id, txn_id, wal_path));
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->update_wal_dir_pre_allocated(
-                WalManager::get_base_wal_path(wal_path), 0,
-                load_block_queue->block_queue_pre_allocated()));
     }
     std::stringstream ss;
     ss << "finish group commit, db_id=" << db_id << ", table_id=" << table_id << ", label=" << label

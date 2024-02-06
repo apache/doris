@@ -505,8 +505,6 @@ Status WalManager::delete_wal(int64_t table_id, int64_t wal_id, size_t block_que
         }
     }
     erase_wal_queue(table_id, wal_id);
-    RETURN_IF_ERROR(update_wal_dir_pre_allocated(get_base_wal_path(wal_path), 0,
-                                                 block_queue_pre_allocated));
     return Status::OK();
 }
 

@@ -73,6 +73,7 @@ public:
     Status close_wal();
     bool has_enough_wal_disk_space(size_t pre_allocated);
     size_t block_queue_pre_allocated() { return _block_queue_pre_allocated.load(); }
+    void remote_pre_allocated();
 
     UniqueId load_instance_id;
     std::string label;
@@ -111,6 +112,7 @@ private:
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;
+    bool _is_pre_allocated_removed = false;
     static constexpr size_t MEM_BACK_PRESSURE_WAIT_TIME = 1000;      // 1s
     static constexpr size_t MEM_BACK_PRESSURE_WAIT_TIMEOUT = 120000; // 120s
 };
