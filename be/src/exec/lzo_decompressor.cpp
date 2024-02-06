@@ -33,7 +33,6 @@ uint64_t lzoDecompress(const char* inputAddress, const char* inputLimit, char* o
                        char* outputLimit);
 } // namespace orc
 
-
 namespace doris {
 
 // Lzop

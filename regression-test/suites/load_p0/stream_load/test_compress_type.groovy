@@ -21,7 +21,6 @@ suite("test_stream_load_compress_type", "load_p0") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
     // GZ/LZO/BZ2/LZ4FRAME/LZOP
     sql new File("""${context.file.parent}/ddl/${tableName}.sql""").text
-    // sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
 
     streamLoad {
         table "${tableName}"
