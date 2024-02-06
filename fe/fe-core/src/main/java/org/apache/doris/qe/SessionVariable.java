@@ -95,7 +95,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String COLLATION_CONNECTION = "collation_connection";
     public static final String COLLATION_DATABASE = "collation_database";
     public static final String COLLATION_SERVER = "collation_server";
-    public static final String SQL_AUTO_IS_NULL = "SQL_AUTO_IS_NULL";
+    public static final String SQL_AUTO_IS_NULL = "sql_auto_is_null";
     public static final String SQL_SELECT_LIMIT = "sql_select_limit";
     public static final String MAX_ALLOWED_PACKET = "max_allowed_packet";
     public static final String AUTO_INCREMENT_INCREMENT = "auto_increment_increment";
@@ -272,6 +272,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
+    public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
     public static final String ENABLE_NEREIDS_TIMEOUT = "enable_nereids_timeout";
@@ -1057,7 +1058,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
 
-    @VariableMgr.VarAttr(name = "ENABLE_NEREIDS_RULES", needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true)
     public String enableNereidsRules = "";
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
