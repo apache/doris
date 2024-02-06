@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.junit.Assert;
+
 suite("test_partition_limit_mtmv") {
     def tableNameNum = "t_test_partition_limit_mtmv_user_num"
     def mvName = "test_partition_limit_mtmv"
@@ -52,6 +54,21 @@ suite("test_partition_limit_mtmv") {
     } catch (Exception e) {
         log.info(e.getMessage())
     }
+    sql """ set create_table_partition_max_num=10;"""
+    try {
+            sql """
+                CREATE MATERIALIZED VIEW ${mvName}
+                    BUILD DEFERRED REFRESH AUTO ON MANUAL
+                    partition by(`date`)
+                    DISTRIBUTED BY RANDOM BUCKETS 2
+                    PROPERTIES ('replication_num' = '1')
+                    AS
+                    SELECT * FROM ${tableNameNum};
+            """
+        } catch (Exception e) {
+            log.info(e.getMessage())
+            Assert.fail();
+        }
     sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
 
