@@ -38,6 +38,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -91,7 +92,9 @@ public class MTMVPartitionUtil {
         Map<Long, PartitionItem> relatedTableItems = relatedTable.getPartitionItems();
         Map<Long, PartitionItem> mtmvItems = mtmv.getPartitionItems();
         // drop partition of mtmv
-        for (Entry<Long, PartitionItem> entry : mtmvItems.entrySet()) {
+        Iterator<Entry<Long, PartitionItem>> iterator = mtmvItems.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Entry<Long, PartitionItem> entry = iterator.next();
             long partitionId = getExistPartitionId(entry.getValue(), relatedTableItems);
             if (partitionId == -1L) {
                 dropPartition(mtmv, entry.getKey());

@@ -80,7 +80,7 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${catalog_name}.${hive_database}.${hive_table};
+            SELECT user_id,num,year FROM ${catalog_name}.${hive_database}.${hive_table};
         """
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
@@ -142,5 +142,37 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
         assertTrue(showPartitionsResult.toString().contains("p_2020"))
         assertFalse(showPartitionsResult.toString().contains("p_2021"))
+
+        // hive rename column name
+          def rename_column_str = """
+                                               alter table ${hive_database}.${hive_table} RENAME COLUMN num
+                                               to num1;
+                                           """
+           logger.info("hive sql: " + rename_column_str)
+           hive_docker """ ${rename_column_str} """
+           sql """
+                   REFRESH catalog ${catalog_name}
+               """
+            sql """
+                REFRESH MATERIALIZED VIEW ${mvName} complete
+            """
+            waitingMTMVTaskFinishedNotNeedSuccess(jobName)
+           order_qt_task_error "select * from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"
+
+        // hive recover column name
+      def recover_column_str = """
+                                           alter table ${hive_database}.${hive_table} RENAME COLUMN num
+                                           to num1;
+                                       """
+       logger.info("hive sql: " + recover_column_str)
+       hive_docker """ ${recover_column_str} """
+       sql """
+               REFRESH catalog ${catalog_name}
+           """
+        sql """
+            REFRESH MATERIALIZED VIEW ${mvName} complete
+        """
+       waitingMTMVTaskFinishedNotNeedSuccess(jobName)
+       order_qt_task_recover "select * from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"
 }
 
