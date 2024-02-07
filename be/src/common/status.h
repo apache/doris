@@ -495,7 +495,7 @@ public:
 
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
-    std::string msg() const { return _err_msg ? _err_msg->_msg : ""; }
+    std::string_view msg() const { return _err_msg ? _err_msg->_msg : std::string_view(""); }
 
 private:
     int _code;

@@ -100,7 +100,6 @@ protected:
         // So we must do this before storage engine's other operation.
         exec_env->set_storage_engine(std::move(engine));
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-        static_cast<void>(_engine_ref->start_bg_threads());
     }
 
     void TearDown() override {
