@@ -812,6 +812,17 @@ public class CreateTableInfo {
                             ? partitions.stream().map(PartitionDefinition::translateToCatalogStyle)
                                     .collect(Collectors.toList())
                             : null;
+
+            int createTablePartitionMaxNum = ConnectContext.get().getSessionVariable().getCreateTablePartitionMaxNum();
+            if (partitionDescs != null && partitionDescs.size() > createTablePartitionMaxNum) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(String.format(
+                        "The number of partitions to be created is [%s], exceeding the maximum value of [%s]. "
+                                + "Creating too many partitions can be time-consuming. If necessary, "
+                                + "You can set the session variable 'create_table_partition_max_num' "
+                                + "to a larger value.",
+                        partitionDescs.size(), createTablePartitionMaxNum));
+            }
+
             try {
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
