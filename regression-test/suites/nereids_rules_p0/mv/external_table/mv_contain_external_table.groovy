@@ -64,9 +64,6 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     hive_docker """ ${drop_database_str} """
     hive_docker """ ${create_database_str}"""
     hive_docker """ ${create_table_str} """
-
-    logger.info("=========================create partition================================")
-
     hive_docker """ ${add_partition_1_str} """
     hive_docker """ ${add_partition_2_str} """
     hive_docker """ ${add_partition_3_str} """
@@ -137,7 +134,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     """
 
     def query_sql = """
-            select l_orderkey, l_partkey, o_custkey
+            select l_orderkey, l_partkey, o_custkey, l_shipdate
             from lineitem
             left join ${catalog_name}.${hive_database}.${hive_table} on l_orderkey = o_orderkey;
     """
@@ -203,7 +200,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
         sql(""" ${query_sql}""")
         contains("${mv_name}(${mv_name})")
     }
-    order_qt_query_rewritten_with_old_data_after_add_partiton """ ${query_sql}"""
+    order_qt_query_rewritten_with_old_data_after_add_partition """ ${query_sql}"""
 
     sql """REFRESH catalog ${catalog_name}"""
     sql """REFRESH MATERIALIZED VIEW ${mv_name} complete"""
