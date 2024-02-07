@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
@@ -93,6 +94,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(BitmapUnionInt.class, "bitmap_union_int"),
             agg(CollectList.class, "collect_list", "group_array"),
             agg(CollectSet.class, "collect_set", "group_uniq_array"),
+            agg(Corr.class, "corr"),
             agg(Count.class, "count"),
             agg(CountByEnum.class, "count_by_enum"),
             agg(GroupBitAnd.class, "group_bit_and"),
