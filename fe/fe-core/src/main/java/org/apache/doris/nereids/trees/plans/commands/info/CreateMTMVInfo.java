@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.CreateMTMVStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.ListPartitionDesc;
@@ -37,6 +38,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -241,7 +243,7 @@ public class CreateMTMVInfo {
         }
         getRelation(planner);
         getColumns(plan);
-        analyzePartition(planner);
+        analyzePartition(planner, ctx);
     }
 
     private void getRelation(NereidsPlanner planner) {
@@ -264,7 +266,7 @@ public class CreateMTMVInfo {
         this.relation = MTMVPlanUtil.generateMTMVRelation(plan);
     }
 
-    private void analyzePartition(NereidsPlanner planner) {
+    private void analyzePartition(NereidsPlanner planner, ConnectContext ctx) {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
 
             CascadesContext cascadesContext = planner.getCascadesContext();
@@ -307,7 +309,7 @@ public class CreateMTMVInfo {
                 }
                 mvPartitionInfo.setRelatedTable(relatedTableInfo.get().getTableInfo());
                 mvPartitionInfo.setRelatedCol(relatedTableInfo.get().getColumn());
-                partitionDesc = generatePartitionDesc(mtmvBaseRealtedTable);
+                partitionDesc = generatePartitionDesc(mtmvBaseRealtedTable, ctx);
             } finally {
                 // after operate, roll back the disable rules
                 sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
@@ -316,15 +318,29 @@ public class CreateMTMVInfo {
         }
     }
 
-    private PartitionDesc generatePartitionDesc(MTMVRelatedTableIf relatedTable) {
+    private PartitionDesc generatePartitionDesc(MTMVRelatedTableIf relatedTable, ConnectContext ctx) {
+        List<AllPartitionDesc> allPartitionDescs = null;
+        try {
+            allPartitionDescs = MTMVPartitionUtil
+                    .getPartitionDescsByRelatedTable(relatedTable, properties);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException("getPartitionDescsByRelatedTable failed", e);
+        }
+        if (allPartitionDescs.size() > ctx.getSessionVariable().getCreateTablePartitionMaxNum()) {
+            throw new AnalysisException(String.format(
+                    "The number of partitions to be created is [%s], exceeding the maximum value of [%s]. "
+                            + "Creating too many partitions can be time-consuming. If necessary, "
+                            + "You can set the session variable 'create_table_partition_max_num' to a larger value.",
+                    allPartitionDescs.size(), ctx.getSessionVariable().getCreateTablePartitionMaxNum()));
+        }
         try {
             PartitionType type = relatedTable.getPartitionType();
             if (type == PartitionType.RANGE) {
                 return new RangePartitionDesc(Lists.newArrayList(mvPartitionInfo.getPartitionCol()),
-                        Lists.newArrayList());
+                        allPartitionDescs);
             } else if (type == PartitionType.LIST) {
                 return new ListPartitionDesc(Lists.newArrayList(mvPartitionInfo.getPartitionCol()),
-                        Lists.newArrayList());
+                        allPartitionDescs);
             } else {
                 return null;
             }

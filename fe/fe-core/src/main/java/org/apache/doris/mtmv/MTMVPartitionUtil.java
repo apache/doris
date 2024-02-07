@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
@@ -38,6 +39,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -104,6 +106,31 @@ public class MTMVPartitionUtil {
                 addPartition(mtmv, entry.getValue());
             }
         }
+    }
+
+    /**
+     * getPartitionDescsByRelatedTable when create MTMV
+     *
+     * @param relatedTable
+     * @param tableProperties
+     * @return
+     * @throws AnalysisException
+     */
+    public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(MTMVRelatedTableIf relatedTable,
+            Map<String, String> tableProperties) throws AnalysisException {
+        HashMap<String, String> partitionProperties = Maps.newHashMap();
+        List<AllPartitionDesc> res = Lists.newArrayList();
+        Map<Long, PartitionItem> relatedTableItems = relatedTable.getPartitionItems();
+        for (Entry<Long, PartitionItem> entry : relatedTableItems.entrySet()) {
+            PartitionKeyDesc oldPartitionKeyDesc = entry.getValue().toPartitionKeyDesc();
+            SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
+                    generatePartitionName(oldPartitionKeyDesc),
+                    oldPartitionKeyDesc, partitionProperties);
+            // mtmv can only has one partition col
+            singlePartitionDesc.analyze(1, tableProperties);
+            res.add(singlePartitionDesc);
+        }
+        return res;
     }
 
     public static List<String> getPartitionNamesByIds(MTMV mtmv, Collection<Long> ids) throws AnalysisException {
