@@ -488,6 +488,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
             = "materialized_view_rewrite_enable_contain_external_table";
 
+    public static final String CREATE_TABLE_PARTITION_MAX_NUM
+            = "create_table_partition_max_num";
+
     public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
 
     public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
@@ -1538,6 +1541,11 @@ public class SessionVariable implements Serializable, Writable {
                     "whether to use a materialized view that contains the foreign table "
                             + "when using rewriting based on struct info"})
     public boolean materializedViewRewriteEnableContainExternalTable = false;
+
+    @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
+            description = {"建表时创建分区的最大数量",
+                    "The maximum number of partitions created during table creation"})
+    public int createTablePartitionMaxNum = 10000;
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
@@ -3291,6 +3299,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isMaterializedViewRewriteEnableContainExternalTable() {
         return materializedViewRewriteEnableContainExternalTable;
+    }
+
+    public int getCreateTablePartitionMaxNum() {
+        return createTablePartitionMaxNum;
     }
 
     public boolean isIgnoreStorageDataDistribution() {
