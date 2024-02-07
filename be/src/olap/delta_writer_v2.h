@@ -62,6 +62,8 @@ class Block;
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriterV2 {
+    ENABLE_FACTORY_CREATOR(DeltaWriterV2);
+
 public:
     static std::unique_ptr<DeltaWriterV2> open(
             WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
