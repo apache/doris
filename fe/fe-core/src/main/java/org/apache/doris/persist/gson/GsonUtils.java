@@ -68,6 +68,7 @@ import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalTable;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.EsExternalCatalog;
@@ -307,6 +308,13 @@ public class GsonUtils {
             .registerSubtype(Partition.class, Partition.class.getSimpleName())
             .registerSubtype(CloudPartition.class, CloudPartition.class.getSimpleName());
 
+    // runtime adapter for class "CloudInternalCatalog".
+    private static RuntimeTypeAdapterFactory<InternalCatalog> internalCatalogTypeAdapterFactory =
+            RuntimeTypeAdapterFactory.of(InternalCatalog.class, "clazz")
+            .registerDefaultSubtype(InternalCatalog.class)
+            .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
+            .registerSubtype(CloudInternalCatalog.class, CloudInternalCatalog.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
@@ -325,6 +333,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
             .registerTypeAdapterFactory(replicaTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionTypeAdapterFactory)
+            .registerTypeAdapterFactory(internalCatalogTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
