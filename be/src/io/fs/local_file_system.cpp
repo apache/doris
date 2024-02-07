@@ -183,23 +183,29 @@ Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<F
         return Status::OK();
     }
     std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-        if (only_file && !entry.is_regular_file()) {
-            continue;
-        }
-        FileInfo file_info;
-        file_info.file_name = entry.path().filename();
-        file_info.is_file = entry.is_regular_file(ec);
-        if (ec) {
-            break;
-        }
-        if (file_info.is_file) {
-            file_info.file_size = entry.file_size(ec);
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+            if (only_file && !entry.is_regular_file()) {
+                continue;
+            }
+            FileInfo file_info;
+            file_info.file_name = entry.path().filename();
+            file_info.is_file = entry.is_regular_file(ec);
             if (ec) {
                 break;
             }
+            if (file_info.is_file) {
+                file_info.file_size = entry.file_size(ec);
+                if (ec) {
+                    break;
+                }
+            }
+            files->push_back(std::move(file_info));
         }
-        files->push_back(std::move(file_info));
+    } catch (const std::filesystem::filesystem_error& e) {
+        // although `directory_iterator(dir, ec)` does not throw an exception,
+        // it may throw an exception during iterator++, so we need to catch the exception here
+        return Status::IOError("failed to list {}: {}", dir.native(), e.what());
     }
     if (ec) {
         return Status::IOError("failed to list {}: {}", dir.native(), errcode_to_str(ec));
