@@ -74,6 +74,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
+    public static final String NUM_SCANNER_THREADS = "num_scanner_threads";
+    public static final String SCANNER_SCALE_UP_RATIO = "scanner_scale_up_ratio";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String ANALYZE_TIMEOUT = "analyze_timeout";
 
@@ -552,6 +554,20 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT)
     public long maxScanQueueMemByte = 2147483648L / 20;
+
+    @VariableMgr.VarAttr(name = NUM_SCANNER_THREADS, needForward = true, description = {
+            "ScanNode扫描数据的最大并发，默认为0，采用BE的doris_scanner_thread_pool_thread_num",
+            "The max threads to read data of ScanNode, "
+                    + "default 0, use doris_scanner_thread_pool_thread_num in be.conf"
+    })
+    public int numScannerThreads = 0;
+
+    @VariableMgr.VarAttr(name = SCANNER_SCALE_UP_RATIO, needForward = true, description = {
+            "ScanNode自适应的增加扫描并发，最大允许增长的并发倍率，默认为0，关闭该功能",
+            "The max multiple of increasing the concurrency of scanners adaptively, "
+                    + "default 0, turn off scaling up"
+    })
+    public double scannerScaleUpRatio = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
@@ -1790,6 +1806,14 @@ public class SessionVariable implements Serializable, Writable {
         return maxScanQueueMemByte;
     }
 
+    public int getNumScannerThreads() {
+        return numScannerThreads;
+    }
+
+    public double getScannerScaleUpRatio() {
+        return scannerScaleUpRatio;
+    }
+
     public int getQueryTimeoutS() {
         return queryTimeoutS;
     }
@@ -1962,7 +1986,15 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setMaxScanQueueMemByte(long scanQueueMemByte) {
-        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 2);
+        this.maxScanQueueMemByte = scanQueueMemByte;
+    }
+
+    public void setNumScannerThreads(int numScannerThreads) {
+        this.numScannerThreads = numScannerThreads;
+    }
+
+    public void setScannerScaleUpRatio(double scannerScaleUpRatio) {
+        this.scannerScaleUpRatio = scannerScaleUpRatio;
     }
 
     public boolean isSqlQuoteShowCreate() {
@@ -2771,7 +2803,9 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);
-        tResult.setScanQueueMemLimit(Math.min(maxScanQueueMemByte, maxExecMemByte / 20));
+        tResult.setScanQueueMemLimit(maxScanQueueMemByte);
+        tResult.setNumScannerThreads(numScannerThreads);
+        tResult.setScannerScaleUpRatio(scannerScaleUpRatio);
 
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMinReservation(0);
@@ -3067,7 +3101,9 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions getQueryOptionVariables() {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(maxExecMemByte);
-        queryOptions.setScanQueueMemLimit(Math.min(maxScanQueueMemByte, maxExecMemByte / 20));
+        queryOptions.setScanQueueMemLimit(maxScanQueueMemByte);
+        queryOptions.setNumScannerThreads(numScannerThreads);
+        queryOptions.setScannerScaleUpRatio(scannerScaleUpRatio);
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setInsertTimeout(insertTimeoutS);
         queryOptions.setAnalyzeTimeout(analyzeTimeoutS);
