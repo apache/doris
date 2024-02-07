@@ -420,7 +420,7 @@ Status VTabletWriterV2::write(Block& input_block) {
 
 Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
                                         const Rows& rows, const Streams& streams) {
-    DeltaWriterV2* delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
+    auto delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
         WriteRequest req {
                 .tablet_id = tablet_id,
                 .txn_id = _txn_id,
