@@ -286,6 +286,8 @@ public:
         }
     }
 
+    RuntimeState* runtime_state() { return _state; }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
