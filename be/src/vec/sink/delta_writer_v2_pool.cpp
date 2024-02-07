@@ -32,10 +32,15 @@ DeltaWriterV2Map::~DeltaWriterV2Map() = default;
 
 DeltaWriterV2* DeltaWriterV2Map::get_or_create(
         int64_t tablet_id, std::function<std::unique_ptr<DeltaWriterV2>()> creator) {
-    _map.lazy_emplace(tablet_id, [&](const TabletToDeltaWriterV2Map::constructor& ctor) {
-        ctor(tablet_id, creator());
-    });
-    return _map.at(tablet_id).get();
+    DeltaWriterV2* delta_writer = nullptr;
+    _map.lazy_emplace_l(
+            tablet_id, [&](auto& entry) { delta_writer = entry.second.get(); },
+            [&](const TabletToDeltaWriterV2Map::constructor& ctor) {
+                auto writer = creator();
+                delta_writer = writer.get();
+                ctor(tablet_id, std::move(writer));
+            });
+    return delta_writer;
 }
 
 Status DeltaWriterV2Map::close(RuntimeProfile* profile) {
