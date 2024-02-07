@@ -90,8 +90,8 @@ public class MTMVPartitionUtil {
      */
     public static void alignMvPartition(MTMV mtmv, MTMVRelatedTableIf relatedTable)
             throws DdlException, AnalysisException {
-        Map<Long, PartitionItem> relatedTableItems = relatedTable.getPartitionItems();
-        Map<Long, PartitionItem> mtmvItems = mtmv.getPartitionItems();
+        Map<Long, PartitionItem> relatedTableItems = Maps.newHashMap(relatedTable.getPartitionItems());
+        Map<Long, PartitionItem> mtmvItems = Maps.newHashMap(mtmv.getPartitionItems());
         // drop partition of mtmv
         for (Entry<Long, PartitionItem> entry : mtmvItems.entrySet()) {
             long partitionId = getExistPartitionId(entry.getValue(), relatedTableItems);
