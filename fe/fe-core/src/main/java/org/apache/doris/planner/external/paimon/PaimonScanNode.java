@@ -213,8 +213,8 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
-        return Optional.ofNullable(LocationPath.getTFileType(location)).orElseThrow(() ->
-            new DdlException("Unknown file location " + location + " for paimon table "));
+        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
+                new DdlException("Unknown file location " + location + " for paimon table "));
     }
 
     @Override

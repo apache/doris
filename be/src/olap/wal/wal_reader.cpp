@@ -46,7 +46,7 @@ Status WalReader::init() {
 Status WalReader::finalize() {
     auto st = file_reader->close();
     if (!st.ok()) {
-        LOG(WARNING) << "fail to close file " << _file_name;
+        LOG(WARNING) << "fail to close wal " << _file_name;
     }
     return Status::OK();
 }

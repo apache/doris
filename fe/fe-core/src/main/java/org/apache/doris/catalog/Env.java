@@ -221,6 +221,7 @@ import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.persist.meta.MetaWriter;
 import org.apache.doris.planner.TabletLoadIndexRecorderMgr;
+import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
@@ -501,6 +502,8 @@ public class Env {
 
     private StatisticsCleaner statisticsCleaner;
 
+    private PlsqlManager plsqlManager;
+
     private BinlogManager binlogManager;
 
     private BinlogGcer binlogGcer;
@@ -750,6 +753,7 @@ public class Env {
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
+        this.plsqlManager = new PlsqlManager();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
@@ -853,6 +857,10 @@ public class Env {
 
     public MetastoreEventsProcessor getMetastoreEventsProcessor() {
         return metastoreEventsProcessor;
+    }
+
+    public PlsqlManager getPlsqlManager() {
+        return plsqlManager;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -2134,6 +2142,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadPlsqlProcedure(DataInputStream in, long checksum) throws IOException {
+        plsqlManager = PlsqlManager.read(in);
+        LOG.info("finished replay plsql procedure from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
         LOG.info("finished replay smallFiles from image");
@@ -2415,6 +2429,11 @@ public class Env {
 
     public long saveWorkloadSchedPolicy(CountingDataOutputStream dos, long checksum) throws IOException {
         Env.getCurrentEnv().getWorkloadSchedPolicyMgr().write(dos);
+        return checksum;
+    }
+
+    public long savePlsqlProcedure(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getPlsqlManager().write(dos);
         return checksum;
     }
 

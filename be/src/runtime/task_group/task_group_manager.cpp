@@ -49,8 +49,9 @@ TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& tas
     return new_task_group;
 }
 
-void TaskGroupManager::get_resource_groups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
-                                           std::vector<TaskGroupPtr>* task_groups) {
+void TaskGroupManager::get_related_taskgroups(
+        const std::function<bool(const TaskGroupPtr& ptr)>& pred,
+        std::vector<TaskGroupPtr>* task_groups) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     for (const auto& [id, task_group] : _task_groups) {
         if (pred(task_group)) {
@@ -273,34 +274,6 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
     int64_t time_cost_ms = MonotonicMillis() - begin_time;
     LOG(INFO) << "finish clear unused task group, time cost: " << time_cost_ms
               << "ms, deleted group size:" << deleted_tg_ids.size();
-}
-
-Status TaskGroupManager::add_query_to_group(uint64_t tg_id, TUniqueId query_id,
-                                            TaskGroupPtr* tg_ptr) {
-    std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
-    auto tg_iter = _task_groups.find(tg_id);
-    if (tg_iter != _task_groups.end()) {
-        if (tg_iter->second->is_shutdown()) {
-            return Status::InternalError<false>("workload group {} is shutdown.", tg_id);
-        }
-        tg_iter->second->add_query(query_id);
-        *tg_ptr = tg_iter->second;
-        return Status::OK();
-    } else {
-        return Status::InternalError<false>("can not find workload group {}.", tg_id);
-    }
-}
-
-void TaskGroupManager::remove_query_from_group(uint64_t tg_id, TUniqueId query_id) {
-    std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
-    auto tg_iter = _task_groups.find(tg_id);
-    if (tg_iter != _task_groups.end()) {
-        tg_iter->second->remove_query(query_id);
-    } else {
-        //NOTE: This should never happen
-        LOG(INFO) << "can not find task group when remove query, tg:" << tg_id
-                  << ", query_id:" << print_id(query_id);
-    }
 }
 
 void TaskGroupManager::stop() {

@@ -77,6 +77,6 @@ suite("regression_test_variant_schema_change", "variant_type"){
     sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name} limit 8101"""
     sql """DROP MATERIALIZED VIEW var_cnt ON ${table_name}"""
     sql """INSERT INTO ${table_name} SELECT k, v,v  from ${table_name} limit 1111"""
-    // TODO support select from mv
-    // qt_sql """select v['k1'], cast(v['k2'] as string) from ${table_name} order by k desc limit 10"""
+    // select from mv
+    qt_sql """select v['k1'], cast(v['k2'] as string) from ${table_name} order by k desc limit 10"""
 }
