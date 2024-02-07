@@ -335,7 +335,7 @@ Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalIn
                 int64_t db_id = -1;
                 int64_t tb_id = -1;
                 std::string label = "";
-                parse_wal_path(wal.file_name, version, backend_id, wal_id, label);
+                RETURN_IF_ERROR(parse_wal_path(wal.file_name, version, backend_id, wal_id, label));
                 try {
                     db_id = std::strtoll(database_id.file_name.c_str(), NULL, 10);
                     tb_id = std::strtoll(table_id.file_name.c_str(), NULL, 10);
