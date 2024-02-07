@@ -297,11 +297,10 @@ void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t 
 void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
     const auto& src_null_map_data = nullable_col.get_null_map_data();
-    _has_null = has_null();
     bool insert_null = simd::contain_byte(src_null_map_data.data() + start, length, 1);
-    _has_null |= insert_null;
-
     if (insert_null) {
+        _need_update_has_null = false;
+        _has_null = true;
         _get_null_map_column().insert_range_from(*nullable_col.null_map, start, length);
     } else {
         _get_null_map_column().insert_many_defaults(length);
