@@ -58,7 +58,7 @@ public class IndexDefinition {
             Map<String, String> properties, String comment) {
         this.name = name;
         this.cols = Utils.copyRequiredList(cols);
-        this.indexType = IndexType.BITMAP;
+        this.indexType = IndexType.INVERTED;
         if (indexTypeName != null) {
             switch (indexTypeName) {
                 case "BITMAP": {
