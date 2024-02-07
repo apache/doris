@@ -86,8 +86,8 @@ Status IndexBuilder::update_inverted_index_info() {
                 auto column = output_rs_tablet_schema->column(column_idx);
                 const auto* index_meta = output_rs_tablet_schema->get_inverted_index(column);
                 if (index_meta == nullptr) {
-                    LOG(ERROR) << "failed to find column: " << column_name << " index_id: "
-                               << t_inverted_index.index_id;
+                    LOG(ERROR) << "failed to find column: " << column_name
+                               << " index_id: " << t_inverted_index.index_id;
                     continue;
                 }
                 _drop_indices_meta.push_back(*index_meta);
