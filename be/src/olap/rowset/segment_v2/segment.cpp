@@ -536,7 +536,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             return Status::OK();
         }
         ColumnIterator* it;
-        RETURN_IF_ERROR(sub_node->data.reader->new_iterator(&it));
+        RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
         iter->reset(it);
         return Status::OK();
     }
