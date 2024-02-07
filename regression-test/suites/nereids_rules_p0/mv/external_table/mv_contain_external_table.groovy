@@ -28,7 +28,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     def drop_table_str = """ drop table if exists ${hive_database}.${hive_table} """
     def drop_database_str = """ drop database if exists ${hive_database}"""
     def create_database_str = """ create database ${hive_database}"""
-    def create_table_str = """CREATE TABLE orders (
+    def create_table_str = """CREATE TABLE ${hive_database}.${hive_table} (
                                     o_orderkey INT,
                                     o_custkey INT,
                                     o_orderstatus STRING,
@@ -64,6 +64,9 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     hive_docker """ ${drop_database_str} """
     hive_docker """ ${create_database_str}"""
     hive_docker """ ${create_table_str} """
+
+    logger.info("=========================create partition================================")
+
     hive_docker """ ${add_partition_1_str} """
     hive_docker """ ${add_partition_2_str} """
     hive_docker """ ${add_partition_3_str} """
@@ -127,7 +130,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     """
 
     sql """
-    insert into lineitem_partition values 
+    insert into lineitem values 
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
     (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx');
@@ -136,8 +139,10 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     def query_sql = """
             select l_orderkey, l_partkey, o_custkey
             from lineitem
-            left join orders on l_orderkey = o_orderkey;
+            left join ${catalog_name}.${hive_database}.${hive_table} on l_orderkey = o_orderkey;
     """
+
+    order_qt_query_sql """${query_sql}"""
 
     // create mv
     def mv_name = 'mv_join'
