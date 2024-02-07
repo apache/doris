@@ -48,8 +48,11 @@ public:
         std::map<int, bool> has_in_filter;
 
         auto ignore_local_filter = [&](int filter_id) {
-            auto runtime_filter_mgr = _is_global ? state->get_query_ctx()->runtime_filter_mgr()
-                                                 : state->runtime_filter_mgr();
+            // Now pipeline x have bug in ignore, after fix the problem enable ignore logic in pipeline x
+            if (_is_global) {
+                return Status::OK();
+            }
+            auto runtime_filter_mgr = state->runtime_filter_mgr();
 
             std::vector<IRuntimeFilter*> filters;
             RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(filter_id, filters));
