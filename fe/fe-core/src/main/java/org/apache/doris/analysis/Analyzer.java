@@ -180,6 +180,8 @@ public class Analyzer {
 
     private boolean isReAnalyze = false;
 
+    private boolean isReplay = false;
+
     public void setIsSubquery() {
         isSubquery = true;
         isFirstScopeInSubquery = true;
@@ -252,6 +254,14 @@ public class Analyzer {
 
     public long getAutoBroadcastJoinThreshold() {
         return globalState.autoBroadcastJoinThreshold;
+    }
+
+    public void setReplay() {
+        isReplay = true;
+    }
+
+    public boolean isReplay() {
+        return isReplay;
     }
 
     private static class InferPredicateState {

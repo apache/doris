@@ -295,6 +295,11 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
             int result_column_id = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
+            if (ref_block->get_by_position(result_column_id).column == nullptr) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "{} result column is nullptr",
+                        ref_block->get_by_position(result_column_id).name);
+            }
             ref_block->replace_by_position_if_const(result_column_id);
 
             if (ref_block->get_by_position(result_column_id).column->size() != row_size) {
