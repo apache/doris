@@ -142,6 +142,10 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 }
                 HMSExternalCatalog catalog = (HMSExternalCatalog) table.getCatalog();
                 List<String> partitionNames;
+                // When a Hudi table is synchronized to HMS, the partition information is also synchronized,
+                // so even if the metastore is not enabled in the Hudi table
+                //     (for example, if the Metastore is false for a Hudi table created with Flink),
+                // we can still obtain the partition information through the HMS API.
                 partitionNames = catalog.getClient().listPartitionNames(table.getDbName(), table.getName());
                 if (partitionNames.size() == 0) {
                     LOG.warn("Failed to get partitions from hms api, switch it from hudi api.");
