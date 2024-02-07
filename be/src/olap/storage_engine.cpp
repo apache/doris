@@ -1089,7 +1089,6 @@ void StorageEngine::start_delete_unused_rowset() {
                 }
                 it = _unused_rowsets.erase(it);
             } else {
-                ++it;
                 if (rs.use_count() != 1) {
                     ++due_to_use_count;
                 } else if (!rs->need_delete_file()) {
@@ -1097,6 +1096,7 @@ void StorageEngine::start_delete_unused_rowset() {
                 } else {
                     ++due_to_delayed_expired_ts;
                 }
+                ++it;
             }
         }
     }
