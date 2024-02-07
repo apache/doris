@@ -43,6 +43,7 @@ public class InferJoinNotNull extends OneRewriteRuleFactory {
         // TODO: maybe consider ANTI?
         return logicalJoin(any(), any())
             .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isSemiJoin())
+            .whenNot(LogicalJoin::isMarkJoin)
             .thenApply(ctx -> {
                 LogicalJoin<Plan, Plan> join = ctx.root;
                 Set<Expression> conjuncts = new HashSet<>();

@@ -1931,7 +1931,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         List planFragmentParamsList = new ArrayList<>(tableNames.size());
-        List<Long> tableIds = olapTables.stream().map(OlapTable::getId).collect(Collectors.toList());
         // todo: if is multi table, we need consider the lock time and the timeout
         boolean enablePipelineLoad = Config.enable_pipeline_load;
         try {
@@ -1949,8 +1948,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
                 multiTableFragmentInstanceIdIndexMap.put(request.getTxnId(), ++index);
             }
-            Env.getCurrentGlobalTransactionMgr()
-                    .putTransactionTableNames(db.getId(), request.getTxnId(), tableIds);
             LOG.debug("receive stream load multi table put request result: {}", result);
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
