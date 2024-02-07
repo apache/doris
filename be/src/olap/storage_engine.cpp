@@ -1064,9 +1064,11 @@ void StorageEngine::start_delete_unused_rowset() {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
             uint64_t now = UnixSeconds();
-            if (it->second.use_count() == 1 && it->second->need_delete_file() &&
+            if (now > it->second->delayed_expired_timestamp()) {
                 // We delay the GC time of this rowset since it's maybe still needed, see #20732
-                now > it->second->delayed_expired_timestamp()) {
+                evict_querying_rowset(it->second->rowset_id());
+            }
+            if (it->second.use_count() == 1 && it->second->need_delete_file()) {
                 if (it->second->is_local()) {
                     unused_rowsets_copy[it->first] = it->second;
                 }
