@@ -121,15 +121,12 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task) {
     scan_task->last_submit_time = GetCurrentTimeNanos();
     if (ctx->done()) {
-        scan_task->set_status(Status::EndOfFile("ScannerContext is done"));
-        ctx->append_block_to_queue(scan_task);
         return;
     }
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         LOG(INFO) << "could not lock task execution context, query " << ctx->debug_string()
                   << " maybe finished";
-        ctx->append_block_to_queue(scan_task);
         return;
     }
 
@@ -139,8 +136,6 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     if (ctx->thread_token != nullptr) {
         std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
         if (scanner_delegate == nullptr) {
-            scan_task->set_status(Status::InternalError("Failed to lock scanner"));
-            ctx->append_block_to_queue(scan_task);
             return;
         }
 
@@ -155,8 +150,6 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     } else {
         std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
         if (scanner_delegate == nullptr) {
-            scan_task->set_status(Status::InternalError("Failed to lock scanner"));
-            ctx->append_block_to_queue(scan_task);
             return;
         }
 
@@ -188,7 +181,7 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         }
         if (!ret) {
             scan_task->set_status(
-                    Status::InternalError("failed to submit scanner to scanner pool"));
+                    Status::InternalError("Failed to submit scanner to scanner pool"));
             ctx->append_block_to_queue(scan_task);
             return;
         }
@@ -206,14 +199,11 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     ctx->incr_ctx_scheduling_time(GetCurrentTimeNanos() - scan_task->last_submit_time);
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
-        ctx->append_block_to_queue(scan_task);
         return;
     }
 
     std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
     if (scanner_delegate == nullptr) {
-        scan_task->set_status(Status::InternalError("Failed to lock scanner"));
-        ctx->append_block_to_queue(scan_task);
         return;
     }
 

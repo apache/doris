@@ -202,18 +202,6 @@ void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) 
             scan_task->set_status(st);
         }
     }
-    // We can only know the block size after reading at least one block
-    // Just take the size of first block as `_estimated_block_size`
-    if (scan_task->first_block) {
-        std::lock_guard<std::mutex> fl(_free_blocks_lock);
-        size_t block_size = scan_task->current_block->allocated_bytes();
-        _free_blocks_memory_usage += block_size;
-        _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
-        scan_task->first_block = false;
-        if (block_size > _estimated_block_size) {
-            _estimated_block_size = block_size;
-        }
-    }
     std::lock_guard<std::mutex> l(_transfer_lock);
     if (!scan_task->status_ok()) {
         _process_status = scan_task->get_status();
@@ -250,7 +238,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         return _process_status;
     }
     std::shared_ptr<ScanTask> scan_task = nullptr;
-    if (!_blocks_queue.empty()) {
+    if (!_blocks_queue.empty() && !done()) {
         _last_fetch_time = UnixMillis();
         scan_task = _blocks_queue.front();
         _blocks_queue.pop_front();
@@ -261,6 +249,19 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             _set_scanner_done();
             return scan_task->get_status();
         }
+        // We can only know the block size after reading at least one block
+        // Just take the size of first block as `_estimated_block_size`
+        if (scan_task->first_block) {
+            std::lock_guard<std::mutex> fl(_free_blocks_lock);
+            size_t block_size = scan_task->current_block->allocated_bytes();
+            _free_blocks_memory_usage += block_size;
+            _free_blocks_memory_usage_mark->set(_free_blocks_memory_usage);
+            scan_task->first_block = false;
+            if (block_size > _estimated_block_size) {
+                _estimated_block_size = block_size;
+            }
+        }
+        // consume current block
         block->swap(*scan_task->current_block);
         if (!scan_task->current_block->mem_reuse()) {
             // it depends on the memory strategy of ScanNode/ScanOperator
