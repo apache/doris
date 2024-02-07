@@ -131,43 +131,49 @@ suite("full_join_range_date_increment_create") {
     }
 
     def is_increment_change = { def cur_job_name ->
-        def mv_task_infos = sql """select * from tasks("type"="mv") 
-            where JobName="${cur_job_name}" order by CreateTime desc"""
+        def mv_task_infos = sql """select 
+            JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
+            from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc"""
         assert (mv_task_infos.size() == 2)
 
-        def refresh_info = sql """select * from tasks("type"="mv") 
-            where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
-        assert (refresh_info[0][2] == cur_job_name)
-        assert (refresh_info[0][7] == "SUCCESS")
-        assert (refresh_info[0][14] == "PARTIAL")
-        assert (refresh_info[0][15] == "[\"p_20231017_20231018\"]")
-        assert (refresh_info[0][16] == "[\"p_20231017_20231018\"]")
-        assert (refresh_info[0][17] == "100.00% (1/1)")
+        def refresh_info = sql """select 
+            JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
+            from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
+        assert (refresh_info[0][0] == cur_job_name)
+        assert (refresh_info[0][1] == "SUCCESS")
+        assert (refresh_info[0][2] == "PARTIAL")
+        assert (refresh_info[0][3] == "[\"p_20231017_20231018\"]")
+        assert (refresh_info[0][4] == "[\"p_20231017_20231018\"]")
+        assert (refresh_info[0][5] == "100.00% (1/1)")
     }
     def is_complete_change = { def cur_job_name ->
-        def mv_task_infos = sql """select * from tasks("type"="mv") 
-            where JobName="${cur_job_name}" order by CreateTime desc"""
+        def mv_task_infos = sql """select 
+            JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
+            from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc"""
         assert (mv_task_infos.size() == 2)
 
-        def refresh_info = sql """select * from tasks("type"="mv") 
-            where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
-        assert (refresh_info[0][2] == cur_job_name)
-        assert (refresh_info[0][7] == "SUCCESS")
-        assert (refresh_info[0][14] == "COMPLETE")
-        assert (refresh_info[0][17] == "100.00% (3/3)")
+        def refresh_info = sql """select 
+            JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
+            from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
+        assert (refresh_info[0][0] == cur_job_name)
+        assert (refresh_info[0][1] == "SUCCESS")
+        assert (refresh_info[0][2] == "COMPLETE")
+        assert (refresh_info[0][5] == "100.00% (3/3)")
     }
 
     def is_complete_change_right = { def cur_job_name ->
-        def mv_task_infos = sql """select * from tasks("type"="mv") 
-            where JobName="${cur_job_name}" order by CreateTime desc"""
+        def mv_task_infos = sql """select 
+            JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
+            from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc"""
         assert (mv_task_infos.size() == 2)
 
-        def refresh_info = sql """select * from tasks("type"="mv") 
-            where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
-        assert (refresh_info[0][2] == cur_job_name)
-        assert (refresh_info[0][7] == "SUCCESS")
-        assert (refresh_info[0][14] == "COMPLETE")
-        assert (refresh_info[0][17] == "100.00% (6/6)")
+        def refresh_info = sql """select 
+            JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
+            from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
+        assert (refresh_info[0][0] == cur_job_name)
+        assert (refresh_info[0][1] == "SUCCESS")
+        assert (refresh_info[0][2] == "COMPLETE")
+        assert (refresh_info[0][5] == "100.00% (6/6)")
     }
 
     def primary_tb_change = {
@@ -267,276 +273,79 @@ suite("full_join_range_date_increment_create") {
         }
     }
 
+    def list_judgement = { def all_list, def increment_list, def complete_list,
+                           def error_list, def cur_col, Closure date_change, Closure judge_func ->
+        for (int i = 0; i < all_list.size(); i++) {
+            logger.info("i: " + i)
+            if (all_list[i] in error_list) {
+                test {
+                    def cur_sql = create_mv_left_part(all_list[i], cur_col)
+                    sql cur_sql
+                    exception "Unable to find a suitable base table for partitioning"
+                }
+            } else {
+                def cur_sql = create_mv_left_part(all_list[i], cur_col)
+                sql cur_sql
+
+                def job_name = getJobName(db, mv_name)
+                waitingMTMVTaskFinished(job_name)
+                compare_res(all_list[i] + " order by 1,2,3,4,5")
+
+                date_change()
+                refresh_mv()
+                waitingMTMVTaskFinished(job_name)
+                compare_res(all_list[i] + " order by 1,2,3,4,5")
+
+                if (all_list[i] in increment_list) {
+                    is_increment_change(job_name)
+                }
+                if (all_list[i] in complete_list) {
+                    judge_func(job_name)
+                }
+
+                delete_mv()
+            }
+
+        }
+    }
+
     def sql_all_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12]
     def sql_increment_list = []
     def sql_complete_list = []
 
-    // create mv with partition col
+    // change left table data
+    // create mv base on left table with partition col
     def sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12]
-    for (int i = 0; i < sql_all_list.size(); i++) {
-        logger.info("i: " + i)
-        if (sql_all_list[i] in sql_error_list) {
-            test {
-                def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_part_col)
-                sql cur_sql
-                exception "Unable to find a suitable base table for partitioning"
-            }
-        } else {
-            def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_part_col)
-            sql cur_sql
+    list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
+            partition_by_part_col, primary_tb_change, is_complete_change)
 
-            def job_name = getJobName(db, mv_name)
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
+    // create mv base on left table with no partition col
+    list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
+            partition_by_not_part_col, primary_tb_change, is_complete_change)
 
-            primary_tb_change()
-            refresh_mv()
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            if (sql_all_list[i] in sql_increment_list) {
-                is_increment_change(job_name)
-            }
-            if (sql_all_list[i] in sql_complete_list) {
-                is_complete_change(job_name)
-            }
-
-            delete_mv()
-        }
-
-    }
-
-    // create mv with no partition col
-    for (int i = 0; i < sql_all_list.size(); i++) {
-            logger.info("i: " + i)
-        if (sql_all_list[i] in sql_error_list) {
-            test {
-                def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_not_part_col)
-                sql cur_sql
-                exception "Unable to find a suitable base table for partitioning"
-            }
-        } else {
-            def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_not_part_col)
-            sql cur_sql
-
-            def job_name = getJobName(db, mv_name)
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            primary_tb_change()
-            refresh_mv()
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            if (sql_all_list[i] in sql_increment_list) {
-                is_increment_change(job_name)
-            }
-            if (sql_all_list[i] in sql_complete_list) {
-                is_complete_change(job_name)
-            }
-
-            delete_mv()
-        }
-    }
-
-    // base on right table with part col
-    for (int i = 0; i < sql_all_list.size(); i++) {
-        logger.info("i: " + i)
-        if (sql_all_list[i] in sql_error_list) {
-            test {
-                def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_part_col_right)
-                sql cur_sql
-                exception "Unable to find a suitable base table for partitioning"
-            }
-        } else {
-            def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_part_col_right)
-            sql cur_sql
-
-            def job_name = getJobName(db, mv_name)
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            primary_tb_change()
-            refresh_mv()
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            if (sql_all_list[i] in sql_increment_list) {
-                is_increment_change(job_name)
-            }
-            if (sql_all_list[i] in sql_complete_list) {
-                is_complete_change_right(job_name)
-            }
-
-            delete_mv()
-        }
-
-    }
+    // create mv base on right table with partition col
+    list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
+            partition_by_part_col_right, primary_tb_change, is_complete_change_right)
 
     // create mv base on right table with no partition col
-    for (int i = 0; i < sql_all_list.size(); i++) {
-        if (sql_all_list[i] in sql_error_list) {
-            test {
-                def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_not_part_col_right)
-                sql cur_sql
-                exception "Unable to find a suitable base table for partitioning"
-            }
-        } else {
-            def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_not_part_col_right)
-            sql cur_sql
-
-            def job_name = getJobName(db, mv_name)
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            primary_tb_change()
-            refresh_mv()
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            if (sql_all_list[i] in sql_increment_list) {
-                is_increment_change(job_name)
-            }
-            if (sql_all_list[i] in sql_complete_list) {
-                is_complete_change(job_name)
-            }
-
-            delete_mv()
-        }
-    }
+    list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
+            partition_by_not_part_col_right, primary_tb_change, is_complete_change)
 
     // change right table data
-    // create mv with partition col
-    for (int i = 0; i < sql_all_list.size(); i++) {
-        logger.info("i: " + i)
-        if (sql_all_list[i] in sql_error_list) {
-            test {
-                def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_part_col)
-                sql cur_sql
-                exception "Unable to find a suitable base table for partitioning"
-            }
-        } else {
-            def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_part_col)
-            sql cur_sql
+    // create mv base on left table with partition col
+    list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
+            partition_by_part_col, slave_tb_change, is_complete_change)
 
-            def job_name = getJobName(db, mv_name)
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
+    // create mv base on left table with no partition col
+    list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
+            partition_by_not_part_col, slave_tb_change, is_complete_change)
 
-            slave_tb_change()
-            refresh_mv()
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            if (sql_all_list[i] in sql_increment_list) {
-                is_increment_change(job_name)
-            }
-            if (sql_all_list[i] in sql_complete_list) {
-                is_complete_change(job_name)
-            }
-
-            delete_mv()
-        }
-
-    }
-
-    // create mv with no partition col
-    for (int i = 0; i < sql_all_list.size(); i++) {
-            logger.info("i: " + i)
-        if (sql_all_list[i] in sql_error_list) {
-            test {
-                def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_not_part_col)
-                sql cur_sql
-                exception "Unable to find a suitable base table for partitioning"
-            }
-        } else {
-            def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_not_part_col)
-            sql cur_sql
-
-            def job_name = getJobName(db, mv_name)
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            slave_tb_change()
-            refresh_mv()
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            if (sql_all_list[i] in sql_increment_list) {
-                is_increment_change(job_name)
-            }
-            if (sql_all_list[i] in sql_complete_list) {
-                is_complete_change(job_name)
-            }
-
-            delete_mv()
-        }
-    }
-
-    // base on right table with part col
-    for (int i = 0; i < sql_all_list.size(); i++) {
-        logger.info("i: " + i)
-        if (sql_all_list[i] in sql_error_list) {
-            test {
-                def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_part_col_right)
-                sql cur_sql
-                exception "Unable to find a suitable base table for partitioning"
-            }
-        } else {
-            def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_part_col_right)
-            sql cur_sql
-
-            def job_name = getJobName(db, mv_name)
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            slave_tb_change()
-            refresh_mv()
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            if (sql_all_list[i] in sql_increment_list) {
-                is_increment_change(job_name)
-            }
-            if (sql_all_list[i] in sql_complete_list) {
-                is_complete_change(job_name)
-            }
-
-            delete_mv()
-        }
-    }
+    // create mv base on right table with partition col
+    list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
+            partition_by_part_col_right, slave_tb_change, is_complete_change)
 
     // create mv base on right table with no partition col
-    for (int i = 0; i < sql_all_list.size(); i++) {
-        if (sql_all_list[i] in sql_error_list) {
-            test {
-                def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_not_part_col_right)
-                sql cur_sql
-                exception "Unable to find a suitable base table for partitioning"
-            }
-        } else {
-            def cur_sql = create_mv_left_part(sql_all_list[i], partition_by_not_part_col_right)
-            sql cur_sql
-
-            def job_name = getJobName(db, mv_name)
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            slave_tb_change()
-            refresh_mv()
-            waitingMTMVTaskFinished(job_name)
-            compare_res(sql_all_list[i] + " order by 1,2,3,4,5")
-
-            if (sql_all_list[i] in sql_increment_list) {
-                is_increment_change(job_name)
-            }
-            if (sql_all_list[i] in sql_complete_list) {
-                is_complete_change(job_name)
-            }
-
-            delete_mv()
-        }
-    }
-
+    list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
+            partition_by_not_part_col_right, slave_tb_change, is_complete_change)
 
 }
