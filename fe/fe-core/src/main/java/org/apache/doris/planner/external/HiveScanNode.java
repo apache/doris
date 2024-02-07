@@ -196,15 +196,9 @@ public class HiveScanNode extends FileQueryScanNode {
         try {
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
-            boolean useSelfSplitter = hmsTable.getCatalog().useSelfSplitter();
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
-            if (bindBrokerName != null && useSelfSplitter == false) {
-                // useSelfSplitter must be true if bindBrokerName is set.
-                throw new UserException(HMSExternalCatalog.ENABLE_SELF_SPLITTER + " should be true if "
-                        + HMSExternalCatalog.BIND_BROKER_NAME + " is set");
-            }
             List<Split> allFiles = Lists.newArrayList();
-            getFileSplitByPartitions(cache, getPartitions(), allFiles, useSelfSplitter, bindBrokerName);
+            getFileSplitByPartitions(cache, getPartitions(), allFiles, bindBrokerName);
             LOG.debug("get #{} files for table: {}.{}, cost: {} ms",
                     allFiles.size(), hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
             return allFiles;
@@ -217,13 +211,12 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
-                                          List<Split> allFiles, boolean useSelfSplitter,
-                                          String bindBrokerName) throws IOException {
+                                          List<Split> allFiles, String bindBrokerName) throws IOException {
         List<FileCacheValue> fileCaches;
         if (hiveTransaction != null) {
             fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
         } else {
-            fileCaches = cache.getFilesByPartitionsWithCache(partitions, useSelfSplitter, bindBrokerName);
+            fileCaches = cache.getFilesByPartitionsWithCache(partitions, bindBrokerName);
         }
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
