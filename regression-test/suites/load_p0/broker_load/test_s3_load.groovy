@@ -17,10 +17,7 @@
 
 suite("test_s3_load", "load_p0") {
 
-    sql "create workload group if not exists broker_load_test "
-           + "properties ( "
-           + " 'cpu_share'='1024' "
-           + ");"
+    sql "create workload group if not exists broker_load_test properties ( 'cpu_share'='1024'); "
 
     sql "set workload_group=broker_load_test;"
 
