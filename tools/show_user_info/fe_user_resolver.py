@@ -17,9 +17,6 @@ import pymysql as MySQLdb
 # specific language governing permissions and limitations
 # under the License.
 
-# NOTE: The default organization of meta info is cascading, we flatten its structure
-# got the user info
-
 class FeUserResolver:
     def __init__(self, fe_host, query_port, user, query_pwd):
         self.fe_host = fe_host
