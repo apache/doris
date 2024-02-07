@@ -271,6 +271,8 @@ struct TQueryOptions {
   97: optional i64 parallel_scan_min_rows_per_scanner = 0;
 
   98: optional bool skip_bad_tablet = false;
+  // Increase concurrency of scanners adaptively, the maxinum times to scale up
+  99: optional double scanner_scale_up_ratio = 0;
 
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
