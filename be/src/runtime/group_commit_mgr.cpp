@@ -420,7 +420,9 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
        << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
        << ", exec_plan_fragment status=" << status.to_string()
        << ", commit/abort txn rpc status=" << st.to_string()
-       << ", commit/abort txn status=" << result_status.to_string();
+       << ", commit/abort txn status=" << result_status.to_string()
+       << ", block queue pre allocated size is " << load_block_queue->block_queue_pre_allocated()
+       << ", wal space info:" << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
     if (state) {
         if (!state->get_error_log_file_path().empty()) {
             ss << ", error_url=" << state->get_error_log_file_path();
