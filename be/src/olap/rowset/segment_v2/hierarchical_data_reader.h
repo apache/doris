@@ -31,6 +31,7 @@
 #include "vec/columns/column_object.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/assert_cast.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/json/path_in_data.h"
@@ -210,8 +211,11 @@ private:
 // encodes sparse columns that are not materialized
 class ExtractReader : public ColumnIterator {
 public:
-    ExtractReader(const TabletColumn& col, std::unique_ptr<StreamReader>&& root_reader)
-            : _col(col), _root_reader(std::move(root_reader)) {}
+    ExtractReader(const TabletColumn& col, std::unique_ptr<StreamReader>&& root_reader,
+                  vectorized::DataTypePtr target_type_hint)
+            : _col(col),
+              _root_reader(std::move(root_reader)),
+              _target_type_hint(target_type_hint) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -232,6 +236,7 @@ private:
     TabletColumn _col;
     // may shared among different column iterators
     std::unique_ptr<StreamReader> _root_reader;
+    vectorized::DataTypePtr _target_type_hint;
 };
 
 } // namespace segment_v2

@@ -328,6 +328,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
     build_basic_info();
 
+    VLOG_DEBUG << "dump tablet schema: " << _cur_tablet_schema->dump_structure();
+
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->tablet_id()
               << ", output_version=" << _output_version << ", permits: " << permits;
     bool vertical_compaction = should_vertical_compaction();

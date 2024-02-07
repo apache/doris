@@ -469,6 +469,18 @@ public class MysqlChannel {
         }
     }
 
+    public void sendOnePacket(Object[] rows) throws IOException {
+        ByteBuffer packet;
+        serializer.reset();
+        for (Object value : rows) {
+            byte[] bytes = String.valueOf(value).getBytes();
+            serializer.writeVInt(bytes.length);
+            serializer.writeBytes(bytes);
+        }
+        packet = serializer.toByteBuffer();
+        sendOnePacket(packet);
+    }
+
     public void sendAndFlush(ByteBuffer packet) throws IOException {
         sendOnePacket(packet);
         flush();
