@@ -1181,6 +1181,8 @@ DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
 DECLARE_mInt32(report_query_statistics_interval_ms);
 DECLARE_mInt32(query_statistics_reserve_timeout_ms);
 
+DECLARE_mBool(check_segment_when_build_rowset_meta);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
