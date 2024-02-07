@@ -74,9 +74,11 @@ class InvertedIndexFileReader;
 
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
-    explicit InvertedIndexReader(const TabletIndex* index_meta,
-                                 const InvertedIndexFileReader* inverted_index_file_reader)
-            : _inverted_index_file_reader(inverted_index_file_reader), _index_meta(*index_meta) {}
+    explicit InvertedIndexReader(
+            const TabletIndex* index_meta,
+            std::shared_ptr<InvertedIndexFileReader> inverted_index_file_reader)
+            : _inverted_index_file_reader(std::move(inverted_index_file_reader)),
+              _index_meta(*index_meta) {}
     virtual ~InvertedIndexReader() = default;
 
     // create a new column iterator. Client should delete returned iterator
@@ -101,6 +103,7 @@ public:
     }
 
     [[nodiscard]] bool has_null() const { return _has_null; }
+    void set_has_null(bool has_null) { _has_null = has_null; }
 
     static void get_analyse_result(std::vector<std::string>& analyse_result,
                                    lucene::util::Reader* reader,
@@ -136,7 +139,7 @@ public:
 
 protected:
     friend class InvertedIndexIterator;
-    const InvertedIndexFileReader* _inverted_index_file_reader;
+    std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
     TabletIndex _index_meta;
     bool _has_null = true;
 };
@@ -145,8 +148,9 @@ class FullTextIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(FullTextIndexReader);
 
 public:
-    explicit FullTextIndexReader(const TabletIndex* index_meta,
-                                 const InvertedIndexFileReader* inverted_index_file_reader)
+    explicit FullTextIndexReader(
+            const TabletIndex* index_meta,
+            std::shared_ptr<InvertedIndexFileReader>& inverted_index_file_reader)
             : InvertedIndexReader(index_meta, inverted_index_file_reader) {}
     ~FullTextIndexReader() override = default;
 
@@ -178,7 +182,7 @@ class StringTypeInvertedIndexReader : public InvertedIndexReader {
 public:
     explicit StringTypeInvertedIndexReader(
             const TabletIndex* index_meta,
-            const InvertedIndexFileReader* inverted_index_file_reader)
+            std::shared_ptr<InvertedIndexFileReader>& inverted_index_file_reader)
             : InvertedIndexReader(index_meta, inverted_index_file_reader) {}
     ~StringTypeInvertedIndexReader() override = default;
 
@@ -236,7 +240,7 @@ class BkdIndexReader : public InvertedIndexReader {
 
 public:
     explicit BkdIndexReader(const TabletIndex* index_meta,
-                            const InvertedIndexFileReader* inverted_index_file_reader)
+                            std::shared_ptr<InvertedIndexFileReader>& inverted_index_file_reader)
             : InvertedIndexReader(index_meta, inverted_index_file_reader) {}
     ~BkdIndexReader() override = default;
 

@@ -83,10 +83,6 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
     RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
     std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, std::move(tablet_schema)));
     segment->_file_reader = std::move(file_reader);
-    segment->_inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
-            file_reader->fs(), file_reader->path().parent_path(),
-            file_reader->path().filename().native(),
-            tablet_schema->get_inverted_index_storage_format());
     RETURN_IF_ERROR(segment->_open());
     *output = std::move(segment);
     return Status::OK();
@@ -107,9 +103,9 @@ Segment::~Segment() {
 }
 
 Status Segment::_open() {
-    bool open_idx_file_cache = true;
-    RETURN_IF_ERROR(_inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                      open_idx_file_cache));
+    if (_tablet_schema->has_inverted_index()) {
+        RETURN_IF_ERROR(_open_inverted_index());
+    }
     SegmentFooterPB footer;
     RETURN_IF_ERROR(_parse_footer(&footer));
     RETURN_IF_ERROR(_create_column_readers(footer));
@@ -121,6 +117,21 @@ Status Segment::_open() {
     _sk_index_page = footer.short_key_index_page();
     _num_rows = footer.num_rows();
     return Status::OK();
+}
+
+Status Segment::_open_inverted_index() {
+    _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
+            _file_reader->fs(), _file_reader->path().parent_path(),
+            _file_reader->path().filename().native(),
+            _tablet_schema->get_inverted_index_storage_format());
+    bool open_idx_file_cache = true;
+    auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                open_idx_file_cache);
+    if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+        LOG(INFO) << st;
+        return Status::OK();
+    }
+    return st;
 }
 
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
@@ -185,7 +196,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
         iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
-        iter->reset(new SegmentIterator(this->shared_from_this(), schema));
+        *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
     }
 
     if (config::ignore_always_true_predicate_for_segment &&
@@ -637,8 +648,11 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             std::unique_ptr<InvertedIndexIterator>* iter) {
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
-        RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader.get(),
-                                                            index_meta, read_options, iter));
+        if (_inverted_index_file_reader == nullptr) {
+            RETURN_IF_ERROR(_open_inverted_index());
+        }
+        RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,
+                                                            read_options, iter));
         return Status::OK();
     }
     return Status::OK();

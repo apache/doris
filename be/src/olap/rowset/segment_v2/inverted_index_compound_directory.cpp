@@ -103,7 +103,7 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
     if (buffer_size == -1) {
         buffer_size = CL_NS(store)::BufferedIndexOutput::BUFFER_SIZE;
     }
-    auto* h = _CLNEW SharedHandle(path);
+    auto h = std::make_shared<SharedHandle>(path);
 
     io::FileReaderOptions reader_options;
     reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
@@ -118,7 +118,7 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
         //Store the file length
         h->_length = h->_reader->size();
         h->_fpos = 0;
-        ret = _CLNEW FSIndexInput(h, buffer_size);
+        ret = _CLNEW FSIndexInput(std::move(h), buffer_size);
         return true;
 
     } else {
@@ -133,8 +133,8 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
             error.set(CL_ERR_IO, "Could not open file");
         }
     }
-    delete h->_shared_lock;
-    _CLDECDELETE(h)
+    //delete h->_shared_lock;
+    //_CLDECDELETE(h)
     return false;
 }
 
@@ -144,8 +144,8 @@ DorisCompoundDirectory::FSIndexInput::FSIndexInput(const FSIndexInput& other)
         _CLTHROWA(CL_ERR_NullPointer, "other handle is null");
     }
 
-    std::lock_guard<std::mutex> wlock(*other._handle->_shared_lock);
-    _handle = _CL_POINTER(other._handle);
+    std::lock_guard<std::mutex> wlock(other._handle->_shared_lock);
+    _handle = other._handle;
     _pos = other._handle->_fpos; //note where we are currently...
     _io_ctx = other._io_ctx;
 }
@@ -154,7 +154,7 @@ DorisCompoundDirectory::FSIndexInput::SharedHandle::SharedHandle(const char* pat
     _length = 0;
     _fpos = 0;
     strcpy(this->path, path);
-    _shared_lock = new std::mutex();
+    //_shared_lock = new std::mutex();
 }
 
 DorisCompoundDirectory::FSIndexInput::SharedHandle::~SharedHandle() {
@@ -174,7 +174,7 @@ lucene::store::IndexInput* DorisCompoundDirectory::FSIndexInput::clone() const {
 }
 void DorisCompoundDirectory::FSIndexInput::close() {
     BufferedIndexInput::close();
-    if (_handle != nullptr) {
+    /*if (_handle != nullptr) {
         std::mutex* lock = _handle->_shared_lock;
         bool ref = false;
         {
@@ -189,7 +189,7 @@ void DorisCompoundDirectory::FSIndexInput::close() {
         if (!ref) {
             delete lock;
         }
-    }
+    }*/
 }
 
 void DorisCompoundDirectory::FSIndexInput::seekInternal(const int64_t position) {
@@ -201,7 +201,7 @@ void DorisCompoundDirectory::FSIndexInput::seekInternal(const int64_t position) 
 void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     CND_PRECONDITION(_handle != nullptr, "shared file handle has closed");
     CND_PRECONDITION(_handle->_reader != nullptr, "file is not open");
-    std::lock_guard<std::mutex> wlock(*_handle->_shared_lock);
+    std::lock_guard<std::mutex> wlock(_handle->_shared_lock);
 
     int64_t position = getFilePointer();
     if (_pos != position) {
@@ -430,6 +430,10 @@ bool DorisCompoundDirectory::fileExists(const char* name) const {
 
 const char* DorisCompoundDirectory::getCfsDirName() const {
     return cfs_directory.c_str();
+}
+
+const std::string& DorisCompoundDirectory::getDirName() const {
+    return directory;
 }
 
 int64_t DorisCompoundDirectory::fileModified(const char* name) const {

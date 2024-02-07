@@ -33,6 +33,8 @@ class TabletIndex;
 
 namespace segment_v2 {
 class DorisCompoundDirectory;
+using InvertedIndexDirectoryMap =
+        std::map<std::pair<int64_t, std::string>, std::unique_ptr<lucene::store::Directory>>;
 
 class DorisCompoundFileWriter : LUCENE_BASE {
 public:
@@ -68,17 +70,22 @@ public:
               _storage_format(storage_format) {}
 
     Result<DorisCompoundDirectory*> open(const TabletIndex* index_meta);
+    Status delete_index(const TabletIndex* index_meta);
+    Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     ~InvertedIndexFileWriter() = default;
     size_t write();
     Status close();
     size_t headerLength();
     const io::Path& get_index_file_dir() const { return _index_file_dir; };
-    //const std::string& get_index_file_name() const { return _segment_file_name; };
+    std::string get_index_file_name() const {
+        return InvertedIndexDescriptor::get_index_file_name(_segment_file_name);
+    };
     std::string get_index_file_path(const TabletIndex* index_meta) const;
+    size_t get_index_file_size() const { return _file_size; }
+    const io::FileSystemSPtr& get_fs() const { return _fs; }
 
 private:
-    std::map<std::pair<int64_t, std::string>, std::unique_ptr<DorisCompoundDirectory>>
-            _indices_dirs;
+    InvertedIndexDirectoryMap _indices_dirs;
     const io::FileSystemSPtr _fs;
     io::FileSystemSPtr _lfs;
     io::Path _index_file_dir;

@@ -114,9 +114,11 @@ public:
                 auto index_file_path = _index_file_writer->get_index_file_path(_index_meta);
                 InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_path);
 
+                auto* dir = DorisCompoundDirectoryFactory::getDirectory(
+                        _index_file_writer->get_fs(), index_file_path.c_str());
                 IndexSearcherPtr searcher;
                 auto st = InvertedIndexReader::create_index_searcher(
-                        _dir, &searcher, mem_tracker.get(), InvertedIndexReaderType::FULLTEXT);
+                        dir, &searcher, mem_tracker.get(), InvertedIndexReaderType::FULLTEXT);
                 if (UNLIKELY(!st.ok())) {
                     LOG(ERROR) << "insert inverted index searcher cache error:" << st;
                     return;
@@ -610,8 +612,7 @@ private:
 Status InvertedIndexColumnWriter::create(const Field* field,
                                          std::unique_ptr<InvertedIndexColumnWriter>* res,
                                          InvertedIndexFileWriter* index_file_writer,
-                                         const TabletIndex* index_meta,
-                                         const io::FileSystemSPtr& fs) {
+                                         const TabletIndex* index_meta) {
     const auto* typeinfo = field->type_info();
     FieldType type = typeinfo->type();
     std::string field_name = field->name();

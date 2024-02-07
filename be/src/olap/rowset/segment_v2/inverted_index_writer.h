@@ -46,7 +46,7 @@ class InvertedIndexColumnWriter {
 public:
     static Status create(const Field* field, std::unique_ptr<InvertedIndexColumnWriter>* res,
                          InvertedIndexFileWriter* index_file_writer,
-                         const TabletIndex* inverted_index, const io::FileSystemSPtr& fs);
+                         const TabletIndex* inverted_index);
     virtual Status init() = 0;
 
     InvertedIndexColumnWriter() = default;

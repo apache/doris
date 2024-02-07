@@ -84,12 +84,23 @@ protected:
 
 public:
     explicit DorisCompoundReader(
-            CL_NS(store)::IndexInput* stream, EntriesType* entries, bool own_index_input = false,
+            CL_NS(store)::IndexInput* stream, EntriesType* entries_clone,
+            bool own_index_input = false,
             int32_t _readBufferSize = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE)
             : readBufferSize(_readBufferSize),
               stream(stream),
-              entries(entries),
-              _own_index_input(own_index_input) {};
+              entries(_CLNEW EntriesType(true, true)),
+              _own_index_input(own_index_input) {
+        for (auto& e : *entries_clone) {
+            auto* origin_entry = e.second;
+            auto* entry = _CLNEW ReaderFileEntry();
+            char* aid = strdup(e.first);
+            entry->file_name = origin_entry->file_name;
+            entry->offset = origin_entry->offset;
+            entry->length = origin_entry->length;
+            entries->put(aid, entry);
+        }
+    };
     DorisCompoundReader(lucene::store::Directory* dir, const char* name,
                         int32_t _readBufferSize = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE,
                         bool open_idx_file_cache = false);

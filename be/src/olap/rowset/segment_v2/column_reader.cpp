@@ -41,6 +41,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
@@ -257,10 +258,9 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
     return Status::OK();
 }
 
-Status ColumnReader::new_inverted_index_iterator(const InvertedIndexFileReader* index_file_reader,
-                                                 const TabletIndex* index_meta,
-                                                 const StorageReadOptions& read_options,
-                                                 std::unique_ptr<InvertedIndexIterator>* iterator) {
+Status ColumnReader::new_inverted_index_iterator(
+        std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta,
+        const StorageReadOptions& read_options, std::unique_ptr<InvertedIndexIterator>* iterator) {
     RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_file_reader, index_meta));
     if (_inverted_index) {
         RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
@@ -534,8 +534,8 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
     return Status::OK();
 }
 
-Status ColumnReader::_load_inverted_index_index(const InvertedIndexFileReader* index_file_reader,
-                                                const TabletIndex* index_meta) {
+Status ColumnReader::_load_inverted_index_index(
+        std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta) {
     std::lock_guard<std::mutex> wlock(_load_index_lock);
 
     if (_inverted_index && index_meta &&
@@ -579,6 +579,10 @@ Status ColumnReader::_load_inverted_index_index(const InvertedIndexFileReader* i
     } else {
         _inverted_index.reset();
     }
+    // TODO: move has null to inverted_index_reader's query function
+    //bool has_null = true;
+    //RETURN_IF_ERROR(index_file_reader->has_null(index_meta, &has_null));
+    //_inverted_index->set_has_null(has_null);
     return Status::OK();
 }
 

@@ -79,6 +79,7 @@ public:
     bool list(std::vector<std::string>* names) const override;
     bool fileExists(const char* name) const override;
     const char* getCfsDirName() const;
+    const std::string& getDirName() const;
     int64_t fileModified(const char* name) const override;
     int64_t fileLength(const char* name) const override;
     bool openInput(const char* name, lucene::store::IndexInput*& ret, CLuceneError& err,
@@ -169,19 +170,21 @@ class DorisCompoundDirectory::FSIndexInput : public lucene::store::BufferedIndex
         io::FileReaderSPtr _reader;
         uint64_t _length;
         int64_t _fpos;
-        std::mutex* _shared_lock = nullptr;
+        std::mutex _shared_lock;
+        //std::mutex* _shared_lock = nullptr;
         char path[4096];
         SharedHandle(const char* path);
         ~SharedHandle() override;
     };
 
-    SharedHandle* _handle = nullptr;
+    std::shared_ptr<SharedHandle> _handle = nullptr;
     int64_t _pos;
     io::IOContext _io_ctx;
 
-    FSIndexInput(SharedHandle* handle, int32_t buffer_size) : BufferedIndexInput(buffer_size) {
+    FSIndexInput(std::shared_ptr<SharedHandle> handle, int32_t buffer_size)
+            : BufferedIndexInput(buffer_size) {
         this->_pos = 0;
-        this->_handle = handle;
+        this->_handle = std::move(handle);
         this->_io_ctx.reader_type = ReaderType::READER_QUERY;
         this->_io_ctx.is_index_data = false;
     }

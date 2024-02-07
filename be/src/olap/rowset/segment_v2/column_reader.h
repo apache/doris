@@ -123,7 +123,7 @@ public:
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
-    Status new_inverted_index_iterator(const InvertedIndexFileReader* index_file_reader,
+    Status new_inverted_index_iterator(std::shared_ptr<InvertedIndexFileReader> index_file_reader,
                                        const TabletIndex* index_meta,
                                        const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iterator);
@@ -193,7 +193,7 @@ private:
 
     // Read column inverted indexes into memory
     // May be called multiple times, subsequent calls will no op.
-    Status _ensure_inverted_index_loaded(const InvertedIndexFileReader* index_file_reader,
+    Status _ensure_inverted_index_loaded(std::shared_ptr<InvertedIndexFileReader> index_file_reader,
                                          const TabletIndex* index_meta) {
         // load inverted index only if not loaded or index_id is changed
         RETURN_IF_ERROR(_load_inverted_index_index(index_file_reader, index_meta));
@@ -204,7 +204,8 @@ private:
     [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
     [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
     [[nodiscard]] Status _load_inverted_index_index(
-            const InvertedIndexFileReader* index_file_reader, const TabletIndex* index_meta);
+            std::shared_ptr<InvertedIndexFileReader> index_file_reader,
+            const TabletIndex* index_meta);
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
 
     bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,

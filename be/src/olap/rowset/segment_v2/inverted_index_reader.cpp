@@ -149,8 +149,7 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
     bool owned_dir = false;
     try {
         // try to get query bitmap result from cache and return immediately on cache hit
-        auto index_file_path = _inverted_index_file_reader->get_index_file_dir() /
-                               _inverted_index_file_reader->get_index_file_name();
+        auto index_file_path = _inverted_index_file_reader->get_index_file_path(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {
                 index_file_path, "", InvertedIndexQueryType::UNKNOWN_QUERY, "null_bitmap"};
         auto* cache = InvertedIndexQueryCache::instance();
@@ -197,8 +196,8 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
 
 Status InvertedIndexReader::handle_searcher_cache(
         InvertedIndexCacheHandle* inverted_index_cache_handle, OlapReaderStatistics* stats) {
-    auto index_file_path = _inverted_index_file_reader->get_index_file_path(&_index_meta);
-    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_path);
+    auto index_file_key = _inverted_index_file_reader->get_index_file_path(&_index_meta);
+    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
     if (InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
                                                        inverted_index_cache_handle)) {
         return Status::OK();
@@ -210,13 +209,17 @@ Status InvertedIndexReader::handle_searcher_cache(
         bool exists = false;
         RETURN_IF_ERROR(_inverted_index_file_reader->index_file_exist(&_index_meta, &exists));
         if (!exists) {
-            LOG(WARNING) << "inverted index: " << index_file_path << " not exist.";
+            LOG(WARNING) << "inverted index: " << index_file_key << " not exist.";
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                    "inverted index input file {} not found", index_file_path);
+                    "inverted index input file {} not found", index_file_key);
         }
         auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
+        // try to reuse index_searcher's directory to read null_bitmap to cache
+        // to avoid open directory additionally for null_bitmap
+        // TODO: handle null bitmap procedure in new format.
+        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        static_cast<void>(read_null_bitmap(&null_bitmap_cache_handle, dir.get()));
         RETURN_IF_ERROR(create_index_searcher(dir.release(), &searcher, mem_tracker.get(), type()));
-        dir->getDorisIndexInput()->setIdxFileCache(false);
         auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
                 std::move(searcher), mem_tracker->consumption(), UnixMillis());
         InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
@@ -235,6 +238,9 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
 
     auto searcher_result = DORIS_TRY(index_searcher_builder->get_index_searcher(dir));
     *searcher = searcher_result;
+    if (std::string(dir->getObjectName()) == "DorisCompoundReader") {
+        static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput()->setIdxFileCache(false);
+    }
     return Status::OK();
 };
 
@@ -416,13 +422,6 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
     searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
     if (searcher_ptr != nullptr) {
-        // try to reuse index_searcher's directory to read null_bitmap to cache
-        // to avoid open directory additionally for null_bitmap
-        // TODO: handle null bitmap procedure in new format.
-        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(read_null_bitmap(&null_bitmap_cache_handle,
-                                         (*searcher_ptr)->getReader()->directory()));
-
         try {
             switch (query_type) {
             case InvertedIndexQueryType::MATCH_ANY_QUERY:

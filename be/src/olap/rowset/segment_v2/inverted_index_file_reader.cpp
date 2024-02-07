@@ -39,6 +39,12 @@ Status InvertedIndexFileReader::init(int32_t read_buffer_size, bool open_idx_fil
 Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
     auto index_file_full_path = _index_file_dir / _index_file_name;
     try {
+        bool exists = false;
+        RETURN_IF_ERROR(_fs->exists(index_file_full_path, &exists));
+        if (!exists) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "inverted index file {} is not found", index_file_full_path.native());
+        }
         int64_t file_size = 0;
         RETURN_IF_ERROR(_fs->file_size(index_file_full_path, &file_size));
         if (file_size == 0) {
@@ -116,15 +122,28 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
     return Status::OK();
 }
 
-Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::open(
-        const TabletIndex* index_meta) const {
-    auto index_id = index_meta->index_id();
-    auto index_suffix = index_meta->get_index_suffix();
+Result<InvertedIndexDirectoryMap> InvertedIndexFileReader::get_all_directories() {
+    InvertedIndexDirectoryMap res;
+    for (auto& index : _indices_entries) {
+        auto index_id = index.first.first;
+        auto index_suffix = index.first.second;
+        LOG(INFO) << "index_id:" << index_id << " index_suffix:" << index_suffix;
+        auto ret = _open(index_id, index_suffix);
+        if (!ret.has_value()) {
+            return ResultError(ret.error());
+        }
+        res.emplace(std::make_pair(index_id, index_suffix), std::move(ret.value()));
+    }
+    return res;
+}
+
+Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
+        int64_t index_id, std::string& index_suffix) const {
     std::unique_ptr<DorisCompoundReader> compound_reader;
 
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         DorisCompoundDirectory* dir = nullptr;
-        auto file_name = InvertedIndexDescriptor::get_index_file_name(_index_file_name, index_id,
+        auto file_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name, index_id,
                                                                       index_suffix);
         try {
             dir = DorisCompoundDirectoryFactory::getDirectory(_fs, _index_file_dir.c_str());
@@ -142,7 +161,7 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::open(
         }
     } else {
         if (_stream == nullptr) {
-            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                     "CLuceneError occur when open idx file {}, stream is nullptr",
                     (_index_file_dir / _index_file_name).native()));
         }
@@ -156,35 +175,74 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::open(
                     "CLuceneError occur when open idx file {}, error msg: {}",
                     (_index_file_dir / _index_file_name).native(), errMsg.str()));
         }
-        bool own_index_input = false;
+        // Need to clone resource here, because index searcher cache need it.
+        bool own_index_input = true;
         compound_reader = std::make_unique<DorisCompoundReader>(
-                _stream.get(), index_it->second.get(), own_index_input, _read_buffer_size);
+                _stream->clone(), index_it->second.get(), own_index_input, _read_buffer_size);
     }
     return compound_reader;
+}
+Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::open(
+        const TabletIndex* index_meta) const {
+    auto index_id = index_meta->index_id();
+    auto index_suffix = index_meta->get_index_suffix();
+    return _open(index_id, index_suffix);
 }
 
 std::string InvertedIndexFileReader::get_index_file_path(const TabletIndex* index_meta) const {
     return _index_file_dir /
-           InvertedIndexDescriptor::get_index_file_name(_index_file_name, index_meta->index_id(),
+           InvertedIndexDescriptor::get_index_file_name(_segment_file_name, index_meta->index_id(),
                                                         index_meta->get_index_suffix());
 }
 
 Status InvertedIndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* res) const {
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         auto index_file_path = _index_file_dir / InvertedIndexDescriptor::get_index_file_name(
-                                                         _index_file_name, index_meta->index_id(),
+                                                         _segment_file_name, index_meta->index_id(),
                                                          index_meta->get_index_suffix());
         return _fs->exists(index_file_path, res);
     } else {
         if (_stream == nullptr) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+            *res = false;
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                     "idx file {} is not opened", (_index_file_dir / _index_file_name).native());
         }
-        //TODO: support index suffix
         // Check if the specified index exists
         auto index_it = _indices_entries.find(
                 std::make_pair(index_meta->index_id(), index_meta->get_index_suffix()));
         if (index_it == _indices_entries.end()) {
+            *res = false;
+        } else {
+            *res = true;
+        }
+    }
+    return Status::OK();
+}
+
+Status InvertedIndexFileReader::has_null(const TabletIndex* index_meta, bool* res) const {
+    if (_storage_format == InvertedIndexStorageFormatPB::V1) {
+        *res = true;
+        return Status::OK();
+    }
+    if (_stream == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "idx file {} is not opened", (_index_file_dir / _index_file_name).native());
+    }
+    // Check if the specified index exists
+    auto index_it = _indices_entries.find(
+            std::make_pair(index_meta->index_id(), index_meta->get_index_suffix()));
+    if (index_it == _indices_entries.end()) {
+        *res = false;
+    } else {
+        auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
+        auto* entries = index_it->second.get();
+        ReaderFileEntry* e = entries->get((char*)(null_bitmap_file_name.c_str()));
+        if (e == nullptr) {
+            *res = false;
+            return Status::OK();
+        }
+        // roaring bitmap cookie header size is 5
+        if (e->length <= 5) {
             *res = false;
         } else {
             *res = true;

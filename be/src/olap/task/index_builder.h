@@ -30,7 +30,8 @@
 namespace doris {
 namespace segment_v2 {
 class InvertedIndexColumnWriter;
-}
+class InvertedIndexFileWriter;
+} // namespace segment_v2
 namespace vectorized {
 class OlapBlockDataConvertor;
 }
@@ -59,6 +60,7 @@ public:
 private:
     Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, int32_t segment_idx,
                                       vectorized::Block* block);
+    Status handle_inverted_index_update();
     Status _add_data(const std::string& column_name,
                      const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
                      const uint8_t** ptr, size_t num_rows);
@@ -71,6 +73,7 @@ private:
     TabletSharedPtr _tablet;
     std::vector<TColumn> _columns;
     std::vector<doris::TOlapTableIndex> _alter_inverted_indexes;
+    std::vector<TabletIndex> _drop_indices_meta;
     bool _is_drop_op;
     std::set<int32_t> _alter_index_ids;
     std::vector<RowsetSharedPtr> _input_rowsets;
@@ -82,6 +85,11 @@ private:
     std::unordered_map<std::pair<int64_t, int64_t>,
                        std::unique_ptr<segment_v2::InvertedIndexColumnWriter>>
             _inverted_index_builders;
+    std::unordered_map<int64_t, std::unique_ptr<InvertedIndexFileWriter>>
+            _inverted_index_file_writers;
+    // <rowset_id, segment_id>
+    std::unordered_map<std::pair<std::string, int64_t>, std::unique_ptr<InvertedIndexFileReader>>
+            _inverted_index_file_readers;
 };
 
 using IndexBuilderSharedPtr = std::shared_ptr<IndexBuilder>;

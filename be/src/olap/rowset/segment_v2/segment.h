@@ -202,6 +202,7 @@ private:
                                            vectorized::DataTypePtr target_type_hint);
 
     Status _load_index_impl();
+    Status _open_inverted_index();
 
 private:
     friend class SegmentIterator;
@@ -247,7 +248,7 @@ private:
     std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
     std::mutex _open_lock;
     // inverted index file reader
-    std::unique_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
+    std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
 };
 
 } // namespace segment_v2

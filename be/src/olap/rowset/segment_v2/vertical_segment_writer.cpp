@@ -106,6 +106,12 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                 _tablet_schema->db_id(), _tablet_schema->table_id(),
                 _tablet_schema->column(_tablet_schema->auto_increment_column()).unique_id());
     }
+    if (_tablet_schema->has_inverted_index()) {
+        _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                _file_writer->fs(), _file_writer->path().parent_path(),
+                _file_writer->path().filename(),
+                _tablet_schema->get_inverted_index_storage_format());
+    }
 }
 
 VerticalSegmentWriter::~VerticalSegmentWriter() {
@@ -184,6 +190,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
             break;
         }
     }
+    opts.inverted_index_file_writer = _inverted_index_file_writer.get();
 
 #define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
@@ -881,11 +888,10 @@ uint64_t VerticalSegmentWriter::_estimated_remaining_size() {
 }
 
 size_t VerticalSegmentWriter::_calculate_inverted_index_file_size() {
-    size_t total_size = 0;
-    for (auto& column_writer : _column_writers) {
-        total_size += column_writer->get_inverted_index_size();
+    if (_inverted_index_file_writer != nullptr) {
+        return _inverted_index_file_writer->get_index_file_size();
     }
-    return total_size;
+    return 0;
 }
 
 Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
@@ -981,7 +987,9 @@ Status VerticalSegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
     }
-    RETURN_IF_ERROR(_inverted_index_file_writer->close());
+    if (_inverted_index_file_writer != nullptr) {
+        RETURN_IF_ERROR(_inverted_index_file_writer->close());
+    }
     return Status::OK();
 }
 

@@ -31,6 +31,7 @@
 #include "common/config.h"
 #include "io/fs/file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 
 namespace doris {
 class TabletIndex;
@@ -53,11 +54,10 @@ public:
                             InvertedIndexStorageFormatPB storage_format)
             : _fs(fs),
               _index_file_dir(std::move(segment_file_dir)),
+              _segment_file_name(std::move(segment_file_name)),
               _storage_format(storage_format) {
-        if (_storage_format == InvertedIndexStorageFormatPB::V1) {
-            _index_file_name = std::move(segment_file_name);
-        } else {
-            _index_file_name = InvertedIndexDescriptor::get_index_file_name(segment_file_name);
+        if (_storage_format != InvertedIndexStorageFormatPB::V1) {
+            _index_file_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name);
         }
     }
 
@@ -65,20 +65,23 @@ public:
                 bool open_idx_file_cache = false);
     Result<std::unique_ptr<DorisCompoundReader>> open(const TabletIndex* index_meta) const;
     void debug_file_entries();
-    const io::Path& get_index_file_dir() const { return _index_file_dir; };
-    const std::string& get_index_file_name() const { return _index_file_name; };
-    const io::FileSystemSPtr& get_fs() const { return _fs; }
     std::string get_index_file_path(const TabletIndex* index_meta) const;
     Status index_file_exist(const TabletIndex* index_meta, bool* res) const;
+    Status has_null(const TabletIndex* index_meta, bool* res) const;
+    Result<InvertedIndexDirectoryMap> get_all_directories();
 
 private:
     Status _init_from_v2(int32_t read_buffer_size);
+    Result<std::unique_ptr<DorisCompoundReader>> _open(int64_t index_id,
+                                                       std::string& index_suffix) const;
 
     IndicesEntriesMap _indices_entries;
     std::unique_ptr<CL_NS(store)::IndexInput> _stream;
     const io::FileSystemSPtr _fs;
     io::Path _index_file_dir;
+    // index file name by storage format V2
     std::string _index_file_name;
+    std::string _segment_file_name;
     int32_t _read_buffer_size = -1;
     bool _open_idx_file_cache = false;
     InvertedIndexStorageFormatPB _storage_format;

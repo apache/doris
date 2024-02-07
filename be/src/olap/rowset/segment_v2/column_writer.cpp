@@ -481,9 +481,9 @@ Status ScalarColumnWriter::init() {
     }
 
     if (_opts.need_inverted_index) {
-        RETURN_IF_ERROR(InvertedIndexColumnWriter::create(
-                get_field(), &_inverted_index_builder, _opts.inverted_index_file_writer,
-                &_opts.inverted_index, _file_writer->fs()));
+        RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
+                                                          _opts.inverted_index_file_writer,
+                                                          &_opts.inverted_index));
     }
     if (_opts.need_bloom_filter) {
         if (_opts.is_ngram_bf_index) {
@@ -914,9 +914,9 @@ Status ArrayColumnWriter::init() {
     if (_opts.need_inverted_index) {
         auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
-            RETURN_IF_ERROR(InvertedIndexColumnWriter::create(
-                    get_field(), &_inverted_index_builder, _opts.inverted_index_file_writer,
-                    &_opts.inverted_index, writer->_file_writer->fs()));
+            RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
+                                                              _opts.inverted_index_file_writer,
+                                                              &_opts.inverted_index));
         }
     }
     return Status::OK();

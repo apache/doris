@@ -33,6 +33,11 @@ std::string InvertedIndexFileWriter::get_index_file_path(const TabletIndex* inde
                                                         index_meta->get_index_suffix());
 }
 
+Status InvertedIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_dirs) {
+    _indices_dirs = std::move(indices_dirs);
+    return Status::OK();
+}
+
 Result<DorisCompoundDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index_meta) {
     auto index_id = index_meta->index_id();
     auto index_suffix = index_meta->get_index_suffix();
@@ -64,6 +69,28 @@ Result<DorisCompoundDirectory*> InvertedIndexFileWriter::open(const TabletIndex*
     return dir.get();
 }
 
+Status InvertedIndexFileWriter::delete_index(const TabletIndex* index_meta) {
+    if (!index_meta) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>("Index metadata is null.");
+    }
+
+    auto index_id = index_meta->index_id();
+    auto index_suffix = index_meta->get_index_suffix();
+
+    // Check if the specified index exists
+    auto index_it = _indices_dirs.find(std::make_pair(index_id, index_suffix));
+    if (index_it == _indices_dirs.end()) {
+        std::ostringstream errMsg;
+        errMsg << "No inverted index with id " << index_id << " and suffix " << index_suffix
+               << " found.";
+        LOG(WARNING) << errMsg.str();
+        return Status::OK();
+    }
+
+    _indices_dirs.erase(index_it);
+    return Status::OK();
+}
+
 size_t InvertedIndexFileWriter::headerLength() {
     size_t header_size = 0;
     header_size +=
@@ -89,19 +116,53 @@ size_t InvertedIndexFileWriter::headerLength() {
 }
 
 Status InvertedIndexFileWriter::close() {
+    if (_indices_dirs.empty()) {
+        return Status::OK();
+    }
     try {
         if (_storage_format == InvertedIndexStorageFormatPB::V1) {
             for (const auto& entry : _indices_dirs) {
+                auto index_id = entry.first.first;
+                auto index_suffix = entry.first.second;
                 const auto& dir = entry.second;
                 auto* cfsWriter = _CLNEW DorisCompoundFileWriter(dir.get());
                 // write compound file
                 _file_size += cfsWriter->writeCompoundFile();
                 // delete index path, which contains separated inverted index files
-                dir->deleteDirectory();
+                if (std::string(dir->getObjectName()) == "DorisCompoundDirectory") {
+                    auto temp_dir = InvertedIndexDescriptor::get_temporary_index_path(
+                            _index_file_dir / _index_file_name, index_id, index_suffix);
+                    auto* compound_dir = static_cast<DorisCompoundDirectory*>(dir.get());
+                    if (compound_dir->getDirName() == temp_dir) {
+                        compound_dir->deleteDirectory();
+                    } else {
+                        LOG(ERROR) << "try to delete wrong inverted index temporal directory, "
+                                      "wrong path is "
+                                   << compound_dir->getDirName() << " actual needed: " << temp_dir;
+                    }
+                }
                 _CLDELETE(cfsWriter)
             }
         } else {
             _file_size = write();
+            for (const auto& entry : _indices_dirs) {
+                auto index_id = entry.first.first;
+                auto index_suffix = entry.first.second;
+                const auto& dir = entry.second;
+                // delete index path, which contains separated inverted index files
+                if (std::string(dir->getObjectName()) == "DorisCompoundDirectory") {
+                    auto temp_dir = InvertedIndexDescriptor::get_temporary_index_path(
+                            _index_file_dir / _index_file_name, index_id, index_suffix);
+                    auto* compound_dir = static_cast<DorisCompoundDirectory*>(dir.get());
+                    if (compound_dir->getDirName() == temp_dir) {
+                        compound_dir->deleteDirectory();
+                    } else {
+                        LOG(ERROR) << "try to delete wrong inverted index temporal directory, "
+                                      "wrong path is "
+                                   << compound_dir->getDirName() << " actual needed: " << temp_dir;
+                    }
+                }
+            }
         }
     } catch (CLuceneError& err) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -132,7 +193,7 @@ size_t InvertedIndexFileWriter::write() {
     // First, write all index information and file metadata
     for (const auto& entry : _indices_dirs) {
         const int64_t index_id = entry.first.first;
-        auto& index_suffix = entry.first.second;
+        const auto& index_suffix = entry.first.second;
         const auto& dir = entry.second;
         std::vector<std::string> files;
         dir->list(&files);
@@ -144,8 +205,7 @@ size_t InvertedIndexFileWriter::write() {
         // sort file list by file length
         std::vector<std::pair<std::string, int64_t>> sorted_files;
         for (auto file : files) {
-            sorted_files.emplace_back(
-                    file, ((DorisCompoundDirectory*)dir.get())->fileLength(file.c_str()));
+            sorted_files.emplace_back(file, dir->fileLength(file.c_str()));
         }
         // TODO: need to optimize
         std::sort(sorted_files.begin(), sorted_files.end(),
@@ -181,7 +241,7 @@ size_t InvertedIndexFileWriter::write() {
     // Next, write the file data
     for (const auto& info : file_metadata) {
         const std::string& file = std::get<0>(info);
-        CL_NS(store)::Directory* dir = std::get<3>(info);
+        auto* dir = std::get<3>(info);
 
         // Write the actual file data
         DorisCompoundFileWriter::copyFile(file.c_str(), dir, compound_file_output.get(),
