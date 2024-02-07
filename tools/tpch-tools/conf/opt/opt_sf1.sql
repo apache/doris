@@ -4,3 +4,4 @@ set global enable_runtime_filter_prune=false;
 set global runtime_filter_wait_time_ms=1000;
 set global enable_fallback_to_original_planner=false;
 set global forbid_unknown_col_stats=true;
+set global check_overflow_for_decimal=false;

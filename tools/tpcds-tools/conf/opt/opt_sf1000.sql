@@ -1,1 +1,2 @@
 set global runtime_filter_wait_time_ms=10000;
+set global check_overflow_for_decimal=false;
