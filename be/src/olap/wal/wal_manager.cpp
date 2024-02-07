@@ -39,7 +39,10 @@
 
 namespace doris {
 WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
-        : _exec_env(exec_env), _stop(false), _stop_background_threads_latch(1) {
+        : _exec_env(exec_env),
+          _stop(false),
+          _stop_background_threads_latch(1),
+          _first_replay(true) {
     _wal_dirs = strings::Split(wal_dir_list, ";", strings::SkipWhitespace());
     static_cast<void>(ThreadPoolBuilder("GroupCommitReplayWalThreadPool")
                               .set_min_threads(1)
@@ -76,11 +79,8 @@ Status WalManager::init() {
     RETURN_IF_ERROR(_init_wal_dirs_conf());
     RETURN_IF_ERROR(_init_wal_dirs());
     RETURN_IF_ERROR(_init_wal_dirs_info());
-    for (auto wal_dir : _wal_dirs) {
-        RETURN_IF_ERROR(_scan_wals(wal_dir));
-    }
     return Thread::create(
-            "WalMgr", "replay_wal", [this]() { static_cast<void>(this->_replay()); },
+            "WalMgr", "replay_wal", [this]() { static_cast<void>(this->_replay_background()); },
             &_replay_thread);
 }
 
@@ -209,6 +209,7 @@ Status WalManager::create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_
     base_path = _wal_dirs_info->get_available_random_wal_dir();
     std::stringstream ss;
     ss << base_path << "/" << std::to_string(db_id) << "/" << std::to_string(table_id) << "/"
+       << _wal_version << "_" << _exec_env->master_info()->backend_id << "_"
        << std::to_string(wal_id) << "_" << label;
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_path_lock);
@@ -232,9 +233,68 @@ Status WalManager::get_wal_path(int64_t wal_id, std::string& wal_path) {
     return Status::OK();
 }
 
-Status WalManager::_scan_wals(const std::string& wal_path) {
-    size_t count = 0;
-    bool exists = true;
+Status WalManager::parse_wal_path(const std::string& file_name, int64_t& version,
+                                  int64_t& backend_id, int64_t& wal_id, std::string& label) {
+    try {
+        // find version
+        auto pos = file_name.find("_");
+        version = std::strtoll(file_name.substr(0, pos).c_str(), NULL, 10);
+        // find be id
+        auto substring1 = file_name.substr(pos + 1);
+        pos = substring1.find("_");
+        backend_id = std::strtoll(substring1.substr(0, pos).c_str(), NULL, 10);
+        // find wal id
+        auto substring2 = substring1.substr(pos + 1);
+        pos = substring2.find("_");
+        wal_id = std::strtoll(substring2.substr(0, pos).c_str(), NULL, 10);
+        // find label
+        label = substring2.substr(pos + 1);
+        VLOG_DEBUG << "version:" << version << "backend_id:" << backend_id << ",wal_id:" << wal_id
+                   << ",label:" << label;
+    } catch (const std::invalid_argument& e) {
+        return Status::InvalidArgument("Invalid format, {}", e.what());
+    }
+    return Status::OK();
+}
+
+Status WalManager::_replay_wal() {
+    std::vector<ScanWalInfo> wals;
+    for (auto wal_dir : _wal_dirs) {
+        RETURN_IF_ERROR(_scan_wals(wal_dir, wals));
+    }
+    for (const auto& wal : wals) {
+        bool exists = false;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(wal.wal_path, &exists));
+        if (!exists) {
+            continue;
+        }
+        LOG(INFO) << "find wal: " << wal.wal_path;
+        {
+            std::lock_guard<std::shared_mutex> wrlock(_wal_path_lock);
+            auto it = _wal_path_map.find(wal.wal_id);
+            if (it != _wal_path_map.end()) {
+                LOG(INFO) << "wal_id " << wal.wal_id << " already in wal_path_map, skip it";
+                continue;
+            }
+            _wal_path_map.emplace(wal.wal_id, wal.wal_path);
+        }
+        // this config is use for test p0 case in pipeline
+        if (config::group_commit_wait_replay_wal_finish) {
+            auto lock = std::make_shared<std::mutex>();
+            auto cv = std::make_shared<std::condition_variable>();
+            auto add_st = add_wal_cv_map(wal.wal_id, lock, cv);
+            if (!add_st.ok()) {
+                LOG(WARNING) << "fail to add wal_id " << wal.wal_id << " to wal_cv_map";
+                continue;
+            }
+        }
+        RETURN_IF_ERROR(add_recover_wal(wal.db_id, wal.tb_id, wal.wal_id, wal.wal_path));
+    }
+    return Status::OK();
+}
+
+Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalInfo>& res) {
+    bool exists = false;
     std::vector<io::FileInfo> dbs;
     Status st = io::global_local_filesystem()->list(wal_path, false, &dbs, &exists);
     if (!st.ok()) {
@@ -249,7 +309,7 @@ Status WalManager::_scan_wals(const std::string& wal_path) {
         auto db_path = wal_path + "/" + database_id.file_name;
         st = io::global_local_filesystem()->list(db_path, false, &tables, &exists);
         if (!st.ok()) {
-            LOG(WARNING) << "failed to list files for wal_dir=" << db_path
+            LOG(WARNING) << "failed list files for wal_dir=" << db_path
                          << ", st=" << st.to_string();
             return st;
         }
@@ -261,49 +321,43 @@ Status WalManager::_scan_wals(const std::string& wal_path) {
             auto table_path = db_path + "/" + table_id.file_name;
             st = io::global_local_filesystem()->list(table_path, false, &wals, &exists);
             if (!st.ok()) {
-                LOG(WARNING) << "failed to list files for wal_dir=" << table_path
+                LOG(WARNING) << "failed list files for wal_dir=" << table_path
                              << ", st=" << st.to_string();
                 return st;
             }
             if (wals.empty()) {
                 continue;
             }
-            std::vector<std::string> res;
             for (const auto& wal : wals) {
-                auto wal_file = table_path + "/" + wal.file_name;
-                res.emplace_back(wal_file);
-                {
-                    std::lock_guard<std::shared_mutex> wrlock(_wal_path_lock);
-                    auto pos = wal.file_name.find("_");
-                    try {
-                        int64_t wal_id =
-                                std::strtoll(wal.file_name.substr(0, pos).c_str(), NULL, 10);
-                        _wal_path_map.emplace(wal_id, wal_file);
-                        int64_t db_id = std::strtoll(database_id.file_name.c_str(), NULL, 10);
-                        int64_t tb_id = std::strtoll(table_id.file_name.c_str(), NULL, 10);
-                        if (config::group_commit_wait_replay_wal_finish) {
-                            std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
-                            std::shared_ptr<std::condition_variable> cv =
-                                    std::make_shared<std::condition_variable>();
-                            auto add_st = add_wal_cv_map(wal_id, lock, cv);
-                            if (!add_st.ok()) {
-                                LOG(WARNING) << "fail to add wal_id " << wal_id << " to wal_cv_map";
-                            }
-                        }
-                        RETURN_IF_ERROR(add_recover_wal(db_id, tb_id, wal_id, wal_file));
-                    } catch (const std::invalid_argument& e) {
-                        return Status::InvalidArgument("Invalid format, {}", e.what());
-                    }
+                int64_t version = -1;
+                int64_t backend_id = -1;
+                int64_t wal_id = -1;
+                int64_t db_id = -1;
+                int64_t tb_id = -1;
+                std::string label = "";
+                parse_wal_path(wal.file_name, version, backend_id, wal_id, label);
+                try {
+                    db_id = std::strtoll(database_id.file_name.c_str(), NULL, 10);
+                    tb_id = std::strtoll(table_id.file_name.c_str(), NULL, 10);
+                } catch (const std::invalid_argument& e) {
+                    return Status::InvalidArgument("Invalid format, {}", e.what());
                 }
+                auto wal_file = table_path + "/" + wal.file_name;
+                struct ScanWalInfo scan_wal_info;
+                scan_wal_info.wal_path = wal_file;
+                scan_wal_info.db_id = db_id;
+                scan_wal_info.tb_id = tb_id;
+                scan_wal_info.wal_id = wal_id;
+                scan_wal_info.be_id = backend_id;
+                res.emplace_back(scan_wal_info);
             }
-            count += res.size();
         }
     }
-    LOG(INFO) << "Finish list wal_dir=" << wal_path << ", wal count=" << count;
+    LOG(INFO) << "Finish list wal_dir=" << wal_path << ", wal count=" << res.size();
     return Status::OK();
 }
 
-Status WalManager::_replay() {
+Status WalManager::_replay_background() {
     do {
         if (_stop.load()) {
             break;
@@ -313,6 +367,12 @@ Status WalManager::_replay() {
             _exec_env->master_info()->network_address.port == 0) {
             continue;
         }
+        // replay residual wal,only replay once
+        bool expected = true;
+        if (_first_replay.compare_exchange_strong(expected, false)) {
+            RETURN_IF_ERROR(_replay_wal());
+        }
+        // replay wal of current process
         std::vector<int64_t> replay_tables;
         {
             std::lock_guard<std::shared_mutex> wrlock(_table_lock);
@@ -534,6 +594,15 @@ Status WalManager::rename_to_tmp_path(const std::string wal, int64_t table_id, i
         return Status::InternalError("rename fail on path " + wal);
     }
     LOG(INFO) << "rename wal from " << wal << " to " << wal_path.string();
+    {
+        std::lock_guard<std::shared_mutex> wrlock(_wal_path_lock);
+        auto it = _wal_path_map.find(wal_id);
+        if (it != _wal_path_map.end()) {
+            _wal_path_map.erase(wal_id);
+        } else {
+            LOG(WARNING) << "can't find " << wal_id << " in _wal_path_map when trying to rename";
+        }
+    }
     erase_wal_queue(table_id, wal_id);
     return Status::OK();
 }
