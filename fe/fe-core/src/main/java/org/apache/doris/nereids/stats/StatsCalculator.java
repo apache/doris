@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
@@ -586,7 +587,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new FilterEstimation().estimate(filter.getPredicate(), stats);
     }
 
-    private ColumnStatistic getColumnStatistic(TableIf table, String colName) {
+    private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getSessionVariable().internalSession) {
             return ColumnStatistic.UNKNOWN;
@@ -610,9 +611,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 catalogId = -1;
                 dbId = -1;
             }
-            // TODO. Get index id for materialized view.
             return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                catalogId, dbId, table.getId(), -1, colName);
+                catalogId, dbId, table.getId(), idxId, colName);
         }
     }
 
@@ -626,8 +626,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         TableIf table = catalogRelation.getTable();
         double rowCount = catalogRelation.getTable().estimatedRowCount();
         boolean hasUnknownCol = false;
+        long idxId = -1;
+        if (catalogRelation instanceof OlapScan) {
+            OlapScan olapScan = (OlapScan) catalogRelation;
+            if (olapScan.getTable().getBaseIndexId() != olapScan.getSelectedIndexId()) {
+                idxId = olapScan.getSelectedIndexId();
+            }
+        }
         for (SlotReference slotReference : slotSet) {
-            String colName = slotReference.getName();
+            String colName = slotReference.getColumn().isPresent()
+                    ? slotReference.getColumn().get().getName()
+                    : slotReference.getName();
             boolean shouldIgnoreThisCol = StatisticConstants.shouldIgnoreCol(table, slotReference.getColumn().get());
 
             if (colName == null) {
@@ -638,7 +647,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     || shouldIgnoreThisCol) {
                 cache = ColumnStatistic.UNKNOWN;
             } else {
-                cache = getColumnStatistic(table, colName);
+                cache = getColumnStatistic(table, colName, idxId);
             }
             if (cache.avgSizeByte <= 0) {
                 cache = new ColumnStatisticBuilder(cache)
