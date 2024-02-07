@@ -58,6 +58,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -593,7 +594,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             long runningNum = 0;
             try {
                 DatabaseTransactionMgr dbMgr = getDatabaseTransactionMgr(dbId);
-                runningNum = dbMgr.getRunningTxnNums() + dbMgr.getRunningRoutineLoadTxnNums();
+                runningNum = dbMgr.getRunningTxnNums();
                 totalRunningNum += runningNum;
             } catch (AnalysisException e) {
                 LOG.warn("get database running transaction num failed", e);
@@ -621,6 +622,11 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     public List<List<String>> getDbTransInfo(Long dbId, boolean running, int limit) throws AnalysisException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         return dbTransactionMgr.getTxnStateInfoList(running, limit);
+    }
+
+    public Map<Long, List<Long>> getDbRunningTransInfo(long dbId) throws AnalysisException {
+        return Optional.ofNullable(dbIdToDatabaseTransactionMgrs.get(dbId))
+                .map(DatabaseTransactionMgr::getDbRunningTransInfo).orElse(Maps.newHashMap());
     }
 
     @Override
@@ -731,7 +737,8 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public int getRunningTxnNums(Long dbId) throws AnalysisException {
-        return getDatabaseTransactionMgr(dbId).getRunningTxnNums();
+        return Optional.ofNullable(dbIdToDatabaseTransactionMgrs.get(dbId))
+                .map(DatabaseTransactionMgr::getRunningTxnNums).orElse(0);
     }
 
     @Override

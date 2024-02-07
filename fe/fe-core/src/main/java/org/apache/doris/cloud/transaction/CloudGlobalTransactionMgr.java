@@ -83,6 +83,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
@@ -773,6 +774,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public List<List<String>> getDbTransInfo(Long dbId, boolean running, int limit) throws AnalysisException {
+        throw new AnalysisException(NOT_SUPPORTED_MSG);
+    }
+
+    @Override
+    public Map<Long, List<Long>> getDbRunningTransInfo(long dbId) throws AnalysisException {
         throw new AnalysisException(NOT_SUPPORTED_MSG);
     }
 
