@@ -313,11 +313,12 @@ Status GroupCommitTable::_create_group_commit_load(
         if (!is_pipeline) {
             RETURN_IF_ERROR(load_block_queue->create_wal(
                     _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                    params.desc_tbl.slotDescriptors, be_exe_version));
+                    params.fragment.output_sink.olap_table_sink.schema.slot_descs, be_exe_version));
         } else {
             RETURN_IF_ERROR(load_block_queue->create_wal(
                     _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                    pipeline_params.desc_tbl.slotDescriptors, be_exe_version));
+                    pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
+                    be_exe_version));
         }
         _cv.notify_all();
     }
