@@ -205,8 +205,7 @@ Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<F
     } catch (const std::filesystem::filesystem_error& e) {
         // although `directory_iterator(dir, ec)` does not throw an exception,
         // it may throw an exception during iterator++, so we need to catch the exception here
-        return localfs_error(e.code(), fmt::format("failed to list {}, error message: {}",
-                                                   dir.native(), e.what()));
+        return Status::IOError("failed to list {}: {}", dir.native(), e.what());
     }
     if (ec) {
         return Status::IOError("failed to list {}: {}", dir.native(), errcode_to_str(ec));
