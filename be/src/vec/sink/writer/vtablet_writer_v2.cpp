@@ -446,7 +446,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                          << " not found in schema, load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
         }
-        return std::make_unique<DeltaWriterV2>(&req, streams, _state);
+        return DeltaWriterV2::create_unique(&req, streams, _state);
     });
     if (delta_writer == nullptr) {
         LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id
