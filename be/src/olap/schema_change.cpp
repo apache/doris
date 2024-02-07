@@ -646,7 +646,7 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
 
     Merger::Statistics stats;
     RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
-                                           new_tablet_schema, rs_readers, rowset_writer, &stats));
+                                           *new_tablet_schema, rs_readers, rowset_writer, &stats));
     _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);
     return Status::OK();

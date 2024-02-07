@@ -307,7 +307,8 @@ void TaskScheduler::_do_work(size_t index) {
             // LOG(WARNING)<< "task:\n"<<task->debug_string();
 
             // exec failed，cancel all fragment instance
-            fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.msg());
+            fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                                 std::string(status.msg()));
             _close_task(task, PipelineTaskState::CANCELED, status);
             continue;
         }
