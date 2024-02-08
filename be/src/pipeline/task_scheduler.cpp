@@ -241,11 +241,13 @@ void TaskScheduler::_do_work(size_t index) {
         task->set_running(true);
         task->set_task_queue(_task_queue.get());
         auto* fragment_ctx = task->fragment_context();
-        signal::query_id_hi = fragment_ctx->get_query_id().hi;
-        signal::query_id_lo = fragment_ctx->get_query_id().lo;
         bool canceled = fragment_ctx->is_canceled();
 
         auto state = task->get_state();
+        // Has to attach memory tracker here, because the close task will also release some memory.
+        // Should count the memory to the query or the query's memory will not decrease when part of
+        // task finished.
+        SCOPED_ATTACH_TASK(task->runtime_state());
         // If the state is PENDING_FINISH, then the task is come from blocked queue, its is_pending_finish
         // has to return false. The task is finished and need to close now.
         if (state == PipelineTaskState::PENDING_FINISH) {
