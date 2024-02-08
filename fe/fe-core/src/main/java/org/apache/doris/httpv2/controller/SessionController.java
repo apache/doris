@@ -74,7 +74,7 @@ public class SessionController extends BaseController {
 
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rows.add(info.toRow(-1, nowMs));
+            rows.add(info.toRow(-1, nowMs, false));
         }
 
         for (List<String> row : rows) {
