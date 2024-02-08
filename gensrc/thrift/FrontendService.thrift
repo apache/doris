@@ -1372,6 +1372,14 @@ struct TGetColumnInfoResult {
     2: optional list<TColumnInfo> columns
 }
 
+struct TShowProcessListRequest {
+    1: optional bool show_full_sql
+}
+
+struct TShowProcessListResult {
+    1: optional list<list<string>> process_list
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1454,4 +1462,6 @@ service FrontendService {
     TGetColumnInfoResult getColumnInfo(1: TGetColumnInfoRequest request)
 
     Status.TStatus invalidateStatsCache(1: TInvalidateFollowerStatsCacheRequest request)
+
+    TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
 }
