@@ -65,17 +65,9 @@
 namespace doris {
 using namespace ErrorCode;
 
-std::unique_ptr<DeltaWriterV2> DeltaWriterV2::open(
-        WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-        RuntimeState* state) {
-    std::unique_ptr<DeltaWriterV2> writer(
-            new DeltaWriterV2(req, streams, StorageEngine::instance(), state));
-    return writer;
-}
-
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
                              const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             StorageEngine* storage_engine, RuntimeState* state)
+                             RuntimeState* state)
         : _state(state),
           _req(*req),
           _tablet_schema(new TabletSchema),
