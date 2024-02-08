@@ -226,13 +226,6 @@ public:
 
     bool should_build_hash_table() const { return _should_build_hash_table; }
 
-    bool ready_for_finish() {
-        if (_runtime_filter_slots == nullptr) {
-            return true;
-        }
-        return _runtime_filter_slots->ready_finish_publish();
-    }
-
     bool have_other_join_conjunct() const { return _have_other_join_conjunct; }
     bool is_right_semi_anti() const { return _is_right_semi_anti; }
     bool is_outer_join() const { return _is_outer_join; }

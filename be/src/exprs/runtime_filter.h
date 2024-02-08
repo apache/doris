@@ -296,8 +296,6 @@ public:
     // for ut
     bool is_bloomfilter();
 
-    bool is_finish_rpc();
-
     Status join_rpc();
 
     // async push runtimefilter to remote node
@@ -419,14 +417,8 @@ protected:
     // used for await or signal
     std::mutex _inner_mutex;
     std::condition_variable _inner_cv;
-
     bool _is_push_down = false;
-
     TExpr _probe_expr;
-
-    struct RPCContext;
-
-    std::shared_ptr<RPCContext> _rpc_context;
 
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;
