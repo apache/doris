@@ -308,14 +308,14 @@ void GroupCommitBlockSink::_remove_estimated_wal_bytes() {
         Status st = ExecEnv::GetInstance()->wal_mgr()->get_wal_path(_load_block_queue->txn_id,
                                                                     wal_path);
         if (!st.ok()) {
-            LOG(WARNING) << "Failed to get wal path in remove pre allocated, reason: "
+            LOG(WARNING) << "Failed to get wal path in remove estimated wal bytes, reason: "
                          << st.to_string();
             return;
         }
         st = ExecEnv::GetInstance()->wal_mgr()->update_wal_dir_estimated_wal_bytes(
                 WalManager::get_base_wal_path(wal_path), 0, _estimated_wal_bytes);
         if (!st.ok()) {
-            LOG(WARNING) << "Failed to remove pre allocated, reason: " << st.to_string();
+            LOG(WARNING) << "Failed to remove estimated wal bytes, reason: " << st.to_string();
             return;
         }
         _estimated_wal_bytes = 0;
