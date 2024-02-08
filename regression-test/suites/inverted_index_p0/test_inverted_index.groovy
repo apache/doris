@@ -175,7 +175,7 @@ suite("test_inverted_index", "inverted_index") {
     }
     test{
         sql "ALTER TABLE ${tbName2} ADD INDEX index16 (v1) USING INVERTED;"
-        exception "errCode = 2, detailMessage = INVERTED index only used in columns of DUP_KEYS table or UNIQUE_KEYS table with merge_on_write enabled or key columns of AGG_KEYS table. invalid column: v1"
+        exception "errCode = 2, detailMessage = INVERTED index only used in columns of DUP_KEYS/UNIQUE_KEYS MOW table or key columns of all table. invalid index: index16"
     }
 
     sql "insert into ${tbName2} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111',1);"
