@@ -1557,6 +1557,14 @@ public class FunctionSet<T> {
                 null,
                 "",
                 ""));
+        // Percent Rank
+        addBuiltin(AggregateFunction.createAnalyticBuiltin("percent_rank",
+                Lists.<Type>newArrayList(), Type.DOUBLE, Type.VARCHAR,
+                "",
+                "",
+                null,
+                "",
+                ""));
         // Dense rank
         addBuiltin(AggregateFunction.createAnalyticBuiltin("dense_rank",
                 Lists.<Type>newArrayList(), Type.BIGINT, Type.VARCHAR,
@@ -1579,6 +1587,14 @@ public class FunctionSet<T> {
         //vec Rank
         addBuiltin(AggregateFunction.createAnalyticBuiltin("rank",
                 Lists.<Type>newArrayList(), Type.BIGINT, Type.VARCHAR,
+                "",
+                "",
+                null,
+                "",
+                "", true));
+        //vec Percent Rank
+        addBuiltin(AggregateFunction.createAnalyticBuiltin("percent_rank",
+                Lists.<Type>newArrayList(), Type.DOUBLE, Type.VARCHAR,
                 "",
                 "",
                 null,
