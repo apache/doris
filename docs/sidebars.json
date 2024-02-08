@@ -803,6 +803,7 @@
                                 "sql-manual/sql-functions/window-functions/window-function-rank",
                                 "sql-manual/sql-functions/window-functions/window-function-dense-rank",
                                 "sql-manual/sql-functions/window-functions/window-function-percent-rank",
+                                "sql-manual/sql-functions/window-functions/window-function-cume-dist",
                                 "sql-manual/sql-functions/window-functions/window-function-first-value",
                                 "sql-manual/sql-functions/window-functions/window-function-last-value",
                                 "sql-manual/sql-functions/window-functions/window-function-lead",
