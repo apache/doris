@@ -1006,9 +1006,6 @@ public class ConnectContext {
 
         public List<String> toRow(int connId, long nowMs, boolean showFe) {
             List<String> row = Lists.newArrayList();
-            if (showFe) {
-                row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            }
             if (connId == connectionId) {
                 row.add("Yes");
             } else {
@@ -1035,6 +1032,11 @@ public class ConnectContext {
             } else {
                 row.add("");
             }
+
+            if (showFe) {
+                row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            }
+
             return row;
         }
     }
