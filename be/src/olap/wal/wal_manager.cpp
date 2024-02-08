@@ -257,7 +257,7 @@ Status WalManager::parse_wal_path(const std::string& file_name, int64_t& version
     return Status::OK();
 }
 
-Status WalManager::_replay_wal() {
+Status WalManager::_load_wals() {
     std::vector<ScanWalInfo> wals;
     for (auto wal_dir : _wal_dirs) {
         RETURN_IF_ERROR(_scan_wals(wal_dir, wals));
@@ -370,7 +370,7 @@ Status WalManager::_replay_background() {
         // replay residual wal,only replay once
         bool expected = true;
         if (_first_replay.compare_exchange_strong(expected, false)) {
-            RETURN_IF_ERROR(_replay_wal());
+            RETURN_IF_ERROR(_load_wals());
         }
         // replay wal of current process
         std::vector<int64_t> replay_tables;
