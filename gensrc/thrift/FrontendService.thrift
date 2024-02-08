@@ -536,6 +536,7 @@ struct TMasterOpResult {
     5: optional string status;
     6: optional i32 statusCode;
     7: optional string errMessage;
+    8: optional list<binary> queryResultBufList;
 }
 
 struct TUpdateExportTaskStatusRequest {
