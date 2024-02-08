@@ -140,7 +140,7 @@ struct FindInSetOp {
     using ResultDataType = DataTypeInt32;
     using ResultPaddedPODArray = PaddedPODArray<Int32>;
     static void execute(const std::string_view& strl, const std::string_view& strr, int32_t& res) {
-        for (const auto c : strl) {
+        for (const auto& c : strl) {
             if (c == ',') {
                 res = 0;
                 return;
