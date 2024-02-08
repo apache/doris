@@ -30,7 +30,7 @@ suite("grace_period") {
     sql "SET enable_nereids_timeout = false"
 
     sql """
-    drop table if exists orders
+    drop table if exists orders_partition
     """
     sql """
     CREATE TABLE IF NOT EXISTS orders_partition (
@@ -55,7 +55,7 @@ suite("grace_period") {
     """
 
     sql """
-    drop table if exists lineitem
+    drop table if exists lineitem_partition
     """
 
     sql """
