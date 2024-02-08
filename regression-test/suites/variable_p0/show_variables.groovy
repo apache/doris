@@ -20,6 +20,8 @@ suite("show_variables") {
     qt_cmd """set wait_timeout = 2014"""
     qt_cmd """show variables like 'wait_timeout'"""
     qt_cmd """show variables where variable_name='wait_timeout'"""
-    qt_cmd """show variables where changed='1';"""
-    qt_cmd """select sum(cast (changed as int)) from information_schema.SESSION_VARIABLES where changed=1"""
+    // we can not test changed by show because we have other parallel running suits.
+    // qt_cmd """show variables where changed='1' and variable_name=;"""
+    qt_cmd """
+        select sum(cast (changed as int)) from information_schema.SESSION_VARIABLES where changed=1 and variable_name='wait_timeout'"""
 }
