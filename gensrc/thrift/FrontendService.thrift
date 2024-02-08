@@ -104,7 +104,7 @@ struct TShowVariableRequest {
 
 // Results of a call to describeTable()
 struct TShowVariableResult {
-    1: required map<string, string> variables
+    1: required map<string, list<string>> variables
 }
 
 // Valid table file formats

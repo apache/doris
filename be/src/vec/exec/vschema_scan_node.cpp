@@ -193,7 +193,7 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
         if (j >= columns_desc.size()) {
             LOG(WARNING) << "no match column for this column("
                          << _dest_tuple_desc->slots()[i]->col_name() << ")";
-            return Status::InternalError("no match column for this column.");
+            return Status::InternalError("no matching column for {}.", columns_desc[j].name);
         }
 
         if (columns_desc[j].type != _dest_tuple_desc->slots()[i]->type().type) {

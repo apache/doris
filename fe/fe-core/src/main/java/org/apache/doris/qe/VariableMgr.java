@@ -717,42 +717,37 @@ public class VariableMgr {
         rlock.lock();
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
+                String variableDisplayName = entry.getKey();
                 // Filter variable not match to the regex.
                 if (matcher != null && !matcher.match(entry.getKey())) {
                     continue;
                 }
-                VarContext ctx = entry.getValue();
 
+                VarContext varCtx = entry.getValue();
                 List<String> row = Lists.newArrayList();
-
-                row.add(entry.getKey());
-                if (type != SetType.GLOBAL && ctx.getObj() == defaultSessionVariable) {
+                // append variable's display name
+                row.add(variableDisplayName);
+                // append current value
+                if (type != SetType.GLOBAL && varCtx.getObj() == defaultSessionVariable) {
                     // In this condition, we may retrieve session variables for caller.
-                    row.add(getValue(sessionVar, ctx.getField()));
+                    row.add(getValue(sessionVar, varCtx.getField()));
                 } else {
-                    row.add(getValue(ctx.getObj(), ctx.getField()));
+                    row.add(getValue(varCtx.getObj(), varCtx.getField()));
                 }
 
-                if (row.size() > 1 && VariableVarConverters.hasConverter(row.get(0))) {
-                    try {
-                        row.set(1, VariableVarConverters.decode(row.get(0), Long.valueOf(row.get(1))));
-                    } catch (DdlException e) {
-                        row.set(1, "");
-                        LOG.warn("Decode session variable failed");
-                    }
-                }
-
-                VarContext varContext = ctxByDisplayVarName.get(entry.getKey());
+                // append default value
                 if (VariableVarConverters.hasConverter(row.get(0))) {
                     try {
-                        row.add(VariableVarConverters.decode(row.get(0), Long.valueOf(varContext.defaultValue)));
+                        row.add(VariableVarConverters.decode(row.get(0), Long.valueOf(varCtx.defaultValue)));
                     } catch (DdlException e) {
-                        row.add(varContext.defaultValue);
+                        row.add(varCtx.defaultValue);
                         LOG.warn(String.format("encode session variable %s failed", row.get(0)));
                     }
                 } else {
-                    row.add(varContext.defaultValue);
+                    row.add(varCtx.defaultValue);
                 }
+                
+                // append changed 
                 if (row.get(1).equals(row.get(2))) {
                     row.add("0");
                     defaultRows.add(row);

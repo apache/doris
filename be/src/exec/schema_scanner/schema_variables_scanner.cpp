@@ -24,6 +24,7 @@
 #include <map>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/define_primitive_type.h"
@@ -40,7 +41,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaVariablesScanner::_s_vars_columns =
         //   name,       type,          size
         {"VARIABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"VARIABLE_VALUE", TYPE_VARCHAR, sizeof(StringRef), false},
-};
+        {"DEFAULT_VALUE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"CHANGED", TYPE_VARCHAR, sizeof(StringRef), false}};
 
 SchemaVariablesScanner::SchemaVariablesScanner(TVarType::type type)
         : SchemaScanner(_s_vars_columns, TSchemaTableType::SCH_VARIABLES), _type(type) {}
@@ -88,9 +90,10 @@ Status SchemaVariablesScanner::get_next_block(vectorized::Block* block, bool* eo
 Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto row_num = _var_result.variables.size();
-    std::vector<void*> datas(row_num);
+
     // variables names
     {
+        std::vector<void*> datas(row_num);
         StringRef strs[row_num];
         int idx = 0;
         for (auto& it : _var_result.variables) {
@@ -100,17 +103,51 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
     }
-    // value
-    {
-        StringRef strs[row_num];
-        int idx = 0;
-        for (auto& it : _var_result.variables) {
-            strs[idx] = StringRef(it.second.c_str(), it.second.size());
-            datas[idx] = strs + idx;
-            ++idx;
+
+    auto convert_to_stringrefs = [](const std::vector<std::string>& strs) {
+        std::vector<StringRef> res;
+
+        for (const auto& str : strs) {
+            res.push_back(StringRef(str.c_str(), str.size()));
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
+
+        return res;
+    };
+
+    std::vector<void*> curr_val_data(row_num);
+    StringRef curr_val_strs[row_num];
+    std::vector<void*> default_val_data(row_num);
+    StringRef default_val[row_num];
+    std::vector<void*> changed_data(row_num);
+    StringRef changed_strs[row_num];
+
+    size_t row_id = 0;
+    for (const auto& itr : _var_result.variables) {
+        if (itr.second.size() != 3) {
+            return Status::InternalError(
+                    "Something wrong in session variables, expected column num is 4, but acutally "
+                    "got {}, maybe we added a new column?",
+                    itr.second.size() + 1);
+        }
+
+        std::vector<StringRef> tuple = convert_to_stringrefs(itr.second);
+
+        curr_val_strs[row_id] = tuple[0];
+        curr_val_data[row_id] = curr_val_strs + row_id;
+
+        default_val[row_id] = tuple[1];
+        default_val_data[row_id] = default_val + row_id;
+
+        changed_strs[row_id] = tuple[2];
+        changed_data[row_id] = changed_strs + row_id;
+
+        ++row_id;
     }
+
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, curr_val_data));
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, default_val_data));
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, changed_data));
+
     return Status::OK();
 }
 

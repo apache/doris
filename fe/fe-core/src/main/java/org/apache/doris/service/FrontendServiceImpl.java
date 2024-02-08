@@ -897,7 +897,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TShowVariableResult showVariables(TShowVariableRequest params) throws TException {
         TShowVariableResult result = new TShowVariableResult();
-        Map<String, String> map = Maps.newHashMap();
+        Map<String, List<String>> map = Maps.newHashMap();
         result.setVariables(map);
         // Find connect
         ConnectContext ctx = exeEnv.getScheduler().getContext((int) params.getThreadId());
@@ -906,9 +906,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         List<List<String>> rows = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(),
                 null);
+
         for (List<String> row : rows) {
-            map.put(row.get(0), row.get(1));
+            List<String> values = Lists.newArrayList();
+            for (int i = 1; i < row.size(); ++i) {
+                values.add(row.get(i));
+            }
+            map.put(row.get(0), values);
         }
+
         return result;
     }
 
