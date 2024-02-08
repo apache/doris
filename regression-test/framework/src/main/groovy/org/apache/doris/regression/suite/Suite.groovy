@@ -24,6 +24,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.google.gson.Gson
 import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
+import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.WaitForAction
@@ -522,8 +523,16 @@ class Suite implements GroovyInterceptable {
         runAction(new BenchmarkAction(context), actionSupplier)
     }
 
-    void waitForSchemaChangeDone(Closure actionSupplier) {
+    void waitForSchemaChangeDone(Closure actionSupplier, String insertSql =null, boolean cleanOperator = false,String tbName=null) {
         runAction(new WaitForAction(context), actionSupplier)
+        if (ObjectUtils.isNotEmpty(insertSql)){
+            sql insertSql
+        }
+        if (cleanOperator==true){
+            if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
+            quickTest("", """ SELECT * FROM ${tbName}  """)
+            sql """ DROP TABLE  ${tbName} """
+        }
     }
 
     String getBrokerName() {
