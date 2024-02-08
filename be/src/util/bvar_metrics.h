@@ -51,10 +51,10 @@ enum class BvarMetricUnit {
 std::ostream& operator<<(std::ostream& os, BvarMetricType type);
 // const char* unit_name(BvarMetricUnit unit);
 
-using Labels = std::unordered_map<std::string, std::string>;
 
 class BvarMetric {
 public:
+    using Labels = std::unordered_map<std::string, std::string>;
     BvarMetric() = default;
     virtual ~BvarMetric() = default;
     BvarMetric(BvarMetric&) = default;
@@ -122,11 +122,11 @@ public:
     template <typename T>
     void register_metric(const std::string& name, T metric);
 
-    void deregister_metric(const std::string& name);
+    // void deregister_metric(const std::string& name);
 
     std::string to_prometheus(const std::string& registry_name);
 
-    std::shared_ptr<BvarMetric> get_metric(const std::string& name);
+    // std::shared_ptr<BvarMetric> get_metric(const std::string& name);
     std::string get_name() const { return entity_name_; }
     BvarMetricType get_type() const { return type_; }
 

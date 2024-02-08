@@ -232,7 +232,7 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
 
 Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
                                          bool is_blocks_contain_all_load_data) {
-    DCHECK(_is_block_appended == false);
+    DCHECK(!_is_block_appended);
     TUniqueId load_id;
     load_id.__set_hi(_load_id.hi);
     load_id.__set_lo(_load_id.lo);

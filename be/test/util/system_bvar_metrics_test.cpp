@@ -32,7 +32,7 @@ namespace doris {
 class SyetenBvarMetricsTest : public testing::Test {
 public:
     SyetenBvarMetricsTest() {}
-    virtual ~SyetenBvarMetricsTest() {}
+    virtual ~SyetenBvarMetricsTest() = default;
 };
 
 extern const char* k_ut_stat_path;
