@@ -1145,12 +1145,6 @@ using FunctionToBase64 = FunctionStringEncode<ToBase64Impl>;
 using FunctionUnHexOld = FunctionStringOperateToNullType<UnHexOldImpl>;
 using FunctionToBase64Old = FunctionStringOperateToNullType<ToBase64OldImpl>;
 using FunctionFromBase64Old = FunctionStringOperateToNullType<FromBase64OldImpl>;
-using FunctionUnHex = FunctionStringEncode<UnHexImpl>;
-using FunctionToBase64 = FunctionStringEncode<ToBase64Impl>;
-
-using FunctionUnHexOld = FunctionStringOperateToNullType<UnHexOldImpl>;
-using FunctionToBase64Old = FunctionStringOperateToNullType<ToBase64OldImpl>;
-using FunctionFromBase64Old = FunctionStringOperateToNullType<FromBase64OldImpl>;
 
 using FunctionStringAppendTrailingCharIfAbsent =
         FunctionBinaryStringOperateToNullType<StringAppendTrailingCharIfAbsent>;
@@ -1225,9 +1219,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alternative_function<FunctionRightOld>();
     factory.register_alternative_function<FunctionSubstringIndexOld>();
     factory.register_alternative_function<FunctionStringRepeatOld>();
-    factory.register_alternative_function<FunctionUnHexOld>();
-    factory.register_alternative_function<FunctionToBase64Old>();
-    factory.register_alternative_function<FunctionFromBase64Old>();
     factory.register_alternative_function<FunctionUnHexOld>();
     factory.register_alternative_function<FunctionToBase64Old>();
     factory.register_alternative_function<FunctionFromBase64Old>();

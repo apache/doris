@@ -65,6 +65,7 @@ private:
  *    d. unix_timestamp function support timestamp with float for datetimev2, and change nullable mode.
  *    e. change shuffle serialize/deserialize way 
  *    f. the right function outputs NULL when the function contains NULL, substr function returns empty if start > str.length, and change some function nullable mode.
+ *    g. function to_base64, from_base64 will return empty string when input empty string.
 */
 constexpr inline int BeExecVersionManager::max_be_exec_version = 3;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
