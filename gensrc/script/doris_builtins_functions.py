@@ -1405,8 +1405,8 @@ visible_functions = {
         [['truncate'], 'DECIMAL64', ['DECIMAL64', 'INT'], ''],
         [['truncate'], 'DECIMAL128', ['DECIMAL128', 'INT'], ''],
         
-        [['unhex'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['unhex'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE']
+        [['unhex'], 'VARCHAR', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['unhex'], 'STRING', ['STRING'], 'DEPEND_ON_ARGUMENT']
     ],
 
     # Conditional Functions
@@ -1906,8 +1906,8 @@ visible_functions = {
         [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['from_base64'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['to_base64'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['to_base64'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE']
+        [['to_base64'], 'STRING', ['STRING'], 'DEPEND_ON_ARGUMENT'],
+        [['to_base64'], 'VARCHAR', ['VARCHAR'], 'DEPEND_ON_ARGUMENT']
     ],
 
     # for compatable with MySQL
