@@ -3537,6 +3537,64 @@ string3	6	2
 string3	9	3
 string3	12	4
 
+-- !sql_percent_rank_pb --
+null	0
+string1	0
+string1	0
+string1	0
+string1	0
+string2	0
+string2	0
+string2	0
+string2	0
+string3	0
+string3	0
+string3	0
+string3	0
+
+-- !sql_percent_rank_pb_ob --
+null	\N	0
+string1	1	0
+string1	4	0.33333333333333331
+string1	7	0.66666666666666663
+string1	10	1
+string2	2	0
+string2	5	0.33333333333333331
+string2	8	0.66666666666666663
+string2	11	1
+string3	3	0
+string3	6	0.33333333333333331
+string3	9	0.66666666666666663
+string3	12	1
+
+-- !sql_percent_rank_pb_notnull --
+string1	0
+string1	0
+string1	0
+string1	0
+string2	0
+string2	0
+string2	0
+string2	0
+string3	0
+string3	0
+string3	0
+string3	0
+
+-- !sql_percent_rank_pb_ob_notnull --
+string1	1	0
+string1	4	0.33333333333333331
+string1	7	0.66666666666666663
+string1	10	1
+string2	2	0
+string2	5	0.33333333333333331
+string2	8	0.66666666666666663
+string2	11	1
+string3	3	0
+string3	6	0.33333333333333331
+string3	9	0.66666666666666663
+string3	12	1
+
 -- !sql_row_number_pb --
 null	1
 string1	1

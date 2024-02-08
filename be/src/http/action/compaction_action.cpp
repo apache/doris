@@ -50,6 +50,8 @@
 namespace doris {
 using namespace ErrorCode;
 
+namespace {}
+
 const static std::string HEADER_JSON = "application/json";
 
 CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
@@ -156,8 +158,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
     }
     LOG(INFO) << "Manual compaction task is successfully triggered";
     *json_result =
-            "{\"status\": \"Success\", \"msg\": \"compaction task is successfully triggered. Table "
-            "id: " +
+            R"({"status": "Success", "msg": "compaction task is successfully triggered. Table id: )" +
             std::to_string(table_id) + ". Tablet id: " + std::to_string(tablet_id) + "\"}";
     return Status::OK();
 }
@@ -239,9 +240,13 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
     }
     Status res = Status::OK();
+    auto do_compact = [](Compaction& compaction) {
+        RETURN_IF_ERROR(compaction.prepare_compact());
+        return compaction.execute_compact();
+    };
     if (compaction_type == PARAM_COMPACTION_BASE) {
-        BaseCompaction base_compaction(tablet);
-        res = base_compaction.compact();
+        BaseCompaction base_compaction(_engine, tablet);
+        res = do_compact(base_compaction);
         if (!res) {
             if (!res.is<BE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
@@ -249,8 +254,8 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
-        CumulativeCompaction cumulative_compaction(tablet);
-        res = cumulative_compaction.compact();
+        CumulativeCompaction cumulative_compaction(_engine, tablet);
+        res = do_compact(cumulative_compaction);
         if (!res) {
             if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
@@ -264,8 +269,8 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_FULL) {
-        FullCompaction full_compaction(tablet);
-        res = full_compaction.compact();
+        FullCompaction full_compaction(_engine, tablet);
+        res = do_compact(full_compaction);
         if (!res) {
             if (res.is<FULL_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.

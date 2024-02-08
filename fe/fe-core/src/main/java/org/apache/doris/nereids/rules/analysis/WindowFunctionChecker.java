@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
 import org.apache.doris.nereids.trees.expressions.functions.window.LastValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
 import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
+import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -359,6 +360,18 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
 
         checkAndCompleteWindowFrame(requiredFrame, denseRank.getName());
         return denseRank;
+    }
+
+    /**
+     * required WindowFrame: (RANGE, UNBOUNDED PRECEDING, CURRENT ROW)
+     */
+    @Override
+    public PercentRank visitPercentRank(PercentRank percentRank, Void ctx) {
+        WindowFrame requiredFrame = new WindowFrame(FrameUnitsType.RANGE,
+                FrameBoundary.newPrecedingBoundary(), FrameBoundary.newCurrentRowBoundary());
+
+        checkAndCompleteWindowFrame(requiredFrame, percentRank.getName());
+        return percentRank;
     }
 
     /**

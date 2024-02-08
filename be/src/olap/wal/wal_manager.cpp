@@ -403,6 +403,7 @@ Status WalManager::_update_wal_dir_info_thread() {
     while (!_stop.load()) {
         static_cast<void>(_wal_dirs_info->update_all_wal_dir_limit());
         static_cast<void>(_wal_dirs_info->update_all_wal_dir_used());
+        LOG_EVERY_N(INFO, 100) << "Scheduled(every 10s) WAL info: " << get_wal_dirs_info_string();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     return Status::OK();
@@ -534,6 +535,15 @@ Status WalManager::rename_to_tmp_path(const std::string wal, int64_t table_id, i
         return Status::InternalError("rename fail on path " + wal);
     }
     LOG(INFO) << "rename wal from " << wal << " to " << wal_path.string();
+    {
+        std::lock_guard<std::shared_mutex> wrlock(_wal_path_lock);
+        auto it = _wal_path_map.find(wal_id);
+        if (it != _wal_path_map.end()) {
+            _wal_path_map.erase(wal_id);
+        } else {
+            LOG(WARNING) << "can't find " << wal_id << " in _wal_path_map when trying to rename";
+        }
+    }
     erase_wal_queue(table_id, wal_id);
     return Status::OK();
 }

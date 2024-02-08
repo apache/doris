@@ -1590,15 +1590,14 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 }
 
-Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compaction_type,
-                                                        const TabletSharedPtr& tablet,
-                                                        std::shared_ptr<Compaction>& compaction,
-                                                        int64_t& permits) {
+Status Tablet::prepare_compaction_and_calculate_permits(
+        CompactionType compaction_type, const TabletSharedPtr& tablet,
+        std::shared_ptr<CompactionMixin>& compaction, int64_t& permits) {
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         MonotonicStopWatch watch;
         watch.start();
 
-        compaction = std::make_shared<CumulativeCompaction>(tablet);
+        compaction = std::make_shared<CumulativeCompaction>(tablet->_engine, tablet);
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
         DorisBvarMetrics::instance()->cumulative_compaction_request_total->increment(1);
         Status res = compaction->prepare_compact();
@@ -1628,7 +1627,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         MonotonicStopWatch watch;
         watch.start();
 
-        compaction = std::make_shared<BaseCompaction>(tablet);
+        compaction = std::make_shared<BaseCompaction>(tablet->_engine, tablet);
         DorisMetrics::instance()->base_compaction_request_total->increment(1);
         DorisBvarMetrics::instance()->base_compaction_request_total->increment(1);
         Status res = compaction->prepare_compact();
@@ -1658,7 +1657,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
     } else {
         DCHECK_EQ(compaction_type, CompactionType::FULL_COMPACTION);
 
-        compaction = std::make_shared<FullCompaction>(tablet);
+        compaction = std::make_shared<FullCompaction>(tablet->_engine, tablet);
         Status res = compaction->prepare_compact();
         if (!res.ok()) {
             tablet->set_last_full_compaction_failure_time(UnixMillis());
@@ -1673,10 +1672,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         }
     }
 
-    permits = 0;
-    for (auto&& rowset : compaction->input_rowsets()) {
-        permits += rowset->rowset_meta()->get_compaction_score();
-    }
+    permits = compaction->get_compaction_permits();
     return Status::OK();
 }
 
@@ -1705,7 +1701,7 @@ std::vector<Version> Tablet::get_all_versions() {
     return local_versions;
 }
 
-void Tablet::execute_compaction(Compaction& compaction) {
+void Tablet::execute_compaction(CompactionMixin& compaction) {
     signal::tablet_id = tablet_id();
 
     MonotonicStopWatch watch;

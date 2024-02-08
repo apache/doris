@@ -37,6 +37,8 @@
 
 namespace doris {
 
+bvar::Adder<uint64_t> wal_fail("group_commit_wal_fail");
+
 WalTable::WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
         : _exec_env(exec_env), _db_id(db_id), _table_id(table_id) {
     _http_stream_action = std::make_shared<HttpStreamAction>(exec_env);
@@ -59,16 +61,15 @@ void WalTable::_pick_relay_wals() {
     std::vector<std::string> need_replay_wals;
     std::vector<std::string> need_erase_wals;
     for (const auto& [wal_path, wal_info] : _replay_wal_map) {
-        if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
+        if (config::group_commit_wait_replay_wal_finish &&
+            wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
             LOG(WARNING) << "failed to replay wal=" << wal_path << " after retry "
                          << wal_info->get_retry_num() << " times";
             [[maybe_unused]] auto st = _exec_env->wal_mgr()->rename_to_tmp_path(
                     wal_path, _table_id, wal_info->get_wal_id());
-            if (config::group_commit_wait_replay_wal_finish) {
-                auto notify_st = _exec_env->wal_mgr()->notify_relay_wal(wal_info->get_wal_id());
-                if (!notify_st.ok()) {
-                    LOG(WARNING) << "notify wal " << wal_info->get_wal_id() << " fail";
-                }
+            auto notify_st = _exec_env->wal_mgr()->notify_relay_wal(wal_info->get_wal_id());
+            if (!notify_st.ok()) {
+                LOG(WARNING) << "notify wal " << wal_info->get_wal_id() << " fail";
             }
             need_erase_wals.push_back(wal_path);
             continue;
@@ -100,6 +101,7 @@ Status WalTable::_relay_wal_one_by_one() {
         wal_info->add_retry_num();
         auto st = _replay_wal_internal(wal_info->get_wal_path());
         if (!st.ok()) {
+            doris::wal_fail << 1;
             LOG(WARNING) << "failed to replay wal=" << wal_info->get_wal_path()
                          << ", st=" << st.to_string();
             if (!st.is<ErrorCode::NOT_FOUND>()) {
@@ -153,8 +155,16 @@ bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
         return true;
     }
 #ifndef BE_TEST
-    auto replay_interval = pow(2, wal_info->get_retry_num()) *
-                           config::group_commit_replay_wal_retry_interval_seconds * 1000;
+    auto replay_interval = 0;
+    if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
+        replay_interval = pow(2, config::group_commit_replay_wal_retry_num) *
+                                  config::group_commit_replay_wal_retry_interval_seconds * 1000 +
+                          (wal_info->get_retry_num() - config::group_commit_replay_wal_retry_num) *
+                                  config::group_commit_replay_wal_retry_interval_max_seconds * 1000;
+    } else {
+        replay_interval = pow(2, wal_info->get_retry_num()) *
+                          config::group_commit_replay_wal_retry_interval_seconds * 1000;
+    }
     return UnixMillis() - wal_info->get_start_time_ms() >= replay_interval;
 #else
     return true;

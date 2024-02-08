@@ -1118,6 +1118,7 @@ DEFINE_Int16(bitmap_serialize_version, "1");
 DEFINE_String(group_commit_wal_path, "");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
+DEFINE_Int32(group_commit_replay_wal_retry_interval_max_seconds, "1800");
 DEFINE_Int32(group_commit_relay_wal_threads, "10");
 // This config can be set to limit thread number in group commit request fragment thread pool.
 DEFINE_Int32(group_commit_insert_threads, "10");

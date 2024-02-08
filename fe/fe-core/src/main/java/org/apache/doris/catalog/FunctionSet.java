@@ -1557,6 +1557,14 @@ public class FunctionSet<T> {
                 null,
                 "",
                 ""));
+        // Percent Rank
+        addBuiltin(AggregateFunction.createAnalyticBuiltin("percent_rank",
+                Lists.<Type>newArrayList(), Type.DOUBLE, Type.VARCHAR,
+                "",
+                "",
+                null,
+                "",
+                ""));
         // Dense rank
         addBuiltin(AggregateFunction.createAnalyticBuiltin("dense_rank",
                 Lists.<Type>newArrayList(), Type.BIGINT, Type.VARCHAR,
@@ -1579,6 +1587,14 @@ public class FunctionSet<T> {
         //vec Rank
         addBuiltin(AggregateFunction.createAnalyticBuiltin("rank",
                 Lists.<Type>newArrayList(), Type.BIGINT, Type.VARCHAR,
+                "",
+                "",
+                null,
+                "",
+                "", true));
+        //vec Percent Rank
+        addBuiltin(AggregateFunction.createAnalyticBuiltin("percent_rank",
+                Lists.<Type>newArrayList(), Type.DOUBLE, Type.VARCHAR,
                 "",
                 "",
                 null,
@@ -1710,6 +1726,31 @@ public class FunctionSet<T> {
                 "",
                 false, true, false, true));
 
+        // corr
+        addBuiltin(AggregateFunction.createBuiltin("corr",
+                Lists.<Type>newArrayList(Type.TINYINT, Type.TINYINT), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, false, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("corr",
+                Lists.<Type>newArrayList(Type.SMALLINT, Type.SMALLINT), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, false, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("corr",
+                Lists.<Type>newArrayList(Type.INT, Type.INT), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, false, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("corr",
+                Lists.<Type>newArrayList(Type.BIGINT, Type.BIGINT), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, false, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("corr",
+                Lists.<Type>newArrayList(Type.FLOAT, Type.FLOAT), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, false, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("corr",
+                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                "", "", "", "", "", "", "",
+                false, false, false, true));
     }
 
     public Map<String, List<Function>> getVectorizedFunctions() {
