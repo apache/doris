@@ -215,6 +215,10 @@ void VWalScannerTest::init() {
     _tnode.__isset.file_scan_node = true;
 
     _env = ExecEnv::GetInstance();
+    _env->_master_info = new TMasterInfo();
+    _env->_master_info->network_address.hostname = "host name";
+    _env->_master_info->network_address.port = 1234;
+    _env->_master_info->backend_id = 1001;
     _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
     std::string base_path;
     auto st = _env->_wal_manager->_init_wal_dirs_info();
