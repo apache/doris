@@ -35,23 +35,13 @@
 
 #include "common/logging.h"
 #include "util/brpc_client_cache.h"
+#include "util/ref_count_closure.h"
 
 namespace doris {
-
-struct IRuntimeFilter::RPCContext {
-    PMergeFilterRequest request;
-    PMergeFilterResponse response;
-    brpc::Controller cntl;
-    brpc::CallId cid;
-    bool is_finished = false;
-
-    static void finish(std::shared_ptr<RPCContext> ctx) { ctx->is_finished = true; }
-};
 
 Status IRuntimeFilter::push_to_remote(RuntimeFilterParamsContext* state,
                                       const TNetworkAddress* addr, bool opt_remote_rf) {
     DCHECK(is_producer());
-    DCHECK(_rpc_context == nullptr);
     std::shared_ptr<PBackendService_Stub> stub(
             state->exec_env->brpc_internal_client_cache()->get_client(*addr));
     if (!stub) {
@@ -59,64 +49,43 @@ Status IRuntimeFilter::push_to_remote(RuntimeFilterParamsContext* state,
                 fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port);
         return Status::InternalError(msg);
     }
-    _rpc_context = std::make_shared<IRuntimeFilter::RPCContext>();
+
+    auto merge_filter_request = std::make_shared<PMergeFilterRequest>();
+    auto merge_filter_callback = DummyBrpcCallback<PMergeFilterResponse>::create_shared();
+    auto merge_filter_closure =
+            AutoReleaseClosure<PMergeFilterRequest, DummyBrpcCallback<PMergeFilterResponse>>::
+                    create_unique(merge_filter_request, merge_filter_callback);
     void* data = nullptr;
     int len = 0;
 
-    auto pquery_id = _rpc_context->request.mutable_query_id();
+    auto pquery_id = merge_filter_request->mutable_query_id();
     pquery_id->set_hi(_state->query_id.hi());
     pquery_id->set_lo(_state->query_id.lo());
 
-    auto pfragment_instance_id = _rpc_context->request.mutable_fragment_instance_id();
+    auto pfragment_instance_id = merge_filter_request->mutable_fragment_instance_id();
     pfragment_instance_id->set_hi(state->fragment_instance_id().hi());
     pfragment_instance_id->set_lo(state->fragment_instance_id().lo());
 
-    _rpc_context->request.set_filter_id(_filter_id);
-    _rpc_context->request.set_opt_remote_rf(opt_remote_rf);
-    _rpc_context->request.set_is_pipeline(state->enable_pipeline_exec);
-    _rpc_context->cntl.set_timeout_ms(wait_time_ms());
-    _rpc_context->cid = _rpc_context->cntl.call_id();
+    merge_filter_request->set_filter_id(_filter_id);
+    merge_filter_request->set_opt_remote_rf(opt_remote_rf);
+    merge_filter_request->set_is_pipeline(state->enable_pipeline_exec);
+    merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
 
-    Status serialize_status = serialize(&_rpc_context->request, &data, &len);
+    Status serialize_status = serialize(merge_filter_request.get(), &data, &len);
     if (serialize_status.ok()) {
-        VLOG_NOTICE << "Producer:" << _rpc_context->request.ShortDebugString() << addr->hostname
+        VLOG_NOTICE << "Producer:" << merge_filter_request->ShortDebugString() << addr->hostname
                     << ":" << addr->port;
         if (len > 0) {
             DCHECK(data != nullptr);
-            _rpc_context->cntl.request_attachment().append(data, len);
+            merge_filter_callback->cntl_->request_attachment().append(data, len);
         }
 
-        stub->merge_filter(&_rpc_context->cntl, &_rpc_context->request, &_rpc_context->response,
-                           brpc::NewCallback(RPCContext::finish, _rpc_context));
-
-    } else {
-        // we should reset context
-        _rpc_context.reset();
+        stub->merge_filter(merge_filter_closure->cntl_.get(), merge_filter_closure->request_.get(),
+                           merge_filter_closure->response_.get(), merge_filter_closure.get());
+        // the closure will be released by brpc during closure->Run.
+        merge_filter_closure.release();
     }
     return serialize_status;
 }
 
-bool IRuntimeFilter::is_finish_rpc() {
-    if (_rpc_context == nullptr) {
-        return true;
-    }
-    return _rpc_context->is_finished;
-}
-
-Status IRuntimeFilter::join_rpc() {
-    if (!is_producer()) {
-        return Status::InternalError("RuntimeFilter::join_rpc only called when rf is producer.");
-    }
-    if (_rpc_context != nullptr) {
-        brpc::Join(_rpc_context->cid);
-        if (_rpc_context->cntl.Failed()) {
-            // reset stub cache
-            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                    _rpc_context->cntl.remote_side());
-            return Status::InternalError("RuntimeFilter::join_rpc meet rpc error, msg={}.",
-                                         _rpc_context->cntl.ErrorText());
-        }
-    }
-    return Status::OK();
-}
 } // namespace doris
