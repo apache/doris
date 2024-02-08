@@ -45,6 +45,7 @@ import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSslContext;
+import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -326,14 +327,20 @@ public class ConnectContext {
     }
 
     public ConnectContext() {
-        this((StreamConnection) null);
+        this(null);
     }
 
     public ConnectContext(StreamConnection connection) {
+        this(connection, false);
+    }
+
+    public ConnectContext(StreamConnection connection, boolean isProxy) {
         connectType = ConnectType.MYSQL;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         if (connection != null) {
             mysqlChannel = new MysqlChannel(connection, this);
+        } else if (isProxy) {
+            mysqlChannel = new ProxyMysqlChannel();
         } else {
             mysqlChannel = new DummyMysqlChannel();
         }
