@@ -331,7 +331,7 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
         Aws::S3::Model::ListObjectsV2Outcome outcome;
         {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-            auto outcome = client->ListObjectsV2(request);
+            outcome = client->ListObjectsV2(request);
         }
         if (!outcome.IsSuccess()) {
             return s3fs_error(outcome.GetError(),
