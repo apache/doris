@@ -76,7 +76,9 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
     constexpr auto probe_all =
             JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
 
-    bool build_index_has_null = JoinOpType != TJoinOp::INNER_JOIN;
+    bool build_index_has_null =
+            (JoinOpType != TJoinOp::INNER_JOIN && JoinOpType != TJoinOp::RIGHT_OUTER_JOIN) ||
+            have_other_join_conjunct || is_mark_join;
     bool need_output = (!is_semi_anti_join || have_other_join_conjunct ||
                         (is_mark_join && !_parent->_mark_join_conjuncts.empty())) &&
                        size;
@@ -87,12 +89,29 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
         for (int i = 0; i < size; ++i) {
             null_data[i] = _build_indexs[i] == 0;
         }
-        if (need_output) {
+        if (need_output && may_has_right_fast_nullable) {
             build_index_has_null = simd::contain_byte(null_data, size, 1);
         }
     }
 
     if (need_output) {
+        if (!build_index_has_null && _right_fast_nullable.empty()) {
+            may_has_right_fast_nullable = false;
+            _right_fast_nullable.resize(output_slot_flags.size());
+            for (int i = 0; i < _right_col_len; i++) {
+                const auto& column = *_build_block->safe_get_by_position(i).column;
+                if (output_slot_flags[i] && column.is_nullable()) {
+                    const auto& nullable = assert_cast<const ColumnNullable&>(column);
+                    _right_fast_nullable[i] = !simd::contain_byte(
+                            nullable.get_null_map_data().data() + 1, nullable.size() - 1, 1);
+
+                } else {
+                    _right_fast_nullable[i] = false;
+                }
+                may_has_right_fast_nullable |= _right_fast_nullable[i];
+            }
+        }
+
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
             if (output_slot_flags[i]) {
@@ -163,20 +182,6 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
                     (int64_t)hash_table_ctx.serialized_keys_size(false));
     }
 
-    if (_right_fast_nullable.empty()) {
-        _right_fast_nullable.resize(_right_output_slot_flags->size());
-        for (int i = 0; i < _right_col_len; i++) {
-            const auto& column = *_build_block->safe_get_by_position(i).column;
-            if ((*_right_output_slot_flags)[i] && column.is_nullable()) {
-                const auto& nullable = assert_cast<const ColumnNullable&>(column);
-                _right_fast_nullable[i] = !simd::contain_byte(
-                        nullable.get_null_map_data().data() + 1, nullable.size() - 1, 1);
-
-            } else {
-                _right_fast_nullable[i] = false;
-            }
-        }
-    }
     return typename HashTableType::State(_parent->_probe_columns);
 }
 

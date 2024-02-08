@@ -122,6 +122,7 @@ struct ProcessHashTableProbe {
     std::vector<bool>* _right_output_slot_flags = nullptr;
     // nullable column but not has null except first row
     std::vector<bool> _right_fast_nullable;
+    bool may_has_right_fast_nullable = true;
     bool* _has_null_in_build_side;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
