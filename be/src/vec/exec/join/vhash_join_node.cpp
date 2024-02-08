@@ -1032,6 +1032,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
 
     if (eos) {
         _process_hashtable_ctx_variants_init(state);
+        _init_short_circuit_for_probe();
     }
 
     // Since the comparison of null values is meaningless, null aware left anti join should not output null
@@ -1039,7 +1040,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     if (!_build_blocks->empty() && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
         _probe_ignore_null = true;
     }
-    _init_short_circuit_for_probe();
 
     return Status::OK();
 }
