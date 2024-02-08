@@ -591,7 +591,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private void recordCreatePartitionFailedMsg(String dbName, String tableName, String msg, long tableId) {
-        LOG.warn("dynamic add partition failed: {}, db: {}, table: {}", msg, dbName, tableName);
+        LOG.info("dynamic add partition failed: {}, db: {}, table: {}", msg, dbName, tableName);
         createOrUpdateRuntimeInfo(tableId, DYNAMIC_PARTITION_STATE, State.ERROR.toString());
         createOrUpdateRuntimeInfo(tableId, CREATE_PARTITION_MSG, msg);
     }

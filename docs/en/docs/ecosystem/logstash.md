@@ -98,6 +98,12 @@ Configuration | Explanation
 `strict_mode` | Strict mode, the default is false
 `timezone` | Specify the time zone used for this import, the default is the East Eight District
 `exec_mem_limit` | Import memory limit, default is 2GB, unit is byte
+`format` | Specify the format of imported data, support csv, json, csv_with_names, csv_with_names_and_types, parquet, orc, default is csv.
+`jsonpaths` | The matching pattern needs to match the corresponding value via the jsonpaths parameter.
+`json_root` | Used to specify the root node of a json document, default value is "".
+`fuzzy_parse` | Boolean type, true means that json will be parsed with the schema of the first row. Enabling this option can improve the efficiency of json import, but requires that the order of the keys of all json objects is the same as the first row, the default is false, only use in json format
+`num_as_string`  | Boolean type, true means that when parsing json data, the numeric type will be converted to a string, and then imported without losing precision.
+
 
 Other configuration:
 

@@ -59,7 +59,7 @@ namespace doris {
 
 class Tablet;
 class CumulativeCompactionPolicy;
-class Compaction;
+class CompactionMixin;
 class SingleReplicaCompaction;
 class RowsetWriter;
 struct RowsetWriterContext;
@@ -275,12 +275,11 @@ public:
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
 
-    static Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
-                                                           const TabletSharedPtr& tablet,
-                                                           std::shared_ptr<Compaction>& compaction,
-                                                           int64_t& permits);
+    static Status prepare_compaction_and_calculate_permits(
+            CompactionType compaction_type, const TabletSharedPtr& tablet,
+            std::shared_ptr<CompactionMixin>& compaction, int64_t& permits);
 
-    void execute_compaction(Compaction& compaction);
+    void execute_compaction(CompactionMixin& compaction);
     void execute_single_replica_compaction(SingleReplicaCompaction& compaction);
 
     void set_cumulative_compaction_policy(

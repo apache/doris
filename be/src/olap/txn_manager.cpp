@@ -730,11 +730,11 @@ void TxnManager::get_all_related_tablets(std::set<TabletInfo>* tablet_infos) {
 }
 
 void TxnManager::get_all_commit_tablet_txn_info_by_tablet(
-        const TabletSharedPtr& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec) {
+        const Tablet& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec) {
     for (int32_t i = 0; i < _txn_map_shard_size; i++) {
         std::shared_lock txn_rdlock(_txn_map_locks[i]);
         for (const auto& [txn_key, load_info_map] : _txn_tablet_maps[i]) {
-            auto tablet_load_it = load_info_map.find(tablet->get_tablet_info());
+            auto tablet_load_it = load_info_map.find(tablet.get_tablet_info());
             if (tablet_load_it != load_info_map.end()) {
                 const auto& [_, load_info] = *tablet_load_it;
                 const auto& rowset = load_info->rowset;

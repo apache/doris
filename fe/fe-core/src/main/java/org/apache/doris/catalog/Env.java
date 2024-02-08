@@ -178,6 +178,7 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
@@ -220,6 +221,7 @@ import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.persist.meta.MetaWriter;
 import org.apache.doris.planner.TabletLoadIndexRecorderMgr;
+import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
@@ -500,6 +502,8 @@ public class Env {
 
     private StatisticsCleaner statisticsCleaner;
 
+    private PlsqlManager plsqlManager;
+
     private BinlogManager binlogManager;
 
     private BinlogGcer binlogGcer;
@@ -749,6 +753,7 @@ public class Env {
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
+        this.plsqlManager = new PlsqlManager();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
@@ -852,6 +857,10 @@ public class Env {
 
     public MetastoreEventsProcessor getMetastoreEventsProcessor() {
         return metastoreEventsProcessor;
+    }
+
+    public PlsqlManager getPlsqlManager() {
+        return plsqlManager;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1506,6 +1515,10 @@ public class Env {
                 VariableMgr.enableNereidsPlanner();
                 LOG.info("upgrade FE from 1.x to 2.x, set enable_nereids_planner to new default value: true");
             }
+            if (journalVersion <= FeMetaVersion.VERSION_123) {
+                VariableMgr.enableNereidsDml();
+                LOG.info("upgrade FE from 2.0 to 2.1, set enable_nereids_dml to new default value: true");
+            }
         }
 
         getPolicyMgr().createDefaultStoragePolicy();
@@ -2129,6 +2142,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadPlsqlProcedure(DataInputStream in, long checksum) throws IOException {
+        plsqlManager = PlsqlManager.read(in);
+        LOG.info("finished replay plsql procedure from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
         LOG.info("finished replay smallFiles from image");
@@ -2410,6 +2429,11 @@ public class Env {
 
     public long saveWorkloadSchedPolicy(CountingDataOutputStream dos, long checksum) throws IOException {
         Env.getCurrentEnv().getWorkloadSchedPolicyMgr().write(dos);
+        return checksum;
+    }
+
+    public long savePlsqlProcedure(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getPlsqlManager().write(dos);
         return checksum;
     }
 
@@ -5980,10 +6004,12 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation) {
+    public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation,
+            Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots) {
         AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ADD_TASK);
         alter.setTask(task);
         alter.setRelation(relation);
+        alter.setPartitionSnapshots(partitionSnapshots);
         this.alter.processAlterMTMV(alter, false);
     }
 

@@ -72,6 +72,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
@@ -400,6 +401,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
@@ -631,6 +633,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitAtan(Atan atan, C context) {
         return visitScalarFunction(atan, context);
+    }
+
+    default R visitAtan2(Atan2 atan2, C context) {
+        return visitScalarFunction(atan2, context);
     }
 
     default R visitBin(Bin bin, C context) {
@@ -1535,6 +1541,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitParseUrl(ParseUrl parseUrl, C context) {
         return visitScalarFunction(parseUrl, context);
+    }
+
+    default R visitUrlDecode(UrlDecode urlDecode, C context) {
+        return visitScalarFunction(urlDecode, context);
     }
 
     default R visitPassword(Password password, C context) {

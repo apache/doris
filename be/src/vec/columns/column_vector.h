@@ -67,10 +67,6 @@ namespace doris::vectorized {
   * Integer values are compared as usual.
   * Floating-point numbers are compared this way that NaNs always end up at the end
   *  (if you don't do this, the sort would not work at all).
-  * Due to IPv4 being a Little-Endian storage, comparing UInt32 is equivalent to comparing IPv4.
-  * However, IPv6 is a Big-Endian storage, and comparing IPv6 is not equivalent to comparing uint128_t.
-  * So we should use std::memcmp to start comparing from low bytes to high bytes.
-  *  (e.g. :: < ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff)
   */
 template <typename T>
 struct CompareHelper {
@@ -130,23 +126,6 @@ struct CompareHelper<Float32> : public FloatCompareHelper<Float32> {};
 template <>
 struct CompareHelper<Float64> : public FloatCompareHelper<Float64> {};
 
-struct IPv6CompareHelper {
-    static bool less(IPv6 a, IPv6 b, int /*nan_direction_hint*/) {
-        return std::memcmp(&a, &b, sizeof(IPv6)) < 0;
-    }
-
-    static bool greater(IPv6 a, IPv6 b, int /*nan_direction_hint*/) {
-        return std::memcmp(&a, &b, sizeof(IPv6)) > 0;
-    }
-
-    static int compare(IPv6 a, IPv6 b, int /*nan_direction_hint*/) {
-        return std::memcmp(&a, &b, sizeof(IPv6));
-    }
-};
-
-template <>
-struct CompareHelper<IPv6> : public IPv6CompareHelper {};
-
 /** A template for columns that use a simple array to store.
  */
 template <typename T>
@@ -172,16 +151,6 @@ private:
 
     /// Sugar constructor.
     ColumnVector(std::initializer_list<T> il) : data {il} {}
-
-    void insert_res_column(const uint16_t* sel, size_t sel_size,
-                           vectorized::ColumnVector<T>* res_ptr) {
-        auto& res_data = res_ptr->data;
-        DCHECK(res_data.empty());
-        res_data.resize(sel_size);
-        for (size_t i = 0; i < sel_size; i++) {
-            res_data[i] = T(data[sel[i]]);
-        }
-    }
 
     void insert_many_default_type(const char* data_ptr, size_t num) {
         auto old_size = data.size();
@@ -429,19 +398,10 @@ public:
         }
     }
 
-    void insert_zeroed_elements(size_t num) {
-        auto old_size = data.size();
-        auto new_size = old_size + num;
-        data.resize(new_size);
-        memset(&data[old_size], 0, sizeof(value_type) * num);
-    }
-
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
-
-    //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
 
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
@@ -463,8 +423,6 @@ public:
                                  const IColumn::Selector& selector) const override {
         this->template append_data_by_selector_impl<Self>(res, selector);
     }
-
-    //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }

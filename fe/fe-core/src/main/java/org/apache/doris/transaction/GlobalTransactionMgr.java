@@ -456,12 +456,6 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public void putTransactionTableNames(Long dbId, Long transactionId, List<Long> tableIds)
-            throws Exception {
-        getDatabaseTransactionMgr(dbId).putTransactionTableNames(transactionId, tableIds);
-    }
-
-    @Override
     public TWaitingTxnStatusResult getWaitingTxnStatus(TWaitingTxnStatusRequest request)
             throws AnalysisException, TimeoutException {
         long dbId = request.getDbId();

@@ -43,13 +43,13 @@ suite("test_hive_statistic_auto", "p2,external,hive,external_remote,external_rem
             }
             assertEquals(result.size(), 1)
             assertEquals(result[0][0], "lo_quantity")
-            assertEquals(result[0][1], "100.0")
-            assertEquals(result[0][2], "46.0")
-            assertEquals(result[0][3], "0.0")
-            assertEquals(result[0][4], "400.0")
-            assertEquals(result[0][5], "4.0")
-            assertEquals(result[0][6], "N/A")
+            assertEquals(result[0][2], "100.0")
+            assertEquals(result[0][3], "46.0")
+            assertEquals(result[0][4], "0.0")
+            assertEquals(result[0][5], "400.0")
+            assertEquals(result[0][6], "4.0")
             assertEquals(result[0][7], "N/A")
+            assertEquals(result[0][8], "N/A")
 
             result = sql """show column stats `statistics` (lo_orderkey)"""
             if (result.size <= 0) {
@@ -57,13 +57,13 @@ suite("test_hive_statistic_auto", "p2,external,hive,external_remote,external_rem
             }
             assertEquals(result.size(), 1)
             assertEquals(result[0][0], "lo_orderkey")
-            assertEquals(result[0][1], "100.0")
-            assertEquals(result[0][2], "26.0")
-            assertEquals(result[0][3], "0.0")
-            assertEquals(result[0][4], "400.0")
-            assertEquals(result[0][5], "4.0")
-            assertEquals(result[0][6], "N/A")
+            assertEquals(result[0][2], "100.0")
+            assertEquals(result[0][3], "26.0")
+            assertEquals(result[0][4], "0.0")
+            assertEquals(result[0][5], "400.0")
+            assertEquals(result[0][6], "4.0")
             assertEquals(result[0][7], "N/A")
+            assertEquals(result[0][8], "N/A")
 
             result = sql """show column stats `statistics` (lo_linenumber)"""
             if (result.size <= 0) {
@@ -71,13 +71,13 @@ suite("test_hive_statistic_auto", "p2,external,hive,external_remote,external_rem
             }
             assertEquals(result.size(), 1)
             assertEquals(result[0][0], "lo_linenumber")
-            assertEquals(result[0][1], "100.0")
-            assertEquals(result[0][2], "7.0")
-            assertEquals(result[0][3], "0.0")
-            assertEquals(result[0][4], "400.0")
-            assertEquals(result[0][5], "4.0")
-            assertEquals(result[0][6], "N/A")
+            assertEquals(result[0][2], "100.0")
+            assertEquals(result[0][3], "7.0")
+            assertEquals(result[0][4], "0.0")
+            assertEquals(result[0][5], "400.0")
+            assertEquals(result[0][6], "4.0")
             assertEquals(result[0][7], "N/A")
+            assertEquals(result[0][8], "N/A")
         }
 
         sql """drop catalog ${catalog_name}"""

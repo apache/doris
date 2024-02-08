@@ -202,44 +202,6 @@ suite("outer_join") {
     (2, 3, 10, 11.01, 'supply2');
     """
 
-    def check_rewrite = { mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
-        explain {
-            sql("${query_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
-    }
-
-    def check_not_match = { mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
-        explain {
-            sql("${query_sql}")
-            notContains("${mv_name}(${mv_name})")
-        }
-    }
-
     // without filter
     def mv1_0 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +
             "from lineitem " +
@@ -248,7 +210,7 @@ suite("outer_join") {
             "from lineitem " +
             "left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
     order_qt_query1_0_before "${query1_0}"
-    check_rewrite(mv1_0, query1_0, "mv1_0")
+    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
@@ -264,7 +226,7 @@ suite("outer_join") {
             "left join partsupp on lineitem.L_PARTKEY = partsupp.PS_PARTKEY " +
             "and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY"
     order_qt_query1_1_before "${query1_1}"
-    check_rewrite(mv1_1, query1_1, "mv1_1")
+    check_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
@@ -276,7 +238,7 @@ suite("outer_join") {
             "left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
     order_qt_query1_2_before "${query1_2}"
     // join direction is not same, should not match
-    check_not_match(mv1_2, query1_2, "mv1_2")
+    check_mv_rewrite_fail(db, mv1_2, query1_2, "mv1_2")
     order_qt_query1_2_after "${query1_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
 
@@ -289,7 +251,7 @@ suite("outer_join") {
             "from orders " +
             "left join lineitem on orders.O_ORDERKEY = lineitem.L_ORDERKEY"
     order_qt_query1_3_before "${query1_3}"
-    check_rewrite(mv1_3, query1_3, "mv1_3")
+    check_mv_rewrite_success(db, mv1_3, query1_3, "mv1_3")
     order_qt_query1_3_after "${query1_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 
@@ -303,7 +265,7 @@ suite("outer_join") {
             "left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
             "where lineitem.L_LINENUMBER > 0"
     order_qt_query2_0_before "${query2_0}"
-    check_not_match(mv2_0, query2_0, "mv2_0")
+    check_mv_rewrite_fail(db, mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 
@@ -316,7 +278,7 @@ suite("outer_join") {
             "left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
             "where lineitem.L_LINENUMBER > 1"
     order_qt_query2_1_before "${query2_1}"
-    check_rewrite(mv2_1, query2_1, "mv2_1")
+    check_mv_rewrite_success(db, mv2_1, query2_1, "mv2_1")
     order_qt_query2_1_after "${query2_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
@@ -333,7 +295,7 @@ suite("outer_join") {
             where lineitem.L_LINENUMBER > 1 and l_suppkey = 3;
     """
     order_qt_query2_2_before "${query2_2}"
-    check_not_match(mv2_2, query2_2, "mv2_2")
+    check_mv_rewrite_fail(db, mv2_2, query2_2, "mv2_2")
     order_qt_query2_2_after "${query2_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
 
@@ -350,7 +312,7 @@ suite("outer_join") {
             where lineitem.L_LINENUMBER > 1 and l_suppkey = 3;
     """
     order_qt_query2_3_before "${query2_3}"
-    check_rewrite(mv2_3, query2_3, "mv2_3")
+    check_mv_rewrite_success(db, mv2_3, query2_3, "mv2_3")
     order_qt_query2_3_after "${query2_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
 
@@ -369,7 +331,7 @@ suite("outer_join") {
     """
     order_qt_query3_0_before "${query3_0}"
     // use a filed not from mv, should not success
-    check_not_match(mv3_0, query3_0, "mv3_0")
+    check_mv_rewrite_fail(db, mv3_0, query3_0, "mv3_0")
     order_qt_query3_0_after "${query3_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
 
@@ -382,15 +344,15 @@ suite("outer_join") {
             "left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
             "where orders.O_ORDERSTATUS = 'o'"
     order_qt_query3_1_before "${query3_1}"
-    check_rewrite(mv3_1, query3_1, "mv3_1")
+    check_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1")
     order_qt_query3_1_after "${query3_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
 
     def mv3_2 = """
-            select lineitem.L_LINENUMBER, t2.O_CUSTKEY, t2.O_ORDERSTATUS 
-            from lineitem 
-            left join 
+            select lineitem.L_LINENUMBER, t2.O_CUSTKEY, t2.O_ORDERSTATUS
+            from lineitem
+            left join
             (select * from orders where O_ORDERSTATUS = 'o') t2
             on lineitem.L_ORDERKEY = t2.O_ORDERKEY;
     """
@@ -402,7 +364,7 @@ suite("outer_join") {
     """
     order_qt_query3_2_before "${query3_2}"
     // should not success, as mv filter is under left outer input
-    check_rewrite(mv3_2, query3_2, "mv3_2")
+    check_mv_rewrite_success(db, mv3_2, query3_2, "mv3_2")
     order_qt_query3_2_after "${query3_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 
@@ -420,7 +382,7 @@ suite("outer_join") {
             where o_orderstatus = 'o' AND o_orderkey = 1;
     """
     order_qt_query4_0_before "${query4_0}"
-    check_rewrite(mv4_0, query4_0, "mv4_0")
+    check_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0")
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 
@@ -434,7 +396,7 @@ suite("outer_join") {
             "from (select * from lineitem where l_linenumber > 1) t1 " +
             "left join orders on t1.l_orderkey = orders.O_ORDERKEY "
     order_qt_query5_0_before "${query5_0}"
-    check_rewrite(mv5_0, query5_0, "mv5_0")
+    check_mv_rewrite_success(db, mv5_0, query5_0, "mv5_0")
     order_qt_query5_0_after "${query5_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_0"""
 
@@ -453,7 +415,7 @@ suite("outer_join") {
         where o_orderdate = '2023-12-08'
     """
     order_qt_query5_1_before "${query5_1}"
-    check_not_match(mv5_1, query5_1, "mv5_1")
+    check_mv_rewrite_fail(db, mv5_1, query5_1, "mv5_1")
     order_qt_query5_1_after "${query5_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_1"""
 
@@ -468,7 +430,7 @@ suite("outer_join") {
             "left join (select * from orders where o_orderdate = '2023-12-08') t2 " +
             "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate "
     order_qt_query6_0_before "${query6_0}"
-    check_rewrite(mv6_0, query6_0, "mv6_0")
+    check_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0")
     order_qt_query6_0_after "${query6_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
 
@@ -476,38 +438,38 @@ suite("outer_join") {
     def mv6_1 = """
         select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey
         from lineitem_null
-        left join (select o_orderdate,o_orderkey from orders_null where o_orderdate = '2023-12-10' ) t 
+        left join (select o_orderdate,o_orderkey from orders_null where o_orderdate = '2023-12-10' ) t
         on l_orderkey = t.o_orderkey;
     """
     def query6_1 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
-        from lineitem_null  
-        left join orders_null 
-        on l_orderkey = o_orderkey 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem_null
+        left join orders_null
+        on l_orderkey = o_orderkey
         where l_shipdate = '2023-12-10'  and o_orderdate = '2023-12-10';
     """
     order_qt_query6_1_before "${query6_1}"
-    check_rewrite(mv6_1, query6_1, "mv6_1")
+    check_mv_rewrite_success(db, mv6_1, query6_1, "mv6_1")
     order_qt_query6_1_after "${query6_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_1"""
 
 
     // should compensate predicate o_orderdate = '2023-12-10' on mv
     def mv6_2 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
-        from lineitem 
-        left join (select * from orders where o_orderdate = '2023-12-10' ) t2 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem
+        left join (select * from orders where o_orderdate = '2023-12-10' ) t2
         on lineitem.l_orderkey = t2.o_orderkey;
     """
     def query6_2 = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
-        from lineitem 
-        left join orders 
-        on lineitem.l_orderkey = orders.o_orderkey 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
+        from lineitem
+        left join orders
+        on lineitem.l_orderkey = orders.o_orderkey
         where o_orderdate = '2023-12-10' order by 1, 2, 3, 4, 5;
     """
     order_qt_query6_2_before "${query6_2}"
-    check_rewrite(mv6_2, query6_2, "mv6_2")
+    check_mv_rewrite_success(db, mv6_2, query6_2, "mv6_2")
     order_qt_query6_2_after "${query6_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_2"""
 
@@ -524,7 +486,7 @@ suite("outer_join") {
             "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate " +
             "where l_partkey = 3"
     order_qt_query7_0_before "${query7_0}"
-    check_rewrite(mv7_0, query7_0, "mv7_0")
+    check_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0")
     order_qt_query7_0_after "${query7_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
 
@@ -543,7 +505,7 @@ suite("outer_join") {
         on t1.l_orderkey = orders.o_orderkey;
     """
     order_qt_query7_1_before "${query7_1}"
-    check_not_match(mv7_1, query7_1, "mv7_1")
+    check_mv_rewrite_fail(db, mv7_1, query7_1, "mv7_1")
     order_qt_query7_1_after "${query7_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_1"""
 
@@ -583,7 +545,68 @@ suite("outer_join") {
     group by a.o_orderkey;
     """
     order_qt_query8_0_before "${query8_0}"
-    check_rewrite(mv8_0, query8_0, "mv8_0")
+    check_mv_rewrite_success(db, mv8_0, query8_0, "mv8_0")
     order_qt_query8_0_after "${query8_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_0"""
+
+
+    // join input with simple agg, use aggregate function as outer group by
+    def mv9_0 = """
+        select 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1 
+        from 
+          (
+            select 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate, 
+              sum(o_shippriority) as col1 
+            from 
+              orders 
+            group by 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate
+          ) as t1 
+          left join lineitem on lineitem.l_orderkey = t1.o_orderkey 
+        group by 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1
+    """
+    def query9_0 = """
+        select 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1 
+        from 
+          (
+            select 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate, 
+              sum(o_shippriority) as col1 
+            from 
+              orders 
+            group by 
+              o_orderkey, 
+              o_custkey, 
+              o_orderstatus, 
+              o_orderdate
+          ) as t1 
+          left join lineitem on lineitem.l_orderkey = t1.o_orderkey 
+        group by 
+          t1.o_orderdate, 
+          t1.o_orderkey, 
+          t1.col1
+    """
+    order_qt_query9_0_before "${query9_0}"
+    check_mv_rewrite_success(db, mv9_0, query9_0, "mv9_0")
+    order_qt_query9_0_after "${query9_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv9_0"""
 }

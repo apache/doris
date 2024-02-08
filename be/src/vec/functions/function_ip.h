@@ -78,7 +78,7 @@ private:
                     offsets_res[i] = pos - begin;
                     null_map->get_data()[i] = 1;
                 } else {
-                    formatIPv4(reinterpret_cast<const unsigned char*>(&vec_in[i]), src_size, pos);
+                    format_ipv4(reinterpret_cast<const unsigned char*>(&vec_in[i]), src_size, pos);
                     offsets_res[i] = pos - begin;
                 }
             }
@@ -131,12 +131,12 @@ public:
 /// Since IPExceptionMode means wider scope, we use more specific name here.
 enum class IPConvertExceptionMode : uint8_t { Throw, Default, Null };
 
-static inline bool tryParseIPv4(const char* pos, Int64& result_value) {
-    return parseIPv4whole(pos, reinterpret_cast<unsigned char*>(&result_value));
+static inline bool try_parse_ipv4(const char* pos, Int64& result_value) {
+    return parse_ipv4_whole(pos, reinterpret_cast<unsigned char*>(&result_value));
 }
 
 template <IPConvertExceptionMode exception_mode, typename ToColumn>
-ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
+ColumnPtr convert_to_ipv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
     const ColumnString* column_string = check_and_get_column<ColumnString>(column.get());
 
     if (!column_string) {
@@ -183,7 +183,7 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
         size_t src_length = (i < vec_res.size() - 1) ? (offsets_src[i] - prev_offset)
                                                      : (vec_src.size() - prev_offset);
         std::string src(src_start, src_length);
-        bool parse_result = tryParseIPv4(src.c_str(), vec_res[i]);
+        bool parse_result = try_parse_ipv4(src.c_str(), vec_res[i]);
 
         if (!parse_result) {
             if constexpr (exception_mode == IPConvertExceptionMode::Throw) {
@@ -251,7 +251,7 @@ public:
             null_map = &column_nullable->get_null_map_data();
         }
 
-        auto col_res = convertToIPv4<exception_mode, ColumnInt64>(column, null_map);
+        auto col_res = convert_to_ipv4<exception_mode, ColumnInt64>(column, null_map);
 
         if (null_map && exception_mode == IPConvertExceptionMode::Null) {
             block.replace_by_position(
@@ -296,7 +296,16 @@ void process_ipv6_column(const ColumnPtr& column, size_t input_rows_count,
             offsets_res[i] = pos - begin;
             null_map->get_data()[i] = 1;
         } else {
-            formatIPv6(ipv6_address_data, pos);
+            if constexpr (std::is_same_v<T, ColumnIPv6>) {
+                // ipv6 is little-endian byte order storage in doris
+                // so parsing ipv6 in little-endian byte order
+                format_ipv6(ipv6_address_data, pos);
+            } else {
+                // 16 bytes ipv6 string is big-endian byte order storage in doris
+                // so transfer to little-endian firstly
+                std::reverse(ipv6_address_data, ipv6_address_data + IPV6_BINARY_LENGTH);
+                format_ipv6(ipv6_address_data, pos);
+            }
             offsets_res[i] = pos - begin;
         }
     }
@@ -360,8 +369,8 @@ public:
 namespace detail {
 template <IPConvertExceptionMode exception_mode, typename ToColumn = ColumnIPv6,
           typename StringColumnType>
-ColumnPtr convertToIPv6(const StringColumnType& string_column,
-                        const PaddedPODArray<UInt8>* null_map = nullptr) {
+ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
+                          const PaddedPODArray<UInt8>* null_map = nullptr) {
     if constexpr (!std::is_same_v<ToColumn, ColumnString> &&
                   !std::is_same_v<ToColumn, ColumnIPv6>) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -463,15 +472,20 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
         /// Keeping it simple by just prefixing `::ffff:` to the IPv4 address to represent it as a valid IPv6 address.
         size_t string_length = src_next_offset - src_offset;
         if (string_length != 0) {
-            if (tryParseIPv4(src_value, dummy_result)) {
+            if (try_parse_ipv4(src_value, dummy_result)) {
                 strcat(src_ipv4_buf, src_value);
-                parse_result = parseIPv6whole(src_ipv4_buf, res_value);
+                parse_result = parse_ipv6_whole(src_ipv4_buf, res_value);
             } else {
-                parse_result = parseIPv6whole(src_value, res_value);
+                parse_result = parse_ipv6_whole(src_value, res_value);
             }
         }
 
         if (parse_result && string_length != 0) {
+            if constexpr (std::is_same_v<ToColumn, ColumnString>) {
+                // handling 16 bytes ipv6 string in the big-endian byte order
+                // is aimed at conforming to human reading habits
+                std::reverse(res_value, res_value + IPV6_BINARY_LENGTH);
+            }
             if constexpr (std::is_same_v<ToColumn, ColumnString>) {
                 auto* column_string = assert_cast<ColumnString*>(col_res.get());
                 std::copy(res_value, res_value + IPV6_BINARY_LENGTH,
@@ -504,10 +518,10 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
 } // namespace detail
 
 template <IPConvertExceptionMode exception_mode, typename ToColumn = ColumnIPv6>
-ColumnPtr convertToIPv6(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
+ColumnPtr convert_to_ipv6(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
     if (const auto* column_input_string = check_and_get_column<ColumnString>(column.get())) {
         auto result =
-                detail::convertToIPv6<exception_mode, ToColumn>(*column_input_string, null_map);
+                detail::convert_to_ipv6<exception_mode, ToColumn>(*column_input_string, null_map);
         return result;
     } else {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal column type {}. Expected String",
@@ -563,7 +577,7 @@ public:
             null_map = &column_nullable->get_null_map_data();
         }
 
-        auto col_res = convertToIPv6<exception_mode, ColumnString>(column, null_map);
+        auto col_res = convert_to_ipv6<exception_mode, ColumnString>(column, null_map);
 
         if (null_map && exception_mode == IPConvertExceptionMode::Null) {
             block.replace_by_position(
@@ -878,9 +892,18 @@ public:
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
                                 std::to_string(cidr));
             }
-            apply_cidr_mask(from_column.get_data_at(i).data,
-                            reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                            reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
+            if constexpr (std::is_same_v<FromColumn, ColumnString>) {
+                // 16 bytes ipv6 string is stored in big-endian byte order
+                // so transfer to little-endian firstly
+                auto* src_data = const_cast<char*>(from_column.get_data_at(i).data);
+                std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
+                apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
+            } else {
+                apply_cidr_mask(from_column.get_data_at(i).data,
+                                reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
+            }
         }
 
         return ColumnStruct::create(
@@ -890,9 +913,10 @@ public:
 private:
     static void apply_cidr_mask(const char* __restrict src, char* __restrict dst_lower,
                                 char* __restrict dst_upper, UInt8 bits_to_keep) {
+        // little-endian mask
         const auto& mask = get_cidr_mask_ipv6(bits_to_keep);
 
-        for (size_t i = 0; i < IPV6_BINARY_LENGTH; ++i) {
+        for (int8_t i = IPV6_BINARY_LENGTH - 1; i >= 0; --i) {
             dst_lower[i] = src[i] & mask[i];
             dst_upper[i] = dst_lower[i] | ~mask[i];
         }

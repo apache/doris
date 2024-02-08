@@ -36,6 +36,7 @@ class ClusterOptions {
     int beNum = 3
     List<String> feConfigs = ['heartbeat_interval_second=5']
     List<String> beConfigs = []
+    boolean connectToFollower = false
 
     // each be disks, a disks format is: disk_type=disk_num[,disk_capacity]
     // here disk_type=HDD or SSD,  disk capacity is in gb unit.
@@ -240,6 +241,10 @@ class SuiteCluster {
 
     Frontend getMasterFe() {
         return getFrontends().stream().filter(fe -> fe.isMaster).findFirst().orElse(null)
+    }
+
+    Frontend getOneFollowerFe() {
+        return getFrontends().stream().filter(fe -> !fe.isMaster).findFirst().orElse(null)
     }
 
     Frontend getFeByIndex(int index) {

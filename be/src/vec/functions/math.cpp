@@ -74,6 +74,21 @@ struct AtanName {
 };
 using FunctionAtan = FunctionMathUnary<UnaryFunctionPlain<AtanName, std::atan>>;
 
+template <typename A, typename B>
+struct Atan2Impl {
+    using ResultType = double;
+    static const constexpr bool allow_decimal = false;
+
+    template <typename type>
+    static inline double apply(A a, B b) {
+        return std::atan2((double)a, (double)b);
+    }
+};
+struct Atan2Name {
+    static constexpr auto name = "atan2";
+};
+using FunctionAtan2 = FunctionBinaryArithmetic<Atan2Impl, Atan2Name, false>;
+
 struct CosName {
     static constexpr auto name = "cos";
 };
@@ -397,6 +412,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAsin>();
     factory.register_function<FunctionAtan>();
+    factory.register_function<FunctionAtan2>();
     factory.register_function<FunctionCos>();
     factory.register_function<FunctionCosh>();
     factory.register_alias("ceil", "dceil");

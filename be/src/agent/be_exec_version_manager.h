@@ -64,7 +64,7 @@ private:
  *    c. cleared old version of Version 2.
  *    d. unix_timestamp function support timestamp with float for datetimev2, and change nullable mode.
  *    e. change shuffle serialize/deserialize way 
- *    f. the right function outputs NULL when the function contains NULL, substr function returns empty if start > str.length.
+ *    f. the right function outputs NULL when the function contains NULL, substr function returns empty if start > str.length, and change some function nullable mode.
 */
 constexpr inline int BeExecVersionManager::max_be_exec_version = 3;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;

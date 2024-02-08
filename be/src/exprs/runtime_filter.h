@@ -140,7 +140,9 @@ public:
         }
     }
 
-    [[nodiscard]] int get_filter_id() const { return _filter_id; }
+    int get_filter_id() const { return _filter_id; }
+
+    bool is_runtime_filter() const { return _filter_id != -1; }
 
 private:
     int _filter_id = -1;
@@ -197,8 +199,6 @@ public:
               _rf_state_atomic(RuntimeFilterState::NOT_READY),
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
-              _always_true(false),
-              _is_ignored(false),
               registration_time_(MonotonicMillis()),
               _wait_infinitely(_state->runtime_filter_wait_infinitely),
               _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
@@ -379,15 +379,9 @@ protected:
 
     void _set_push_down() { _is_push_down = true; }
 
-    std::string _format_status() {
-        return fmt::format(
-                "[IsPushDown = {}, RuntimeFilterState = {}, IsIgnored = {}, HasRemoteTarget = {}, "
-                "HasLocalTarget = {}]",
-                _is_push_down, _get_explain_state_string(), _is_ignored, _has_remote_target,
-                _has_local_target);
-    }
+    std::string _format_status() const;
 
-    std::string _get_explain_state_string() {
+    std::string _get_explain_state_string() const {
         if (_enable_pipeline_exec) {
             return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
                            ? "READY"
@@ -428,15 +422,7 @@ protected:
 
     bool _is_push_down = false;
 
-    // if set always_true = true
-    // this filter won't filter any data
-    bool _always_true;
-
     TExpr _probe_expr;
-
-    // Indicate whether runtime filter expr has been ignored
-    bool _is_ignored;
-    std::string _ignored_msg;
 
     struct RPCContext;
 

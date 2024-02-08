@@ -98,7 +98,8 @@ public:
             }
         }
 
-        if constexpr (with_other_conjuncts || is_mark_join) {
+        if constexpr (with_other_conjuncts ||
+                      (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN)) {
             return _find_batch_conjunct<JoinOpType, need_judge_null>(
                     keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
         }
@@ -203,8 +204,9 @@ public:
         return std::tuple {probe_idx, build_idx, matched_cnt, picking_null_keys};
     }
 
-    template <int JoinOpType>
-    bool iterate_map(std::vector<uint32_t>& build_idxs) const {
+    template <int JoinOpType, bool is_mark_join>
+    bool iterate_map(std::vector<uint32_t>& build_idxs,
+                     vectorized::ColumnFilterHelper* mark_column_helper) const {
         const auto batch_size = max_batch_size;
         const auto elem_num = visited.size();
         int count = 0;
@@ -213,10 +215,15 @@ public:
         while (count < batch_size && iter_idx < elem_num) {
             const auto matched = visited[iter_idx];
             build_idxs[count] = iter_idx;
-            if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
-                count += !matched;
+            if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
+                if constexpr (is_mark_join) {
+                    mark_column_helper->insert_value(matched);
+                    ++count;
+                } else {
+                    count += matched;
+                }
             } else {
-                count += matched;
+                count += !matched;
             }
             iter_idx++;
         }
@@ -227,7 +234,7 @@ public:
 
     bool has_null_key() { return _has_null_key; }
 
-    void pre_build_idxs(std::vector<uint32>& buckets, const uint8_t* null_map) {
+    void pre_build_idxs(std::vector<uint32>& buckets, const uint8_t* null_map) const {
         if (null_map) {
             for (unsigned int& bucket : buckets) {
                 bucket = bucket == bucket_size ? bucket_size : first[bucket];

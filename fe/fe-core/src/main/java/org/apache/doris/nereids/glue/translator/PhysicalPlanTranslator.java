@@ -1657,28 +1657,31 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputFragment;
     }
 
-    // Get top most PushDownToProjectionFunction from expression
-    private Expression getOriginalFunctionForRewritten(NamedExpression expression) {
-        List<Expression> targetExpr = expression.collectFirst(PushDownToProjectionFunction.class::isInstance);
-        if (!targetExpr.isEmpty()) {
-            return targetExpr.get(0);
-        }
-        return null;
+    // collect all valid PushDownToProjectionFunction from expression
+    private List<Expression> getPushDownToProjectionFunctionForRewritten(NamedExpression expression) {
+        List<Expression> targetExprList = expression.collectToList(PushDownToProjectionFunction.class::isInstance);
+        return targetExprList.stream()
+                .filter(PushDownToProjectionFunction::validToPushDown)
+                .collect(Collectors.toList());
     }
 
     // register rewritten slots from original PushDownToProjectionFunction
     private void registerRewrittenSlot(PhysicalProject<? extends Plan> project, OlapScanNode olapScanNode) {
         // register slots that are rewritten from element_at/etc..
-        for (NamedExpression expr : project.getProjects()) {
+        List<Expression> allPushDownProjectionFunctions = project.getProjects().stream()
+                .map(this::getPushDownToProjectionFunctionForRewritten)
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
+        for (Expression expr : allPushDownProjectionFunctions) {
+            PushDownToProjectionFunction function = (PushDownToProjectionFunction) expr;
             if (context != null
                     && context.getConnectContext() != null
                     && context.getConnectContext().getStatementContext() != null) {
-                Slot rewrittenSlot = context.getConnectContext()
-                        .getStatementContext().getRewrittenSlotRefByOriginalExpr(getOriginalFunctionForRewritten(expr));
-                if (rewrittenSlot != null) {
-                    TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
-                    context.createSlotDesc(tupleDescriptor, (SlotReference) rewrittenSlot);
-                }
+                Slot argumentSlot = function.getInputSlots().stream().findFirst().get();
+                Expression rewrittenSlot = PushDownToProjectionFunction.rewriteToSlot(
+                        function, (SlotReference) argumentSlot);
+                TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
+                context.createSlotDesc(tupleDescriptor, (SlotReference) rewrittenSlot);
             }
         }
     }

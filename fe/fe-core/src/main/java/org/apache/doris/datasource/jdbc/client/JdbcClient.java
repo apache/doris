@@ -135,24 +135,23 @@ public abstract class JdbcClient {
             dataSource.setUrl(config.getJdbcUrl());
             dataSource.setUsername(config.getUser());
             dataSource.setPassword(config.getPassword());
-            dataSource.setMinIdle(config.getMinIdleSize());
-            dataSource.setInitialSize(config.getMinPoolSize());
-            dataSource.setMaxActive(config.getMaxPoolSize());
-            dataSource.setTimeBetweenEvictionRunsMillis(config.getMaxIdleTime() * 2L);
-            dataSource.setMinEvictableIdleTimeMillis(config.getMaxIdleTime());
+            dataSource.setMinIdle(config.getConnectionPoolMinSize()); // default 1
+            dataSource.setInitialSize(config.getConnectionPoolMinSize()); // default 1
+            dataSource.setMaxActive(config.getConnectionPoolMaxSize()); // default 10
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
             // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
             // it may cause the thrift rpc timeout.
-            dataSource.setMaxWait(config.getMaxWaitTime());
-            dataSource.setKeepAlive(config.isKeepAlive());
-            LOG.info("JdbcExecutor set minPoolSize = " + config.getMinPoolSize()
-                    + ", maxPoolSize = " + config.getMaxPoolSize()
-                    + ", maxIdleTime = " + config.getMaxIdleTime()
-                    + ", maxWaitTime = " + config.getMaxWaitTime()
-                    + ", minIdleSize = " + config.getMinIdleSize()
-                    + ", keepAlive = " + config.isKeepAlive());
+            dataSource.setMaxWait(config.getConnectionPoolMaxWaitTime()); // default 5000
+            dataSource.setTimeBetweenEvictionRunsMillis(config.getConnectionPoolMaxLifeTime() / 10L); // default 3 min
+            dataSource.setMinEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime() / 2L); // default 15 min
+            dataSource.setMaxEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime()); // default 30 min
+            LOG.info("JdbcClient set"
+                    + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
+                    + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
+                    + ", ConnectionPoolMaxWaitTime = " + config.getConnectionPoolMaxWaitTime()
+                    + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime());
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + config.getDriverUrl(), e);
         } finally {
@@ -518,7 +517,7 @@ public abstract class JdbcClient {
         // because for utf8 encoding, a Chinese character takes up 3 bytes
         protected int charOctetLength;
         protected boolean isAllowNull;
-        protected boolean isAutoincrement;
+        protected long autoIncInitValue;
         protected String defaultValue;
     }
 

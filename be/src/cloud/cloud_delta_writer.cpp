@@ -20,6 +20,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_rowset_builder.h"
 #include "olap/delta_writer.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -44,6 +45,7 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
         }
 
         tasks.emplace_back([writer] {
+            ThreadLocalHandle::create_thread_local_if_not_exits();
             std::lock_guard<bthread::Mutex> lock(writer->_mtx);
             if (writer->_is_init || writer->_is_cancelled) {
                 return Status::OK();
@@ -57,7 +59,7 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
 
 Status CloudDeltaWriter::write(const vectorized::Block* block,
                                const std::vector<uint32_t>& row_idxs, bool is_append) {
-    if (UNLIKELY(row_idxs.empty() && !is_append)) {
+    if (row_idxs.empty() && !is_append) [[unlikely]] {
         return Status::OK();
     }
     std::lock_guard lock(_mtx);

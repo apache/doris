@@ -131,9 +131,6 @@ PipelineFragmentContext::PipelineFragmentContext(
           _is_report_on_cancel(true),
           _report_status_cb(report_status_cb),
           _create_time(MonotonicNanos()) {
-    if (_query_ctx->get_task_group()) {
-        _task_group_entity = _query_ctx->get_task_group()->task_entity();
-    }
     _fragment_watcher.start();
 }
 
@@ -942,8 +939,7 @@ Status PipelineFragmentContext::send_report(bool done) {
              [this](auto&& PH1) { return update_status(std::forward<decltype(PH1)>(PH1)); },
              [this](auto&& PH1, auto&& PH2) {
                  cancel(std::forward<decltype(PH1)>(PH1), std::forward<decltype(PH2)>(PH2));
-             },
-             _query_ctx->get_query_statistics()},
+             }},
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 

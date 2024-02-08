@@ -569,8 +569,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         }
     }
 
-    local_state.init_short_circuit_for_probe();
     if (source_state == SourceState::FINISHED) {
+        local_state.init_short_circuit_for_probe();
         // Since the comparison of null values is meaningless, null aware left anti/semi join should not output null
         // when the build side is not empty.
         if (local_state._shared_state->build_block &&

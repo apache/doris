@@ -296,4 +296,6 @@ public abstract class Resource implements Writable, GsonPostProcessable {
             }
         });
     }
+
+    public void applyDefaultProperties() {}
 }
