@@ -91,6 +91,8 @@ public:
 
     Status get_merge_addr(TNetworkAddress* addr);
 
+    RuntimeFilterParamsContext* get_runtime_filter_context_state() const { return _state; }
+
 private:
     struct ConsumerFilterHolder {
         int node_id;

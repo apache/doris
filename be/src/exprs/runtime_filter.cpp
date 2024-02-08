@@ -735,7 +735,9 @@ public:
         _is_bloomfilter = true;
         // we won't use this class to insert or find any data
         // so any type is ok
-        _context.bloom_filter_func.reset(create_bloom_filter(PrimitiveType::TYPE_INT));
+        _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type == INVALID_TYPE
+                                                                     ? PrimitiveType::TYPE_INT
+                                                                     : _column_return_type));
         return _context.bloom_filter_func->assign(data, bloom_filter->filter_length());
     }
 
@@ -950,12 +952,6 @@ vectorized::SharedRuntimeFilterContext& IRuntimeFilter::get_shared_context_ref()
     return _wrapper->_context;
 }
 
-void IRuntimeFilter::copy_from_other(IRuntimeFilter* other) {
-    _wrapper->_filter_type = other->_wrapper->_filter_type;
-    _wrapper->_is_bloomfilter = other->is_bloomfilter();
-    _wrapper->_context = other->_wrapper->_context;
-}
-
 void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t start) {
     DCHECK(is_producer());
     _wrapper->insert_batch(column, start);
@@ -1112,6 +1108,10 @@ bool IRuntimeFilter::is_ready_or_timeout() {
     }
 }
 
+PrimitiveType IRuntimeFilter::column_type() const {
+    return _wrapper->column_type();
+}
+
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
     if (_enable_pipeline_exec) {
@@ -1249,16 +1249,12 @@ Status IRuntimeFilter::create_wrapper(RuntimeFilterParamsContext* state,
 }
 
 Status IRuntimeFilter::create_wrapper(RuntimeFilterParamsContext* state,
-                                      const UpdateRuntimeFilterParamsV2* param, ObjectPool* pool,
-                                      std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
-    int filter_type = param->request->filter_type();
-    PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
-    if (param->request->has_in_filter()) {
-        column_type = to_primitive_type(param->request->in_filter().column_type());
-    }
-    wrapper->reset(new RuntimePredicateWrapper(state, pool, column_type, get_type(filter_type),
-                                               param->request->filter_id()));
-
+                                      const UpdateRuntimeFilterParamsV2* param,
+                                      RuntimePredicateWrapper** wrapper) {
+    auto filter_type = param->request->filter_type();
+    PrimitiveType column_type = param->column_type;
+    *wrapper = param->pool->add(new RuntimePredicateWrapper(
+            state, param->pool, column_type, get_type(filter_type), param->request->filter_id()));
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         DCHECK(param->request->has_in_filter());
@@ -1650,8 +1646,9 @@ bool IRuntimeFilter::is_bloomfilter() {
     return _wrapper->is_bloomfilter();
 }
 
-template <typename T>
-Status IRuntimeFilter::_update_filter(const T* param) {
+Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
+    _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
+
     if (param->request->has_in_filter() && param->request->in_filter().has_ignored_msg()) {
         const PInFilter in_filter = param->request->in_filter();
         set_ignored(in_filter.ignored_msg());
@@ -1665,19 +1662,25 @@ Status IRuntimeFilter::_update_filter(const T* param) {
     }
     this->signal();
 
-    _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
     return Status::OK();
 }
 
-Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
-    return _update_filter(param);
-}
-
-Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param,
-                                     int64_t start_apply) {
+void IRuntimeFilter::update_filter(RuntimePredicateWrapper* wrapper, int64_t merge_time,
+                                   int64_t start_apply) {
     _profile->add_info_string("UpdateTime",
                               std::to_string(MonotonicMillis() - start_apply) + " ms");
-    return _update_filter(param);
+    _profile->add_info_string("MergeTime", std::to_string(merge_time) + " ms");
+    // prevent apply filter to not have right column_return_type remove
+    // the code in the future
+    if (_wrapper->column_type() != wrapper->column_type()) {
+        wrapper->_column_return_type = _wrapper->_column_return_type;
+    }
+    auto origin_type = _wrapper->get_real_type();
+    _wrapper = wrapper;
+    if (origin_type != _wrapper->get_real_type()) {
+        update_runtime_filter_type_to_profile();
+    }
+    this->signal();
 }
 
 Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
@@ -1691,8 +1694,8 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
            (is_string_type(probe_ctx->root()->type().type) &&
             is_string_type(_column_return_type)) ||
            _filter_type == RuntimeFilterType::BITMAP_FILTER)
-            << " prob_expr->root()->type().type: " << probe_ctx->root()->type().type
-            << " _column_return_type: " << _column_return_type
+            << " prob_expr->root()->type().type: " << int(probe_ctx->root()->type().type)
+            << " _column_return_type: " << int(_column_return_type)
             << " _filter_type: " << IRuntimeFilter::to_string(_filter_type);
 
     auto real_filter_type = get_real_type();
