@@ -321,9 +321,4 @@ public class PlanTranslatorContext {
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
     }
-
-    public ConnectContext getConnectContext() {
-        return connectContext;
-    }
-
 }

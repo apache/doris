@@ -26,7 +26,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -125,7 +124,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
-    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    /**
+     * This function is used to generate the plan for Nereids.
+     * There are some load functions that only need to the plan, such as stream_load.
+     * Therefore, this section will be presented separately.
+     */
+    public InsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
@@ -166,23 +170,22 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),
-                            PrivPredicate.LOAD)) {
+                    PrivPredicate.LOAD)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                         targetTable.getQualifiedDbName() + ": " + targetTable.getName());
             }
             sink = planner.getFragments().get(0).getSink();
-            // group commit
+            // TODO group commit insert into, not http_stream
             if (analyzeGroupCommit(ctx, sink, physicalOlapTableSink)) {
-                // handleGroupCommit(ctx, sink, physicalOlapTableSink);
-                // return;
+                handleGroupCommit(ctx, sink, physicalOlapTableSink);
                 throw new AnalysisException("group commit is not supported in nereids now");
             }
 
             String label = this.labelName.orElse(String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
             insertExecutor = new InsertExecutor(ctx,
-                    physicalOlapTableSink.getDatabase(),
-                    physicalOlapTableSink.getTargetTable(), label, planner);
+                physicalOlapTableSink.getDatabase(),
+                physicalOlapTableSink.getTargetTable(), label, planner);
             insertExecutor.beginTransaction();
             insertExecutor.finalizeSink(sink, physicalOlapTableSink.isPartialUpdate(),
                     physicalOlapTableSink.getDmlCommandType() == DMLCommandType.INSERT, this.allowAutoPartition);
@@ -191,13 +194,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
 
         boolean isEnableMemtableOnSinkNode =
-                    ((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()
-                    ? insertExecutor.getCoordinator().getQueryOptions().isEnableMemtableOnSinkNode() : false;
+                ((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()
+                ? insertExecutor.getCoordinator().getQueryOptions().isEnableMemtableOnSinkNode() : false;
         insertExecutor.getCoordinator().getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
         executor.setProfileType(ProfileType.LOAD);
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption
         // so we need to set this here
         executor.setCoord(insertExecutor.getCoordinator());
+        return insertExecutor;
+    }
+
+    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        InsertExecutor insertExecutor = initPlan(ctx, executor);
         insertExecutor.executeSingleInsertTransaction(executor, jobId);
     }
 

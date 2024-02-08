@@ -107,6 +107,7 @@ public class InsertExecutor {
 
     private final ConnectContext ctx;
     private final Coordinator coordinator;
+
     private final String labelName;
     private final Database database;
     private final Table table;
@@ -131,6 +132,18 @@ public class InsertExecutor {
 
     public long getTxnId() {
         return txnId;
+    }
+
+    public String getLabelName() {
+        return labelName;
+    }
+
+    public Database getDatabase() {
+        return database;
+    }
+
+    public Table getTable() {
+        return table;
     }
 
     /**

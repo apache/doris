@@ -152,7 +152,6 @@ import org.apache.doris.planner.EsScanNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
-import org.apache.doris.planner.GroupCommitOlapTableSink;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
@@ -184,6 +183,7 @@ import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
 import org.apache.doris.planner.external.odbc.OdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.GroupCommitTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -417,16 +417,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         checkInnerGroupCommit(context.getScanNodes());
         OlapTableSink sink;
-        if (context.getConnectContext().isGroupCommitTvf()) {
-            sink = new GroupCommitOlapTableSink(olapTableSink.getTargetTable(),
-                olapTuple,
-                olapTableSink.getTargetTable().getPartitionIds(),
-                context.getSessionVariable().isEnableSingleReplicaInsert());
-        } else if (context.getConnectContext().isGroupCommitStreamLoadSql()) {
-            sink = new GroupCommitBlockSink(olapTableSink.getTargetTable(),
-                olapTuple,
-                olapTableSink.getTargetTable().getPartitionIds(),
-                context.getSessionVariable().isEnableSingleReplicaInsert());
+        if (context.getConnectContext().isGroupCommitStreamLoadSql()) {
+            sink = new GroupCommitBlockSink(olapTableSink.getTargetTable(), olapTuple,
+                olapTableSink.getTargetTable().getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
+                ConnectContext.get().getSessionVariable().getGroupCommit(), 0);
         } else {
             sink = new OlapTableSink(
                 olapTableSink.getTargetTable(),

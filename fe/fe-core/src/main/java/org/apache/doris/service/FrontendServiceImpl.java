@@ -234,10 +234,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.io.StringReader;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -1979,16 +1975,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return plan;
     }
 
-    private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
+    private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result, ConnectContext ctx)
                 throws UserException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive http stream put request: {}", request);
         }
-        String cluster = request.getCluster();
-        if (Strings.isNullOrEmpty(cluster)) {
-            cluster = SystemInfoService.DEFAULT_CLUSTER;
-        }
-        ConnectContext ctx = new ConnectContext();
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (Strings.isNullOrEmpty(request.getToken())) {
@@ -2003,7 +1994,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         ctx.setBackendId(request.getBackendId());
         ctx.setThreadLocalInfo();
-        ctx.getSessionVariable().enableInsertGroupCommit = request.isGroupCommit();
+        ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
         try {
             TExecPlanFragmentParams plan = initHttpStreamPlan(request, ctx);
             int loadStreamPerNode = 20;
@@ -2023,8 +2014,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setDbId(ctx.getTxnEntry().getDb().getId());
             result.setTableId(ctx.getTxnEntry().getTable().getId());
             result.setBaseSchemaVersion(((OlapTable) ctx.getTxnEntry().getTable()).getBaseSchemaVersion());
-            result.setGroupCommitIntervalMs(((OlapTable) parsedStmt.getTargetTable()).getGroupCommitIntervalMs());
-            result.setGroupCommitDataBytes(((OlapTable) parsedStmt.getTargetTable()).getGroupCommitDataBytes());
+            result.setGroupCommitIntervalMs(((OlapTable) ctx.getTxnEntry().getTable()).getGroupCommitIntervalMs());
+            result.setGroupCommitDataBytes(((OlapTable) ctx.getTxnEntry().getTable()).getGroupCommitDataBytes());
             result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error, sql is : {}", request.getLoadSql(), e);
@@ -2032,8 +2023,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             LOG.warn("exec sql error catch unknown result.", e);
             throw new UserException("exec sql error catch unknown result." + e);
-        } finally {
-            ConnectContext.remove();
         }
     }
 

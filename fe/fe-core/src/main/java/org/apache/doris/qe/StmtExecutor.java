@@ -182,6 +182,7 @@ import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.ProtocolStringList;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -2846,19 +2847,20 @@ public class StmtExecutor {
         context.getState().setNereids(true);
         InsertIntoTableCommand insert = (InsertIntoTableCommand) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         try {
-            if (context.getSessionVariable().enableInsertGroupCommit) {
-                if (context.getTxnEntry().getLabel() != null) {
+            if (!StringUtils.isEmpty(context.getSessionVariable().groupCommit)) {
+                if (!Config.wait_internal_group_commit_finish
+                        && context.getTxnEntry() != null && context.getTxnEntry().getLabel() != null) {
                     throw new AnalysisException("label and group_commit can't be set at the same time");
                 }
                 context.setGroupCommitStreamLoadSql(true);
             }
-            insert.initPlan(context, this);
-            context.getExecutor().setPlanner(insert.getPlanner());
+            InsertExecutor insertExecutor = insert.initPlan(context, this);
+            context.getExecutor().setPlanner(this.planner);
             if (context.getTxnEntry() == null) {
                 TransactionEntry transactionEntry =
-                        new TransactionEntry(new TTxnParams().setTxnId(insert.getTxn().getTxnId()),
-                            insert.getTxn().getDatabase(), insert.getTxn().getTable());
-                transactionEntry.setLabel(insert.getTxn().getLabelName());
+                        new TransactionEntry(new TTxnParams().setTxnId(insertExecutor.getTxnId()),
+                            insertExecutor.getDatabase(), insertExecutor.getTable());
+                transactionEntry.setLabel(insertExecutor.getLabelName());
                 context.setTxnEntry(transactionEntry);
             }
             // Determine if it can be converted to TVFScanNode
@@ -2896,8 +2898,8 @@ public class StmtExecutor {
                 context.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
         parsedStmt = SqlParserUtils.getFirstStmt(parser);
-        if (context.getSessionVariable().enableInsertGroupCommit) {
-            if (((NativeInsertStmt) parsedStmt).getLabel() != null) {
+        if (!StringUtils.isEmpty(context.getSessionVariable().groupCommit)) {
+            if (!Config.wait_internal_group_commit_finish && ((NativeInsertStmt) parsedStmt).getLabel() != null) {
                 throw new AnalysisException("label and group_commit can't be set at the same time");
             }
             ((NativeInsertStmt) parsedStmt).isGroupCommitStreamLoadSql = true;
