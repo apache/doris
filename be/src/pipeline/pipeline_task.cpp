@@ -211,7 +211,6 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
-    SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
 
     ThreadCpuStopWatch cpu_time_stop_watch;
@@ -424,10 +423,6 @@ std::string PipelineTask::debug_string() {
         fmt::format_to(debug_string_buffer, "\n{}", profile_ss.str());
     }
     return fmt::to_string(debug_string_buffer);
-}
-
-taskgroup::TaskGroupPipelineTaskEntity* PipelineTask::get_task_group_entity() const {
-    return _fragment_context->get_task_group_entity();
 }
 
 } // namespace doris::pipeline

@@ -77,4 +77,12 @@ suite("test_null_aware_left_anti_join") {
             select k1 from ${tableName2} t2 where t2.k1 > 2
         ) order by 1;
     """
+    sql """set enable_nereids_planner=true;"""
+    qt_select_2 """SELECT *
+                    FROM test_null_aware_left_anti_join1 AS t1
+                    WHERE t1.`k1` NOT IN (
+                            SELECT `k1`
+                            FROM test_null_aware_left_anti_join2 AS t2
+                        )
+                        AND t1.`k1` IN (1, 2, 3, 5, 7);"""
 }

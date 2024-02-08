@@ -131,9 +131,6 @@ PipelineFragmentContext::PipelineFragmentContext(
           _is_report_on_cancel(true),
           _report_status_cb(report_status_cb),
           _create_time(MonotonicNanos()) {
-    if (_query_ctx->get_task_group()) {
-        _task_group_entity = _query_ctx->get_task_group()->task_entity();
-    }
     _fragment_watcher.start();
 }
 

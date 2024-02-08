@@ -346,17 +346,22 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public TFileType getLocationType(String location) throws UserException {
         final String fLocation = normalizeLocation(location);
-        return Optional.ofNullable(LocationPath.getTFileType(location)).orElseThrow(() ->
+        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
                 new DdlException("Unknown file location " + fLocation + " for iceberg table " + icebergTable.name()));
     }
 
     private String normalizeLocation(String location) {
         Map<String, String> props = source.getCatalog().getProperties();
+        LocationPath locationPath = new LocationPath(location, props);
         String icebergCatalogType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
         if ("hadoop".equalsIgnoreCase(icebergCatalogType)) {
-            if (!location.startsWith(HdfsResource.HDFS_PREFIX)) {
+            // if no scheme info, fill will HADOOP_FS_NAME
+            // if no HADOOP_FS_NAME, then should be local file system
+            if (locationPath.getLocationType() == LocationPath.LocationType.NOSCHEME) {
                 String fsName = props.get(HdfsResource.HADOOP_FS_NAME);
-                location = fsName + location;
+                if (fsName != null) {
+                    location = fsName + location;
+                }
             }
         }
         return location;

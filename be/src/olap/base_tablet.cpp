@@ -321,7 +321,7 @@ Versions BaseTablet::get_missed_versions(int64_t spec_version) const {
             existing_versions.emplace_back(rs->version());
         }
     }
-    return calc_missed_versions(spec_version, existing_versions);
+    return calc_missed_versions(spec_version, std::move(existing_versions));
 }
 
 Versions BaseTablet::get_missed_versions_unlocked(int64_t spec_version) const {
@@ -331,7 +331,7 @@ Versions BaseTablet::get_missed_versions_unlocked(int64_t spec_version) const {
     for (const auto& rs : _tablet_meta->all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
     }
-    return calc_missed_versions(spec_version, existing_versions);
+    return calc_missed_versions(spec_version, std::move(existing_versions));
 }
 
 Versions BaseTablet::calc_missed_versions(int64_t spec_version, Versions existing_versions) {

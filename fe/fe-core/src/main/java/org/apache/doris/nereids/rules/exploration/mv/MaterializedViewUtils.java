@@ -255,7 +255,7 @@ public class MaterializedViewUtils {
             Column mvReferenceColumn = context.getMvPartitionColumn().getColumn().get();
             if (partitionColumnSet.contains(mvReferenceColumn)) {
                 context.addTableColumn(table, mvReferenceColumn);
-                context.setPctPossible(true);
+                context.setPctPossible(!mvReferenceColumn.isAllowNull() || relatedTable.isPartitionColumnAllowNull());
             }
             return visit(relation, context);
         }

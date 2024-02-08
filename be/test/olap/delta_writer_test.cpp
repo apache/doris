@@ -86,7 +86,6 @@ static void set_up() {
     engine_ref = engine.get();
     Status s = engine->open();
     ASSERT_TRUE(s.ok()) << s;
-    s = engine->start_bg_threads();
     ASSERT_TRUE(s.ok()) << s;
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();

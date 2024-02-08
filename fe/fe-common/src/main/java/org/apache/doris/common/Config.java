@@ -1014,6 +1014,30 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static double balance_load_score_threshold = 0.1; // 10%
 
+    // if disk usage > balance_load_score_threshold + urgent_disk_usage_extra_threshold
+    // then this disk need schedule quickly
+    // this value could less than 0.
+    @ConfField(mutable = true, masterOnly = true)
+    public static double urgent_balance_disk_usage_extra_threshold = 0.05;
+
+    // when run urgent disk balance, shuffle the top large tablets
+    // range: [ 0 ~ 100 ]
+    @ConfField(mutable = true, masterOnly = true)
+    public static int urgent_balance_shuffle_large_tablet_percentage = 1;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static double urgent_balance_pick_large_tablet_num_threshold = 1000;
+
+    // range: 0 ~ 100
+    @ConfField(mutable = true, masterOnly = true)
+    public static int urgent_balance_pick_large_disk_usage_percentage = 80;
+
+    // there's a case, all backend has a high disk, by default, it will not run urgent disk balance.
+    // if set this value to true, urgent disk balance will always run,
+    // the backends will exchange tablets among themselves.
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_urgent_balance_no_low_backend = true;
+
     /**
      * if set to true, TabletScheduler will not do balance.
      */
@@ -1024,13 +1048,18 @@ public class Config extends ConfigBase {
      * when be rebalancer idle, then disk balance will occurs.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int be_rebalancer_idle_seconds = 60;
+    public static int be_rebalancer_idle_seconds = 0;
 
     /**
      * if set to true, TabletScheduler will not do disk balance.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_disk_balance = false;
+
+    // balance order
+    // ATTN: a temporary config, may delete later.
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean balance_be_then_disk = true;
 
     /**
      * if set to false, TabletScheduler will not do disk balance for replica num = 1.
@@ -1664,6 +1693,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
+
+    // used for regression test
+    @ConfField(mutable = true)
+    public static boolean enable_alter_queue_prop_sync = false;
 
     @ConfField(mutable = true)
     public static long query_queue_update_interval_ms = 5000;
@@ -2521,8 +2554,6 @@ public class Config extends ConfigBase {
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
 
-    @ConfField(mutable = true)
-    public static boolean enable_variant_access_in_original_planner = false;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

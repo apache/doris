@@ -21,6 +21,7 @@
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/task_group/task_group_manager.h"
+#include "util/mem_info.h"
 
 namespace doris {
 
@@ -46,6 +47,37 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
             pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", this);
     _runtime_filter_mgr.reset(
             new RuntimeFilterMgr(TUniqueId(), RuntimeFilterParamsContext::create(this)));
+
+    timeout_second = query_options.execution_timeout;
+
+    bool has_query_mem_tracker = query_options.__isset.mem_limit && (query_options.mem_limit > 0);
+    int64_t _bytes_limit = has_query_mem_tracker ? query_options.mem_limit : -1;
+    if (_bytes_limit > MemInfo::mem_limit()) {
+        VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(_bytes_limit, TUnit::BYTES)
+                    << " exceeds process memory limit of "
+                    << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
+                    << ". Using process memory limit instead";
+        _bytes_limit = MemInfo::mem_limit();
+    }
+    if (query_options.query_type == TQueryType::SELECT) {
+        query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                MemTrackerLimiter::Type::QUERY, fmt::format("Query#Id={}", print_id(_query_id)),
+                _bytes_limit);
+    } else if (query_options.query_type == TQueryType::LOAD) {
+        query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", print_id(_query_id)),
+                _bytes_limit);
+    } else { // EXTERNAL
+        query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                MemTrackerLimiter::Type::LOAD, fmt::format("External#Id={}", print_id(_query_id)),
+                _bytes_limit);
+    }
+    if (query_options.__isset.is_report_success && query_options.is_report_success) {
+        query_mem_tracker->enable_print_log_usage();
+    }
+
+    register_memory_statistics();
+    register_cpu_statistics();
 }
 
 QueryContext::~QueryContext() {
@@ -64,7 +96,7 @@ QueryContext::~QueryContext() {
     }
     if (_task_group) {
         _task_group->remove_mem_tracker_limiter(query_mem_tracker);
-        _exec_env->task_group_manager()->remove_query_from_group(_task_group->id(), _query_id);
+        _task_group->remove_query(_query_id);
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
@@ -154,17 +186,9 @@ void QueryContext::register_cpu_statistics() {
     }
 }
 
-void QueryContext::set_query_scheduler(uint64_t tg_id) {
-    auto* tg_mgr = _exec_env->task_group_manager();
-    tg_mgr->get_query_scheduler(tg_id, &_task_scheduler, &_scan_task_scheduler,
-                                &_non_pipe_thread_pool);
-}
-
 doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     if (_task_group) {
-        if (!config::enable_cgroup_cpu_soft_limit) {
-            return _exec_env->pipeline_task_group_scheduler();
-        } else if (_task_scheduler) {
+        if (_task_scheduler) {
             return _task_scheduler;
         }
     }
@@ -177,6 +201,17 @@ ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
     } else {
         return nullptr;
     }
+}
+
+Status QueryContext::set_task_group(taskgroup::TaskGroupPtr& tg) {
+    _task_group = tg;
+    // Should add query first, then the task group will not be deleted.
+    // see task_group_manager::delete_task_group_by_ids
+    RETURN_IF_ERROR(_task_group->add_query(_query_id));
+    _task_group->add_mem_tracker_limiter(query_mem_tracker);
+    _exec_env->task_group_manager()->get_query_scheduler(
+            _task_group->id(), &_task_scheduler, &_scan_task_scheduler, &_non_pipe_thread_pool);
+    return Status::OK();
 }
 
 } // namespace doris

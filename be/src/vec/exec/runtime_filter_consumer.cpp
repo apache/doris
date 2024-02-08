@@ -58,20 +58,17 @@ Status RuntimeFilterConsumer::_register_runtime_filter(bool is_global) {
             // 1. All BE and FE has been upgraded (e.g. opt_remote_rf)
             // 2. This filter is bloom filter (only bloom filter should be used for merging)
             RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), _filter_id, false, is_global));
-            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, _filter_id, &runtime_filter));
+                    filter_desc, _state->query_options(), _filter_id, &runtime_filter, false,
+                    is_global));
         } else if (is_global) {
             // For pipelineX engine, runtime filter is global iff data distribution is ignored.
             RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), _filter_id, false, is_global));
-            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, _filter_id, &runtime_filter));
+                    filter_desc, _state->query_options(), _filter_id, &runtime_filter, false,
+                    is_global));
         } else {
             RETURN_IF_ERROR(_state->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), _filter_id, false, is_global));
-            RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, _filter_id, &runtime_filter));
+                    filter_desc, _state->query_options(), _filter_id, &runtime_filter, false,
+                    is_global));
         }
         _runtime_filter_ctxs.emplace_back(runtime_filter);
         _runtime_filter_ready_flag.emplace_back(false);
