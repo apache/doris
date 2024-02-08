@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW PROCESSLIST statement.
@@ -39,7 +40,23 @@ public class ShowProcesslistStmt extends ShowStmt {
             .addColumn(new Column("QueryId", ScalarType.createVarchar(64)))
             .addColumn(new Column("Info", ScalarType.STRING)).build();
 
+    private static final ShowResultSetMetaData ALL_META_DATA = ShowResultSetMetaData.builder()
+            .addColumn(new Column("CurrentConnected", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("User", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Host", ScalarType.createVarchar(16)))
+            .addColumn(new Column("LoginTime", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Catalog", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Db", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Command", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Time", ScalarType.createType(PrimitiveType.INT)))
+            .addColumn(new Column("State", ScalarType.createVarchar(64)))
+            .addColumn(new Column("QueryId", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Info", ScalarType.STRING))
+            .addColumn(new Column("FE", ScalarType.createVarchar(16))).build();
+
     private boolean isFull;
+    private boolean isShowAllFe;
 
     public ShowProcesslistStmt(boolean isFull) {
         this.isFull = isFull;
@@ -51,6 +68,11 @@ public class ShowProcesslistStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) {
+        this.isShowAllFe = ConnectContext.get().getSessionVariable().getShowAllFeConnection();
+    }
+
+    public boolean isShowAllFe() {
+        return isShowAllFe;
     }
 
     @Override
@@ -65,6 +87,6 @@ public class ShowProcesslistStmt extends ShowStmt {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        return META_DATA;
+        return isShowAllFe ? ALL_META_DATA : META_DATA;
     }
 }
