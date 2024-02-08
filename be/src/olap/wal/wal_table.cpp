@@ -59,16 +59,15 @@ void WalTable::_pick_relay_wals() {
     std::vector<std::string> need_replay_wals;
     std::vector<std::string> need_erase_wals;
     for (const auto& [wal_path, wal_info] : _replay_wal_map) {
-        if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
+        if (config::group_commit_wait_replay_wal_finish &&
+            wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
             LOG(WARNING) << "failed to replay wal=" << wal_path << " after retry "
                          << wal_info->get_retry_num() << " times";
             [[maybe_unused]] auto st = _exec_env->wal_mgr()->rename_to_tmp_path(
                     wal_path, _table_id, wal_info->get_wal_id());
-            if (config::group_commit_wait_replay_wal_finish) {
-                auto notify_st = _exec_env->wal_mgr()->notify_relay_wal(wal_info->get_wal_id());
-                if (!notify_st.ok()) {
-                    LOG(WARNING) << "notify wal " << wal_info->get_wal_id() << " fail";
-                }
+            auto notify_st = _exec_env->wal_mgr()->notify_relay_wal(wal_info->get_wal_id());
+            if (!notify_st.ok()) {
+                LOG(WARNING) << "notify wal " << wal_info->get_wal_id() << " fail";
             }
             need_erase_wals.push_back(wal_path);
             continue;
@@ -153,8 +152,16 @@ bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
         return true;
     }
 #ifndef BE_TEST
-    auto replay_interval = pow(2, wal_info->get_retry_num()) *
-                           config::group_commit_replay_wal_retry_interval_seconds * 1000;
+    auto replay_interval = 0;
+    if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
+        replay_interval = pow(2, config::group_commit_replay_wal_retry_num) *
+                                  config::group_commit_replay_wal_retry_interval_seconds * 1000 +
+                          (wal_info->get_retry_num() - config::group_commit_replay_wal_retry_num) *
+                                  config::group_commit_replay_wal_retry_interval_max_seconds * 1000;
+    } else {
+        replay_interval = pow(2, wal_info->get_retry_num()) *
+                          config::group_commit_replay_wal_retry_interval_seconds * 1000;
+    }
     return UnixMillis() - wal_info->get_start_time_ms() >= replay_interval;
 #else
     return true;
