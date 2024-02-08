@@ -720,11 +720,16 @@ struct UnHexOldImpl {
     }
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
+                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets,
+                         NullMap& null_map) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
 
         for (int i = 0; i < rows_count; ++i) {
+            if (null_map[i]) {
+                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
+                continue;
+            }
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1];
 
