@@ -178,7 +178,7 @@ suite("test_bitmap_index") {
     }
     test{
         sql "ALTER TABLE ${tbName2} ADD INDEX index16 (v1) USING BITMAP;"
-        exception "errCode = 2, detailMessage = BITMAP index only used in columns of DUP_KEYS/UNIQUE_KEYS table"
+        exception "errCode = 2, detailMessage = INVERTED INVERTED index only used in columns of DUP_KEYS/UNIQUE_KEYS MOW table or key columns of all table. invalid index: index16"
     }
 
     sql "insert into ${tbName2} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,'2022-05-31','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111','2022-05-31 10:00:00.111111',1);"
@@ -340,7 +340,7 @@ suite("test_bitmap_index") {
                 "replication_allocation" = "tag.location.default: 1",
                 "is_being_synced" = "false",
                 "storage_format" = "V2",
-                "enable_unique_key_merge_on_write" = "false",
+                "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "disable_auto_compaction" = "false",
                 "enable_single_replica_compaction" = "false"
