@@ -152,9 +152,6 @@ void LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
         _load_ids.erase(load_id);
         _get_cond.notify_all();
     }
-    if (_load_ids.empty()) {
-        DCHECK_EQ(0, block_queue_pre_allocated);
-    }
 }
 
 Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
@@ -538,7 +535,7 @@ Status LoadBlockQueue::close_wal() {
     return Status::OK();
 }
 
-bool LoadBlockQueue::has_enough_wal_disk_space(size_t pre_allocated) {
+bool LoadBlockQueue::has_enough_wal_disk_space(size_t estimated_wal_bytes) {
     DBUG_EXECUTE_IF("LoadBlockQueue.has_enough_wal_disk_space.low_space", { return false; });
     auto* wal_mgr = ExecEnv::GetInstance()->wal_mgr();
     size_t available_bytes = 0;
@@ -548,12 +545,12 @@ bool LoadBlockQueue::has_enough_wal_disk_space(size_t pre_allocated) {
             LOG(WARNING) << "get wal dir available size failed, st=" << st.to_string();
         }
     }
-    if (pre_allocated < available_bytes) {
-        Status st = wal_mgr->update_wal_dir_pre_allocated(_wal_base_path, pre_allocated, 0);
+    if (estimated_wal_bytes < available_bytes) {
+        Status st =
+                wal_mgr->update_wal_dir_estimated_wal_bytes(_wal_base_path, estimated_wal_bytes, 0);
         if (!st.ok()) {
-            LOG(WARNING) << "update wal dir pre_allocated failed, reason: " << st.to_string();
+            LOG(WARNING) << "update wal dir estimated_wal_bytes failed, reason: " << st.to_string();
         }
-        block_queue_pre_allocated.fetch_add(pre_allocated);
         return true;
     } else {
         return false;

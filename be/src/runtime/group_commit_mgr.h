@@ -71,14 +71,13 @@ public:
                       WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
                       int be_exe_version);
     Status close_wal();
-    bool has_enough_wal_disk_space(size_t pre_allocated);
+    bool has_enough_wal_disk_space(size_t estimated_wal_bytes);
 
     UniqueId load_instance_id;
     std::string label;
     int64_t txn_id;
     int64_t schema_version;
     bool wait_internal_group_commit_finish = false;
-    std::atomic_size_t block_queue_pre_allocated = 0;
 
     // the execute status of this internal group commit
     std::mutex mutex;

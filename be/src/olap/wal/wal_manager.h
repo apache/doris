@@ -57,8 +57,9 @@ public:
     // wal back pressure
     Status update_wal_dir_limit(const std::string& wal_dir, size_t limit = -1);
     Status update_wal_dir_used(const std::string& wal_dir, size_t used = -1);
-    Status update_wal_dir_pre_allocated(const std::string& wal_dir, size_t increase_pre_allocated,
-                                        size_t decrease_pre_allocated);
+    Status update_wal_dir_estimated_wal_bytes(const std::string& wal_dir,
+                                              size_t increase_estimated_wal_bytes,
+                                              size_t decrease_estimated_wal_bytes);
     Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
     size_t get_max_available_size();
     std::string get_wal_dirs_info_string();

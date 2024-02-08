@@ -392,11 +392,11 @@ Status WalManager::update_wal_dir_used(const std::string& wal_dir, size_t used) 
     return _wal_dirs_info->update_wal_dir_used(wal_dir, used);
 }
 
-Status WalManager::update_wal_dir_pre_allocated(const std::string& wal_dir,
-                                                size_t increase_pre_allocated,
-                                                size_t decrease_pre_allocated) {
-    return _wal_dirs_info->update_wal_dir_pre_allocated(wal_dir, increase_pre_allocated,
-                                                        decrease_pre_allocated);
+Status WalManager::update_wal_dir_estimated_wal_bytes(const std::string& wal_dir,
+                                                      size_t increase_estimated_wal_bytes,
+                                                      size_t decrease_estimated_wal_bytes) {
+    return _wal_dirs_info->update_wal_dir_estimated_wal_bytes(wal_dir, increase_estimated_wal_bytes,
+                                                              decrease_estimated_wal_bytes);
 }
 
 Status WalManager::_update_wal_dir_info_thread() {
