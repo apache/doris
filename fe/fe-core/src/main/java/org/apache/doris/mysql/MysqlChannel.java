@@ -401,8 +401,11 @@ public class MysqlChannel {
             return;
         }
         sendBuffer.flip();
-        realNetSend(sendBuffer);
-        sendBuffer.clear();
+        try {
+            realNetSend(sendBuffer);
+        } finally {
+            sendBuffer.clear();
+        }
         isSend = true;
     }
 
@@ -423,18 +426,17 @@ public class MysqlChannel {
         sendBuffer.put((byte) sequenceId);
     }
 
-    private void writeBuffer(ByteBuffer buffer, boolean isSsl) throws IOException {
+    private void writeBuffer(ByteBuffer buffer) throws IOException {
         if (null == sendBuffer) {
             return;
         }
-        long leftLength = sendBuffer.capacity() - sendBuffer.position();
         // If too long for buffer, send buffered data.
-        if (leftLength < buffer.remaining()) {
+        if (sendBuffer.remaining() < buffer.remaining()) {
             // Flush data in buffer.
             flush();
         }
         // Send this buffer if large enough
-        if (buffer.remaining() > sendBuffer.capacity()) {
+        if (buffer.remaining() > sendBuffer.remaining()) {
             realNetSend(buffer);
             return;
         }
@@ -451,20 +453,20 @@ public class MysqlChannel {
             bufLen = MAX_PHYSICAL_PACKET_LENGTH;
             packet.limit(packet.position() + bufLen);
             if (isSslHandshaking) {
-                writeBuffer(packet, true);
+                writeBuffer(packet);
             } else {
                 writeHeader(bufLen, isSslMode);
-                writeBuffer(packet, isSslMode);
+                writeBuffer(packet);
                 accSequenceId();
             }
         }
         if (isSslHandshaking) {
             packet.limit(oldLimit);
-            writeBuffer(packet, true);
+            writeBuffer(packet);
         } else {
             writeHeader(oldLimit - packet.position(), isSslMode);
             packet.limit(oldLimit);
-            writeBuffer(packet, isSslMode);
+            writeBuffer(packet);
             accSequenceId();
         }
     }
