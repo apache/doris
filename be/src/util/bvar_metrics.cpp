@@ -99,26 +99,26 @@ void BvarMetricEntity::register_metric(const std::string& name, T metric) {
     }
 }
 
-void BvarMetricEntity::deregister_metric(const std::string& name) {
-    {
-        std::lock_guard<bthread::Mutex> l(mutex_);
-        auto it = metrics_.find(name);
-        if (it != metrics_.end()) {
-            metrics_.erase(it);
-        }
-    }
-}
+// void BvarMetricEntity::deregister_metric(const std::string& name) {
+//     {
+//         std::lock_guard<bthread::Mutex> l(mutex_);
+//         auto it = metrics_.find(name);
+//         if (it != metrics_.end()) {
+//             metrics_.erase(it);
+//         }
+//     }
+// }
 
-std::shared_ptr<BvarMetric> BvarMetricEntity::get_metric(const std::string& name) {
-    {
-        std::lock_guard<bthread::Mutex> l(mutex_);
-        auto it = metrics_.find(name);
-        if (it == metrics_.end()) {
-            return nullptr;
-        }
-        return it->second;
-    }
-}
+// std::shared_ptr<BvarMetric> BvarMetricEntity::get_metric(const std::string& name) {
+//     {
+//         std::lock_guard<bthread::Mutex> l(mutex_);
+//         auto it = metrics_.find(name);
+//         if (it == metrics_.end()) {
+//             return nullptr;
+//         }
+//         return it->second;
+//     }
+// }
 
 std::string BvarMetricEntity::to_prometheus(const std::string& registry_name) {
     std::stringstream ss;

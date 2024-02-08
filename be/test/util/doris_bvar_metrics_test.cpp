@@ -27,7 +27,7 @@ namespace doris {
 class DorisBvarMetricsTest : public testing::Test {
 public:
     DorisBvarMetricsTest() {}
-    virtual ~DorisBvarMetricsTest() {}
+    virtual ~DorisBvarMetricsTest() = default;
 };
 
 TEST_F(DorisBvarMetricsTest, Normal) {
