@@ -1366,7 +1366,9 @@ public class Coordinator implements CoordInterface {
             Long numLimitRows = fragments.get(0).getPlanRoot().getLimit();
             boolean hasLimit = numLimitRows > 0;
             if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
-                LOG.debug("no block query, return num >= limit rows, need cancel");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("no block query, return num >= limit rows, need cancel");
+                }
                 cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH);
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
@@ -2085,7 +2087,9 @@ public class Coordinator implements CoordInterface {
                             sharedScan = false;
                         }
 
-                        LOG.debug("scan range number per instance is: {}", perInstanceScanRanges.size());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("scan range number per instance is: {}", perInstanceScanRanges.size());
+                        }
 
                         for (int j = 0; j < perInstanceScanRanges.size(); j++) {
                             List<TScanRangeParams> scanRangeParams = perInstanceScanRanges.get(j);

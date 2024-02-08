@@ -1332,7 +1332,9 @@ public class ShowExecutor {
                 throw new AnalysisException("job is not exist.");
             }
         } else {
-            LOG.debug("load_job_id={}", jobId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("load_job_id={}", jobId);
+            }
             jobId = showWarningsStmt.getJobId();
             job = load.getLoadJob(jobId);
             if (job == null) {

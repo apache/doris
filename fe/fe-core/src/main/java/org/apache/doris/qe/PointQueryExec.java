@@ -88,7 +88,9 @@ public class PointQueryExec implements CoordInterface {
     private OlapScanNode getPlanRoot() {
         List<PlanFragment> fragments = planner.getFragments();
         PlanFragment fragment = fragments.get(0);
-        LOG.debug("execPointGet fragment {}", fragment);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("execPointGet fragment {}", fragment);
+        }
         OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
         Preconditions.checkNotNull(planRoot);
         return planRoot;
@@ -137,7 +139,9 @@ public class PointQueryExec implements CoordInterface {
         }
         // Random read replicas
         Collections.shuffle(this.candidateBackends);
-        LOG.debug("set scan locations, backend ids {}, tablet id {}", candidateBackends, tabletID);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("set scan locations, backend ids {}, tablet id {}", candidateBackends, tabletID);
+        }
     }
 
     public void setTimeout(long timeoutMs) {
