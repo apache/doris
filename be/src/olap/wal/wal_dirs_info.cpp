@@ -110,8 +110,9 @@ void WalDirInfo::update_wal_dir_estimated_wal_bytes(size_t increase_estimated_wa
 
 std::string WalDirInfo::get_wal_dir_info_string() {
     return "[" + _wal_dir + ": limit " + std::to_string(_limit) + " Bytes, used " +
-           std::to_string(_used) + " Bytes, estimated wal bytes " + std::to_string(_estimated_wal_bytes) +
-           " Bytes, available " + std::to_string(available()) + " Bytes.]";
+           std::to_string(_used) + " Bytes, estimated wal bytes " +
+           std::to_string(_estimated_wal_bytes) + " Bytes, available " +
+           std::to_string(available()) + " Bytes.]";
 }
 
 Status WalDirsInfo::add(const std::string& wal_dir, size_t limit, size_t used,
@@ -216,8 +217,8 @@ Status WalDirsInfo::update_wal_dir_estimated_wal_bytes(const std::string& wal_di
             return Status::OK();
         }
     }
-    return Status::InternalError<false>("Can not find wal dir {} when update wal dir estimated wal bytes",
-                                        wal_dir);
+    return Status::InternalError<false>(
+            "Can not find wal dir {} when update wal dir estimated wal bytes", wal_dir);
 }
 
 Status WalDirsInfo::get_wal_dir_available_size(const std::string& wal_dir,
