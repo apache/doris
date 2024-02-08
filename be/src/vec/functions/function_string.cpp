@@ -643,6 +643,11 @@ struct UnHexImpl {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1];
 
+            if (srclen == 0) {
+                StringOP::push_empty_string(i, dst_data, dst_offsets);
+                continue;
+            }
+
             char dst_array[MAX_STACK_CIPHER_LEN];
             char* dst = dst_array;
 
@@ -803,6 +808,11 @@ struct ToBase64Impl {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1];
 
+            if (srclen == 0) {
+                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
+                continue;
+            }
+
             char dst_array[MAX_STACK_CIPHER_LEN];
             char* dst = dst_array;
 
@@ -922,6 +932,11 @@ public:
 
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1];
+
+            if (srclen == 0) {
+                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
+                continue;
+            }
 
             char dst_array[MAX_STACK_CIPHER_LEN];
             char* dst = dst_array;
