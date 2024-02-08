@@ -28,10 +28,11 @@ under the License.
 
 ```shell
 brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@11 npm
+python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@17 npm
 ```
 
-*The version of jdk installed using brew is 11, because on macOS, the arm64 version of brew does not have version 8 of jdk by default*
+*The version of jdk installed using brew is 17, because on macOS, the arm64 version of brew does not have version 8 of jdk by default*
+*Currently, Doris only supports jdk8 and jdk17*
 
 **Dependency description:**
 1. Java, Maven, etc. can be downloaded separately for easy management
