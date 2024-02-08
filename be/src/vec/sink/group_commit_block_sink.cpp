@@ -247,7 +247,9 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
                 if (_group_commit_mode == TGroupCommitMode::SYNC_MODE) {
                     LOG(INFO) << "Load id=" << print_id(_state->query_id())
                               << ", use group commit label=" << _load_block_queue->label
-                              << " will not write wal because wal disk space usage reach max limit";
+                              << " will not write wal because wal disk space usage reach max "
+                                 "limit. Detail info: "
+                              << _state->exec_env()->wal_mgr()->get_wal_dirs_info_string();
                 }
             }
             _state->set_import_label(_load_block_queue->label);

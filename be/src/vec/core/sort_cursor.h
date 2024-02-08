@@ -243,7 +243,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
             MergeSortCursorImpl::reset(_block);
             return status.ok();
         } else if (!status.ok()) {
-            throw std::runtime_error(status.msg());
+            throw std::runtime_error(std::string(status.msg()));
         }
         return false;
     }

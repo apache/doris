@@ -1438,6 +1438,10 @@ public class PropertyAnalyzer {
     // due to backward compatibility, we just explicitly set the value of this property to `true` if
     // the user doesn't specify the property in `CreateTableStmt`/`CreateTableInfo`
     public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
+        if (Config.isCloudMode()) {
+            // FIXME: MOW is not supported in cloud mode yet.
+            return properties;
+        }
         if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {
             properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         }

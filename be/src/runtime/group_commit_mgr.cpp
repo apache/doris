@@ -65,8 +65,6 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
             _block_queue.push_back(block);
             _data_bytes += block->bytes();
             _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
-        } else {
-            LOG(INFO) << "skip adding block to queue on txn " << txn_id;
         }
         if (write_wal || config::group_commit_wait_replay_wal_finish) {
             auto st = _v_wal_writer->write_wal(block.get());
@@ -206,7 +204,9 @@ Status GroupCommitTable::get_first_block_load_queue(
                 }
             }
             if (!is_schema_version_match) {
-                return Status::DataQualityError<false>("schema version not match");
+                return Status::DataQualityError<false>(
+                        "schema version not match, maybe a schema change is in process. Please "
+                        "retry this load manually.");
             }
             if (!_need_plan_fragment) {
                 _need_plan_fragment = true;
@@ -222,7 +222,9 @@ Status GroupCommitTable::get_first_block_load_queue(
                         return Status::OK();
                     }
                 } else if (base_schema_version < load_block_queue->schema_version) {
-                    return Status::DataQualityError<false>("schema version not match");
+                    return Status::DataQualityError<false>(
+                            "schema version not match, maybe a schema change is in process. Please "
+                            "retry this load manually.");
                 }
                 load_block_queue.reset();
             }
@@ -311,11 +313,12 @@ Status GroupCommitTable::_create_group_commit_load(
         if (!is_pipeline) {
             RETURN_IF_ERROR(load_block_queue->create_wal(
                     _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                    params.desc_tbl.slotDescriptors, be_exe_version));
+                    params.fragment.output_sink.olap_table_sink.schema.slot_descs, be_exe_version));
         } else {
             RETURN_IF_ERROR(load_block_queue->create_wal(
                     _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                    pipeline_params.desc_tbl.slotDescriptors, be_exe_version));
+                    pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
+                    be_exe_version));
         }
         _cv.notify_all();
     }
@@ -401,7 +404,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
             auto delete_st = _exec_env->wal_mgr()->delete_wal(
                     table_id, txn_id, load_block_queue->block_queue_pre_allocated());
             if (!delete_st.ok()) {
-                LOG(WARNING) << "fail to delete wal " << txn_id;
+                LOG(WARNING) << "fail to delete wal " << txn_id << ", st=" << delete_st.to_string();
             }
         }
     } else {
@@ -417,7 +420,9 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
        << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
        << ", exec_plan_fragment status=" << status.to_string()
        << ", commit/abort txn rpc status=" << st.to_string()
-       << ", commit/abort txn status=" << result_status.to_string();
+       << ", commit/abort txn status=" << result_status.to_string()
+       << ", block queue pre allocated size is " << load_block_queue->block_queue_pre_allocated()
+       << ", wal space info:" << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
     if (state) {
         if (!state->get_error_log_file_path().empty()) {
             ss << ", error_url=" << state->get_error_log_file_path();
@@ -541,7 +546,7 @@ bool LoadBlockQueue::has_enough_wal_disk_space(size_t pre_allocated) {
     {
         Status st = wal_mgr->get_wal_dir_available_size(_wal_base_path, &available_bytes);
         if (!st.ok()) {
-            LOG(WARNING) << "get wal disk available size filed!";
+            LOG(WARNING) << "get wal dir available size failed, st=" << st.to_string();
         }
     }
     if (pre_allocated < available_bytes) {

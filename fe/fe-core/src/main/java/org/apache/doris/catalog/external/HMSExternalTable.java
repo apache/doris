@@ -885,6 +885,16 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
         return partitionValuesList;
     }
+
+    @Override
+    public boolean needAutoRefresh() {
+        return false;
+    }
+
+    @Override
+    public boolean isPartitionColumnAllowNull() {
+        return true;
+    }
 }
 
 

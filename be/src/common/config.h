@@ -1182,6 +1182,7 @@ DECLARE_Int16(bitmap_serialize_version);
 DECLARE_String(group_commit_wal_path);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
+DECLARE_Int32(group_commit_replay_wal_retry_interval_max_seconds);
 DECLARE_mInt32(group_commit_relay_wal_threads);
 // This config can be set to limit thread number in group commit request fragment thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
@@ -1251,6 +1252,8 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
+
+DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 #ifdef BE_TEST
 // test s3

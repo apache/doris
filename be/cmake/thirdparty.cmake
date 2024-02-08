@@ -70,10 +70,6 @@ add_thirdparty(lz4)
 add_thirdparty(thrift)
 add_thirdparty(thriftnb)
 
-if(WITH_LZO)
-    add_thirdparty(lzo LIBNAME "lib/liblzo2.a")
-endif()
-
 add_thirdparty(libevent LIBNAME "lib/libevent.a")
 add_thirdparty(libevent_pthreads LIBNAME "lib/libevent_pthreads.a")
 add_thirdparty(libbz2 LIBNAME "lib/libbz2.a")

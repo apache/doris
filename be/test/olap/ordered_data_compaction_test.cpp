@@ -432,14 +432,11 @@ TEST_F(OrderedDataCompactionTest, test_01) {
         input_rowsets.push_back(rowset);
     }
     //auto end_version = input_rowsets.back()->end_version();
-    CumulativeCompaction cu_compaction(tablet);
-    cu_compaction.set_input_rowset(input_rowsets);
+    CumulativeCompaction cu_compaction(*engine_ref, tablet);
+    cu_compaction._input_rowsets = std::move(input_rowsets);
     EXPECT_EQ(cu_compaction.handle_ordered_data_compaction(), true);
-    for (int i = 0; i < 100; ++i) {
-        LOG(INFO) << "stop";
-    }
 
-    RowsetSharedPtr out_rowset = cu_compaction.output_rowset();
+    auto& out_rowset = cu_compaction._output_rowset;
 
     // create output rowset reader
     RowsetReaderContext reader_context;

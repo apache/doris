@@ -517,7 +517,7 @@ public abstract class JdbcClient {
         // because for utf8 encoding, a Chinese character takes up 3 bytes
         protected int charOctetLength;
         protected boolean isAllowNull;
-        protected boolean isAutoincrement;
+        protected long autoIncInitValue;
         protected String defaultValue;
     }
 

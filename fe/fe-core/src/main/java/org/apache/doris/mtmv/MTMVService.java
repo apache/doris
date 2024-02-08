@@ -24,7 +24,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
-import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
@@ -84,9 +83,6 @@ public class MTMVService {
 
     public void createMTMV(MTMV mtmv) throws DdlException, AnalysisException {
         Objects.requireNonNull(mtmv);
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
-            MTMVUtil.alignMvPartition(mtmv, mtmv.getMvPartitionInfo().getRelatedTable());
-        }
         LOG.info("createMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.createMTMV(mtmv);

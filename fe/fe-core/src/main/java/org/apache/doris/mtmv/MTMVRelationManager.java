@@ -71,7 +71,8 @@ public class MTMVRelationManager implements MTMVHookService {
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
-                if (!CollectionUtils.isEmpty(MTMVUtil.getMTMVCanRewritePartitions(mtmv, ctx))) {
+                if (!CollectionUtils
+                        .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, System.currentTimeMillis()))) {
                     res.add(mtmv);
                 }
             } catch (AnalysisException e) {

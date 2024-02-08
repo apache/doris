@@ -17,6 +17,23 @@
 
 suite("test_select_mv") {
 
+    def wait_mv_finish = { db ->
+        while(true) {
+            Thread.sleep(1000)
+            boolean finished = true;
+            def result = sql """SHOW ALTER TABLE MATERIALIZED VIEW FROM ${db};"""
+            for (int i = 0; i < result.size(); i++) {
+                if (result[i][8] != 'FINISHED') {
+                    finished = false;
+                    break;
+                }
+            }
+            if (finished) {
+                break;
+            }
+        }
+    }
+
     def dup_sql1 = """select count(*) from test_dup;"""
     def dup_sql2 = """select mv_key2 from test_dup index dup1 order by mv_key2;"""
     def dup_sql3 = """select count(mv_key2) from test_dup index dup1;"""
@@ -69,7 +86,7 @@ suite("test_select_mv") {
     sql """
         create materialized view agg1 as select key2, sum(value) from test_agg group by key2; 
     """
-    Thread.sleep(1000)
+    wait_mv_finish("test_select_mv")
 
     sql """insert into test_dup values (1, 1, 1), (2, 2, 2)"""
     sql """insert into test_dup values (1, 1, 1), (2, 2, 2)"""

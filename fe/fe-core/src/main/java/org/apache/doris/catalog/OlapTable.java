@@ -2470,7 +2470,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     public void initAutoIncrementGenerator(long dbId) {
         for (Column column : fullSchema) {
             if (column.isAutoInc()) {
-                autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, column.getUniqueId());
+                autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, column.getUniqueId(),
+                        column.getAutoIncInitValue());
                 autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
                 break;
             }
@@ -2632,4 +2633,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return getPartitionOrAnalysisException(partitionId).getName();
     }
 
+    @Override
+    public boolean needAutoRefresh() {
+        return true;
+    }
+
+    @Override
+    public boolean isPartitionColumnAllowNull() {
+        return false;
+    }
 }

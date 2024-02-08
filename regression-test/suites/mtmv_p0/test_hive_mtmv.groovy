@@ -51,17 +51,25 @@ suite("test_hive_mtmv", "p0,external,hive,external_docker,external_docker_hive")
             sql """
                     REFRESH MATERIALIZED VIEW ${mvName} partitions(p_20230101);
                 """
-            jobName = getJobName(dbName, mvName);
+            def jobName = getJobName(dbName, mvName);
             log.info(jobName)
             waitingMTMVTaskFinished(jobName)
             order_qt_refresh_one_partition "SELECT * FROM ${mvName} order by id"
 
             //refresh other partitions
+            // current, for hive, auto refresh will not change data
             sql """
                     REFRESH MATERIALIZED VIEW ${mvName}
                 """
             waitingMTMVTaskFinished(jobName)
             order_qt_refresh_other_partition "SELECT * FROM ${mvName} order by id"
+
+            //refresh complete
+            sql """
+                    REFRESH MATERIALIZED VIEW ${mvName} complete
+                """
+            waitingMTMVTaskFinished(jobName)
+            order_qt_refresh_complete "SELECT * FROM ${mvName} order by id"
 
             sql """drop materialized view if exists ${mvName};"""
 

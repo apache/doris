@@ -196,8 +196,6 @@ public:
 
     virtual std::string debug_string();
 
-    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
-
     void set_task_queue(TaskQueue* task_queue);
     TaskQueue* get_task_queue() { return _task_queue; }
 
@@ -287,6 +285,8 @@ public:
                       << get_state_name(get_state()) << "/n task detail:" << debug_string();
         }
     }
+
+    RuntimeState* runtime_state() { return _state; }
 
 protected:
     void _finish_p_dependency() {

@@ -56,9 +56,31 @@ SHOW DATA [FROM [db_name.]table_name] [ORDER BY ...];
 
 ### Example
 
-1. 展示默认 db 的各个 table 的数据量，副本数量，汇总数据量和汇总副本数量。
+1. 默认展示各个db的汇总数据量，RecycleBin中的数据量
+
+    ```
+    SHOW DATA;
+    ```
+
+    ```
+    +-------+-----------------------------------+--------+------------+-------------+-------------------+
+    | DbId  | DbName                            | Size   | RemoteSize | RecycleSize | RecycleRemoteSize |
+    +-------+-----------------------------------+--------+------------+-------------+-------------------+
+    | 21009 | db1                               | 0      | 0          | 0           | 0                 |
+    | 22011 | regression_test_inverted_index_p0 | 72764  | 0          | 0           | 0                 |
+    | 0     | information_schema                | 0      | 0          | 0           | 0                 |
+    | 22010 | regression_test                   | 0      | 0          | 0           | 0                 |
+    | 1     | mysql                             | 0      | 0          | 0           | 0                 |
+    | 22017 | regression_test_show_p0           | 0      | 0          | 0           | 0                 |
+    | 10002 | __internal_schema                 | 46182  | 0          | 0           | 0                 |
+    | Total | NULL                              | 118946 | 0          | 0           | 0                 |
+    +-------+-----------------------------------+--------+------------+-------------+-------------------+
+    ```
+
+2. 展示特定 db 的各个 table 的数据量，副本数量，汇总数据量和汇总副本数量。
 
     ```sql
+    USE db1;
     SHOW DATA;
     ```
 
@@ -74,7 +96,7 @@ SHOW DATA [FROM [db_name.]table_name] [ORDER BY ...];
     +-----------+-------------+--------------+
     ```
 
-2. 展示指定 db 的下指定表的细分数据量、副本数量和统计行数
+3. 展示指定 db 的下指定表的细分数据量、副本数量和统计行数
 
     ```sql
     SHOW DATA FROM example_db.test;
@@ -91,7 +113,7 @@ SHOW DATA [FROM [db_name.]table_name] [ORDER BY ...];
     +-----------+-----------+-----------+--------------+----------+
     ```
 
-3. 可以按照数据量、副本数量、统计行数等进行组合排序
+4. 可以按照数据量、副本数量、统计行数等进行组合排序
 
     ```sql
     SHOW DATA ORDER BY ReplicaCount desc,Size asc;

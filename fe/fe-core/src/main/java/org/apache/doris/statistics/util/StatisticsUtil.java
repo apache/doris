@@ -720,7 +720,7 @@ public class StatisticsUtil {
         }
         // Get files for all partitions.
         String bindBrokerName = table.getCatalog().bindBrokerName();
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions, true, bindBrokerName);
+        return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName);
     }
 
     /**

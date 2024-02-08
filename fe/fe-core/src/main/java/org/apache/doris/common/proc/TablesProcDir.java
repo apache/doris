@@ -23,7 +23,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
@@ -91,7 +90,7 @@ public class TablesProcDir implements ProcDirInterface {
             String partitionKey = FeConstants.null_string;
             table.readLock();
             try {
-                if (table.getType() == TableType.OLAP) {
+                if (table instanceof OlapTable) {
                     OlapTable olapTable = (OlapTable) table;
                     if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
                         partitionNum = olapTable.getPartitions().size();
