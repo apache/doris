@@ -185,7 +185,7 @@ struct PercentRankData {
 class WindowFunctionPercentRank final
         : public IAggregateFunctionDataHelper<PercentRankData, WindowFunctionPercentRank> {
 private:
-    inline static double _cal_percent(int64 rank, int64 total_rows) {
+    static double _cal_percent(int64 rank, int64 total_rows) {
         return total_rows <= 1 ? 0.0 : (rank - 1) * 1.0 / (total_rows - 1);
     }
 
@@ -207,11 +207,11 @@ public:
             WindowFunctionPercentRank::data(place).peer_group_start = frame_start;
             WindowFunctionPercentRank::data(place).rank +=
                     WindowFunctionPercentRank::data(place).count;
+            // some variables are partition related, but there is no chance to init them
+            // when the new partition arrives, so we calculate them every time now.
+            WindowFunctionPercentRank::data(place).partition_size = partition_end - partition_start;
         }
         WindowFunctionPercentRank::data(place).count = peer_group_count;
-        // some variables are partition related, but there is no chance to init them
-        // when the new partition arrives, so we calculate them evey time now.
-        WindowFunctionPercentRank::data(place).partition_size = partition_end - partition_start;
     }
 
     void reset(AggregateDataPtr place) const override {
@@ -252,7 +252,7 @@ public:
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
         // some variables are partition related, but there is no chance to init them
-        // when the new partition arrives, so we calculate them evey time now.
+        // when the new partition arrives, so we calculate them every time now.
         // Partition = big_bucket_num * big_bucket_size + small_bucket_num * small_bucket_size
         int64_t row_index = ++WindowFunctionNTile::data(place).rows - 1;
         int64_t bucket_num = columns[0]->get_int(0);
