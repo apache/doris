@@ -110,7 +110,7 @@ When building a table, use the following syntax to populate [CREATE-TABLE](../..
 1. AUTO RANGE PARTITION
 
   ```sql
-  CREATE TABLE `${tblDate}` (
+  CREATE TABLE `date_table` (
       `TIME_STAMP` datev2 NOT NULL COMMENT 'Date of collection'
   ) ENGINE=OLAP
   DUPLICATE KEY(`TIME_STAMP`)
@@ -126,7 +126,7 @@ When building a table, use the following syntax to populate [CREATE-TABLE](../..
 2. AUTO LIST PARTITION
 
   ```sql
-  CREATE TABLE `${tblName1}` (
+  CREATE TABLE `str_table` (
       `str` varchar not null
   ) ENGINE=OLAP
   DUPLICATE KEY(`str`)
@@ -141,11 +141,11 @@ When building a table, use the following syntax to populate [CREATE-TABLE](../..
 
 ### Using constraints
 
-1. Currently the AUTO RANGE PARTITION function supports only one partition column;
-2. In AUTO RANGE PARTITION, the partition function supports only `date_trunc` and the partition column supports only `DATE` or `DATETIME` type;
-3. In AUTO LIST PARTITION, function calls are not supported. Partitioned columns support `BOOLEAN`, `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `LARGEINT`, `DATE`, `DATETIME`, `CHAR`, `VARCHAR` data-types, and partitioned values are enum values.
-4. In AUTO LIST PARTITION, a separate new PARTITION is created for each fetch of a partition column for which the corresponding partition does not currently exist.
-5. The partition column for AUTO PARTITION must be a NOT NULL column.
+1. The partition column for AUTO PARTITION must be a NOT NULL column;
+2. In an AUTO LIST PARTITION, **the length of the partition name must not exceed 50**. This length is derived from the splicing and escaping of the contents of the partition columns on the corresponding rows of data, so the actual allowable length may be shorter；
+3. In AUTO RANGE PARTITION, the partition function supports only `date_trunc` and the partition column supports only `DATE` or `DATETIME` type;
+4. In AUTO LIST PARTITION, function calls are not supported. Partitioned columns support `BOOLEAN`, `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `LARGEINT`, `DATE`, `DATETIME`, `CHAR`, `VARCHAR` data-types, and partitioned values are enum values;
+5. In AUTO LIST PARTITION, a separate new PARTITION is created for each fetch of a partition column for which the corresponding partition does not currently exist.
 
 ## Sample Scenarios
 
@@ -252,6 +252,7 @@ ERROR 1105 (HY000): errCode = 2, detailMessage = errCode = 2, detailMessage = If
 
 ## caveat
 
+- Like a normal partition table, AUTO PARTITION supports multi-column partitioning, and there is no difference in syntax.
 - If a partition is created during the insertion or import of data and the entire import process does not complete (fails or is cancelled), the created partition is not automatically deleted.
 - Tables that use AUTO PARTITION only have their partitions created automatically instead of manually. The original use of the table and the partitions it creates is the same as for non-AUTO PARTITION tables or partitions.
 - To prevent accidental creation of too many partitions, we use the [FE Configuration](../../admin-manual/config/fe-config) `max_auto_partition_num` controls the maximum number of partitions an AUTO PARTITION table can hold. This value can be adjusted if necessary
