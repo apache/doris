@@ -115,7 +115,7 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
             if (output_slot_flags[i]) {
-                if (_right_fast_nullable[i] && !build_index_has_null) {
+                if (!build_index_has_null && _right_fast_nullable[i]) {
                     assert_cast<ColumnNullable*>(mcol[i + _right_col_idx].get())
                             ->insert_indices_from_not_has_null(column, _build_indexs.data(),
                                                                _build_indexs.data() + size);
