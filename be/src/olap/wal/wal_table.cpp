@@ -37,6 +37,8 @@
 
 namespace doris {
 
+bvar::Adder<uint64_t> wal_fail("group_commit_wal_fail");
+
 WalTable::WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
         : _exec_env(exec_env), _db_id(db_id), _table_id(table_id) {
     _http_stream_action = std::make_shared<HttpStreamAction>(exec_env);
@@ -99,6 +101,7 @@ Status WalTable::_relay_wal_one_by_one() {
         wal_info->add_retry_num();
         auto st = _replay_wal_internal(wal_info->get_wal_path());
         if (!st.ok()) {
+            doris::wal_fail << 1;
             LOG(WARNING) << "failed to replay wal=" << wal_info->get_wal_path()
                          << ", st=" << st.to_string();
             if (!st.is<ErrorCode::NOT_FOUND>()) {
