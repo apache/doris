@@ -24,6 +24,7 @@ import org.apache.doris.nereids.PLLexer;
 import org.apache.doris.nereids.PLParser;
 import org.apache.doris.nereids.PLParser.Create_function_stmtContext;
 import org.apache.doris.nereids.PLParser.Create_procedure_stmtContext;
+import org.apache.doris.nereids.PLParser.Drop_procedure_stmtContext;
 import org.apache.doris.nereids.PLParser.Expr_func_paramsContext;
 import org.apache.doris.nereids.PLParserBaseVisitor;
 import org.apache.doris.nereids.parser.CaseInsensitiveStream;
@@ -205,6 +206,23 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         // TODO, removeCached needs to be synchronized to all Observer FEs.
         // Even if it is always executed on the Master FE, it still has to deal with Master switching.
         // cache.put(qualified(name.toUpperCase()), procCtx);
+    }
+
+    @Override
+    public void removeUserProcedure(Drop_procedure_stmtContext ctx) {
+        FuncNameInfo procedureName = new FuncNameInfo(
+                exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
+        if (builtinFunctions.exists(procedureName.toString())) {
+            exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be removed.");
+            return;
+        }
+        trace(ctx, "DROP PROCEDURE " + procedureName.toString());
+        removeInCache(procedureName.toString(), ctx);
+        remove(procedureName);
+    }
+
+    private void removeInCache(String name, ParserRuleContext procCtx) {
+        // TODO, removeCached needs to be synchronized to all Observer FEs.
     }
 
     /**

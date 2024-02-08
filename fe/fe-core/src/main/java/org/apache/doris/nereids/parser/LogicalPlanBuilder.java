@@ -83,6 +83,7 @@ import org.apache.doris.nereids.DorisParser.DeleteContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.DropConstraintContext;
 import org.apache.doris.nereids.DorisParser.DropMTMVContext;
+import org.apache.doris.nereids.DorisParser.DropProcedureContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
@@ -348,6 +349,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
@@ -3284,6 +3286,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             createProcedurePlan = new CreateProcedureCommand(procedureName, getOriginSql(ctx),
                     ctx.REPLACE() != null);
             return createProcedurePlan;
+        });
+    }
+
+    @Override
+    public LogicalPlan visitDropProcedure(DropProcedureContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        FuncNameInfo procedureName = new FuncNameInfo(nameParts);
+        return ParserUtils.withOrigin(ctx, () -> {
+            LogicalPlan dropProcedurePlan;
+            dropProcedurePlan = new DropProcedureCommand(procedureName, getOriginSql(ctx));
+            return dropProcedurePlan;
         });
     }
 }

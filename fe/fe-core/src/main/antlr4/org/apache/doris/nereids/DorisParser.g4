@@ -37,6 +37,7 @@ statement
     : statementBase # statementBaseAlias
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
     | (ALTER | CREATE (OR REPLACE)? | REPLACE) (PROCEDURE | PROC) name=multipartIdentifier LEFT_PAREN .*? RIGHT_PAREN .*? #createProcedure
+    | (DROP) (PROCEDURE | PROC) name=multipartIdentifier #dropProcedure
     ;
 
 statementBase

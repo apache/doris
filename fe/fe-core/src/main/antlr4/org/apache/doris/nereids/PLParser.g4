@@ -98,6 +98,7 @@ stmt :
      | create_package_body_stmt
      | create_procedure_stmt
      | declare_stmt
+     | drop_procedure_stmt
      | exec_stmt
      | exit_stmt
      | fetch_stmt
@@ -324,10 +325,14 @@ package_body_item :
       declare_stmt_item
     | create_function_stmt
     | create_procedure_stmt
+    | drop_procedure_stmt
     ;
 
 create_procedure_stmt :
       (ALTER | CREATE (OR REPLACE)? | REPLACE) (PROCEDURE | PROC) multipartIdentifier create_routine_params? create_routine_options? (AS | IS)? declare_block_inplace? label_stmt? procedure_block (ident_pl SEMICOLON)?
+    ;
+drop_procedure_stmt:
+      (DROP  (PROCEDURE | PROC) multipartIdentifier create_routine_params? create_routine_options?)
     ;
 
 create_routine_params :

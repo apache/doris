@@ -22,6 +22,7 @@ package org.apache.doris.plsql.functions;
 
 import org.apache.doris.nereids.PLParser.Create_function_stmtContext;
 import org.apache.doris.nereids.PLParser.Create_procedure_stmtContext;
+import org.apache.doris.nereids.PLParser.Drop_procedure_stmtContext;
 import org.apache.doris.nereids.PLParser.Expr_func_paramsContext;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 
@@ -37,4 +38,6 @@ public interface FunctionRegistry {
     void remove(FuncNameInfo procedureName);
 
     void removeCached(String name);
+
+    void removeUserProcedure(Drop_procedure_stmtContext ctx);
 }
