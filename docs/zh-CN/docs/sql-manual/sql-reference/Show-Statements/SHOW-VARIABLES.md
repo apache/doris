@@ -32,7 +32,7 @@ SHOW VARIABLES
 
 ### Description
 
-该语句是用来显示Doris系统变量，可以通过条件查询
+该语句是用来显示 Doris 系统变量，可以通过条件查询
 
 语法：
 
@@ -43,20 +43,20 @@ SHOW [GLOBAL | SESSION] VARIABLES
 
 说明：
 
-- show variables主要是用来查看系统变量的值.
-- 执行SHOW VARIABLES命令不需要任何权限,只要求能够连接到服务器就可以.
-- 使用like语句表示用variable_name进行匹配.
+- show variables 主要是用来查看系统变量的值。
+- 执行 SHOW VARIABLES 命令不需要任何权限，只要求能够连接到服务器就可以。
+- 使用 like 语句表示用 variable_name 进行匹配。
 - %百分号通配符可以用在匹配模式中的任何位置
 
 ### Example
 
-1. 这里默认的就是对Variable_name进行匹配,这里是准确匹配
+1. 这里默认的就是对 Variable_name 进行匹配，这里是准确匹配
 
    ```sql
    show variables like 'max_connections'; 
    ```
    
-2. 通过百分号(%)这个通配符进行匹配,可以匹配多项
+2. 通过百分号 (%) 这个通配符进行匹配，可以匹配多项
 
    ```sql
    show variables like '%connec%';
@@ -67,6 +67,14 @@ SHOW [GLOBAL | SESSION] VARIABLES
    ```sql
    show variables where variable_name = 'version';
    ```
+
+4. 使用 where 查询相对默认值发生了变化的变量
+
+    ```sql
+    show variables where changed = 1;
+    ```
+
+另外，所有通过 show variables 看到的变量均可以通过查询 `information_schema.session_variables` 查到。
 
 ### Keywords
 

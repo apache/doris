@@ -746,8 +746,8 @@ public class VariableMgr {
                 } else {
                     row.add(varCtx.defaultValue);
                 }
-                
-                // append changed 
+
+                // append changed
                 if (row.get(1).equals(row.get(2))) {
                     row.add("0");
                     defaultRows.add(row);

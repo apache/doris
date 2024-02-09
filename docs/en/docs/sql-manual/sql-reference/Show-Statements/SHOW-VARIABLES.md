@@ -68,6 +68,14 @@ illustrate:
     show variables where variable_name = 'version';
     ````
 
+4. Use where to list variables whose value changed
+
+    ```sql
+    show variables where changed = 1;
+    ```
+
+In addition, all variables seen through "show variables" can be queried through table "information_schema.session_variables".
+
 ### Keywords
 
     SHOW, VARIABLES
