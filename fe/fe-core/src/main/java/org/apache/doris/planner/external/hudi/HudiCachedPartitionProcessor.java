@@ -20,6 +20,7 @@ package org.apache.doris.planner.external.hudi;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.planner.external.TablePartitionValues;
 import org.apache.doris.planner.external.TablePartitionValues.TablePartitionKey;
 
@@ -31,6 +32,8 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.Option;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.List;
@@ -39,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
+    private static final Logger LOG = LoggerFactory.getLogger(HudiCachedPartitionProcessor.class);
     private final long catalogId;
     private final Executor executor;
     private final LoadingCache<TablePartitionKey, TablePartitionValues> partitionCache;
@@ -137,7 +141,17 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 if (lastTimestamp <= lastUpdateTimestamp) {
                     return partitionValues;
                 }
-                List<String> partitionNames = getAllPartitionNames(tableMetaClient);
+                HMSExternalCatalog catalog = (HMSExternalCatalog) table.getCatalog();
+                List<String> partitionNames;
+                // When a Hudi table is synchronized to HMS, the partition information is also synchronized,
+                // so even if the metastore is not enabled in the Hudi table
+                //     (for example, if the Metastore is false for a Hudi table created with Flink),
+                // we can still obtain the partition information through the HMS API.
+                partitionNames = catalog.getClient().listPartitionNames(table.getDbName(), table.getName());
+                if (partitionNames.size() == 0) {
+                    LOG.warn("Failed to get partitions from hms api, switch it from hudi api.");
+                    partitionNames = getAllPartitionNames(tableMetaClient);
+                }
                 List<String> partitionColumnsList = Arrays.asList(partitionColumns.get());
                 partitionValues.cleanPartitions();
                 partitionValues.addPartitions(partitionNames,
