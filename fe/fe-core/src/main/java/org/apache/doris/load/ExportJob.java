@@ -151,6 +151,8 @@ public class ExportJob implements Writable {
     private String outfileInfo;
     @SerializedName("tabletsNum")
     private Integer tabletsNum;
+    @SerializedName("withBom")
+    private String withBom;
     // progress has two functions at EXPORTING stage:
     // 1. when progress < 100, it indicates exporting
     // 2. set progress = 100 ONLY when exporting progress is completely done
@@ -206,6 +208,7 @@ public class ExportJob implements Writable {
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
         this.columns = "";
+        this.withBom = "false";
     }
 
     public ExportJob(long jobId) {
@@ -390,6 +393,7 @@ public class ExportJob implements Writable {
         if (!deleteExistingFiles.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_DELETE_EXISTING_FILES, deleteExistingFiles);
         }
+        outfileProperties.put(OutFileClause.PROP_WITH_BOM, withBom);
 
         // broker properties
         // outfile clause's broker properties need 'broker.' prefix

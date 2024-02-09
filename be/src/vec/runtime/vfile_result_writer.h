@@ -142,5 +142,7 @@ private:
     RowDescriptor _output_row_descriptor;
     // parquet/orc file writer
     std::unique_ptr<VFileWriterWrapper> _vfile_writer;
+
+    bool _bom_sent = false;
 };
 } // namespace doris::vectorized

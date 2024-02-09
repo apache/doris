@@ -104,6 +104,7 @@ public class ExportStmt extends StatementBase {
 
     private String maxFileSize;
     private String deleteExistingFiles;
+    private String withBom;
     private SessionVariable sessionVariables;
 
     private String qualifiedUser;
@@ -370,7 +371,10 @@ public class ExportStmt extends StatementBase {
 
         // max_file_size
         this.maxFileSize = properties.getOrDefault(OutFileClause.PROP_MAX_FILE_SIZE, "");
+        // delete_existing_files
         this.deleteExistingFiles = properties.getOrDefault(OutFileClause.PROP_DELETE_EXISTING_FILES, "");
+        // with_bom
+        this.withBom = properties.getOrDefault(OutFileClause.PROP_WITH_BOM, "false");
 
         // timeout
         String timeoutString = properties.getOrDefault(LoadStmt.TIMEOUT_PROPERTY,
@@ -460,6 +464,10 @@ public class ExportStmt extends StatementBase {
 
     public String getDeleteExistingFiles() {
         return deleteExistingFiles;
+    }
+
+    public String getWithBom() {
+        return withBom;
     }
 
     public Integer getParallelNum() {
