@@ -184,25 +184,6 @@ public:
         }
     }
 
-    bool ready_finish_publish() {
-        for (auto& pair : _runtime_filters) {
-            for (auto* filter : pair.second) {
-                if (!filter->is_finish_rpc()) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    void finish_publish() {
-        for (auto& pair : _runtime_filters) {
-            for (auto* filter : pair.second) {
-                static_cast<void>(filter->join_rpc());
-            }
-        }
-    }
-
     // publish runtime filter
     Status publish(bool publish_local = false) {
         for (auto& pair : _runtime_filters) {
