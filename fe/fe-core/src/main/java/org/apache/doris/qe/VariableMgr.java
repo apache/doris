@@ -725,23 +725,37 @@ public class VariableMgr {
 
                 VarContext varCtx = entry.getValue();
                 List<String> row = Lists.newArrayList();
+                boolean hasConverter = VariableVarConverters.hasConverter(variableDisplayName);
                 // append variable's display name
                 row.add(variableDisplayName);
-                // append current value
+
+                // append current value and convert to readable str if necessary
+                String nativeStringValue = "";
                 if (type != SetType.GLOBAL && varCtx.getObj() == defaultSessionVariable) {
                     // In this condition, we may retrieve session variables for caller.
-                    row.add(getValue(sessionVar, varCtx.getField()));
+                    nativeStringValue = getValue(sessionVar, varCtx.getField());
                 } else {
-                    row.add(getValue(varCtx.getObj(), varCtx.getField()));
+                    nativeStringValue = getValue(varCtx.getObj(), varCtx.getField());
+                }
+
+                if (hasConverter) {
+                    try {
+                        row.add(VariableVarConverters.decode(variableDisplayName, Long.valueOf(nativeStringValue)));
+                    } catch (DdlException e) {
+                        row.add(nativeStringValue);
+                        LOG.warn(String.format("encode session variable %s failed", variableDisplayName));
+                    }
+                } else {
+                    row.add(nativeStringValue);
                 }
 
                 // append default value
-                if (VariableVarConverters.hasConverter(row.get(0))) {
+                if (hasConverter) {
                     try {
-                        row.add(VariableVarConverters.decode(row.get(0), Long.valueOf(varCtx.defaultValue)));
+                        row.add(VariableVarConverters.decode(variableDisplayName, Long.valueOf(varCtx.defaultValue)));
                     } catch (DdlException e) {
                         row.add(varCtx.defaultValue);
-                        LOG.warn(String.format("encode session variable %s failed", row.get(0)));
+                        LOG.warn(String.format("encode session variable %s failed", variableDisplayName));
                     }
                 } else {
                     row.add(varCtx.defaultValue);
