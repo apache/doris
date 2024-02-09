@@ -846,7 +846,7 @@ struct ToBase64OldImpl {
             size_t srclen = offsets[i] - offsets[i - 1];
 
             if (srclen == 0) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
+                StringOP::push_empty_string(i, dst_data, dst_offsets);
                 continue;
             }
 
@@ -862,54 +862,16 @@ struct ToBase64OldImpl {
 
             int outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
 
-            if (outlen < 0) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
-            } else {
-                StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data,
-                                            dst_offsets);
-            }
+            StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
         return Status::OK();
     }
 };
 
-class FunctionFromBase64 : public IFunction {
-public:
+struct FromBase64Impl {
     static constexpr auto name = "from_base64";
-
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
-
-    static FunctionPtr create() { return std::make_shared<FunctionFromBase64>(); }
-
-    String get_name() const override { return name; }
-
-    size_t get_number_of_arguments() const override { return 1; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<ReturnType>());
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
-
-        auto& col_ptr = block.get_by_position(arguments[0]).column;
-
-        auto res = ColumnType::create();
-        if (const auto* col = check_and_get_column<ColumnString>(col_ptr.get())) {
-            auto col_res = ColumnType::create();
-            static_cast<void>(vector(col->get_chars(), col->get_offsets(), col_res->get_chars(),
-                                     col_res->get_offsets(), null_map->get_data()));
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
-        } else {
-            return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        get_name());
-        }
-        return Status::OK();
-    }
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets,
@@ -928,54 +890,6 @@ public:
 
             if (srclen == 0) {
                 StringOP::push_empty_string(i, dst_data, dst_offsets);
-                continue;
-            }
-
-            char dst_array[MAX_STACK_CIPHER_LEN];
-            char* dst = dst_array;
-
-            int cipher_len = srclen;
-            std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > MAX_STACK_CIPHER_LEN) {
-                dst_uptr.reset(new char[cipher_len]);
-                dst = dst_uptr.get();
-            }
-            int outlen = base64_decode(source, srclen, dst);
-
-            if (outlen < 0) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
-            } else {
-                StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data,
-                                            dst_offsets);
-            }
-        }
-
-        return Status::OK();
-    }
-};
-
-struct FromBase64OldImpl {
-    static constexpr auto name = "from_base64";
-    using ReturnType = DataTypeString;
-    using ColumnType = ColumnString;
-
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets,
-                         NullMap& null_map) {
-        auto rows_count = offsets.size();
-        dst_offsets.resize(rows_count);
-
-        for (int i = 0; i < rows_count; ++i) {
-            if (null_map[i]) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
-                continue;
-            }
-
-            const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1];
-
-            if (srclen == 0) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
                 continue;
             }
 
@@ -1149,7 +1063,7 @@ using FunctionToBase64 = FunctionStringEncode<ToBase64Impl>;
 
 using FunctionUnHexOld = FunctionStringOperateToNullType<UnHexOldImpl>;
 using FunctionToBase64Old = FunctionStringOperateToNullType<ToBase64OldImpl>;
-using FunctionFromBase64Old = FunctionStringOperateToNullType<FromBase64OldImpl>;
+using FunctionFromBase64 = FunctionStringOperateToNullType<FromBase64Impl>;
 
 using FunctionStringAppendTrailingCharIfAbsent =
         FunctionBinaryStringOperateToNullType<StringAppendTrailingCharIfAbsent>;
@@ -1226,7 +1140,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alternative_function<FunctionStringRepeatOld>();
     factory.register_alternative_function<FunctionUnHexOld>();
     factory.register_alternative_function<FunctionToBase64Old>();
-    factory.register_alternative_function<FunctionFromBase64Old>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
