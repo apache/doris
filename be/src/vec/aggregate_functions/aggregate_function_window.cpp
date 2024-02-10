@@ -106,6 +106,7 @@ void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& fac
                               creator_without_type::creator<WindowFunctionPercentRank>);
     factory.register_function("row_number", creator_without_type::creator<WindowFunctionRowNumber>);
     factory.register_function("ntile", creator_without_type::creator<WindowFunctionNTile>);
+    factory.register_function("cume_dist", creator_without_type::creator<WindowFunctionCumeDist>);
 }
 
 void register_aggregate_function_window_lead_lag_first_last(

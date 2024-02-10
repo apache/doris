@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.window.CumeDist;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.FirstValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
@@ -46,7 +47,8 @@ public class BuiltinWindowFunctions implements FunctionHelper {
             window(Ntile.class, "ntile"),
             window(PercentRank.class, "percent_rank"),
             window(Rank.class, "rank"),
-            window(RowNumber.class, "row_number")
+            window(RowNumber.class, "row_number"),
+            window(CumeDist.class, "cume_dist")
     );
 
     public static final BuiltinWindowFunctions INSTANCE = new BuiltinWindowFunctions();
