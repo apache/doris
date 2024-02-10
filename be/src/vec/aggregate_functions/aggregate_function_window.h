@@ -231,6 +231,59 @@ public:
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
 };
 
+struct CumeDistData {
+    int64_t numerator = 0;
+    int64_t denominator = 0;
+    int64_t peer_group_start = 0;
+};
+
+class WindowFunctionCumeDist final
+        : public IAggregateFunctionDataHelper<CumeDistData, WindowFunctionCumeDist> {
+private:
+    static void check_default(AggregateDataPtr place, int64_t partition_start,
+                              int64_t partition_end) {
+        if (data(place).denominator == 0) {
+            data(place).denominator = partition_end - partition_start;
+        }
+    }
+
+public:
+    WindowFunctionCumeDist(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper(argument_types_) {}
+
+    String get_name() const override { return "cume_dist"; }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+
+    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {}
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena) const override {
+        check_default(place, partition_start, partition_end);
+        int64_t peer_group_count = frame_end - frame_start;
+        if (WindowFunctionCumeDist::data(place).peer_group_start != frame_start) {
+            WindowFunctionCumeDist::data(place).peer_group_start = frame_start;
+            WindowFunctionCumeDist::data(place).numerator += peer_group_count;
+        }
+    }
+
+    void reset(AggregateDataPtr place) const override {
+        WindowFunctionCumeDist::data(place).numerator = 0;
+        WindowFunctionCumeDist::data(place).denominator = 0;
+        WindowFunctionCumeDist::data(place).peer_group_start = -1;
+    }
+
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+        auto cume_dist = data(place).numerator * 1.0 / data(place).denominator;
+        assert_cast<ColumnFloat64&>(to).get_data().push_back(cume_dist);
+    }
+
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
+    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
+};
+
 struct NTileData {
     int64_t bucket_index = 0;
     int64_t rows = 0;
