@@ -719,13 +719,12 @@ public class VariableMgr {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
                 String variableDisplayName = entry.getKey();
                 // Filter variable not match to the regex.
-                if (matcher != null && !matcher.match(entry.getKey())) {
+                if (matcher != null && !matcher.match(variableDisplayName)) {
                     continue;
                 }
 
                 VarContext varCtx = entry.getValue();
                 List<String> row = Lists.newArrayList();
-                boolean hasConverter = VariableVarConverters.hasConverter(variableDisplayName);
                 // append variable's display name
                 row.add(variableDisplayName);
 
@@ -738,6 +737,7 @@ public class VariableMgr {
                     nativeStringValue = getValue(varCtx.getObj(), varCtx.getField());
                 }
 
+                boolean hasConverter = VariableVarConverters.hasConverter(variableDisplayName);
                 if (hasConverter) {
                     try {
                         row.add(VariableVarConverters.decode(variableDisplayName, Long.valueOf(nativeStringValue)));
@@ -749,6 +749,7 @@ public class VariableMgr {
                     row.add(nativeStringValue);
                 }
 
+                // two if logical is not merged for better readablity
                 // append default value
                 if (hasConverter) {
                     try {
