@@ -40,34 +40,25 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 
-namespace doris {
-struct ColumnPtrWrapper;
-}
-
 namespace doris::vectorized {
 struct ColumnRowRef {
-    std::shared_ptr<ColumnPtrWrapper> column;
-    int row_idx;
+    ColumnPtr column;
+    size_t row_idx;
 
     // equals
     bool operator==(const ColumnRowRef& other) const {
-        return column->column_ptr->compare_at(row_idx, other.row_idx, *column->column_ptr, 0);
+        return column->compare_at(row_idx, other.row_idx, *column, 0) == 0;
     }
     // compare
     bool operator<(const ColumnRowRef& other) const {
-        return column->column_ptr->compare_at(row_idx, other.row_idx, *column->column_ptr, 0);
+        return column->compare_at(row_idx, other.row_idx, *column, 0) < 0;
     }
 
     size_t operator()(const ColumnRowRef& a) const {
-        uint64_t* __restrict result = nullptr;
-        column->column_ptr->update_hashes_with_value(result);
-        return *result;
-    }
-
-    size_t hash() const {
-        uint64_t* __restrict result = nullptr;
-        column->column_ptr->update_hashes_with_value(result);
-        return *result;
+        std::vector<uint32_t> hash_vec(1);
+        auto* __restrict hash_val = hash_vec.data();
+        a.column->update_crc_with_value(a.row_idx, a.row_idx + 1, *hash_val, nullptr);
+        return *hash_val;
     }
 };
 
@@ -100,22 +91,29 @@ public:
         DCHECK(context->get_num_args() >= 1);
         auto* col_desc = context->get_arg_type(0);
         DataTypePtr args_type = DataTypeFactory::instance().create_data_type(*col_desc);
-        MutableColumnPtr column_struct_ptr_args = args_type->create_column();
+        MutableColumnPtr column_struct_ptr_args = remove_nullable(args_type)->create_column();
         for (int i = 1; i < context->get_num_args(); ++i) {
             // FE should make element type consistent and
             // equalize the length of the elements in struct
             const auto& const_column_ptr = context->get_constant_col(i);
-            if (const_column_ptr->column_ptr->get_data_at(0).data == nullptr) {
-                null_in_set = true;
+            if (const_column_ptr == nullptr) {
+                break;
             }
-            column_struct_ptr_args->insert_from(*const_column_ptr->column_ptr, 0);
+            const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
+            if (col->is_nullable()) {
+                auto* null_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(col);
+                if (!null_in_set && null_col->has_null()) {
+                    null_in_set = true;
+                }
+                column_struct_ptr_args->insert_from(null_col->get_nested_column(), 0);
+            } else {
+                column_struct_ptr_args->insert_from(*col, 0);
+            }
         }
+        ColumnPtr column_ptr = std::move(column_struct_ptr_args);
         // make StructRef into set
         for (size_t i = 1; i < context->get_num_args(); ++i) {
-            ColumnRowRef ref;
-            ref.column = std::make_shared<ColumnPtrWrapper>(column_struct_ptr_args);
-            ref.row_idx = i;
-            args_set.insert(ref);
+            args_set.insert({column_ptr, i - 1});
         }
         return Status::OK();
     }
@@ -134,10 +132,13 @@ public:
         const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            ColumnRowRef ref;
-            ref.column = std::make_shared<ColumnPtrWrapper>(materialized_column);
-            ref.row_idx = i;
-            vec_res[i] = negative ^ (args_set.find(ref) != args_set.end());
+            ColumnRowRef ref({materialized_column, i});
+            bool find = args_set.find({materialized_column, i}) != args_set.end();
+            if constexpr (negative) {
+                vec_res[i] = !find;
+            } else {
+                vec_res[i] = find;
+            }
             if (null_in_set) {
                 vec_null_map_to[i] = negative == vec_res[i];
             } else {
