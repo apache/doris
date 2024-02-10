@@ -743,20 +743,24 @@ public class VariableMgr {
                         row.add(VariableVarConverters.decode(variableDisplayName, Long.valueOf(nativeStringValue)));
                     } catch (DdlException e) {
                         row.add(nativeStringValue);
-                        LOG.warn(String.format("encode session variable %s failed", variableDisplayName));
+                        LOG.warn(String.format("decode session variable %s failed", variableDisplayName));
                     }
                 } else {
                     row.add(nativeStringValue);
                 }
 
-                // two if logical is not merged for better readablity
+                // two if logical is not merged for better readability
                 // append default value
                 if (hasConverter) {
                     try {
                         row.add(VariableVarConverters.decode(variableDisplayName, Long.valueOf(varCtx.defaultValue)));
+                        if (nativeStringValue.equalsIgnoreCase("runtime_filter_type")) {
+                            LOG.info("runtime_filter_type default value {} {} {}",
+                                    varCtx.defaultValue, varCtx.getDefaultValue(), Long.valueOf(varCtx.defaultValue));
+                        }
                     } catch (DdlException e) {
                         row.add(varCtx.defaultValue);
-                        LOG.warn(String.format("encode session variable %s failed", variableDisplayName));
+                        LOG.warn(String.format("decode session variable %s failed", variableDisplayName));
                     }
                 } else {
                     row.add(varCtx.defaultValue);
