@@ -1608,6 +1608,14 @@ public class FunctionSet<T> {
                 null,
                 "",
                 "", true));
+        // vec cume_dist
+        addBuiltin(AggregateFunction.createAnalyticBuiltin("cume_dist",
+                Lists.<Type>newArrayList(), Type.DOUBLE, Type.VARCHAR,
+                "",
+                "",
+                null,
+                "",
+                "", true));
         //vec row_number
         addBuiltin(AggregateFunction.createAnalyticBuiltin("row_number",
                 new ArrayList<Type>(), Type.BIGINT, Type.BIGINT,
