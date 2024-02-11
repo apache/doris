@@ -754,7 +754,7 @@ public class VariableMgr {
                 if (hasConverter) {
                     try {
                         row.add(VariableVarConverters.decode(variableDisplayName, Long.valueOf(varCtx.defaultValue)));
-                        if (nativeStringValue.equalsIgnoreCase("runtime_filter_type")) {
+                        if (variableDisplayName.equalsIgnoreCase("runtime_filter_type")) {
                             LOG.info("runtime_filter_type default value {} {} {}",
                                     varCtx.defaultValue, varCtx.getDefaultValue(), Long.valueOf(varCtx.defaultValue));
                         }
