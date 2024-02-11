@@ -50,18 +50,18 @@ After switching to the ES Catalog, you will be in the `dafault_db`  so you don't
 
 ### Parameter Description
 
-| Parameter              | Required or Not | Default Value | Description                                                  |
-| ---------------------- | --------------- | ------------- | ------------------------------------------------------------ |
-| `hosts`                | Yes             |               | ES address, can be one or multiple addresses, or the load balancer address of ES |
-| `user`                 | No              | Empty         | ES username                                                  |
-| `password`             | No              | Empty         | Password of the corresponding user                           |
-| `doc_value_scan`       | No              | true          | Whether to obtain value of the target field by ES/Lucene columnar storage |
-| `keyword_sniff`        | No              | true          | Whether to sniff the text.fields in ES based on keyword; If this is set to false, the system will perform matching after tokenization. |
+| Parameter              | Required or Not | Default Value | Description                                                                                                                                       |
+|------------------------|-----------------|---------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `hosts`                | Yes             |               | ES address, can be one or multiple addresses, or the load balancer address of ES                                                                  |
+| `user`                 | No              | Empty         | ES username                                                                                                                                       |
+| `password`             | No              | Empty         | Password of the corresponding user                                                                                                                |
+| `doc_value_scan`       | No              | true          | Whether to obtain value of the target field by ES/Lucene columnar storage                                                                         |
+| `keyword_sniff`        | No              | true          | Whether to sniff the text.fields in ES based on keyword; If this is set to false, the system will perform matching after tokenization.            |
 | `nodes_discovery`      | No              | true          | Whether to enable ES node discovery, set to true by default; set to false in network isolation environments and only connected to specified nodes |
-| `ssl`                  | No              | false         | Whether to enable HTTPS access mode for ES, currently follows a "Trust All" method in FE/BE |
-| `mapping_es_id`        | No              | false         | Whether to map the  `_id`  field in the ES index             |
-| `like_push_down`       | No              | true          | Whether to transform like to wildcard push down to es, this increases the cpu consumption of the es. |
-| `include_hidden_index` | No              | false         | Whether to include hidden index, default to false.           |
+| `ssl`                  | No              | false         | Whether to enable HTTPS access mode for ES, currently follows a "Trust All" method in FE/BE                                                       |
+| `mapping_es_id`        | No              | false         | Whether to map the  `_id`  field in the ES index                                                                                                  |
+| `like_push_down`       | No              | true          | Whether to transform like to wildcard push down to es, this increases the cpu consumption of the es.                                              |
+| `include_hidden_index` | No              | false         | Whether to include hidden index, default to false.                                                                                                |
 
 > 1. In terms of authentication, only HTTP Basic authentication is supported and it requires the user to have read privilege for the index and paths including `/_cluster/state/` and `_nodes/http` ; if you have not enabled security authentication for the cluster, you don't need to set the  `user` and `password`.
 >
@@ -69,26 +69,28 @@ After switching to the ES Catalog, you will be in the `dafault_db`  so you don't
 
 ## Column Type Mapping
 
-| ES Type       | Doris Type  | Comment                                                                 |
-| ------------- | ----------- |-------------------------------------------------------------------------|
-| null          | null        |                                                                         |
-| boolean       | boolean     |                                                                         |
-| byte          | tinyint     |                                                                         |
-| short         | smallint    |                                                                         |
-| integer       | int         |                                                                         |
-| long          | bigint      |                                                                         |
-| unsigned_long | largeint    |                                                                         |
-| float         | float       |                                                                         |
-| half_float    | float       |                                                                         |
-| double        | double      |                                                                         |
-| scaled_float  | double      |                                                                         |
-| date          | date        | Only support default/yyyy-MM-dd HH:mm:ss/yyyy-MM-dd/epoch_millis format |
-| keyword       | string      |                                                                         |
-| text          | string      |                                                                         |
-| ip            | string      |                                                                         |
-| nested        | string      |                                                                         |
-| object        | string      |                                                                         |
-| other         | unsupported |                                                                         |
+| ES Type          | Doris Type  | Comment                                                                 |
+|------------------|-------------|-------------------------------------------------------------------------|
+| null             | null        |                                                                         |
+| boolean          | boolean     |                                                                         |
+| byte             | tinyint     |                                                                         |
+| short            | smallint    |                                                                         |
+| integer          | int         |                                                                         |
+| long             | bigint      |                                                                         |
+| unsigned_long    | largeint    |                                                                         |
+| float            | float       |                                                                         |
+| half_float       | float       |                                                                         |
+| double           | double      |                                                                         |
+| scaled_float     | double      |                                                                         |
+| date             | date        | Only support default/yyyy-MM-dd HH:mm:ss/yyyy-MM-dd/epoch_millis format |
+| keyword          | string      |                                                                         |
+| text             | string      |                                                                         |
+| ip               | string      |                                                                         |
+| constant_keyword | string      |                                                                         |
+| wildcard         | string      |                                                                         |
+| nested           | string      |                                                                         |
+| object           | string      |                                                                         |
+| other            | unsupported |                                                                         |
 
 <version since="dev">
 
@@ -167,7 +169,7 @@ ES Catalogs support predicate pushdown to ES, which means only the filtered data
 For the sake of optimization, operators will be converted into the following ES queries:
 
 | SQL syntax     |        ES 5.x+ syntax        |
-| -------------- | :--------------------------: |
+|----------------|:----------------------------:|
 | =              |          term query          |
 | in             |         terms query          |
 | > , < , >= , ⇐ |         range query          |
