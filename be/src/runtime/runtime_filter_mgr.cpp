@@ -101,10 +101,7 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
     }
 
     // TODO: union the remote opt and global two case as one case to one judge
-    bool remote_opt_or_global =
-            (desc.__isset.opt_remote_rf && desc.opt_remote_rf && desc.has_remote_targets &&
-             desc.type == TRuntimeFilterType::BLOOM) ||
-            is_global;
+    bool remote_opt_or_global = (desc.__isset.opt_remote_rf && desc.opt_remote_rf) || is_global;
 
     if (!has_exist) {
         IRuntimeFilter* filter;
@@ -303,7 +300,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     if (merged_size == cnt_val->producer_size) {
         if (opt_remote_rf) {
             DCHECK_GT(cnt_val->targetv2_info.size(), 0);
-            DCHECK(cnt_val->filter->is_bloomfilter());
             // Optimize merging phase iff:
             // 1. All BE has been upgraded (e.g. _opt_remote_rf)
             // 2. FE has been upgraded (e.g. cnt_val->targetv2_info.size() > 0)
