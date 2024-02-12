@@ -754,10 +754,6 @@ public class VariableMgr {
                 if (hasConverter) {
                     try {
                         row.add(VariableVarConverters.decode(variableDisplayName, Long.valueOf(varCtx.defaultValue)));
-                        if (variableDisplayName.equalsIgnoreCase("runtime_filter_type")) {
-                            LOG.info("runtime_filter_type default value {} {} {}",
-                                    varCtx.defaultValue, varCtx.getDefaultValue(), Long.valueOf(varCtx.defaultValue));
-                        }
                     } catch (DdlException e) {
                         row.add(varCtx.defaultValue);
                         LOG.warn(String.format("decode session variable %s failed", variableDisplayName));

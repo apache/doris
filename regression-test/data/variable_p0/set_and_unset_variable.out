@@ -160,13 +160,3 @@ deprecated_enable_local_exchange	true	true	0
 
 -- !cmd --
 show_hidden_columns	false	false	0
-
--- !cmd --
-runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER	1
-
--- !cmd --
-runtime_filter_type	BLOOM_FILTER	IN_OR_BLOOM_FILTER	1
-
--- !cmd --
-\N
-
