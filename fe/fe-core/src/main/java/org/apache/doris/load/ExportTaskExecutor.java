@@ -33,6 +33,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
@@ -41,6 +42,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -134,7 +136,14 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
             }
 
             try (AutoCloseConnectContext r = buildConnectContext()) {
-                stmtExecutor = new StmtExecutor(r.connectContext, selectStmtLists.get(idx));
+
+                StatementBase statementBase = selectStmtLists.get(idx);
+                OriginStatement originStatement = new OriginStatement(
+                        StringUtils.isEmpty(statementBase.getOrigStmt().originStmt)
+                                ? exportJob.getOrigStmt().originStmt : statementBase.getOrigStmt().originStmt, idx);
+                statementBase.setOrigStmt(originStatement);
+                stmtExecutor = new StmtExecutor(r.connectContext, statementBase);
+
                 stmtExecutor.execute();
                 if (r.connectContext.getState().getStateType() == MysqlStateType.ERR) {
                     exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
