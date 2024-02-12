@@ -42,7 +42,7 @@ public:
 
     ~SystemBvarMetrics();
 
-    std::string to_prometheus(const std::string& registry_name) const;
+    const std::string to_prometheus(const std::string& registry_name);
 
     // update metrics
     void update();
@@ -123,5 +123,7 @@ private:
     std::shared_ptr<BvarAdderMetric<int64_t>> max_disk_io_util_percent = nullptr;
     std::shared_ptr<BvarAdderMetric<int64_t>> max_network_send_bytes_rate = nullptr;
     std::shared_ptr<BvarAdderMetric<int64_t>> max_network_receive_bytes_rate = nullptr;
+
+    bthread::Mutex mutex_;
 };
 } // namespace doris

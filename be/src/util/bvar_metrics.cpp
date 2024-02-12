@@ -121,6 +121,7 @@ void BvarMetricEntity::register_metric(const std::string& name, T metric) {
 // }
 
 std::string BvarMetricEntity::to_prometheus(const std::string& registry_name) {
+    std::lock_guard<bthread::Mutex> l(mutex_);
     std::stringstream ss;
     // ss << "# TYPE " << registry_name << "_" << entity_name_ << " " << type_ << "\n";
     for (auto metric_pair : metrics_) {
