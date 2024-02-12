@@ -53,26 +53,26 @@ namespace doris {
 struct CpuBvarMetrics {
     CpuBvarMetrics(std::shared_ptr<BvarMetricEntity> entity, std::string cpu_name) {
         DECLARE_INT64_BVAR_METRIC(cpu_user, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
-                                  "cpu", Labels({{"device", cpu_name}, {"mode", "user"}}), false)
+                                  "cpu", BvarMetric::Labels({{"device", cpu_name}, {"mode", "user"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_nice, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
-                                  "cpu", Labels({{"device", cpu_name}, {"mode", "nice"}}), false)
+                                  "cpu", BvarMetric::Labels({{"device", cpu_name}, {"mode", "nice"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_system, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
-                                  "cpu", Labels({{"device", cpu_name}, {"mode", "system"}}), false)
+                                  "cpu", BvarMetric::Labels({{"device", cpu_name}, {"mode", "system"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_idle, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
-                                  "cpu", Labels({{"device", cpu_name}, {"mode", "idle"}}), false)
+                                  "cpu", BvarMetric::Labels({{"device", cpu_name}, {"mode", "idle"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_iowait, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
-                                  "cpu", Labels({{"device", cpu_name}, {"mode", "iowait"}}), false)
+                                  "cpu", BvarMetric::Labels({{"device", cpu_name}, {"mode", "iowait"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_irq, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
-                                  "cpu", Labels({{"device", cpu_name}, {"mode", "irq"}}), false)
+                                  "cpu", BvarMetric::Labels({{"device", cpu_name}, {"mode", "irq"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_soft_irq, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT,
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "soft_irq"}}),
+                                  "", "cpu", BvarMetric::Labels({{"device", cpu_name}, {"mode", "soft_irq"}}),
                                   false)
         DECLARE_INT64_BVAR_METRIC(cpu_steal, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
-                                  "cpu", Labels({{"device", cpu_name}, {"mode", "steal"}}), false)
+                                  "cpu", BvarMetric::Labels({{"device", cpu_name}, {"mode", "steal"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_guest, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
-                                  "cpu", Labels({{"device", cpu_name}, {"mode", "guest"}}), false)
+                                  "cpu", BvarMetric::Labels({{"device", cpu_name}, {"mode", "guest"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_guest_nice, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT,
-                                  "", "cpu", Labels({{"device", cpu_name}, {"mode", "guest_nice"}}),
+                                  "", "cpu", BvarMetric::Labels({{"device", cpu_name}, {"mode", "guest_nice"}}),
                                   false)
         entity->register_metric("cpu_user", *cpu_user);
         entity->register_metric("cpu_nice", *cpu_nice);
@@ -104,15 +104,15 @@ struct CpuBvarMetrics {
 struct MemoryBvarMetrics {
     MemoryBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
         INIT_INT64_BVAR_METRIC(memory_allocated_bytes, BvarMetricType::GAUGE, BvarMetricUnit::BYTES,
-                               "", "", Labels(), false)
+                               "", "", BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(memory_pgpgin, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                               Labels(), false)
+                               BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(memory_pgpgout, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "",
-                               "", Labels(), false)
+                               "", BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(memory_pswpin, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                               Labels(), false)
+                               BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(memory_pswpout, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "",
-                               "", Labels(), false)
+                               "", BvarMetric::Labels(), false)
         entity->register_metric("memory_allocated_bytes", *memory_allocated_bytes);
         entity->register_metric("memory_pgpgin", *memory_pgpgin);
         entity->register_metric("memory_pgpgout", *memory_pgpgout);
@@ -120,19 +120,19 @@ struct MemoryBvarMetrics {
         entity->register_metric("memory_pswpout", *memory_pswpout);
 #ifndef USE_JEMALLOC
         INIT_INT64_BVAR_METRIC(memory_tcmalloc_allocated_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_tcmalloc_total_thread_cache_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_tcmalloc_central_cache_free_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_tcmalloc_transfer_cache_free_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_tcmalloc_thread_cache_free_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_tcmalloc_pageheap_free_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_tcmalloc_pageheap_unmapped_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         entity->register_metric("memory_tcmalloc_allocated_bytes",
                                 *memory_tcmalloc_allocated_bytes);
         entity->register_metric("memory_tcmalloc_total_thread_cache_bytes",
@@ -149,29 +149,29 @@ struct MemoryBvarMetrics {
                                 *memory_tcmalloc_pageheap_unmapped_bytes);
 #else
         INIT_INT64_BVAR_METRIC(memory_jemalloc_allocated_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_jemalloc_active_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_jemalloc_metadata_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_jemalloc_resident_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_jemalloc_mapped_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_jemalloc_retained_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_jemalloc_tcache_bytes, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_jemalloc_pactive_num, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_jemalloc_pdirty_num, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_jemalloc_pmuzzy_num, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_jemalloc_dirty_purged_num, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(memory_jemalloc_muzzy_purged_num, BvarMetricType::GAUGE,
-                               BvarMetricUnit::BYTES, "", "", Labels(), false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
 
         entity->register_metric("memory_jemalloc_allocated_bytes",
                                 *memory_jemalloc_allocated_bytes);
@@ -227,26 +227,26 @@ struct DiskBvarMetrics {
     DiskBvarMetrics(std::shared_ptr<BvarMetricEntity> entity, const std::string& disk_device) {
         INIT_INT64_BVAR_METRIC(disk_reads_completed, BvarMetricType::COUNTER,
                                BvarMetricUnit::OPERATIONS, "", "",
-                               Labels({{"device", disk_device}}), false)
+                               BvarMetric::Labels({{"device", disk_device}}), false)
         INIT_INT64_BVAR_METRIC(disk_bytes_read, BvarMetricType::COUNTER, BvarMetricUnit::BYTES, "",
-                               "", Labels({{"device", disk_device}}), false)
+                               "", BvarMetric::Labels({{"device", disk_device}}), false)
         INIT_INT64_BVAR_METRIC(disk_read_time_ms, BvarMetricType::COUNTER,
                                BvarMetricUnit::MILLISECONDS, "", "",
-                               Labels({{"device", disk_device}}), false)
+                               BvarMetric::Labels({{"device", disk_device}}), false)
         INIT_INT64_BVAR_METRIC(disk_writes_completed, BvarMetricType::COUNTER,
                                BvarMetricUnit::OPERATIONS, "", "",
-                               Labels({{"device", disk_device}}), false)
+                               BvarMetric::Labels({{"device", disk_device}}), false)
         INIT_INT64_BVAR_METRIC(disk_bytes_written, BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
-                               "", "", Labels({{"device", disk_device}}), false);
+                               "", "", BvarMetric::Labels({{"device", disk_device}}), false);
         INIT_INT64_BVAR_METRIC(disk_write_time_ms, BvarMetricType::COUNTER,
                                BvarMetricUnit::MILLISECONDS, "", "",
-                               Labels({{"device", disk_device}}), false)
+                               BvarMetric::Labels({{"device", disk_device}}), false)
         INIT_INT64_BVAR_METRIC(disk_io_time_ms, BvarMetricType::COUNTER,
                                BvarMetricUnit::MILLISECONDS, "", "",
-                               Labels({{"device", disk_device}}), false)
+                               BvarMetric::Labels({{"device", disk_device}}), false)
         INIT_INT64_BVAR_METRIC(disk_io_time_weigthed, BvarMetricType::COUNTER,
                                BvarMetricUnit::MILLISECONDS, "", "",
-                               Labels({{"device", disk_device}}), false)
+                               BvarMetric::Labels({{"device", disk_device}}), false)
         entity->register_metric("disk_reads_completed", *disk_reads_completed);
         entity->register_metric("disk_bytes_read", *disk_bytes_read);
         entity->register_metric("disk_read_time_ms", *disk_read_time_ms);
@@ -270,15 +270,15 @@ struct DiskBvarMetrics {
 struct NetworkBvarMetrics {
     NetworkBvarMetrics(std::shared_ptr<BvarMetricEntity> entity, const std::string& interface) {
         INIT_INT64_BVAR_METRIC(network_receive_bytes, BvarMetricType::COUNTER,
-                               BvarMetricUnit::BYTES, "", "", Labels({{"device", interface}}),
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels({{"device", interface}}),
                                false);
         INIT_INT64_BVAR_METRIC(network_receive_packets, BvarMetricType::COUNTER,
-                               BvarMetricUnit::PACKETS, "", "", Labels({{"device", interface}}),
+                               BvarMetricUnit::PACKETS, "", "", BvarMetric::Labels({{"device", interface}}),
                                false);
         INIT_INT64_BVAR_METRIC(network_send_bytes, BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
-                               "", "", Labels({{"device", interface}}), false);
+                               "", "", BvarMetric::Labels({{"device", interface}}), false);
         INIT_INT64_BVAR_METRIC(network_send_packets, BvarMetricType::COUNTER,
-                               BvarMetricUnit::PACKETS, "", "", Labels({{"device", interface}}),
+                               BvarMetricUnit::PACKETS, "", "", BvarMetric::Labels({{"device", interface}}),
                                false);
         entity->register_metric("network_receive_bytes", *network_receive_bytes);
         entity->register_metric("network_receive_packets", *network_receive_packets);
@@ -295,9 +295,9 @@ struct NetworkBvarMetrics {
 struct FileDescriptorBvarMetrics {
     FileDescriptorBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
         INIT_INT64_BVAR_METRIC(fd_num_limit, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                               Labels(), false);
+                               BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(fd_num_used, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
-                               Labels(), false);
+                               BvarMetric::Labels(), false);
         entity->register_metric("fd_num_limit", *fd_num_limit);
         entity->register_metric("fd_num_used", *fd_num_used);
     }
@@ -310,15 +310,15 @@ struct FileDescriptorBvarMetrics {
 struct SnmpBvarMetrics {
     SnmpBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
         INIT_INT64_BVAR_METRIC(snmp_tcp_in_errs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
-                               "The number of all problematic TCP packets received", "", Labels(),
+                               "The number of all problematic TCP packets received", "", BvarMetric::Labels(),
                                false)
         INIT_INT64_BVAR_METRIC(snmp_tcp_retrans_segs, BvarMetricType::COUNTER,
                                BvarMetricUnit::NOUNIT, "All TCP packets retransmitted", "",
-                               Labels(), false)
+                               BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(snmp_tcp_in_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
-                               "All received TCP packets", "", Labels(), false)
+                               "All received TCP packets", "", BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(snmp_tcp_out_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
-                               "All send TCP packets with RST mark", "", Labels(), false)
+                               "All send TCP packets with RST mark", "", BvarMetric::Labels(), false)
         entity->register_metric("snmp_tcp_in_errs", *snmp_tcp_in_errs);
         entity->register_metric("snmp_tcp_retrans_segs", *snmp_tcp_retrans_segs);
         entity->register_metric("snmp_tcp_in_segs", *snmp_tcp_in_segs);
@@ -335,13 +335,13 @@ struct LoadAverageBvarMetrics {
     LoadAverageBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
         INIT_DOUBLE_BVAR_METRIC(load_average_1_minutes, BvarMetricType::GAUGE,
                                 BvarMetricUnit::NOUNIT, "", "load_average",
-                                Labels({{"mode", "1_minutes"}}), false);
+                                BvarMetric::Labels({{"mode", "1_minutes"}}), false);
         INIT_DOUBLE_BVAR_METRIC(load_average_5_minutes, BvarMetricType::GAUGE,
                                 BvarMetricUnit::NOUNIT, "", "load_average",
-                                Labels({{"mode", "5_minutes"}}), false);
+                                BvarMetric::Labels({{"mode", "5_minutes"}}), false);
         INIT_DOUBLE_BVAR_METRIC(load_average_15_minutes, BvarMetricType::GAUGE,
                                 BvarMetricUnit::NOUNIT, "", "load_average",
-                                Labels({{"mode", "15_minutes"}}), false);
+                                BvarMetric::Labels({{"mode", "15_minutes"}}), false);
         entity->register_metric("load_average_1_minutes", *load_average_1_minutes);
         entity->register_metric("load_average_5_minutes", *load_average_5_minutes);
         entity->register_metric("load_average_15_minutes", *load_average_15_minutes);
@@ -355,13 +355,13 @@ struct LoadAverageBvarMetrics {
 struct ProcBvarMetrics {
     ProcBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
         INIT_INT64_BVAR_METRIC(proc_interrupt, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT, "",
-                               "proc", Labels({{"mode", "interrupt"}}), false);
+                               "proc", BvarMetric::Labels({{"mode", "interrupt"}}), false);
         INIT_INT64_BVAR_METRIC(proc_ctxt_switch, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
-                               "", "proc", Labels({{"mode", "ctxt_switch"}}), false);
+                               "", "proc", BvarMetric::Labels({{"mode", "ctxt_switch"}}), false);
         INIT_INT64_BVAR_METRIC(proc_procs_running, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
-                               "", "proc", Labels({{"mode", "procs_running"}}), false);
+                               "", "proc", BvarMetric::Labels({{"mode", "procs_running"}}), false);
         INIT_INT64_BVAR_METRIC(proc_procs_blocked, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
-                               "", "proc", Labels({{"mode", "procs_blocked"}}), false);
+                               "", "proc", BvarMetric::Labels({{"mode", "procs_blocked"}}), false);
         entity->register_metric("proc_interrupt", *proc_interrupt);
         entity->register_metric("proc_ctxt_switch", *proc_ctxt_switch);
         entity->register_metric("proc_procs_running", *proc_procs_running);
@@ -374,7 +374,8 @@ struct ProcBvarMetrics {
     std::shared_ptr<BvarAdderMetric<int64_t>> proc_procs_blocked;
 };
 
-std::string SystemBvarMetrics::to_prometheus(const std::string& registry_name) const {
+const std::string SystemBvarMetrics::to_prometheus(const std::string& registry_name) {
+    std::lock_guard<bthread::Mutex> l(mutex_);
     std::stringstream ss;
     for (auto& entities : entities_map_) {
         if (entities.second.empty()) {
@@ -437,11 +438,11 @@ void SystemBvarMetrics::update() {
 void SystemBvarMetrics::install_max_metrics() {
     auto max_entity = std::make_shared<BvarMetricEntity>("max", BvarMetricType::GAUGE);
     INIT_INT64_BVAR_METRIC(max_disk_io_util_percent, BvarMetricType::GAUGE, BvarMetricUnit::PERCENT,
-                           "", "", Labels(), true)
+                           "", "", BvarMetric::Labels(), true)
     INIT_INT64_BVAR_METRIC(max_network_send_bytes_rate, BvarMetricType::GAUGE,
-                           BvarMetricUnit::BYTES, "", "", Labels(), true)
+                           BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), true)
     INIT_INT64_BVAR_METRIC(max_network_receive_bytes_rate, BvarMetricType::GAUGE,
-                           BvarMetricUnit::BYTES, "", "", Labels(), true)
+                           BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), true)
     max_entity->register_metric("max_disk_io_util_percent", *max_disk_io_util_percent);
     max_entity->register_metric("max_network_send_bytes_rate", *max_network_send_bytes_rate);
     max_entity->register_metric("max_network_receive_bytes_rate", *max_network_receive_bytes_rate);

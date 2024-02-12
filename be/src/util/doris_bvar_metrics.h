@@ -17,11 +17,14 @@
 
 #pragma once
 
+#include <bthread/mutex.h>
+#include <bvar/latency_recorder.h>
+#include <bvar/reducer.h>
+#include <bvar/status.h>
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
-
 #include "util/bvar_metrics.h"
 #include "util/system_bvar_metrics.h"
 namespace doris {
@@ -222,7 +225,7 @@ public:
     void register_entity(BvarMetricEntity entity);
     SystemBvarMetrics* system_metrics() { return system_metrics_.get(); }
 
-    std::string to_prometheus() const;
+    const std::string to_prometheus();
 
 private:
     DorisBvarMetrics();
@@ -233,5 +236,7 @@ private:
     std::unique_ptr<SystemBvarMetrics> system_metrics_;
 
     std::unordered_map<std::string, std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
+
+    bthread::Mutex mutex_;
 };
 } // namespace doris

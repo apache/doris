@@ -74,9 +74,10 @@ void update_rowsets_and_segments_num_metrics() {
         // TODO(plat1ko): CloudStorageEngine
     } else {
         StorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_local();
-        auto* metrics = DorisMetrics::instance();
-        metrics->all_rowsets_num->set_value(engine.tablet_manager()->get_rowset_nums());
-        metrics->all_segments_num->set_value(engine.tablet_manager()->get_segment_nums());
+        DorisMetrics::instance()->all_rowsets_num->set_value(engine.tablet_manager()->get_rowset_nums());
+        DorisMetrics::instance()->all_segments_num->set_value(engine.tablet_manager()->get_segment_nums());
+        DorisBvarMetrics::instance()->all_rowsets_num->set_value(engine.tablet_manager()->get_rowset_nums());
+        DorisBvarMetrics::instance()->all_segments_num->set_value(engine.tablet_manager()->get_segment_nums());
     }
 }
 
@@ -364,15 +365,6 @@ void Daemon::calculate_metrics_thread() {
                         &lst_net_send_bytes, &lst_net_receive_bytes);
             }
             update_rowsets_and_segments_num_metrics();
-
-            DorisMetrics::instance()->all_rowsets_num->set_value(
-                    StorageEngine::instance()->tablet_manager()->get_rowset_nums());
-            DorisMetrics::instance()->all_segments_num->set_value(
-                    StorageEngine::instance()->tablet_manager()->get_segment_nums());
-            DorisBvarMetrics::instance()->all_rowsets_num->set_value(
-                    StorageEngine::instance()->tablet_manager()->get_rowset_nums());
-            DorisBvarMetrics::instance()->all_segments_num->set_value(
-                    StorageEngine::instance()->tablet_manager()->get_segment_nums());
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
 }
