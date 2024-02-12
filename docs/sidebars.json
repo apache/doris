@@ -60,8 +60,7 @@
                         "data-table/index/index-overview",
                         "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
-                        "data-table/index/ngram-bloomfilter-index",
-                        "data-table/index/bitmap-index"
+                        "data-table/index/ngram-bloomfilter-index"
                     ]
                 }
             ]
@@ -803,6 +802,7 @@
                                 "sql-manual/sql-functions/window-functions/window-function-rank",
                                 "sql-manual/sql-functions/window-functions/window-function-dense-rank",
                                 "sql-manual/sql-functions/window-functions/window-function-percent-rank",
+                                "sql-manual/sql-functions/window-functions/window-function-cume-dist",
                                 "sql-manual/sql-functions/window-functions/window-function-first-value",
                                 "sql-manual/sql-functions/window-functions/window-function-last-value",
                                 "sql-manual/sql-functions/window-functions/window-function-lead",
@@ -989,7 +989,6 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-DATABASE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-BITMAP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-REPLACE",

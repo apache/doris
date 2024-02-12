@@ -1085,9 +1085,6 @@ HashJoinNode::~HashJoinNode() {
         // signal at here is abnormal
         _shared_hashtable_controller->signal(id(), Status::Cancelled("signaled in destructor"));
     }
-    if (_runtime_filter_slots != nullptr) {
-        _runtime_filter_slots->finish_publish();
-    }
 }
 
 void HashJoinNode::_release_mem() {

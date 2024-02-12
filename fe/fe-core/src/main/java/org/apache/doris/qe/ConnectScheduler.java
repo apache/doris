@@ -29,6 +29,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TimerTask;
@@ -169,6 +170,16 @@ public class ConnectScheduler {
             infos.add(ctx.toThreadInfo(isFull));
         }
         return infos;
+    }
+
+    // used for thrift
+    public List<List<String>> listConnectionWithoutAuth(boolean isShowFullSql, boolean isShowFeHost) {
+        List<List<String>> list = new ArrayList<>();
+        long nowMs = System.currentTimeMillis();
+        for (ConnectContext ctx : connectionMap.values()) {
+            list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs, isShowFeHost));
+        }
+        return list;
     }
 
     public void putTraceId2QueryId(String traceId, TUniqueId queryId) {
