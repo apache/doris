@@ -488,8 +488,6 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(QueryContext* que
     params->query_id.set_hi(query_ctx->query_id().hi);
     params->query_id.set_lo(query_ctx->query_id().lo);
 
-    // params->fragment_instance_id.set_hi(state->fragment_instance_id().hi);
-    // params->fragment_instance_id.set_lo(state->fragment_instance_id().lo);
     params->be_exec_version = query_ctx->be_exec_version();
     params->query_ctx = query_ctx;
     params->_obj_pool = &query_ctx->obj_pool;

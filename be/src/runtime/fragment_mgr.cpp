@@ -807,7 +807,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
             static_cast<void>(_runtimefilter_controller.add_entity(
                     params.local_params[i], params.query_id, params.query_options, &handler,
-                    RuntimeFilterParamsContext::create(context->get_runtime_state(UniqueId()))));
+                    RuntimeFilterParamsContext::create(context->get_runtime_state())));
             context->set_merge_controller_handler(handler);
             const TUniqueId& fragment_instance_id = params.local_params[i].fragment_instance_id;
             {
@@ -887,7 +887,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
             static_cast<void>(_runtimefilter_controller.add_entity(
                     local_params, params.query_id, params.query_options, &handler,
-                    RuntimeFilterParamsContext::create(context->get_runtime_state(UniqueId()))));
+                    RuntimeFilterParamsContext::create(context->get_runtime_state())));
             context->set_merge_controller_handler(handler);
 
             {

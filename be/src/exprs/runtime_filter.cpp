@@ -984,7 +984,6 @@ Status IRuntimeFilter::publish(bool publish_local) {
                 filter->signal();
             }
         }
-        return Status::OK();
     } else if (_has_local_target) {
         std::vector<IRuntimeFilter*> filters;
         RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
