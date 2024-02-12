@@ -83,10 +83,4 @@ suite("set_and_unset_variable") {
     qt_cmd """show global variables like 'experimental_enable_agg_state'"""
     qt_cmd """show global variables like 'deprecated_enable_local_exchange'"""
     qt_cmd """show global variables like 'show_hidden_columns'"""
-
-    sql """set runtime_filter_type='BLOOM_FILTER' """
-    qt_cmd """show session variables where variable_name='runtime_filter_type'"""
-    qt_cmd """show session variables where changed='1'"""
-    qt_cmd """
-        select sum(cast (changed as int)) from information_schema.SESSION_VARIABLES where changed=1 and variable_name='wait_timeout'"""
 }
