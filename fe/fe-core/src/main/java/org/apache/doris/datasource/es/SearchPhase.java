@@ -15,12 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external.elasticsearch;
+package org.apache.doris.datasource.es;
 
 
-public class DorisEsException extends RuntimeException {
+/**
+ * Represents a phase of a ES fetch index metadata request e.g. get mapping, get shard location etc through network
+ */
+public interface SearchPhase {
 
-    public DorisEsException(String msg) {
-        super(msg);
+    /**
+     * Performs pre processing of the search context before the execute.
+     */
+    default void preProcess(SearchContext context) {
+    }
+
+    /**
+     * Executes the search phase
+     */
+    void execute(SearchContext context);
+
+    /**
+     * Performs post processing of the search context before the execute.
+     */
+    default void postProcess(SearchContext context) {
     }
 }
