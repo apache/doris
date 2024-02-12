@@ -246,7 +246,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setTableName(tblName);
         exportJob.setExportTable(table);
         exportJob.setTableId(table.getId());
-        exportJob.setOrigStmt(ctx.getExecutor().getOriginStmt());
+        if (ctx.getExecutor() != null) {
+            exportJob.setOrigStmt(ctx.getExecutor().getOriginStmt());
+        }
         // set partitions
         exportJob.setPartitionNames(this.partitionsNames);
         // set where expression
