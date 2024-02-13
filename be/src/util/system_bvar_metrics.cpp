@@ -394,6 +394,14 @@ const std::string SystemBvarMetrics::to_prometheus(const std::string& registry_n
     return ss.str();
 }
 
+const std::string SystemBvarMetrics::to_core_string(const std::string& registry_name) {
+    std::stringstream ss;
+    ss << max_disk_io_util_percent->to_core_string(registry_name);
+    ss << max_network_send_bytes_rate->to_core_string(registry_name);
+    ss << max_network_receive_bytes_rate->to_core_string(registry_name);
+    return ss.str();
+}
+
 SystemBvarMetrics::SystemBvarMetrics(const std::set<std::string>& disk_devices,
                                      const std::vector<std::string>& network_interfaces) {
     install_cpu_metrics();
@@ -808,8 +816,6 @@ void SystemBvarMetrics::update_snmp_metrics() {
     }
 
     // read the metrics of TCP
-    char* line_ptr = nullptr;
-    size_t line_buf_size = 0;
     if (getline(&line_ptr, &line_buf_size, fp) < 0) {
         char buf[64];
         LOG(WARNING) << "failed to skip Tcp header line of /proc/net/snmp, errno=" << errno

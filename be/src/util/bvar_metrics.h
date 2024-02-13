@@ -70,7 +70,10 @@ public:
               labels_(labels) {}
     virtual const std::string to_prometheus(const std::string& registry_name) = 0;
     // std::string to_json(bool with_tablet_metrics = false) const;
-    // std::string to_core_string() const;
+    virtual std::string to_core_string(const std::string& reigstry_name) const = 0;
+
+    bool is_core() { return is_core_metric_; }
+
 protected:
     bool is_core_metric_;
 
@@ -104,6 +107,7 @@ public:
     void reset() { adder_->reset(); }
 
     const std::string to_prometheus(const std::string& registry_name) override;
+    std::string to_core_string(const std::string& reigstry_name) const override;
     std::string label_string() const;
     std::string value_string() const;
 
@@ -125,7 +129,7 @@ public:
     // void deregister_metric(const std::string& name);
 
     const std::string to_prometheus(const std::string& registry_name);
-
+    const std::string to_core_string(const std::string& registry_name);
     // std::shared_ptr<BvarMetric> get_metric(const std::string& name);
     std::string get_name() const { return entity_name_; }
     BvarMetricType get_type() const { return type_; }

@@ -373,4 +373,20 @@ const std::string DorisBvarMetrics::to_prometheus() {
     if (system_metrics_) ss << system_metrics_->to_prometheus(s_registry_name_);
     return ss.str();
 }
+
+const std::string DorisBvarMetrics::to_core_string(){
+    std::stringstream ss;
+    std::lock_guard<bthread::Mutex> l(mutex_);
+    for (auto& entities : entities_map_) {
+        if (entities.second.empty()) {
+            continue;
+        }
+        for (auto& entity : entities.second) {
+            ss << entity->to_core_string(s_registry_name_);
+        }   
+    }
+    ss << system_metrics_->to_core_string(s_registry_name_);
+    return ss.str();
+}
+
 } // namespace doris

@@ -43,7 +43,7 @@ public:
     ~SystemBvarMetrics();
 
     const std::string to_prometheus(const std::string& registry_name);
-
+    const std::string to_core_string(const std::string& registry_name);
     // update metrics
     void update();
 
