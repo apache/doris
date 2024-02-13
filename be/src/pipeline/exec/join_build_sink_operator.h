@@ -52,6 +52,8 @@ public:
                            const DescriptorTbl& descs);
     ~JoinBuildSinkOperatorX() override = default;
 
+    const std::vector<IRuntimeFilter*>& runtime_filters() { return _runtime_filters; }
+
 protected:
     void _init_join_op();
     template <typename DependencyType, typename Derived>
@@ -75,6 +77,9 @@ protected:
     // 2. In build phase, we stop materialize build side when we meet the first null value and set _has_null_in_build_side to true.
     // 3. In probe phase, if _has_null_in_build_side is true, join node returns empty block directly. Otherwise, probing will continue as the same as generic left anti join.
     const bool _short_circuit_for_null_in_build_side;
+
+    const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    std::vector<IRuntimeFilter*> _runtime_filters;
 };
 
 } // namespace pipeline

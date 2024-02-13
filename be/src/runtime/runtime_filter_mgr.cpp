@@ -58,17 +58,6 @@ RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParams
                                             ExecEnv::GetInstance()->experimental_mem_tracker());
 }
 
-Status RuntimeFilterMgr::get_producer_filter(const int filter_id, IRuntimeFilter** target) {
-    std::lock_guard<std::mutex> l(_lock);
-    auto iter = _producer_map.find(filter_id);
-    if (iter == _producer_map.end()) {
-        return Status::InvalidArgument("unknown filter: {}, role: PRODUCER", filter_id);
-    }
-
-    *target = iter->second;
-    return Status::OK();
-}
-
 Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
                                              std::vector<IRuntimeFilter*>& consumer_filters) {
     std::lock_guard<std::mutex> l(_lock);
@@ -119,6 +108,7 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
 
 Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc,
                                                   const TQueryOptions& options,
+                                                  IRuntimeFilter** producer_filter,
                                                   bool build_bf_exactly, bool is_global,
                                                   int parallel_tasks) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
@@ -130,11 +120,10 @@ Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc
     if (iter != _producer_map.end()) {
         return Status::InvalidArgument("filter has registed");
     }
-    IRuntimeFilter* filter;
     RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options,
-                                           RuntimeFilterRole::PRODUCER, -1, &filter,
+                                           RuntimeFilterRole::PRODUCER, -1, producer_filter,
                                            build_bf_exactly, is_global, parallel_tasks));
-    _producer_map.emplace(key, filter);
+    _producer_map.emplace(key, *producer_filter);
     return Status::OK();
 }
 
