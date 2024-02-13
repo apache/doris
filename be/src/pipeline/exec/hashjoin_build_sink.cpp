@@ -97,10 +97,10 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     // Hash Table Init
     _hash_table_init(state);
-
+    _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                p._runtime_filter_descs[i], state->query_options(), &p._runtime_filters[i],
+                p._runtime_filter_descs[i], state->query_options(), &_runtime_filters[i],
                 _build_expr_ctxs.size() == 1, p._use_global_rf, p._child_x->parallel_tasks()));
     }
 
@@ -116,10 +116,6 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
 
 bool HashJoinBuildSinkLocalState::build_unique() const {
     return _parent->cast<HashJoinBuildSinkOperatorX>()._build_unique;
-}
-
-const std::vector<IRuntimeFilter*>& HashJoinBuildSinkLocalState::runtime_filters() const {
-    return _parent->cast<HashJoinBuildSinkOperatorX>()._runtime_filters;
 }
 
 void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
@@ -543,12 +539,13 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                 __builtin_unreachable();
                             },
                             [&](auto&& arg) -> Status {
-                                if (_runtime_filters.empty()) {
+                                if (local_state._runtime_filters.empty()) {
                                     return Status::OK();
                                 }
                                 local_state._runtime_filter_slots =
                                         std::make_shared<VRuntimeFilterSlots>(
-                                                _build_expr_ctxs, _runtime_filters, use_global_rf);
+                                                _build_expr_ctxs, local_state._runtime_filters,
+                                                use_global_rf);
 
                                 RETURN_IF_ERROR(local_state._runtime_filter_slots->init(
                                         state, arg.hash_table->size()));

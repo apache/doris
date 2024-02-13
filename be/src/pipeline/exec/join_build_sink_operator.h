@@ -33,6 +33,8 @@ class JoinBuildSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
 public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
+    const std::vector<IRuntimeFilter*>& runtime_filters() const { return _runtime_filters; }
+
 protected:
     JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<DependencyType>(parent, state) {}
@@ -43,6 +45,7 @@ protected:
     RuntimeProfile::Counter* _build_rows_counter = nullptr;
     RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
     RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
+    std::vector<IRuntimeFilter*> _runtime_filters;
 };
 
 template <typename LocalStateType>
@@ -51,8 +54,6 @@ public:
     JoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                            const DescriptorTbl& descs);
     ~JoinBuildSinkOperatorX() override = default;
-
-    const std::vector<IRuntimeFilter*>& runtime_filters() { return _runtime_filters; }
 
 protected:
     void _init_join_op();
@@ -79,7 +80,6 @@ protected:
     const bool _short_circuit_for_null_in_build_side;
 
     const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-    std::vector<IRuntimeFilter*> _runtime_filters;
 };
 
 } // namespace pipeline

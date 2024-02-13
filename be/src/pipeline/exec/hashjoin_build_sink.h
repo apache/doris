@@ -70,7 +70,6 @@ public:
     void init_short_circuit_for_probe();
 
     bool build_unique() const;
-    const std::vector<IRuntimeFilter*>& runtime_filters() const;
     std::shared_ptr<vectorized::Arena> arena() { return _shared_state->arena; }
 
     void add_hash_buckets_info(const std::string& info) const {

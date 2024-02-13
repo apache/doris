@@ -40,15 +40,12 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
     }
+    _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                p._runtime_filter_descs[i], state->query_options(), &p._runtime_filters[i]));
+                p._runtime_filter_descs[i], state->query_options(), &_runtime_filters[i]));
     }
     return Status::OK();
-}
-
-const std::vector<IRuntimeFilter*>& NestedLoopJoinBuildSinkLocalState::runtime_filters() {
-    return _parent->cast<NestedLoopJoinBuildSinkOperatorX>()._runtime_filters;
 }
 
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
