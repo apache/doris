@@ -3651,7 +3651,7 @@ opt_index_type ::=
     :}
     | KW_USING KW_BITMAP
     {:
-        RESULT = IndexDef.IndexType.BITMAP;
+        RESULT = IndexDef.IndexType.INVERTED;
     :}
     | KW_USING KW_NGRAM_BF
     {:

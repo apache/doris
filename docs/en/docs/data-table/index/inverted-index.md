@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# [Experimental] Inverted Index
+# Inverted Index
 
 <version since="2.0.0">
  
@@ -53,7 +53,7 @@ The features for inverted index is as follows:
   - MATCH_ALL matches all keywords, MATCH_ANY matches any keywords
   - support fulltext on array of text field
   - support english, chinese and mixed unicode word parser
-- accelerate normal equal, range query, replacing bitmap index in the future
+- accelerate normal equal, range query, replacing bitmap index
   - suport =, !=, >, >=, <, <= on text, numeric, datetime types
   - suport =, !=, >, >=, <, <= on array of text, numeric, datetime types
 - complete suport for logic combination

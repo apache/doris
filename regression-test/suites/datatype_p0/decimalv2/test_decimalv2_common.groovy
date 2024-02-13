@@ -60,8 +60,8 @@ suite("test_decimalv2_common", "nonConcurrent") {
             `decimal_key2` decimalv2(16, 5) NULL COMMENT "",
             `decimal_value1` decimalv2(8, 5) NULL COMMENT "",
             `decimal_value2` decimalv2(16, 5) NULL COMMENT "",
-            INDEX `idx_key1` (`decimal_value1`) USING BITMAP,
-            INDEX `idx_key2` (`decimal_value2`) USING BITMAP
+            INDEX `idx_key1` (`decimal_key1`) USING BITMAP,
+            INDEX `idx_key2` (`decimal_key2`) USING BITMAP
           ) ENGINE=OLAP
           UNIQUE KEY(`decimal_key1`, `decimal_key2`)
           COMMENT "OLAP"

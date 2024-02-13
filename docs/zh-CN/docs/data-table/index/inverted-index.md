@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# [Experimental] 倒排索引
+# 倒排索引
 
 <version since="2.0.0">
  
@@ -53,7 +53,7 @@ Doris倒排索引的功能简要介绍如下：
   - 支持字符串全文检索，包括同时匹配多个关键字MATCH_ALL、匹配任意一个关键字MATCH_ANY、匹配短语词组MATCH_PHRASE
   - 支持字符串数组类型的全文检索
   - 支持英文、中文以及Unicode多语言分词
-- 加速普通等值、范围查询，覆盖bitmap索引的功能，未来会代替bitmap索引
+- 加速普通等值、范围查询，覆盖bitmap索引的功能，可代替bitmap索引
   - 支持字符串、数值、日期时间类型的 =, !=, >, >=, <, <= 快速过滤
   - 支持字符串、数字、日期时间数组类型的 =, !=, >, >=, <, <=
 - 支持完善的逻辑组合

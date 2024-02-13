@@ -153,14 +153,14 @@ distribution_desc
     索引定义：
 
     ```sql
-    INDEX index_name (col_name) [USING BITMAP] COMMENT 'xxxxxx'
+    INDEX index_name (col_name) [USING INVERTED] COMMENT 'xxxxxx'
     ```
 
     示例：
     
     ```sql
-    INDEX idx1 (k1) USING BITMAP COMMENT "This is a bitmap index1",
-    INDEX idx2 (k2) USING BITMAP COMMENT "This is a bitmap index2",
+    INDEX idx1 (k1) USING INVERTED COMMENT "This is a inverted index1",
+    INDEX idx2 (k2) USING INVERTED COMMENT "This is a inverted index2",
     ...
     ```
 
@@ -564,7 +564,7 @@ UNIQUE KEY(k1, k2)
     );
     ```
 
-7. 创建一个带有 bitmap 索引以及 bloom filter 索引的表
+7. 创建一个带有倒排索引以及 bloom filter 索引的表
 
     ```sql
     CREATE TABLE example_db.table_hash
@@ -573,7 +573,7 @@ UNIQUE KEY(k1, k2)
         k2 DECIMAL(10, 2) DEFAULT "10.5",
         v1 CHAR(10) REPLACE,
         v2 INT SUM,
-        INDEX k1_idx (k1) USING BITMAP COMMENT 'my first index'
+        INDEX k1_idx (k1) USING INVERTED COMMENT 'my first index'
     )
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32

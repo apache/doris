@@ -155,7 +155,7 @@ suite("test_bitmap_index", "inverted_index") {
     }
     test{
         sql "ALTER TABLE ${tbName2} ADD INDEX index12 (v1) USING BITMAP;"
-        exception "errCode = 2, detailMessage = BITMAP index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of AGG_KEYS table. invalid column: v1"
+        exception "errCode = 2, detailMessage = INVERTED index only used in columns of DUP_KEYS/UNIQUE_KEYS MOW table or key columns of all table. invalid index: index12"
     }
 
     sql "insert into ${tbName2} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,1);"
@@ -226,8 +226,7 @@ suite("test_bitmap_index", "inverted_index") {
                 ADD INDEX index8 (k8) USING BITMAP,
                 ADD INDEX index9 (k9) USING BITMAP,
                 ADD INDEX index10 (k10) USING BITMAP,
-                ADD INDEX index11 (k11) USING BITMAP,
-                ADD INDEX index12 (v1) USING BITMAP;
+                ADD INDEX index11 (k11) USING BITMAP;
         """
     max_try_secs = 60
     while (max_try_secs--) {
@@ -248,7 +247,7 @@ suite("test_bitmap_index", "inverted_index") {
     qt_sql "desc ${tbName3};"
     show_result = sql "show index from ${tbName3}"
     logger.info("show index from " + tbName3 + " result: " + show_result)
-    assertEquals(show_result.size(), 12)
+    assertEquals(show_result.size(), 11)
     assertEquals(show_result[0][2], "index1")
     assertEquals(show_result[1][2], "index2")
     assertEquals(show_result[2][2], "index3")
@@ -260,7 +259,6 @@ suite("test_bitmap_index", "inverted_index") {
     assertEquals(show_result[8][2], "index9")
     assertEquals(show_result[9][2], "index10")
     assertEquals(show_result[10][2], "index11")
-    assertEquals(show_result[11][2], "index12")
     qt_sql "select * from ${tbName3};"
 
     sql "DROP INDEX IF EXISTS index1 ON ${tbName3};"
