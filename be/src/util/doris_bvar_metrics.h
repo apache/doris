@@ -226,6 +226,7 @@ public:
     SystemBvarMetrics* system_metrics() { return system_metrics_.get(); }
 
     const std::string to_prometheus();
+    const std::string to_core_string();
 
 private:
     DorisBvarMetrics();

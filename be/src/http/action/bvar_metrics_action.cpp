@@ -32,7 +32,7 @@ void BvarMetricsAction::handle(HttpRequest* req) {
     // const std::string& with_tablet = req->param("with_tablet");
     std::string str;
     if (type == "core") {
-        // str = bvar_metric_registry_->to_core_string();
+        str = DorisBvarMetrics::instance()->to_core_string();
     } else if (type == "json") {
         // str = bvar_metric_registry_->to_json(with_tablet == "true");
     } else {

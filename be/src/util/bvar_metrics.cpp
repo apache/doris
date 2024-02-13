@@ -65,6 +65,11 @@ const std::string BvarAdderMetric<T>::to_prometheus(const std::string& registry_
 }
 
 template <typename T>
+std::string BvarAdderMetric<T>::to_core_string(const std::string& registry_name) const {
+    return registry_name + "_" + name_ + " " + "LONG " + value_string() + "\n";
+}
+
+template <typename T>
 std::string BvarAdderMetric<T>::label_string() const {
     if (labels_.empty()) {
         return "";
@@ -126,6 +131,17 @@ const std::string BvarMetricEntity::to_prometheus(const std::string& registry_na
     // ss << "# TYPE " << registry_name << "_" << entity_name_ << " " << type_ << "\n";
     for (auto metric_pair : metrics_) {
         ss << metric_pair.second->to_prometheus(registry_name);
+    }
+    return ss.str();
+}
+
+const std::string BvarMetricEntity::to_core_string(const std::string& registry_name) {
+    std::lock_guard<bthread::Mutex> l(mutex_);
+    std::stringstream ss;
+    for(auto metrics_pair : metrics_) {
+        if(metrics_pair.second->is_core()) {
+            ss << metrics_pair.second->to_core_string(registry_name);
+        }
     }
     return ss.str();
 }
