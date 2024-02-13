@@ -418,10 +418,6 @@ SystemBvarMetrics::~SystemBvarMetrics() {
     for (auto& it : network_metrics_) {
         delete it.second;
     }
-
-    if (line_ptr_ != nullptr) {
-        free(line_ptr_);
-    }
 }
 
 void SystemBvarMetrics::update() {
@@ -481,12 +477,13 @@ void SystemBvarMetrics::update_cpu_metrics() {
                      << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
-
-    while (getline(&line_ptr_, &line_buf_size_, fp) > 0) {
+    char* line_ptr = nullptr;
+    size_t line_buf_size = 0;
+    while (getline(&line_ptr, &line_buf_size, fp) > 0) {
         char cpu[16];
         int64_t values[CpuBvarMetrics::cpu_num_metrics];
         memset(values, 0, sizeof(values));
-        int num = sscanf(line_ptr_,
+        int num = sscanf(line_ptr,
                          "%15s"
                          " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64
                          " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64,
@@ -496,7 +493,7 @@ void SystemBvarMetrics::update_cpu_metrics() {
             continue;
         }
 
-        std::string cpu_name(cpu);
+        std::string cpu_name(cpu, 15);
         auto it = cpu_metrics_.find(cpu_name);
         if (it == cpu_metrics_.end()) {
             continue;
@@ -569,9 +566,11 @@ void SystemBvarMetrics::update_disk_metrics() {
     int minor = 0;
     char device[1024];
     int64_t values[11];
-    while (getline(&line_ptr_, &line_buf_size_, fp) > 0) {
+    char* line_ptr = nullptr;
+    size_t line_buf_size = 0;
+    while (getline(&line_ptr, &line_buf_size, fp) > 0) {
         memset(values, 0, sizeof(values));
-        int num = sscanf(line_ptr_,
+        int num = sscanf(line_ptr,
                          "%d %d %1023s"
                          " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64
                          " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64,
@@ -634,10 +633,11 @@ void SystemBvarMetrics::update_net_metrics() {
                      << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
-
+    char* line_ptr = nullptr;
+    size_t line_buf_size = 0;
     // Ignore header
-    if (getline(&line_ptr_, &line_buf_size_, fp) < 0 ||
-        getline(&line_ptr_, &line_buf_size_, fp) < 0) {
+    if (getline(&line_ptr, &line_buf_size, fp) < 0 ||
+        getline(&line_ptr, &line_buf_size, fp) < 0) {
         char buf[64];
         LOG(WARNING) << "read /proc/net/dev first two line failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
@@ -645,21 +645,21 @@ void SystemBvarMetrics::update_net_metrics() {
         return;
     }
     if (proc_net_dev_version_ == 0) {
-        if (strstr(line_ptr_, "compressed") != nullptr) {
+        if (strstr(line_ptr, "compressed") != nullptr) {
             proc_net_dev_version_ = 3;
-        } else if (strstr(line_ptr_, "bytes") != nullptr) {
+        } else if (strstr(line_ptr, "bytes") != nullptr) {
             proc_net_dev_version_ = 2;
         } else {
             proc_net_dev_version_ = 1;
         }
     }
 
-    while (getline(&line_ptr_, &line_buf_size_, fp) > 0) {
-        char* ptr = strrchr(line_ptr_, ':');
+    while (getline(&line_ptr, &line_buf_size, fp) > 0) {
+        char* ptr = strrchr(line_ptr, ':');
         if (ptr == nullptr) {
             continue;
         }
-        char* start = line_ptr_;
+        char* start = line_ptr;
         while (isspace(*start)) {
             start++;
         }
@@ -740,11 +740,12 @@ void SystemBvarMetrics::update_fd_metrics() {
     // 1 - the number of allocated file handles
     // 2 - the number of allocated but unused file handles
     // 3 - the maximum number of file handles
-
+    char* line_ptr = nullptr;
+    size_t line_buf_size = 0;
     int64_t values[3];
-    if (getline(&line_ptr_, &line_buf_size_, fp) > 0) {
+    if (getline(&line_ptr, &line_buf_size, fp) > 0) {
         memset(values, 0, sizeof(values));
-        int num = sscanf(line_ptr_, "%" PRId64 " %" PRId64 " %" PRId64, &values[0], &values[1],
+        int num = sscanf(line_ptr, "%" PRId64 " %" PRId64 " %" PRId64, &values[0], &values[1],
                          &values[2]);
         if (num == 3) {
             fd_metrics_->fd_num_limit->set_value(values[2]);
@@ -781,9 +782,11 @@ void SystemBvarMetrics::update_snmp_metrics() {
     }
 
     // We only care about Tcp lines, so skip other lines in front of Tcp line
+    char* line_ptr = nullptr;
+    size_t line_buf_size = 0;
     int res = 0;
-    while ((res = getline(&line_ptr_, &line_buf_size_, fp)) > 0) {
-        if (strstr(line_ptr_, "Tcp") != nullptr) {
+    while ((res = getline(&line_ptr, &line_buf_size, fp)) > 0) {
+        if (strstr(line_ptr, "Tcp") != nullptr) {
             break;
         }
     }
@@ -797,7 +800,7 @@ void SystemBvarMetrics::update_snmp_metrics() {
 
     // parse the Tcp header
     // Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts InCsumErrors
-    std::vector<std::string> headers = strings::Split(line_ptr_, " ");
+    std::vector<std::string> headers = strings::Split(line_ptr, " ");
     std::unordered_map<std::string, int32_t> header_map;
     int32_t pos = 0;
     for (auto& h : headers) {
@@ -805,7 +808,9 @@ void SystemBvarMetrics::update_snmp_metrics() {
     }
 
     // read the metrics of TCP
-    if (getline(&line_ptr_, &line_buf_size_, fp) < 0) {
+    char* line_ptr = nullptr;
+    size_t line_buf_size = 0;
+    if (getline(&line_ptr, &line_buf_size, fp) < 0) {
         char buf[64];
         LOG(WARNING) << "failed to skip Tcp header line of /proc/net/snmp, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
@@ -815,9 +820,9 @@ void SystemBvarMetrics::update_snmp_metrics() {
 
     // metric line looks like:
     // Tcp: 1 200 120000 -1 47849374 38601877 3353843 2320314 276 1033354613 1166025166 825439 12694 23238924 0
-    std::vector<std::string> metrics = strings::Split(line_ptr_, " ");
+    std::vector<std::string> metrics = strings::Split(line_ptr, " ");
     if (metrics.size() != headers.size()) {
-        LOG(WARNING) << "invalid tcp metrics line: " << line_ptr_;
+        LOG(WARNING) << "invalid tcp metrics line: " << line_ptr;
         fclose(fp);
         return;
     }
@@ -857,11 +862,12 @@ void SystemBvarMetrics::update_load_avg_metrics() {
                      << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
-
+    char* line_ptr = nullptr;
+    size_t line_buf_size = 0;
     double values[3];
-    if (getline(&line_ptr_, &line_buf_size_, fp) > 0) {
+    if (getline(&line_ptr, &line_buf_size, fp) > 0) {
         memset(values, 0, sizeof(values));
-        int num = sscanf(line_ptr_, "%lf %lf %lf", &values[0], &values[1], &values[2]);
+        int num = sscanf(line_ptr, "%lf %lf %lf", &values[0], &values[1], &values[2]);
         if (num == 3) {
             load_average_metrics_->load_average_1_minutes->set_value(values[0]);
             load_average_metrics_->load_average_5_minutes->set_value(values[1]);
@@ -895,29 +901,30 @@ void SystemBvarMetrics::update_proc_metrics() {
                      << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
-
+    char* line_ptr = nullptr;
+    size_t line_buf_size = 0;
     uint64_t inter = 0, ctxt = 0, procs_r = 0, procs_b = 0;
-    while (getline(&line_ptr_, &line_buf_size_, fp) > 0) {
+    while (getline(&line_ptr, &line_buf_size, fp) > 0) {
         char* start_pos = nullptr;
-        start_pos = strstr(line_ptr_, "intr ");
+        start_pos = strstr(line_ptr, "intr ");
         if (start_pos) {
             sscanf(start_pos, "intr %" PRIu64, &inter);
             proc_metrics_->proc_interrupt->set_value(inter);
         }
 
-        start_pos = strstr(line_ptr_, "ctxt ");
+        start_pos = strstr(line_ptr, "ctxt ");
         if (start_pos) {
             sscanf(start_pos, "ctxt %" PRIu64, &ctxt);
             proc_metrics_->proc_ctxt_switch->set_value(ctxt);
         }
 
-        start_pos = strstr(line_ptr_, "procs_running ");
+        start_pos = strstr(line_ptr, "procs_running ");
         if (start_pos) {
             sscanf(start_pos, "procs_running %" PRIu64, &procs_r);
             proc_metrics_->proc_procs_running->set_value(procs_r);
         }
 
-        start_pos = strstr(line_ptr_, "procs_blocked ");
+        start_pos = strstr(line_ptr, "procs_blocked ");
         if (start_pos) {
             sscanf(start_pos, "procs_blocked %" PRIu64, &procs_b);
             proc_metrics_->proc_procs_blocked->set_value(procs_b);
@@ -945,11 +952,12 @@ void SystemBvarMetrics::get_metrics_from_proc_vmstat() {
                      << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
-
-    while (getline(&line_ptr_, &line_buf_size_, fp) > 0) {
+    char* line_ptr = nullptr;
+    size_t line_buf_size = 0;
+    while (getline(&line_ptr, &line_buf_size, fp) > 0) {
         uint64_t value;
         char name[64];
-        int num = sscanf(line_ptr_, "%s %" PRIu64, name, &value);
+        int num = sscanf(line_ptr, "%s %" PRIu64, name, &value);
         if (num < 2) {
             continue;
         }
@@ -986,14 +994,15 @@ void SystemBvarMetrics::get_cpu_name() {
                      << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
-
-    while (getline(&line_ptr_, &line_buf_size_, fp) > 0) {
+    char* line_ptr = nullptr;
+    size_t line_buf_size = 0;
+    while (getline(&line_ptr, &line_buf_size, fp) > 0) {
         char cpu[16];
         char* start_pos = nullptr;
-        start_pos = strstr(line_ptr_, "cpu");
+        start_pos = strstr(line_ptr, "cpu");
         if (start_pos) {
-            sscanf(line_ptr_, "%15s", cpu);
-            std::string cpu_name(cpu);
+            sscanf(line_ptr, "%15s", cpu);
+            std::string cpu_name(cpu, 15);
             cpu_names_.push_back(cpu_name);
         }
     }

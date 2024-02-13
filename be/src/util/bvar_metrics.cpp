@@ -60,7 +60,7 @@ void BvarAdderMetric<T>::set_value(T value) {
 }
 
 template <typename T>
-std::string BvarAdderMetric<T>::to_prometheus(const std::string& registry_name) const {
+const std::string BvarAdderMetric<T>::to_prometheus(const std::string& registry_name) {
     return registry_name + "_" + name_ + label_string() + " " + value_string() + "\n";
 }
 
@@ -120,7 +120,7 @@ void BvarMetricEntity::register_metric(const std::string& name, T metric) {
 //     }
 // }
 
-std::string BvarMetricEntity::to_prometheus(const std::string& registry_name) {
+const std::string BvarMetricEntity::to_prometheus(const std::string& registry_name) {
     std::lock_guard<bthread::Mutex> l(mutex_);
     std::stringstream ss;
     // ss << "# TYPE " << registry_name << "_" << entity_name_ << " " << type_ << "\n";

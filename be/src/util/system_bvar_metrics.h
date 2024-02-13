@@ -116,8 +116,6 @@ private:
 
     std::vector<std::string> cpu_names_;
     int proc_net_dev_version_ = 0;
-    char* line_ptr_ = nullptr;
-    size_t line_buf_size_ = 0;
     std::unordered_map<std::string, std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
 
     std::shared_ptr<BvarAdderMetric<int64_t>> max_disk_io_util_percent = nullptr;
