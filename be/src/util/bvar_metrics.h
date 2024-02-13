@@ -93,8 +93,8 @@ public:
                     std::string description = "", std::string group_name = "",
                     Labels labels = Labels(), bool is_core_metric = false)
             : BvarMetric(type, unit, name, description, group_name, labels, is_core_metric) {
-        // addr::expose_as
-        adder_ = std::make_shared<bvar::Adder<T>>(group_name, name + '_' + description);
+        //construct without expose information, just use bvar
+        adder_ = std::make_shared<bvar::Adder<T>>();
     }
     ~BvarAdderMetric() override = default;
 
