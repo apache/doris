@@ -43,8 +43,40 @@ std::ostream& operator<<(std::ostream& os, BvarMetricType type) {
     return os;
 }
 
+const char* unit_name(BvarMetricUnit unit) {
+    switch (unit) {
+    case BvarMetricUnit::NANOSECONDS:
+        return "nanoseconds";
+    case BvarMetricUnit::MICROSECONDS:
+        return "microseconds";
+    case BvarMetricUnit::MILLISECONDS:
+        return "milliseconds";
+    case BvarMetricUnit::SECONDS:
+        return "seconds";
+    case BvarMetricUnit::BYTES:
+        return "bytes";
+    case BvarMetricUnit::ROWS:
+        return "rows";
+    case BvarMetricUnit::PERCENT:
+        return "percent";
+    case BvarMetricUnit::REQUESTS:
+        return "requests";
+    case BvarMetricUnit::OPERATIONS:
+        return "operations";
+    case BvarMetricUnit::BLOCKS:
+        return "blocks";
+    case BvarMetricUnit::ROWSETS:
+        return "rowsets";
+    case BvarMetricUnit::CONNECTIONS:
+        return "rowsets";
+    default:
+        return "nounit";
+    }
+}
+
+
 template <typename T>
-T BvarAdderMetric<T>::get_value() {
+T BvarAdderMetric<T>::get_value() const {
     return adder_->get_value();
 }
 

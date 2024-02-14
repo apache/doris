@@ -29,12 +29,12 @@ namespace doris {
 
 void BvarMetricsAction::handle(HttpRequest* req) {
     const std::string& type = req->param("type");
-    // const std::string& with_tablet = req->param("with_tablet");
+    const std::string& with_tablet = req->param("with_tablet");
     std::string str;
     if (type == "core") {
         str = DorisBvarMetrics::instance()->to_core_string();
     } else if (type == "json") {
-        // str = bvar_metric_registry_->to_json(with_tablet == "true");
+        str = DorisBvarMetrics::instance()->to_json(with_tablet == "true");
     } else {
         str = DorisBvarMetrics::instance()->to_prometheus();
     }

@@ -402,6 +402,45 @@ const std::string SystemBvarMetrics::to_core_string(const std::string& registry_
     return ss.str();
 }
 
+void SystemBvarMetrics::to_json(rj::Document& doc, bool with_tablet_metrics) {
+    rj::Document::AllocatorType& allocator = doc.GetAllocator();
+    std::lock_guard<bthread::Mutex> l(mutex_);
+    for (const auto& entities : entities_map_) {
+        for(const auto& entity : entities.second) {
+            // if (entity.first->_type == MetricEntityType::kTablet && !with_tablet_metrics) {
+            //     continue;
+            // }
+            std::lock_guard<bthread::Mutex> l(entity->mutex_);
+            //entity.first->trigger_hook_unlocked(false);
+            for (const auto& metric : entity->metrics_) {
+                rj::Value metric_obj(rj::kObjectType);
+                // tags
+                rj::Value tag_obj(rj::kObjectType);
+                tag_obj.AddMember("metric", rj::Value(metric.second->name_.c_str(), allocator),
+                                allocator);
+                // MetricPrototype's labels
+                for (auto& label : metric.second->labels_) {
+                    tag_obj.AddMember(rj::Value(label.first.c_str(), allocator),
+                                    rj::Value(label.second.c_str(), allocator), allocator);
+                }
+                // MetricEntity's labels
+                // for (auto& label : entity->labels_) {
+                //     tag_obj.AddMember(rj::Value(label.first.c_str(), allocator),
+                //                     rj::Value(label.second.c_str(), allocator), allocator);
+                // }
+                metric_obj.AddMember("tags", tag_obj, allocator);
+                // unit
+                rj::Value unit_val(unit_name(metric.second->unit_), allocator);
+                metric_obj.AddMember("unit", unit_val, allocator);
+                // value
+                metric_obj.AddMember("value", metric.second->to_json_value(allocator), allocator);
+                doc.PushBack(metric_obj, allocator);
+            }
+        }
+    }
+}
+
+
 SystemBvarMetrics::SystemBvarMetrics(const std::set<std::string>& disk_devices,
                                      const std::vector<std::string>& network_interfaces) {
     install_cpu_metrics();
