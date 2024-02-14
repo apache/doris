@@ -33,7 +33,6 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "task_group/task_group.h"
-#include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
@@ -61,6 +60,7 @@ struct ReportStatusRequest {
     std::function<Status(Status)> update_fn;
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
 };
+
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -209,9 +209,8 @@ public:
 
     ThreadPool* get_non_pipe_exec_thread_pool();
 
-    int64_t mem_limit() { return _bytes_limit; }
+    int64_t mem_limit() const { return _bytes_limit; }
 
-public:
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;

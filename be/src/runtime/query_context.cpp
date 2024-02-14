@@ -110,6 +110,8 @@ QueryContext::~QueryContext() {
         static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
                 std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
     }
+
+    ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id);
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {

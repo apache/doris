@@ -1,0 +1,75 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+#include <concurrentqueue.h>
+#include <fmt/core.h>
+#include <gen_cpp/Types_types.h>
+#include <parallel_hashmap/phmap.h>
+
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <sstream>
+
+namespace doris::pipeline {
+
+struct ScheduleRecord {
+    TUniqueId query_id;
+    std::string task_id;
+    uint32_t core_id;
+    uint64_t thread_id;
+    uint64_t start_time;
+    uint64_t end_time;
+    std::string state_name;
+
+    bool operator<(const ScheduleRecord& rhs) const { return start_time < rhs.start_time; }
+    std::string to_string() const {
+        return fmt::format("{}-{}-{}-{}-{}-{}-{}\n", (std::stringstream {} << query_id).str(),
+                           task_id, core_id, thread_id, start_time, end_time, state_name);
+    }
+};
+
+// all tracing datas of ONE specific query
+using OneQueryTraces = moodycamel::ConcurrentQueue<ScheduleRecord>;
+
+// belongs to exec_env, for all query, if enable
+class PipelineTracerContext {
+public:
+    enum class RecordType {
+        None,     // disable
+        PerQuery, // record per query. one query one file.
+        Periodic  // record per times. one timeslice one file.
+    };
+    void record(ScheduleRecord record); // record one schedule record
+    void end_query(TUniqueId query_id); // tell context this query is end. may leads to dump.
+    Status change_record_params(const std::map<std::string, std::string>& params);
+
+    bool enabled() const { return !(_dump_type == RecordType::None); }
+
+private:
+    void _dump(TUniqueId query_id); // dump data to disk. one query or all.
+
+    std::mutex _data_lock; // lock for map, not map items.
+    phmap::flat_hash_map<TUniqueId, OneQueryTraces> _datas;
+
+    RecordType _dump_type = RecordType::None;
+    std::filesystem::path _dir = config::pipeline_tracing_log_dir;
+    std::chrono::time_point<std::chrono::steady_clock> _last_dump_time;
+    std::chrono::nanoseconds _dump_interval_ns; // effective iff Periodic mode.
+};
+} // namespace doris::pipeline
