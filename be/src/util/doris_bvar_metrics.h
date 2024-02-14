@@ -227,7 +227,7 @@ public:
 
     const std::string to_prometheus();
     const std::string to_core_string();
-
+    const std::string to_json(bool with_tablet_metrics);
 private:
     DorisBvarMetrics();
 

@@ -44,6 +44,7 @@ public:
 
     const std::string to_prometheus(const std::string& registry_name);
     const std::string to_core_string(const std::string& registry_name);
+    void to_json(rj::Document& doc, bool with_tablet_metrics);
     // update metrics
     void update();
 
@@ -104,6 +105,7 @@ private:
 
     void install_max_metrics();
 
+    
 private:
     std::map<std::string, CpuBvarMetrics*> cpu_metrics_;
     std::shared_ptr<MemoryBvarMetrics> memory_metrics_;

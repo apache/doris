@@ -21,14 +21,27 @@
 #include <bvar/latency_recorder.h>
 #include <bvar/reducer.h>
 #include <bvar/status.h>
+#include <rapidjson/document.h>
+#include <rapidjson/rapidjson.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <atomic>
+#include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <sstream>
 #include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include "util/core_local.h"
 
 namespace doris {
 
+namespace rj = RAPIDJSON_NAMESPACE;
 enum class BvarMetricType { COUNTER, GAUGE, HISTOGRAM, SUMMARY, UNTYPED };
 enum class BvarMetricUnit {
     NANOSECONDS,
@@ -49,7 +62,7 @@ enum class BvarMetricUnit {
 };
 
 std::ostream& operator<<(std::ostream& os, BvarMetricType type);
-// const char* unit_name(BvarMetricUnit unit);
+const char* unit_name(BvarMetricUnit unit);
 
 
 class BvarMetric {
@@ -69,12 +82,13 @@ public:
               description_(description),
               labels_(labels) {}
     virtual const std::string to_prometheus(const std::string& registry_name) = 0;
-    // std::string to_json(bool with_tablet_metrics = false) const;
     virtual std::string to_core_string(const std::string& reigstry_name) const = 0;
-
+    virtual rj::Value to_json_value(rj::Document::AllocatorType& allocator) const = 0;
     bool is_core() { return is_core_metric_; }
 
 protected:
+    friend class DorisBvarMetrics;
+    friend class SystemBvarMetrics;
     bool is_core_metric_;
 
     BvarMetricType type_;
@@ -101,13 +115,16 @@ public:
     }
     ~BvarAdderMetric() override = default;
 
-    T get_value();
+    T get_value() const;
     void increment(T value);
     void set_value(T value);
     void reset() { adder_->reset(); }
 
     const std::string to_prometheus(const std::string& registry_name) override;
     std::string to_core_string(const std::string& reigstry_name) const override;
+    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override {
+        return rj::Value(get_value());
+    }
     std::string label_string() const;
     std::string value_string() const;
 
@@ -135,6 +152,9 @@ public:
     BvarMetricType get_type() const { return type_; }
 
 private:
+    friend class DorisBvarMetrics;
+    friend class SystemBvarMetrics;
+    
     std::string entity_name_;
 
     BvarMetricType type_;
