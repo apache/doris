@@ -67,6 +67,7 @@ public class JdbcResource extends Resource {
     public static final String JDBC_MYSQL = "jdbc:mysql";
     public static final String JDBC_MARIADB = "jdbc:mariadb";
     public static final String JDBC_POSTGRESQL = "jdbc:postgresql";
+    public static final String JDBC_GAUSSDB = "jdbc:gaussdb";
     public static final String JDBC_ORACLE = "jdbc:oracle";
     public static final String JDBC_SQLSERVER = "jdbc:sqlserver";
     public static final String JDBC_CLICKHOUSE = "jdbc:clickhouse";
@@ -292,7 +293,7 @@ public class JdbcResource extends Resource {
     public static String parseDbType(String url) throws DdlException {
         if (url.startsWith(JDBC_MYSQL) || url.startsWith(JDBC_MARIADB)) {
             return MYSQL;
-        } else if (url.startsWith(JDBC_POSTGRESQL)) {
+        } else if (url.startsWith(JDBC_POSTGRESQL) || url.startsWith(JDBC_GAUSSDB)) {
             return POSTGRESQL;
         } else if (url.startsWith(JDBC_ORACLE)) {
             return ORACLE;
