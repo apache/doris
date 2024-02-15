@@ -22,6 +22,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.util.Objects;
 
 public class SessionVariableField implements Serializable {
     private transient Field field;
@@ -53,14 +54,32 @@ public class SessionVariableField implements Serializable {
 
     private Field getField(String fieldName, Class<?> fieldType) throws NoSuchFieldException {
         try {
-            return SessionVariableField.class.getDeclaredField(fieldName);
+            return SessionVariable.class.getDeclaredField(fieldName);
         } catch (NoSuchFieldException e) {
-            Class<?> superclass = SessionVariableField.class.getSuperclass();
+            Class<?> superclass = SessionVariable.class.getSuperclass();
             if (superclass != null) {
                 return getField(fieldName, fieldType);
             }
             throw e;
         }
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
+        SessionVariableField other = (SessionVariableField) obj;
+        // 忽略 transient 字段的比较
+        return Objects.equals(this.getField(), other.getField());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(this.getField());
     }
 
 }
