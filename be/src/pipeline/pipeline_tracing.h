@@ -16,15 +16,17 @@
 // under the License.
 
 #pragma once
+
 #include <concurrentqueue.h>
 #include <fmt/core.h>
 #include <gen_cpp/Types_types.h>
 #include <parallel_hashmap/phmap.h>
 
-#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <sstream>
+
+#include "util/time.h"
 
 namespace doris::pipeline {
 
@@ -69,7 +71,8 @@ private:
 
     RecordType _dump_type = RecordType::None;
     std::filesystem::path _dir = config::pipeline_tracing_log_dir;
-    std::chrono::time_point<std::chrono::steady_clock> _last_dump_time;
-    std::chrono::nanoseconds _dump_interval_ns; // effective iff Periodic mode.
+    decltype(MonotonicSeconds()) _last_dump_time;
+    decltype(MonotonicSeconds()) _dump_interval_s =
+            60; // effective iff Periodic mode. 1 minute default.
 };
 } // namespace doris::pipeline

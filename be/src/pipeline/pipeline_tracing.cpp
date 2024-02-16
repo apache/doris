@@ -27,8 +27,10 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "io/fs/local_file_writer.h"
+#include "util/time.h"
 
 namespace doris::pipeline {
 
@@ -36,17 +38,21 @@ void PipelineTracerContext::record(ScheduleRecord record) {
     if (_dump_type == RecordType::None) [[unlikely]] {
         return;
     }
-    std::unique_lock<std::mutex> l(_data_lock);
-    _datas[record.query_id].enqueue(record);
+    if (_datas.contains(record.query_id)) {
+        _datas[record.query_id].enqueue(record);
+    } else {
+        std::unique_lock<std::mutex> l(_data_lock); // add new item, may rehash
+        _datas[record.query_id].enqueue(record);
+    }
 }
 
 void PipelineTracerContext::end_query(TUniqueId query_id) {
     if (_dump_type == RecordType::PerQuery) {
         _dump(query_id);
     } else if (_dump_type == RecordType::Periodic) {
-        auto now = std::chrono::steady_clock::now(); // nanoseconds
+        auto now = MonotonicSeconds();
         auto interval = now - _last_dump_time;
-        if (interval > _dump_interval_ns) {
+        if (interval > _dump_interval_s) {
             _dump(query_id);
         }
     }
@@ -65,13 +71,13 @@ Status PipelineTracerContext::change_record_params(
             effective = true;
         } else if (boost::iequals(it->second, "periodic")) {
             _dump_type = RecordType::Periodic;
-            _last_dump_time = std::chrono::steady_clock::now();
+            _last_dump_time = MonotonicSeconds();
             effective = true;
         }
     }
 
     if (auto it = params.find("dump_interval"); it != params.end()) {
-        _dump_interval_ns = std::chrono::nanoseconds {std::stoll(it->second)};
+        _dump_interval_s = std::stoll(it->second); // s as unit
         effective = true;
     }
 
@@ -85,9 +91,14 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
         return;
     }
 
+    std::unique_lock<std::mutex> l(_data_lock); // can't rehash
     if (_dump_type == RecordType::PerQuery) {
         auto path = _dir / fmt::format("query-{}", (std::stringstream {} << query_id).str());
-        int fd = ::open(path.c_str(), O_WRONLY);
+        int fd = ::open(path.c_str(), O_CREAT | O_WRONLY | O_TRUNC);
+        if (fd < 0) [[unlikely]] {
+            throw Exception(Status::Error<ErrorCode::CREATE_FILE_ERROR>(
+                    "create tracing log file {} failed", path.c_str()));
+        }
         auto writer = io::LocalFileWriter {path, fd};
 
         ScheduleRecord record;
@@ -101,7 +112,11 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
     } else if (_dump_type == RecordType::Periodic) {
         auto path = _dir / fmt::format("until-{}",
                                        std::chrono::steady_clock::now().time_since_epoch().count());
-        int fd = ::open(path.c_str(), O_WRONLY);
+        int fd = ::open(path.c_str(), O_CREAT | O_WRONLY | O_TRUNC);
+        if (fd < 0) [[unlikely]] {
+            throw Exception(Status::Error<ErrorCode::CREATE_FILE_ERROR>(
+                    "create tracing log file {} failed", path.c_str()));
+        }
         auto writer = io::LocalFileWriter {path, fd};
 
         for (auto& [id, trace] : _datas) {
@@ -114,7 +129,7 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
         THROW_IF_ERROR(writer.finalize());
         THROW_IF_ERROR(writer.close());
 
-        _last_dump_time = std::chrono::steady_clock::now();
+        _last_dump_time = MonotonicSeconds();
     }
 }
 } // namespace doris::pipeline

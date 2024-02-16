@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -41,6 +42,7 @@ using PipelineId = uint32_t;
 class Pipeline : public std::enable_shared_from_this<Pipeline> {
     friend class PipelineTask;
     friend class PipelineXTask;
+    friend class PipelineXFragmentContext;
 
 public:
     Pipeline() = delete;
@@ -190,7 +192,11 @@ private:
     PipelineId _pipeline_id;
     std::weak_ptr<PipelineFragmentContext> _context;
     int _previous_schedule_id = -1;
-    std::string _name; // init in building operators. pipline id + operator names
+
+    // pipline id + operator names. init when:
+    //  build_operators(), if pipeline;
+    //  _build_pipelines() and _create_tree_helper(), if pipelineX.
+    std::string _name;
 
     std::unique_ptr<RuntimeProfile> _pipeline_profile;
 
