@@ -157,13 +157,10 @@ struct UpdateRuntimeFilterParams {
 };
 
 struct UpdateRuntimeFilterParamsV2 {
-    UpdateRuntimeFilterParamsV2(const PPublishFilterRequestV2* req,
-                                butil::IOBufAsZeroCopyInputStream* data_stream,
-                                ObjectPool* obj_pool)
-            : request(req), data(data_stream), pool(obj_pool) {}
     const PPublishFilterRequestV2* request;
     butil::IOBufAsZeroCopyInputStream* data;
     ObjectPool* pool = nullptr;
+    PrimitiveType column_type = INVALID_TYPE;
 };
 
 struct MergeRuntimeFilterParams {
@@ -220,8 +217,6 @@ public:
 
     vectorized::SharedRuntimeFilterContext& get_shared_context_ref();
 
-    void copy_from_other(IRuntimeFilter* other);
-
     // insert data to build filter
     void insert_batch(vectorized::ColumnPtr column, size_t start);
 
@@ -230,6 +225,8 @@ public:
     Status publish(bool publish_local = false);
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
+
+    PrimitiveType column_type() const;
 
     Status get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
                               std::vector<vectorized::VExprSPtr>& push_exprs, bool is_late_arrival);
@@ -276,20 +273,21 @@ public:
 
     Status merge_from(const RuntimePredicateWrapper* wrapper);
 
-    // for ut
     static Status create_wrapper(RuntimeFilterParamsContext* state,
                                  const MergeRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     static Status create_wrapper(RuntimeFilterParamsContext* state,
                                  const UpdateRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
+
     static Status create_wrapper(RuntimeFilterParamsContext* state,
-                                 const UpdateRuntimeFilterParamsV2* param, ObjectPool* pool,
-                                 std::unique_ptr<RuntimePredicateWrapper>* wrapper);
+                                 const UpdateRuntimeFilterParamsV2* param,
+                                 RuntimePredicateWrapper** wrapper);
     void change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
-    Status update_filter(const UpdateRuntimeFilterParamsV2* param, int64_t start_apply);
+    void update_filter(RuntimePredicateWrapper* filter_wrapper, int64_t merge_time,
+                       int64_t start_apply);
 
     void set_ignored(const std::string& msg);
 

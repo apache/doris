@@ -92,7 +92,6 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids
                                         ? tnode.hash_join_node.hash_output_slot_ids
                                         : std::vector<SlotId> {}) {
-    _runtime_filter_descs = tnode.runtime_filters;
     _arena = std::make_shared<Arena>();
     _hash_table_variants = std::make_shared<HashTableVariants>();
     _process_hashtable_ctx_variants = std::make_unique<HashTableCtxVariants>();
@@ -180,12 +179,10 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 #endif
 
-    _runtime_filters.resize(_runtime_filter_descs.size());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                _runtime_filter_descs[i], state->query_options(), _probe_expr_ctxs.size() == 1));
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
-                _runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
+                _runtime_filter_descs[i], state->query_options(), &_runtime_filters[i],
+                _probe_expr_ctxs.size() == 1));
     }
 
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
@@ -795,11 +792,11 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                   __builtin_unreachable();
                               },
                               [&](auto&& arg) -> Status {
-                                  if (_runtime_filter_descs.empty()) {
+                                  if (_runtime_filters.empty()) {
                                       return Status::OK();
                                   }
                                   _runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-                                          _build_expr_ctxs, _runtime_filter_descs);
+                                          _build_expr_ctxs, _runtime_filters);
 
                                   RETURN_IF_ERROR(_runtime_filter_slots->init(
                                           state, arg.hash_table->size()));
