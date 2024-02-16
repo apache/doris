@@ -383,9 +383,10 @@ const std::string SystemBvarMetrics::to_prometheus(const std::string& registry_n
         }
         int count = 0;
         for (auto& entity : entities.second) {
+            entity->trigger_hook_unlocked(false);
             if (!count) {
-                ss << "# TYPE " << registry_name << "_" << entity->get_name() << " "
-                   << entity->get_type() << "\n";
+                ss << "# TYPE " << registry_name << "_" << entity->entity_name_ << " "
+                   << entity->metrics_type_ << "\n";
                 count++;
             }
             ss << entity->to_prometheus(registry_name);
@@ -410,8 +411,7 @@ void SystemBvarMetrics::to_json(rj::Document& doc, bool with_tablet_metrics) {
             // if (entity.first->_type == MetricEntityType::kTablet && !with_tablet_metrics) {
             //     continue;
             // }
-            std::lock_guard<bthread::Mutex> l(entity->mutex_);
-            //entity.first->trigger_hook_unlocked(false);
+            entity->trigger_hook_unlocked(false);
             for (const auto& metric : entity->metrics_) {
                 rj::Value metric_obj(rj::kObjectType);
                 // tags
@@ -539,8 +539,7 @@ void SystemBvarMetrics::update_cpu_metrics() {
         if (num < 4) {
             continue;
         }
-
-        std::string cpu_name(cpu, 15);
+        std::string cpu_name(cpu);
         auto it = cpu_metrics_.find(cpu_name);
         if (it == cpu_metrics_.end()) {
             continue;
@@ -1047,7 +1046,7 @@ void SystemBvarMetrics::get_cpu_name() {
         start_pos = strstr(line_ptr, "cpu");
         if (start_pos) {
             sscanf(line_ptr, "%15s", cpu);
-            std::string cpu_name(cpu, 15);
+            std::string cpu_name(cpu);
             cpu_names_.push_back(cpu_name);
         }
     }

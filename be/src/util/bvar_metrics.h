@@ -132,13 +132,15 @@ private:
     std::shared_ptr<bvar::Adder<T>> adder_;
 };
 
+enum class BvarMetricEntityType { kServer, kTablet };
+
 class BvarMetricEntity {
 public:
     BvarMetricEntity() = default;
     BvarMetricEntity(std::string entity_name, BvarMetricType type)
-            : entity_name_(entity_name), type_(type) {}
+            : entity_name_(entity_name), metrics_type_(type) {}
     BvarMetricEntity(const BvarMetricEntity& entity)
-            : entity_name_(entity.entity_name_), type_(entity.type_), metrics_(entity.metrics_) {}
+            : entity_name_(entity.entity_name_), metrics_type_(entity.metrics_type_), metrics_(entity.metrics_) {}
 
     template <typename T>
     void register_metric(const std::string& name, T metric);
@@ -148,8 +150,11 @@ public:
     const std::string to_prometheus(const std::string& registry_name);
     const std::string to_core_string(const std::string& registry_name);
     // std::shared_ptr<BvarMetric> get_metric(const std::string& name);
-    std::string get_name() const { return entity_name_; }
-    BvarMetricType get_type() const { return type_; }
+
+    // Register a hook, this hook will called before get_metric is called
+    void register_hook(const std::string& name, const std::function<void()>& hook);
+    void deregister_hook(const std::string& name);
+    void trigger_hook_unlocked(bool force) const;
 
 private:
     friend class DorisBvarMetrics;
@@ -157,10 +162,14 @@ private:
     
     std::string entity_name_;
 
-    BvarMetricType type_;
+    BvarMetricType metrics_type_;
+
+    BvarMetricEntityType entity_type_ = BvarMetricEntityType::kServer;
 
     std::unordered_map<std::string, std::shared_ptr<BvarMetric>> metrics_;
 
+    std::map<std::string, std::function<void()>> hooks_;
+    
     bthread::Mutex mutex_;
 };
 

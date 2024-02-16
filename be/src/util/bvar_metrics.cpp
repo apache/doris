@@ -157,6 +157,30 @@ void BvarMetricEntity::register_metric(const std::string& name, T metric) {
 //     }
 // }
 
+void BvarMetricEntity::register_hook(const std::string& name, const std::function<void()>& hook) {
+    std::lock_guard<bthread::Mutex> l(mutex_);
+#ifndef BE_TEST
+    DCHECK(hooks_.find(name) == hooks_.end()) << "hook is already exist! " << entity_name_ << ":" << name;
+#endif
+    hooks_.emplace(name, hook);
+}
+
+void BvarMetricEntity::deregister_hook(const std::string& name) {
+    std::lock_guard<bthread::Mutex> l(mutex_);
+    hooks_.erase(name);
+}
+
+void BvarMetricEntity::trigger_hook_unlocked(bool force) const {
+    // When 'enable_metric_calculator' is true, hooks will be triggered by a background thread,
+    // see 'calculate_metrics' in daemon.cpp for more details.
+    if (!force && config::enable_metric_calculator) {
+        return;
+    }
+    for (const auto& hook : hooks_) {
+        hook.second();
+    }
+}
+
 const std::string BvarMetricEntity::to_prometheus(const std::string& registry_name) {
     std::lock_guard<bthread::Mutex> l(mutex_);
     std::stringstream ss;
