@@ -41,7 +41,6 @@ public:
         _profile = _runtime_state.runtime_profile();
         _runtime_state.init_mem_trackers();
         static_cast<void>(_runtime_state.init(unique_id, query_options, query_globals, _env));
-        _runtime_state.set_query_ctx(query_ctx);
     }
     void init();
 
@@ -75,7 +74,6 @@ private:
     TUniqueId unique_id;
     TQueryOptions query_options;
     TQueryGlobals query_globals;
-    QueryContext* query_ctx = nullptr;
 };
 
 void VWalScannerTest::init_desc_table() {

@@ -807,7 +807,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
             static_cast<void>(_runtimefilter_controller.add_entity(
                     params.local_params[i], params.query_id, params.query_options, &handler,
-                    RuntimeFilterParamsContext::create(context->get_runtime_state(UniqueId()))));
+                    RuntimeFilterParamsContext::create(context->get_runtime_state())));
             context->set_merge_controller_handler(handler);
             const TUniqueId& fragment_instance_id = params.local_params[i].fragment_instance_id;
             {
@@ -887,7 +887,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
             static_cast<void>(_runtimefilter_controller.add_entity(
                     local_params, params.query_id, params.query_options, &handler,
-                    RuntimeFilterParamsContext::create(context->get_runtime_state(UniqueId()))));
+                    RuntimeFilterParamsContext::create(context->get_runtime_state())));
             context->set_merge_controller_handler(handler);
 
             {
@@ -1366,20 +1366,29 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             pool = &fragment_executor->get_query_ctx()->obj_pool;
         }
 
-        UpdateRuntimeFilterParamsV2 params(request, attach_data, pool);
-        int filter_id = request->filter_id();
+        // 1. get the target filters
         std::vector<IRuntimeFilter*> filters;
-        RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(filter_id, filters));
+        RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
 
-        IRuntimeFilter* first_filter = nullptr;
-        for (auto filter : filters) {
-            if (!first_filter) {
-                RETURN_IF_ERROR(filter->update_filter(&params, start_apply));
-                first_filter = filter;
-            } else {
-                filter->copy_from_other(first_filter);
+        // 2. create the filter wrapper to replace or ignore the target filters
+        if (request->has_in_filter() && request->in_filter().has_ignored_msg()) {
+            const auto& in_filter = request->in_filter();
+
+            std::ranges::for_each(filters, [&in_filter](auto& filter) {
+                filter->set_ignored(in_filter.ignored_msg());
                 filter->signal();
-            }
+            });
+        } else if (!filters.empty()) {
+            UpdateRuntimeFilterParamsV2 params {request, attach_data, pool,
+                                                filters[0]->column_type()};
+            RuntimePredicateWrapper* filter_wrapper = nullptr;
+            RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(
+                    runtime_filter_mgr->get_runtime_filter_context_state(), &params,
+                    &filter_wrapper));
+
+            std::ranges::for_each(filters, [&](auto& filter) {
+                filter->update_filter(filter_wrapper, request->merge_time(), start_apply);
+            });
         }
     }
 
