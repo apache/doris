@@ -224,6 +224,8 @@ public:
 
     void register_entity(BvarMetricEntity entity);
     SystemBvarMetrics* system_metrics() { return system_metrics_.get(); }
+    
+    void trigger_all_hooks(bool force);
 
     const std::string to_prometheus();
     const std::string to_core_string();

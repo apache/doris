@@ -353,6 +353,16 @@ void DorisBvarMetrics::initialize(bool init_system_metrics,
 
 void DorisBvarMetrics::register_entity(BvarMetricEntity entity) {}
 
+void DorisBvarMetrics::trigger_all_hooks(bool force) {
+    std::lock_guard<bthread::Mutex> l(mutex_);
+    for (const auto& entities : entities_map_) {
+        for(const auto& entity : entities.second) {
+            std::lock_guard<bthread::Mutex> l(entity->mutex_);
+            entity->trigger_hook_unlocked(force);
+        }
+    }
+}
+
 const std::string DorisBvarMetrics::to_prometheus() {
     std::lock_guard<bthread::Mutex> l(mutex_);
     std::stringstream ss;
@@ -362,9 +372,10 @@ const std::string DorisBvarMetrics::to_prometheus() {
         }
         int count = 0;
         for (auto& entity : entities.second) {
+            entity->trigger_hook_unlocked(false);
             if (!count) {
-                ss << "# TYPE " << s_registry_name_ << "_" << entity->get_name() << " "
-                   << entity->get_type() << "\n";
+                ss << "# TYPE " << s_registry_name_ << "_" << entity->entity_name_ << " "
+                   << entity->metrics_type_ << "\n";
                 count++;
             }
             ss << entity->to_prometheus(s_registry_name_);
@@ -382,6 +393,7 @@ const std::string DorisBvarMetrics::to_core_string(){
             continue;
         }
         for (auto& entity : entities.second) {
+            entity->trigger_hook_unlocked(false);
             ss << entity->to_core_string(s_registry_name_);
         }   
     }
@@ -398,8 +410,7 @@ const std::string DorisBvarMetrics::to_json(bool with_tablet_metrics) {
             // if (entity.first->_type == MetricEntityType::kTablet && !with_tablet_metrics) {
             //     continue;
             // }
-            std::lock_guard<bthread::Mutex> l(entity->mutex_);
-            //entity.first->trigger_hook_unlocked(false);
+            entity->trigger_hook_unlocked(false);
             for (const auto& metric : entity->metrics_) {
                 rj::Value metric_obj(rj::kObjectType);
                 // tags
