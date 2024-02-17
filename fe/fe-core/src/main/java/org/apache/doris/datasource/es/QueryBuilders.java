@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external.elasticsearch;
+package org.apache.doris.datasource.es;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
@@ -477,7 +477,7 @@ public final class QueryBuilders {
          * @param out used to generate JSON elements
          * @throws IOException if IO error occurred
          */
-        abstract void toJson(JsonGenerator out) throws IOException;
+        public abstract void toJson(JsonGenerator out) throws IOException;
 
         /**
          * Convert query to JSON format and catch error.
@@ -509,7 +509,7 @@ public final class QueryBuilders {
         }
 
         @Override
-        void toJson(JsonGenerator out) throws IOException {
+        public void toJson(JsonGenerator out) throws IOException {
             JsonNode jsonNode = mapper.readTree(value);
             out.writeStartObject();
             Iterator<Entry<String, JsonNode>> values = jsonNode.fields();
@@ -541,26 +541,26 @@ public final class QueryBuilders {
             return this;
         }
 
-        BoolQueryBuilder filter(QueryBuilder queryBuilder) {
+        public BoolQueryBuilder filter(QueryBuilder queryBuilder) {
             Objects.requireNonNull(queryBuilder);
             filterClauses.add(queryBuilder);
             return this;
         }
 
-        BoolQueryBuilder mustNot(QueryBuilder queryBuilder) {
+        public BoolQueryBuilder mustNot(QueryBuilder queryBuilder) {
             Objects.requireNonNull(queryBuilder);
             mustNotClauses.add(queryBuilder);
             return this;
         }
 
-        BoolQueryBuilder should(QueryBuilder queryBuilder) {
+        public BoolQueryBuilder should(QueryBuilder queryBuilder) {
             Objects.requireNonNull(queryBuilder);
             shouldClauses.add(queryBuilder);
             return this;
         }
 
         @Override
-        protected void toJson(JsonGenerator out) throws IOException {
+        public void toJson(JsonGenerator out) throws IOException {
             out.writeStartObject();
             out.writeFieldName("bool");
             out.writeStartObject();
@@ -603,7 +603,7 @@ public final class QueryBuilders {
         }
 
         @Override
-        void toJson(final JsonGenerator out) throws IOException {
+        public void toJson(final JsonGenerator out) throws IOException {
             out.writeStartObject();
             out.writeFieldName("term");
             out.writeStartObject();
@@ -627,7 +627,7 @@ public final class QueryBuilders {
         }
 
         @Override
-        void toJson(final JsonGenerator out) throws IOException {
+        public void toJson(final JsonGenerator out) throws IOException {
             out.writeStartObject();
             out.writeFieldName("terms");
             out.writeStartObject();
@@ -645,7 +645,7 @@ public final class QueryBuilders {
     /**
      * A Query that matches documents within an range of terms
      */
-    static class RangeQueryBuilder extends QueryBuilder {
+    public static class RangeQueryBuilder extends QueryBuilder {
 
         private final String field;
 
@@ -672,29 +672,29 @@ public final class QueryBuilders {
             return this;
         }
 
-        RangeQueryBuilder lt(Object value) {
+        public RangeQueryBuilder lt(Object value) {
             return to(value, false);
         }
 
-        RangeQueryBuilder lte(Object value) {
+        public RangeQueryBuilder lte(Object value) {
             return to(value, true);
         }
 
-        RangeQueryBuilder gt(Object value) {
+        public RangeQueryBuilder gt(Object value) {
             return from(value, false);
         }
 
-        RangeQueryBuilder gte(Object value) {
+        public RangeQueryBuilder gte(Object value) {
             return from(value, true);
         }
 
-        RangeQueryBuilder format(String format) {
+        public RangeQueryBuilder format(String format) {
             this.format = format;
             return this;
         }
 
         @Override
-        void toJson(final JsonGenerator out) throws IOException {
+        public void toJson(final JsonGenerator out) throws IOException {
             if (lt == null && gt == null) {
                 throw new IllegalStateException("Either lower or upper bound should be provided");
             }
@@ -745,7 +745,7 @@ public final class QueryBuilders {
         }
 
         @Override
-        void toJson(JsonGenerator out) throws IOException {
+        public void toJson(JsonGenerator out) throws IOException {
             out.writeStartObject();
             out.writeFieldName("wildcard");
             out.writeStartObject();
@@ -768,7 +768,7 @@ public final class QueryBuilders {
         }
 
         @Override
-        void toJson(JsonGenerator out) throws IOException {
+        public void toJson(JsonGenerator out) throws IOException {
             out.writeStartObject();
             out.writeFieldName("exists");
             out.writeStartObject();
@@ -788,7 +788,7 @@ public final class QueryBuilders {
         }
 
         @Override
-        void toJson(final JsonGenerator out) throws IOException {
+        public void toJson(final JsonGenerator out) throws IOException {
             out.writeStartObject();
             out.writeFieldName("match_all");
             out.writeStartObject();

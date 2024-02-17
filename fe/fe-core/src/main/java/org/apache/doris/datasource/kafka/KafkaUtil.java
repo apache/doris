@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+package org.apache.doris.datasource.kafka;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.LoadException;
