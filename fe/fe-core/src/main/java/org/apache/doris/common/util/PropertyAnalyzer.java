@@ -466,8 +466,8 @@ public class PropertyAnalyzer {
                             found = true;
                             break;
                         } else {
-                            throw new AnalysisException("Bloom filter index only used in columns of"
-                                    + " UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table."
+                            throw new AnalysisException("Bloom filter index should only be used in columns"
+                                    + " of UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table."
                                     + " invalid column: " + bfColumn);
                         }
                     }
