@@ -164,8 +164,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         bool should_push_down = true;
         bool should_push_down_value_predicates = _should_push_down_value_predicates();
         for (auto pred : *_read_context->predicates_except_leafnode_of_andnode) {
-            if (_rowset->keys_type() == UNIQUE_KEYS &&
-                !should_push_down_value_predicates &&
+            if (_rowset->keys_type() == UNIQUE_KEYS && !should_push_down_value_predicates &&
                 !_read_context->tablet_schema->column(pred->column_id()).is_key()) {
                 VLOG_DEBUG << "do not push down except_leafnode_of_andnode value pred "
                            << pred->debug_string();
