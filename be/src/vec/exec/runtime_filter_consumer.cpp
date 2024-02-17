@@ -53,10 +53,7 @@ Status RuntimeFilterConsumer::_register_runtime_filter(bool is_global) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
         if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf) {
-            DCHECK(filter_desc.type == TRuntimeFilterType::BLOOM && filter_desc.has_remote_targets);
-            // Optimize merging phase iff:
-            // 1. All BE and FE has been upgraded (e.g. opt_remote_rf)
-            // 2. This filter is bloom filter (only bloom filter should be used for merging)
+            DCHECK(filter_desc.has_remote_targets);
             RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
                     filter_desc, _state->query_options(), _filter_id, &runtime_filter, false,
                     is_global));

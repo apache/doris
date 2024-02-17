@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
+import org.apache.doris.nereids.trees.expressions.functions.window.CumeDist;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.FirstValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
@@ -67,5 +68,9 @@ public interface WindowFunctionVisitor<R, C> {
 
     default R visitRowNumber(RowNumber rowNumber, C context) {
         return visitWindowFunction(rowNumber, context);
+    }
+
+    default R visitCumeDist(CumeDist cumeDist, C context) {
+        return visitWindowFunction(cumeDist, context);
     }
 }

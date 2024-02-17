@@ -2170,10 +2170,10 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
     const int* dict_data = dict_column->get_data().data();
     string_values.reserve(num_values);
     size_t max_value_length = 0;
-    auto* null_map_data = null_map->data();
     if (orc_column_type->getKind() == orc::TypeKind::CHAR) {
         // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
         if (null_map) {
+            auto* null_map_data = null_map->data();
             for (int i = 0; i < num_values; ++i) {
                 if (!null_map_data[i]) {
                     char* val_ptr;
@@ -2207,6 +2207,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
         }
     } else {
         if (null_map) {
+            auto* null_map_data = null_map->data();
             for (int i = 0; i < num_values; ++i) {
                 if (!null_map_data[i]) {
                     char* val_ptr;

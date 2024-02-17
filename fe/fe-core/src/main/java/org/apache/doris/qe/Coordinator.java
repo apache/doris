@@ -3740,8 +3740,7 @@ public class Coordinator implements CoordInterface {
                             continue;
                         }
                         List<FRuntimeFilterTargetParam> fParams = ridToTargetParam.get(rf.getFilterId());
-                        rf.computeUseRemoteRfOpt();
-                        if (rf.getUseRemoteRfOpt()) {
+                        if (rf.hasRemoteTargets()) {
                             Map<TNetworkAddress, TRuntimeFilterTargetParamsV2> targetParamsV2 = new HashMap<>();
                             for (FRuntimeFilterTargetParam targetParam : fParams) {
                                 if (targetParamsV2.containsKey(targetParam.targetFragmentInstanceAddr)) {
@@ -3874,8 +3873,7 @@ public class Coordinator implements CoordInterface {
                             continue;
                         }
                         List<FRuntimeFilterTargetParam> fParams = ridToTargetParam.get(rf.getFilterId());
-                        rf.computeUseRemoteRfOpt();
-                        if (rf.getUseRemoteRfOpt()) {
+                        if (rf.hasRemoteTargets()) {
                             Map<TNetworkAddress, TRuntimeFilterTargetParamsV2> targetParamsV2 = new HashMap<>();
                             for (FRuntimeFilterTargetParam targetParam : fParams) {
                                 if (targetParamsV2.containsKey(targetParam.targetFragmentInstanceAddr)) {

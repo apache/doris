@@ -58,17 +58,6 @@ RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParams
                                             ExecEnv::GetInstance()->experimental_mem_tracker());
 }
 
-Status RuntimeFilterMgr::get_producer_filter(const int filter_id, IRuntimeFilter** target) {
-    std::lock_guard<std::mutex> l(_lock);
-    auto iter = _producer_map.find(filter_id);
-    if (iter == _producer_map.end()) {
-        return Status::InvalidArgument("unknown filter: {}, role: PRODUCER", filter_id);
-    }
-
-    *target = iter->second;
-    return Status::OK();
-}
-
 Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
                                              std::vector<IRuntimeFilter*>& consumer_filters) {
     std::lock_guard<std::mutex> l(_lock);
@@ -101,10 +90,7 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
     }
 
     // TODO: union the remote opt and global two case as one case to one judge
-    bool remote_opt_or_global =
-            (desc.__isset.opt_remote_rf && desc.opt_remote_rf && desc.has_remote_targets &&
-             desc.type == TRuntimeFilterType::BLOOM) ||
-            is_global;
+    bool remote_opt_or_global = (desc.__isset.opt_remote_rf && desc.opt_remote_rf) || is_global;
 
     if (!has_exist) {
         IRuntimeFilter* filter;
@@ -122,6 +108,7 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
 
 Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc,
                                                   const TQueryOptions& options,
+                                                  IRuntimeFilter** producer_filter,
                                                   bool build_bf_exactly, bool is_global,
                                                   int parallel_tasks) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
@@ -133,11 +120,10 @@ Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc
     if (iter != _producer_map.end()) {
         return Status::InvalidArgument("filter has registed");
     }
-    IRuntimeFilter* filter;
     RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options,
-                                           RuntimeFilterRole::PRODUCER, -1, &filter,
+                                           RuntimeFilterRole::PRODUCER, -1, producer_filter,
                                            build_bf_exactly, is_global, parallel_tasks));
-    _producer_map.emplace(key, filter);
+    _producer_map.emplace(key, *producer_filter);
     return Status::OK();
 }
 
@@ -196,7 +182,6 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
         const TRuntimeFilterDesc* runtime_filter_desc, const TQueryOptions* query_options,
         const std::vector<doris::TRuntimeFilterTargetParamsV2>* targetv2_info,
         const int producer_size) {
-    std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
     std::shared_ptr<RuntimeFilterCntlVal> cnt_val = std::make_shared<RuntimeFilterCntlVal>();
     // runtime_filter_desc and target will be released,
     // so we need to copy to cnt_val
@@ -206,9 +191,10 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cnt_val->pool.reset(new ObjectPool());
     cnt_val->filter = cnt_val->pool->add(
             new IRuntimeFilter(_state, &_state->get_query_ctx()->obj_pool, runtime_filter_desc));
-
     auto filter_id = runtime_filter_desc->filter_id;
     RETURN_IF_ERROR(cnt_val->filter->init_with_desc(&cnt_val->runtime_filter_desc, query_options));
+
+    std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
     _filter_map.emplace(filter_id, CntlValwithLock {cnt_val, std::make_unique<std::mutex>()});
     return Status::OK();
 }
@@ -303,7 +289,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     if (merged_size == cnt_val->producer_size) {
         if (opt_remote_rf) {
             DCHECK_GT(cnt_val->targetv2_info.size(), 0);
-            DCHECK(cnt_val->filter->is_bloomfilter());
             // Optimize merging phase iff:
             // 1. All BE has been upgraded (e.g. _opt_remote_rf)
             // 2. FE has been upgraded (e.g. cnt_val->targetv2_info.size() > 0)
@@ -492,8 +477,6 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(QueryContext* que
     params->query_id.set_hi(query_ctx->query_id().hi);
     params->query_id.set_lo(query_ctx->query_id().lo);
 
-    // params->fragment_instance_id.set_hi(state->fragment_instance_id().hi);
-    // params->fragment_instance_id.set_lo(state->fragment_instance_id().lo);
     params->be_exec_version = query_ctx->be_exec_version();
     params->query_ctx = query_ctx;
     params->_obj_pool = &query_ctx->obj_pool;
