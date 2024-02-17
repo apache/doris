@@ -994,7 +994,7 @@ Status IRuntimeFilter::publish(bool publish_local) {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
         RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
-        return push_to_remote(_state, &addr, _opt_remote_rf);
+        return push_to_remote(&addr, _opt_remote_rf);
     } else {
         // remote broadcast join only push onetime in build shared hash table
         // publish_local only set true on copy shared hash table
@@ -1003,11 +1003,10 @@ Status IRuntimeFilter::publish(bool publish_local) {
     return Status::OK();
 }
 
-Status IRuntimeFilter::push_to_remote(RuntimeFilterParamsContext* state,
-                                      const TNetworkAddress* addr, bool opt_remote_rf) {
+Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remote_rf) {
     DCHECK(is_producer());
     std::shared_ptr<PBackendService_Stub> stub(
-            state->exec_env->brpc_internal_client_cache()->get_client(*addr));
+            _state->exec_env->brpc_internal_client_cache()->get_client(*addr));
     if (!stub) {
         std::string msg =
                 fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port);

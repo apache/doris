@@ -292,8 +292,7 @@ public:
     bool is_bloomfilter();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(RuntimeFilterParamsContext* state, const TNetworkAddress* addr,
-                          bool opt_remote_rf);
+    Status push_to_remote(const TNetworkAddress* addr, bool opt_remote_rf);
 
     void init_profile(RuntimeProfile* parent_profile);
 
