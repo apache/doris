@@ -459,12 +459,16 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                  it != _remaining_conjunct_roots.end();) {
                 _pred_except_leafnode_of_andnode_evaluate_result.clear();
                 auto res = _execute_predicates_except_leafnode_of_andnode(*it);
+                VLOG_DEBUG << "_execute_predicates_except_leafnode_of_andnode expr: "
+                           << (*it)->debug_string() << " res: " << res;
                 if (res.ok() && _pred_except_leafnode_of_andnode_evaluate_result.size() == 1) {
                     _row_bitmap &= _pred_except_leafnode_of_andnode_evaluate_result[0];
                     // Delete expr after it obtains the final result.
                     {
                         std::erase_if(_common_expr_ctxs_push_down,
                                       [&it](const auto& iter) { return iter->root() == *it; });
+                        VLOG_DEBUG << "_remaining_conjunct_roots erase expr: "
+                                   << (*it)->debug_string();
                         it = _remaining_conjunct_roots.erase(it);
                     }
                 } else {
@@ -720,21 +724,24 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
     auto size = _pred_except_leafnode_of_andnode_evaluate_result.size();
     if (function_name == "and") {
         if (size < 2) {
-            return Status::InternalError("execute and logic compute error.");
+            return Status::InvalidArgument("_execute_compound_fn {} arg num {} < 2", function_name,
+                                           size);
         }
         _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) &=
                 _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
         _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
     } else if (function_name == "or") {
         if (size < 2) {
-            return Status::InternalError("execute or logic compute error.");
+            return Status::InvalidArgument("_execute_compound_fn {} arg num {} < 2", function_name,
+                                           size);
         }
         _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) |=
                 _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
         _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
     } else if (function_name == "not") {
         if (size < 1) {
-            return Status::InternalError("execute not logic compute error.");
+            return Status::InvalidArgument("_execute_compound_fn {} arg num {} < 1", function_name,
+                                           size);
         }
         roaring::Roaring tmp = _row_bitmap;
         tmp -= _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
