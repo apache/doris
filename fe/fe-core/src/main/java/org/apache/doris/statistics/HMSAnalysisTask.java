@@ -22,7 +22,7 @@ import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.external.hive.util.HiveUtil;
+import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
