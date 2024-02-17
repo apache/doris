@@ -1379,9 +1379,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             UpdateRuntimeFilterParamsV2 params {request, attach_data, pool,
                                                 filters[0]->column_type()};
             RuntimePredicateWrapper* filter_wrapper = nullptr;
-            RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(
-                    runtime_filter_mgr->get_runtime_filter_context_state(), &params,
-                    &filter_wrapper));
+            RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
 
             std::ranges::for_each(filters, [&](auto& filter) {
                 filter->update_filter(filter_wrapper, request->merge_time(), start_apply);
