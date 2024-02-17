@@ -15,7 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.datasource.hudi;
+
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 
 import com.google.common.base.Preconditions;
 import org.apache.avro.LogicalType;
