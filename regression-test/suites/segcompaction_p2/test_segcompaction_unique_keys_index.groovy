@@ -68,7 +68,7 @@ suite("test_segcompaction_unique_keys_index") {
                 UNIQUE KEY(`col_0`) DISTRIBUTED BY HASH(`col_0`) BUCKETS 1
                 PROPERTIES ( "replication_num" = "1" );
             """
-            exception "INVERTED index only used in columns of DUP_KEYS/UNIQUE_KEYS MOW table or key columns of all table. invalid indexName: index_col_1"
+            exception "index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of AGG_KEYS table. invalid indexName: index_col_1"
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
