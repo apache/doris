@@ -46,11 +46,16 @@ public:
 
     Status list(const Path& path, std::vector<Path>* files) override;
 
+    // change the file permission of the given path
+    Status permission(const Path& file, std::filesystem::perms prms);
+
+    static std::filesystem::perms PERMS_OWNER_RW;
+
 private:
     Path absolute_path(const Path& path) const;
 };
 
-FileSystemSPtr global_local_filesystem();
+const std::shared_ptr<LocalFileSystem>& global_local_filesystem();
 
 } // namespace io
 } // namespace doris
