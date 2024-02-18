@@ -49,10 +49,11 @@ public class PlSqlOperation {
         result.reset();
         try {
             Arguments args = new Arguments();
-            args.parse(new String[] {"-e", statement});
+            args.parse(new String[] { "-e", statement });
             exec.parseAndEval(args);
             // Exception is not thrown after catch.
-            // For example, select a not exist table will return empty results, exception will put into signals.
+            // For example, select a not exist table will return empty results, exception
+            // will put into signals.
             exec.printExceptions();
             String error = result.getError();
             String msg = result.getMsg();
@@ -62,7 +63,6 @@ public class PlSqlOperation {
                 ctx.getState().setOk(0, 0, msg);
             }
             ctx.getMysqlChannel().reset();
-            ctx.getState().setOk();
             ctx.setRunProcedure(false);
             ctx.setProcedureExec(null);
         } catch (Exception e) {
