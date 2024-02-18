@@ -803,7 +803,7 @@ public class Column implements Writable, GsonPostProcessable {
             sb.append(" NOT NULL");
         }
         if (isAutoInc) {
-            sb.append(" AUTO_INCREMENT");
+            sb.append(" AUTO_INCREMENT(").append(autoIncInitValue).append(")");
         }
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
             if (defaultValueExprDef != null) {
