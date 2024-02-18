@@ -23,8 +23,8 @@ import org.apache.doris.datasource.property.constants.S3Properties;
 
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Namespace;
 
 import java.util.List;
@@ -55,7 +55,7 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
         // read from converted s3 endpoint or default by BE s3 endpoint
         String endpoint = catalogProperties.getOrDefault(Constants.ENDPOINT,
                 catalogProperties.get(S3Properties.Env.ENDPOINT));
-        catalogProperties.putIfAbsent(AwsProperties.S3FILEIO_ENDPOINT, endpoint);
+        catalogProperties.putIfAbsent(S3FileIOProperties.ENDPOINT, endpoint);
 
         glueCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = glueCatalog;
