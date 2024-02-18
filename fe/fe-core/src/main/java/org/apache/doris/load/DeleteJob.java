@@ -59,7 +59,7 @@ import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -424,7 +424,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     @Override
     public void cancel(String reason) {
-        GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgrIface globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         try {
             globalTransactionMgr.abortTransaction(deleteInfo.getDbId(), signature, reason);
         } catch (Exception e) {

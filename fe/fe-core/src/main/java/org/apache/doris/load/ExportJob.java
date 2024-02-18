@@ -166,6 +166,8 @@ public class ExportJob implements Writable {
 
     @SerializedName("tabletsNum")
     private Integer tabletsNum;
+    @SerializedName("withBom")
+    private String withBom;
 
     private TableRef tableRef;
 
@@ -219,6 +221,7 @@ public class ExportJob implements Writable {
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
         this.columns = "";
+        this.withBom = "false";
     }
 
     public ExportJob(long jobId) {
@@ -353,7 +356,7 @@ public class ExportJob implements Writable {
             List<String> partitions, List<NamedExpression> selectLists) {
         // UnboundRelation
         LogicalPlan plan = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), qualifiedTableName,
-                partitions, false, tabletIds, ImmutableList.of(), Optional.empty());
+                partitions, false, tabletIds, ImmutableList.of(), Optional.empty(), Optional.empty());
         // LogicalCheckPolicy
         plan = new LogicalCheckPolicy<>(plan);
         // LogicalFilter
@@ -554,6 +557,7 @@ public class ExportJob implements Writable {
         if (!deleteExistingFiles.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_DELETE_EXISTING_FILES, deleteExistingFiles);
         }
+        outfileProperties.put(OutFileClause.PROP_WITH_BOM, withBom);
 
         // broker properties
         // outfile clause's broker properties need 'broker.' prefix

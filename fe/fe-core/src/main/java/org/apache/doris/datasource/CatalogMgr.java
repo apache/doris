@@ -115,7 +115,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     private void initInternalCatalog() {
-        internalCatalog = EnvFactory.createInternalCatalog();
+        internalCatalog = EnvFactory.getInstance().createInternalCatalog();
         addCatalog(internalCatalog);
     }
 

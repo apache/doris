@@ -35,6 +35,7 @@ namespace ErrorCode {
     TStatusError(MEM_ALLOC_FAILED, true);                \
     TStatusError(BUFFER_ALLOCATION_FAILED, true);        \
     TStatusError(INVALID_ARGUMENT, false);               \
+    TStatusError(INVALID_JSON_PATH, false);              \
     TStatusError(MINIMUM_RESERVATION_UNAVAILABLE, true); \
     TStatusError(CORRUPTION, true);                      \
     TStatusError(IO_ERROR, true);                        \
@@ -272,10 +273,12 @@ namespace ErrorCode {
     E(INVERTED_INDEX_BUILD_WAITTING, -6008, false);          \
     E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009, false);         \
     E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
+    E(INVERTED_INDEX_ANALYZER_ERROR, -6011, false);          \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \
-    E(INVALID_TABLET_STATE, -7211, false);
+    E(INVALID_TABLET_STATE, -7211, false);                   \
+    E(ROWSETS_EXPIRED, -7311, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -315,6 +318,15 @@ extern ErrorCodeInitializer error_code_init;
 class [[nodiscard]] Status {
 public:
     Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
+
+    // used to convert Exception to Status
+    Status(int code, std::string msg, std::string stack) : _code(code) {
+        _err_msg = std::make_unique<ErrMsg>();
+        _err_msg->_msg = msg;
+#ifdef ENABLE_STACKTRACE
+        _err_msg->_stack = stack;
+#endif
+    }
 
     // copy c'tor makes copy of error detail so Status can be returned by value
     Status(const Status& rhs) { *this = rhs; }
@@ -405,6 +417,7 @@ public:
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
     ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
+    ERROR_CTOR(InvalidJsonPath, INVALID_JSON_PATH)
     ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
     ERROR_CTOR(Corruption, CORRUPTION)
     ERROR_CTOR(IOError, IO_ERROR)
@@ -482,7 +495,7 @@ public:
 
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
-    std::string msg() const { return _err_msg ? _err_msg->_msg : ""; }
+    std::string_view msg() const { return _err_msg ? _err_msg->_msg : std::string_view(""); }
 
 private:
     int _code;

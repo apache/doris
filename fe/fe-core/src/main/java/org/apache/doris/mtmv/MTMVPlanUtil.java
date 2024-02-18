@@ -43,6 +43,7 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPlanUtil {
@@ -59,6 +60,11 @@ public class MTMVPlanUtil {
         ctx.changeDefaultCatalog(catalog.getName());
         ctx.setDatabase(catalog.getDbOrAnalysisException(mtmv.getEnvInfo().getDbId()).getFullName());
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
+        Optional<String> workloadGroup = mtmv.getWorkloadGroup();
+        if (workloadGroup.isPresent()) {
+            ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
+        }
+        ctx.getSessionVariable().enableNereidsDML = true;
         return ctx;
     }
 
@@ -88,7 +94,8 @@ public class MTMVPlanUtil {
     private static Set<BaseTableInfo> getBaseTables(Plan plan) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
-                        com.google.common.collect.Sets.newHashSet(TableType.MATERIALIZED_VIEW, TableType.OLAP));
+                        com.google.common.collect.Sets
+                                .newHashSet(TableType.values()));
         plan.accept(TableCollector.INSTANCE, collectorContext);
         List<TableIf> collectedTables = collectorContext.getCollectedTables();
         return transferTableIfToInfo(collectedTables);

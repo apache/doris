@@ -117,9 +117,9 @@ public class SchemaChangeJobV2Test {
         fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
         masterEnv = CatalogTestUtil.createTestCatalog();
         slaveEnv = CatalogTestUtil.createTestCatalog();
-        masterTransMgr = masterEnv.getGlobalTransactionMgr();
+        masterTransMgr = (GlobalTransactionMgr) masterEnv.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterEnv.getEditLog());
-        slaveTransMgr = slaveEnv.getGlobalTransactionMgr();
+        slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         addColumnClause.analyze(analyzer);

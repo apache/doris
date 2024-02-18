@@ -271,9 +271,10 @@ public class MatchPredicate extends Predicate {
             throw new AnalysisException("right operand of " + op.toString() + " must be of type STRING: " + toSql());
         }
 
-        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isArrayType()) {
+        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isArrayType()
+                    && !getChild(0).getType().isVariantType()) {
             throw new AnalysisException(
-                    "left operand of " + op.toString() + " must be of type STRING or ARRAY: " + toSql());
+                    "left operand of " + op.toString() + " must be of type STRING, ARRAY or VARIANT: " + toSql());
         }
 
         fn = getBuiltinFunction(op.toString(),
@@ -293,6 +294,11 @@ public class MatchPredicate extends Predicate {
             } catch (NumberFormatException nfe) {
                 throw new AnalysisException("Invalid number format literal: " + e2.getStringValue());
             }
+        }
+
+        // CAST variant to right expr type
+        if (e1.type.isVariantType()) {
+            setChild(0, e1.castTo(e2.getType()));
         }
 
         if (e1 instanceof SlotRef) {

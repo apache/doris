@@ -200,6 +200,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         rewriteToBitmapWithCheck();
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.forbiddenMVRewrite();
+        if (isReplay) {
+            analyzer.setReplay();
+        }
         selectStmt.analyze(analyzer);
 
         ExprRewriter rewriter = analyzer.getExprRewriter();
@@ -207,6 +210,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         selectStmt.rewriteExprs(rewriter);
         selectStmt.reset();
         analyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
+        if (isReplay) {
+            analyzer.setReplay();
+        }
         selectStmt.analyze(analyzer);
 
         analyzeSelectClause(analyzer);
@@ -232,11 +238,12 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
                     + " limit " + selectStmt.getLimit());
         }
+    }
 
-        // check access
-        if (!isReplay && ConnectContext.get() != null && !Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), dbName,
-                        baseIndexName, PrivPredicate.ALTER)) {
+    @Override
+    public void checkPriv() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName, baseIndexName,
+                PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER");
         }
     }
@@ -478,11 +485,18 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
     }
 
+    private Expr getAggfunctionSlot(FunctionCallExpr functionCallExpr) throws AnalysisException {
+        if (functionCallExpr.getFnParams() != null && functionCallExpr.getFnParams().isStar()) {
+            // convert count(*) to count(1)
+            return LiteralExpr.create("1", Type.BIGINT);
+        }
+        return functionCallExpr.getChildren().get(0);
+    }
+
     private MVColumnItem buildMVColumnItem(Analyzer analyzer, FunctionCallExpr functionCallExpr)
             throws AnalysisException {
         String functionName = functionCallExpr.getFnName().getFunction();
-        List<Expr> childs = functionCallExpr.getChildren();
-        Expr defineExpr = childs.get(0);
+        Expr defineExpr = getAggfunctionSlot(functionCallExpr);
         Type baseType = defineExpr.getType();
         AggregateType mvAggregateType = null;
         Type type;

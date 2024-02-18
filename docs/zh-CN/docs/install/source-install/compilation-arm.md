@@ -24,6 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Apache Doris Arm 架构编译
 
 本文档介绍如何在 ARM64 平台上编译 Doris。
@@ -32,34 +35,35 @@ under the License.
 
 ## 硬件/操作系统环境
 
-### KylinOS
+本章内容在以下环境中已经验证可行：
 
-1. KylinOS 版本：
-
-```shell
-    $> cat /etc/.kyinfo
-    name=Kylin-Server
-    milestone=10-SP1-Release-Build04-20200711
-    arch=arm64
-    beta=False
-    time=2020-07-11 17:16:54
-    dist_id=Kylin-Server-10-SP1-Release-Build04-20200711-arm64-2020-07-11 17:16:54
-```
-
-2. CPU型号：
+1. KylinOS：
 
 ```shell
-    $> cat /proc/cpuinfo
-    model name  : Phytium,FT-2000+/64
+$> cat /etc/.kyinfo
+name=Kylin-Server
+milestone=10-SP1-Release-Build04-20200711
+arch=arm64
+beta=False
+time=2020-07-11 17:16:54
+dist_id=Kylin-Server-10-SP1-Release-Build04-20200711-arm64-2020-07-11 17:16:54
+
+$> cat /proc/cpuinfo
+model name  : Phytium,FT-2000+/64
 ```
 
-### CentOS & Ubuntu
+2. CentOS 7.9 及以上
 
-1. 系统版本：CentOS 8.4、Ubuntu 20.04
-2. 系统架构：ARM X64
-3. CPU：4 C
-4. 内存：16 GB
-5. 硬盘：40GB（SSD）、100GB（SSD）
+```shell
+$> lsb_release -a
+LSB Version:	:core-4.1-aarch64:core-4.1-noarch
+Distributor ID:	CentOS
+Description:	CentOS Linux release 7.9.2009 (AltArch)
+Release:	7.9.2009
+Codename:	AltArch
+```
+
+3. Ubuntu 20.04
 
 ## 软件环境配置
 
@@ -79,252 +83,261 @@ under the License.
 ### 软件环境安装命令
 
 <Tabs>
-  <TabItem value="CentOS 8.4" label="CentOS 8.4" default>
+  <TabItem value="CentOS 7.9" label="CentOS 7.9" default>
     <p>
-      1. 创建软件下载安装包根目录和软件安装根目录
+
+1. 创建软件下载安装包根目录和软件安装根目录
 
 ```shell
-        # 创建软件下载安装包根目录
-        mkdir /opt/tools
-        # 创建软件安装根目录
-        mkdir /opt/software
+# 创建软件下载安装包根目录
+mkdir /opt/tools
+# 创建软件安装根目录
+mkdir /opt/software
 ```
   </p>
     <p>
-      2. 安装依赖项
 
-        - Git
+2. 安装依赖项
+
+  - Git
 
 ```shell
-          # 省去编译麻烦，直接使用 yum 安装
-          yum install -y git
+  # 省去编译麻烦，直接使用 yum 安装
+  yum install -y git
 ```
 
-        - JDK8
+  - JDK8
 
 ```shell
-          # 两种方式，第一种是省去额外下载和配置，直接使用 yum 安装，安装 devel 包是为了获取一些工具，如 jps 命令
-          yum install -y java-1.8.0-openjdk java-1.8.0-openjdk-devel
-          
-          # 第二种是下载 arm64 架构的安装包，解压配置环境变量后使用
-          cd /opt/tools
-          wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz && \
-            tar -zxvf jdk-8u291-linux-aarch64.tar.gz && \
-            mv jdk1.8.0_291 /opt/software/jdk8
+  # 两种方式，第一种是省去额外下载和配置，直接使用 yum 安装，安装 devel 包是为了获取一些工具，如 jps 命令
+  yum install -y java-1.8.0-openjdk java-1.8.0-openjdk-devel
+
+  # 第二种是下载 arm64 架构的安装包，解压配置环境变量后使用
+  cd /opt/tools
+  wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz && \
+    tar -zxvf jdk-8u291-linux-aarch64.tar.gz && \
+    mv jdk1.8.0_291 /opt/software/jdk8
 ```
 
-        - Maven
+  - Maven
 
 ```shell
-          cd /opt/tools
-          # wget 工具下载后，直接解压缩配置环境变量使用
-          wget https://dlcdn.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz && \
-            tar -zxvf apache-maven-3.6.3-bin.tar.gz && \
-            mv apache-maven-3.6.3 /opt/software/maven
+  cd /opt/tools
+  # wget 工具下载后，直接解压缩配置环境变量使用
+  wget https://dlcdn.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz && \
+    tar -zxvf apache-maven-3.6.3-bin.tar.gz && \
+    mv apache-maven-3.6.3 /opt/software/maven
 ```
 
-        - NodeJS
+  - NodeJS
 
 ```shell
-          cd /opt/tools
-          # 下载 arm64 架构的安装包
-          wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz && \
-            tar -xvf node-v16.3.0-linux-arm64.tar.xz && \
-            mv node-v16.3.0-linux-arm64 /opt/software/nodejs
+  cd /opt/tools
+  # 下载 arm64 架构的安装包
+  wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz && \
+    tar -xvf node-v16.3.0-linux-arm64.tar.xz && \
+    mv node-v16.3.0-linux-arm64 /opt/software/nodejs
 ```
 
-        - LDB-Toolchain
+  - LDB-Toolchain
 
 ```shell
-          cd /opt/tools
-          # 下载 LDB-Toolchain ARM 版本
-          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
-            sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
-```
-  </p>
-    <p>
-      3. 配置环境变量
-
-```shell
-        # 配置环境变量
-        vim /etc/profile.d/doris.sh
-        export JAVA_HOME=/opt/software/jdk8
-        export MAVEN_HOME=/opt/software/maven
-        export NODE_JS_HOME=/opt/software/nodejs
-        export LDB_HOME=/opt/software/ldb_toolchain
-        export PATH=$JAVA_HOME/bin:$MAVEN_HOME/bin:$NODE_JS_HOME/bin:$LDB_HOME/bin:$PATH
-        
-        # 保存退出并刷新环境变量
-        source /etc/profile.d/doris.sh
-        
-        # 测试是否成功
-        java -version
-        > java version "1.8.0_291"
-        mvn -version
-        > Apache Maven 3.6.3
-        node --version
-        > v16.3.0
-        gcc --version
-        > gcc-11
+  cd /opt/tools
+  # 下载 LDB-Toolchain ARM 版本
+  wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
+    sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
 ```
   </p>
     <p>
-      4. 安装其他额外环境和组件
+
+3. 配置环境变量
 
 ```shell
-        # install required system packages
-        sudo yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 bison zip util-linux wget git python2
-        
-        # install autoconf-2.69
-        cd /opt/tools
-        wget http://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz && \
-            tar zxf autoconf-2.69.tar.gz && \
-            mv autoconf-2.69 /opt/software/autoconf && \
-            cd /opt/software/autoconf && \
-            ./configure && \
-            make && \
-            make install
+# 配置环境变量
+vim /etc/profile.d/doris.sh
+export JAVA_HOME=/opt/software/jdk8
+export MAVEN_HOME=/opt/software/maven
+export NODE_JS_HOME=/opt/software/nodejs
+export LDB_HOME=/opt/software/ldb_toolchain
+export PATH=$JAVA_HOME/bin:$MAVEN_HOME/bin:$NODE_JS_HOME/bin:$LDB_HOME/bin:$PATH
+
+# 保存退出并刷新环境变量
+source /etc/profile.d/doris.sh
+
+# 测试是否成功
+java -version
+> java version "1.8.0_291"
+mvn -version
+> Apache Maven 3.6.3
+node --version
+> v16.3.0
+gcc --version
+> gcc-11
+```
+  </p>
+    <p>
+
+4. 安装其他额外环境和组件
+
+```shell
+# Install required system packages
+sudo yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 bison zip util-linux wget git python2
+
+# Install autoconf-2.69
+cd /opt/tools
+wget http://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz && \
+    tar zxf autoconf-2.69.tar.gz && \
+    mv autoconf-2.69 /opt/software/autoconf && \
+    cd /opt/software/autoconf && \
+    ./configure && \
+    make && \
+    make install
 ```
   </p>
   </TabItem>
   <TabItem value="Ubuntu 20.04" label="Ubuntu 20.04">
     <p>
-      1. 更新 apt-get 软件库
+
+1. 更新 apt-get 软件库
 
 ```shell
-        apt-get update
+apt-get update
 ```
   </p>
     <p>
-      2. 检查 shell 命令集
 
-        ubuntu 的 shell 默认安装的是 dash，而不是 bash，要切换成 bash 才能执行，运行以下命令查看 sh 的详细信息，确认 shell 对应的程序是哪个：
+2. 检查 shell 命令集
 
-```shell
-        ls -al /bin/sh
-```
-
-        通过以下方式可以使 shell 切换回 bash：
+  ubuntu 的 shell 默认安装的是 dash，而不是 bash，要切换成 bash 才能执行，运行以下命令查看 sh 的详细信息，确认 shell 对应的程序是哪个：
 
 ```shell
-        sudo dpkg-reconfigure dash
+ls -al /bin/sh
 ```
 
-        然后选择 no 或者 否 ，并确认
+  通过以下方式可以使 shell 切换回 dash：
 
-        这样做将重新配置 dash，并使其不作为默认的 shell 工具
+```shell
+sudo dpkg-reconfigure dash
+```
+
+  然后选择 no 或者 否 并确认。这样做将重新配置 dash，并使其不作为默认的 shell 工具
   </p>
     <p>
-      3. 创建软件下载安装包根目录和软件安装根目录
+
+3. 创建软件下载安装包根目录和软件安装根目录
 
 ```shell
-        # 创建软件下载安装包根目录
-        mkdir /opt/tools
-        # 创建软件安装根目录
-        mkdir /opt/software
-```
-  </p>
-    <p>
-      4. 安装依赖项
-        - Git
-
-```shell
-          # 省去编译麻烦，直接使用 apt-get 安装
-          apt-get -y install git
-```
-
-        - JDK8
-
-```shell
-          # 下载 arm64 架构的安装包，解压配置环境变量后使用
-          cd /opt/tools
-          wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz && \
-            tar -zxvf jdk-8u291-linux-aarch64.tar.gz && \
-            mv jdk1.8.0_291 /opt/software/jdk8
-```
-
-        - Maven
-
-```shell
-          cd /opt/tools
-          # wget 工具下载后，直接解压缩配置环境变量使用
-          wget https://dlcdn.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz && \
-            tar -zxvf apache-maven-3.6.3-bin.tar.gz && \
-            mv apache-maven-3.6.3 /opt/software/maven
-```
-
-        - NodeJS
-
-```shell
-          cd /opt/tools
-          # 下载 arm64 架构的安装包
-          wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz && \
-            tar -xvf node-v16.3.0-linux-arm64.tar.xz && \
-            mv node-v16.3.0-linux-arm64 /opt/software/nodejs
-```
-
-        - LDB-Toolchain
-
-```shell
-          cd /opt/tools
-          # 下载 LDB-Toolchain ARM 版本
-          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
-          sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
+  # 创建软件下载安装包根目录
+  mkdir /opt/tools
+  # 创建软件安装根目录
+  mkdir /opt/software
 ```
   </p>
     <p>
-      5. 配置环境变量
+
+4. 安装依赖项
+
+  - Git
 
 ```shell
-        # 配置环境变量
-        vim /etc/profile.d/doris.sh
-        export JAVA_HOME=/opt/software/jdk8
-        export MAVEN_HOME=/opt/software/maven
-        export NODE_JS_HOME=/opt/software/nodejs
-        export LDB_HOME=/opt/software/ldb_toolchain
-        export PATH=$JAVA_HOME/bin:$MAVEN_HOME/bin:$NODE_JS_HOME/bin:$LDB_HOME/bin:$PATH
-        
-        # 保存退出并刷新环境变量
-        source /etc/profile.d/doris.sh
-        
-        # 测试是否成功
-        java -version
-        > java version "1.8.0_291"
-        mvn -version
-        > Apache Maven 3.6.3
-        node --version
-        > v16.3.0
-        gcc --version
-        > gcc-11
+  # 省去编译麻烦，直接使用 apt-get 安装
+  apt-get -y install git
+```
+
+  - JDK8
+
+```shell
+  # 下载 arm64 架构的安装包，解压配置环境变量后使用
+  cd /opt/tools
+  wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz && \
+    tar -zxvf jdk-8u291-linux-aarch64.tar.gz && \
+    mv jdk1.8.0_291 /opt/software/jdk8
+```
+
+  - Maven
+
+```shell
+  cd /opt/tools
+  # wget 工具下载后，直接解压缩配置环境变量使用
+  wget https://dlcdn.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz && \
+    tar -zxvf apache-maven-3.6.3-bin.tar.gz && \
+    mv apache-maven-3.6.3 /opt/software/maven
+```
+
+  - NodeJS
+
+```shell
+  cd /opt/tools
+  # 下载 arm64 架构的安装包
+  wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz && \
+    tar -xvf node-v16.3.0-linux-arm64.tar.xz && \
+    mv node-v16.3.0-linux-arm64 /opt/software/nodejs
+```
+
+  - LDB-Toolchain
+
+```shell
+  cd /opt/tools
+  # 下载 LDB-Toolchain ARM 版本
+  wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
+    sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
 ```
   </p>
     <p>
-      6. 安装其他额外环境和组件
+
+5. 配置环境变量
 
 ```shell
-        # install required system packages
-        sudo apt install -y build-essential cmake flex automake bison binutils-dev libiberty-dev zip libncurses5-dev curl ninja-build
-        sudo apt-get install -y make
-        sudo apt-get install -y unzip
-        sudo apt-get install -y python2
-        sudo apt-get install -y byacc
-        sudo apt-get install -y automake
-        sudo apt-get install -y libtool
-        sudo apt-get install -y bzip2
-        sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa 
-        sudo apt update
-        sudo apt install gcc-11 g++-11 
-        sudo apt-get -y install autoconf autopoint
-        
-        # install autoconf-2.69
-        cd /opt/tools
-        wget http://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz && \
-            tar zxf autoconf-2.69.tar.gz && \
-            mv autoconf-2.69 /opt/software/autoconf && \
-            cd /opt/software/autoconf && \
-            ./configure && \
-            make && \
-            make install
+# 配置环境变量
+vim /etc/profile.d/doris.sh
+export JAVA_HOME=/opt/software/jdk8
+export MAVEN_HOME=/opt/software/maven
+export NODE_JS_HOME=/opt/software/nodejs
+export LDB_HOME=/opt/software/ldb_toolchain
+export PATH=$JAVA_HOME/bin:$MAVEN_HOME/bin:$NODE_JS_HOME/bin:$LDB_HOME/bin:$PATH
+
+# 保存退出并刷新环境变量
+source /etc/profile.d/doris.sh
+
+# 测试是否成功
+java -version
+> java version "1.8.0_291"
+mvn -version
+> Apache Maven 3.6.3
+node --version
+> v16.3.0
+gcc --version
+> gcc-11
+```
+  </p>
+    <p>
+
+6. 安装其他额外环境和组件
+
+```shell
+# Install required system packages
+sudo apt install -y build-essential cmake flex automake bison binutils-dev libiberty-dev zip libncurses5-dev curl ninja-build
+sudo apt-get install -y make
+sudo apt-get install -y unzip
+sudo apt-get install -y python2
+sudo apt-get install -y byacc
+sudo apt-get install -y automake
+sudo apt-get install -y libtool
+sudo apt-get install -y bzip2
+sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
+sudo apt update
+sudo apt install gcc-11 g++-11
+sudo apt-get -y install autoconf autopoint
+
+# Install autoconf-2.69
+cd /opt/tools
+wget http://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz && \
+    tar zxf autoconf-2.69.tar.gz && \
+    mv autoconf-2.69 /opt/software/autoconf && \
+    cd /opt/software/autoconf && \
+    ./configure && \
+    make && \
+    make install
 ```
   </p>
   </TabItem>
@@ -379,11 +392,11 @@ export USE_UNWIND=OFF
      - 使用第三方下载仓库
 
 ```shell
-       export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
-       sh /opt/doris/thirdparty/build-thirdparty.sh
+  export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+  sh /opt/doris/thirdparty/build-thirdparty.sh
 ```
 
-       REPOSITORY_URL 中包含所有第三方库源码包和他们的历史版本。
+  REPOSITORY_URL 中包含所有第三方库源码包和他们的历史版本。
 
 2. python 命令未找到
 
@@ -404,10 +417,10 @@ export USE_UNWIND=OFF
      建立 `\usr\bin` 中 `python` 命令的软连接
 
 ```shell
-     # 查看python安装目录
-     whereis python
-     # 建立软连接
-     sudo ln -s /usr/bin/python2.7 /usr/bin/python
+      # 查看python安装目录
+      whereis python
+      # 建立软连接
+      sudo ln -s /usr/bin/python2.7 /usr/bin/python
 ```
 
 3. 编译结束后没有 output 目录
@@ -423,7 +436,7 @@ export USE_UNWIND=OFF
    - 解决方案
 
 ```shell
-     sh build.sh --clean
+      sh build.sh --clean
 ```
 
 4. spark-dpp 编译失败
@@ -440,8 +453,6 @@ export USE_UNWIND=OFF
 
      > Could not transfer artifact org.apache.spark:spark-sql_2.12:jar:2.4.6 from/to central (https://repo.maven.apache.org/maven2): Transfer failed for https://repo.maven.apache.org/maven2/org/apache/spark/spark-sql_2.12/2.4.6/spark-sql_2.12-2.4.6.jar: Unknown host repo.maven.apache.org
 
-     重新 build
-
    - 解决方案
 
      - 重新 build
@@ -453,7 +464,9 @@ export USE_UNWIND=OFF
      - 编译过程中报 构建 CXX 对象失败，提示剩余空间不足
 
        >  fatal error: error writing to /tmp/ccKn4nPK.s: No space left on device
+       >
        >  1112 | } // namespace doris::vectorized
+       >
        >  compilation terminated.
 
    - 问题原因
@@ -478,7 +491,7 @@ export USE_UNWIND=OFF
 
      `libxml2` 三方库编译错误，找不到 pkg.m4 文件
 
-     ***猜测：***
+     ***可能的错误：***
 
      1. Ubuntu 系统加载环境变量时有异常，导致 ldb 目录下的索引未被成功加载
      2. 在 libxml2 编译时检索环境变量失效，导致编译过程没有检索到 ldb/aclocal 目录
@@ -488,8 +501,8 @@ export USE_UNWIND=OFF
      将 ldb/aclocal 目录下的 `pkg.m4` 文件拷贝至 libxml2/m4 目录下，重新编译第三方库
 
 ```shell
-     cp /opt/software/ldb_toolchain/share/aclocal/pkg.m4 /opt/doris/thirdparty/src/libxml2-v2.9.10/m4
-     sh /opt/doris/thirdparty/build-thirdparty.sh
+      cp /opt/software/ldb_toolchain/share/aclocal/pkg.m4 /opt/doris/thirdparty/src/libxml2-v2.9.10/m4
+      sh /opt/doris/thirdparty/build-thirdparty.sh
 ```
 
 7. 执行测试 CURL_HAS_TLS_PROXY 失败
@@ -499,15 +512,19 @@ export USE_UNWIND=OFF
      - 三方包编译过程报错，错误如下
 
        > -- Performing Test CURL_HAS_TLS_PROXY - Failed
+       >
        > CMake Error at cmake/dependencies.cmake:15 (get_property):
-       > INTERFACE_LIBRARY targets may only have whitelisted properties.  The
-       > property "LINK_LIBRARIES_ALL" is not allowed.
+       >
+       > INTERFACE_LIBRARY targets may only have whitelisted properties. The property "LINK_LIBRARIES_ALL" is not allowed.
 
      - 查看日志以后，发现内部是由于 curl `No such file or directory`
 
        > fatal error: curl/curl.h: No such file or directory
+       >
        >  2 |     #include <curl/curl.h>
+       >
        > compilation terminated.
+       >
        > ninja: build stopped: subcommand failed.
 
    - 问题原因
@@ -519,16 +536,32 @@ export USE_UNWIND=OFF
      配置 ldb 环境变量
 
 ```shell
-     # 配置环境变量
-     vim /etc/profile.d/ldb.sh
-     export LDB_HOME=/opt/software/ldb_toolchain
-     export PATH=$LDB_HOME/bin:$PATH
-     # 保存退出并刷新环境变量
-     source /etc/profile.d/ldb.sh
-     # 测试
-     gcc --version
-     > gcc-11
+      # 配置环境变量
+      vim /etc/profile.d/ldb.sh
+      export LDB_HOME=/opt/software/ldb_toolchain
+      export PATH=$LDB_HOME/bin:$PATH
+      # 保存退出并刷新环境变量
+      source /etc/profile.d/ldb.sh
+      # 测试
+      gcc --version
+      > gcc-11
 ```
+
+8. 编译过程中止，提示 "ninja failed with: signal: killed" 相关字样
+
+   - 问题描述
+
+     BE 或三方库在编译中途失败，提示字样包含
+
+     > ninja failed with: signal: killed
+
+   - 问题原因
+
+     所在机器内存不足
+
+   - 解决方案
+
+     换用更大内存（至少16GB）的机器进行编译
 
 ### 启动问题
 
@@ -539,6 +572,7 @@ export USE_UNWIND=OFF
      在启动 FE 时，报事务错误 20 问题，状态为 UNKNOWN
 
      > [BDBEnvironment.setup():198] error to open replicated environment. will exit.
+     >
      > com.sleepycat.je.rep.ReplicaWriteException: (JE 18.3.12) Problem closing transaction 20. The current state is:UNKNOWN. The node transitioned to this state at:Fri Apr 22 12:48:08 CST 2022
 
    - 问题原因
@@ -554,12 +588,15 @@ export USE_UNWIND=OFF
    - 问题描述
      在迁移 FE 所在的盘符后启动 FE 报异常
      > 2022-04-22 16:21:44,092 ERROR (MASTER 172.28.7.231_9010_1650606822109(-1)|1) [BDBJEJournal.open():306] catch an exception when setup bdb environment. will exit.
+     >
      > com.sleepycat.je.DiskLimitException: (JE 18.3.12) Disk usage is not within je.maxDisk or je.freeDisk limits and write operations are prohibited: maxDiskLimit=0 freeDiskLimit=5,368,709,120 adjustedMaxDiskLimit=0 maxDiskOverage=0 freeDiskShortage=1,536,552,960 diskFreeSpace=3,832,156,160 availableLogSize=-1,536,552,960 totalLogSize=4,665 activeLogSize=4,665 reservedLogSize=0 protectedLogSize=0 protectedLogSizeMap={}
 
    - 问题原因
+
      迁移了 FE 所在的位置，元数据存储的硬盘信息无法匹配到，或者该硬盘损坏或未挂载
 
    - 解决方案
+
      - 检查硬盘是否正常，是否初始化并正确挂载
      - 修复 FE 元数据
      - 若为测试机器，则可以删除元数据目录重新启动
@@ -577,33 +614,32 @@ export USE_UNWIND=OFF
 
 ### 其他组件问题
 
-1. 
-   - 问题描述
+- 问题描述
 
-     如有以下组件的错误提示，则统一以该方案解决：
-     - bison 相关
-       1. 安装 bison-3.0.4 时报 fseterr.c 错误
-     - flex 相关
-       1. flex 命令未找到
-     - cmake 相关
-       1. cmake 命令未找到
-       2. cmake 找不到依赖库
-       3. cmake 找不到 CMAKE_ROOT
-       4. cmake 环境变量 CXX 中找不到编译器集
-     - boost 相关
-       1. Boost.Build 构建引擎失败
-     - mysql 相关
-       1. 找不到 mysql 的客户端依赖 a 文件
-     - gcc 相关
-       1. GCC 版本需要11+
+  如有以下组件的错误提示，则统一以该方案解决：
+  - bison 相关
+    1. 安装 bison-3.0.4 时报 fseterr.c 错误
+  - flex 相关
+    1. flex 命令未找到
+  - cmake 相关
+    1. cmake 命令未找到
+    2. cmake 找不到依赖库
+    3. cmake 找不到 CMAKE_ROOT
+    4. cmake 环境变量 CXX 中找不到编译器集
+  - boost 相关
+    1. Boost.Build 构建引擎失败
+  - mysql 相关
+    1. 找不到 mysql 的客户端依赖 a 文件
+  - gcc 相关
+    1. GCC 版本需要11+
 
-   - 问题原因
+- 问题原因
 
-     未使用正确的 ldb-toolchain 进行编译
+  未使用正确的 ldb-toolchain 进行编译
 
-   - 解决方案
+- 解决方案
 
-     - 检查 ldb-toolchain 环境变量是否配置
-     - 查看 gcc 版本是否与[使用ldb-toolchain编译](./compilation-with-ldb-toolchain)文档中推荐一致
-     - 删除 `ldb_toolchain_gen.aarch64.sh` 脚本执行后的 ldb 目录，重新执行并配置环境变量，验证 gcc 版本
+  - 检查 ldb-toolchain 环境变量是否配置
+  - 查看 gcc 版本是否与[使用ldb-toolchain编译](./compilation-with-ldb-toolchain)文档中推荐一致
+  - 删除 `ldb_toolchain_gen.aarch64.sh` 脚本执行后的 ldb 目录，重新执行并配置环境变量，验证 gcc 版本
 

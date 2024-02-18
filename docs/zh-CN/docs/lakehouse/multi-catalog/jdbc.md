@@ -159,6 +159,22 @@ set enable_odbc_transcation = true;
 
 事务保证了JDBC外表数据写入的原子性，但是一定程度上会降低数据写入的性能，可以考虑酌情开启该功能。
 
+## JDBC 连接池配置
+
+在 Doris 中，每个 FE 和 BE 节点都会维护一个连接池，这样可以避免频繁地打开和关闭单独的数据源连接。连接池中的每个连接都可以用来与数据源建立连接并执行查询。任务完成后，这些连接会被归还到池中以便重复使用，这不仅提高了性能，还减少了建立连接时的系统开销，并帮助防止达到数据源的连接数上限。
+
+下面列出了一些可用于调整连接池行为的 Catalog 配置属性：
+
+| 参数名称                            | 默认值     | 描述和行为                                                                                               |
+|---------------------------------|---------|-----------------------------------------------------------------------------------------------------|
+| `connection_pool_min_size`      | 1       | 定义连接池的最小连接数，用于初始化连接池并保证在启用保活机制时至少有该数量的连接处于活跃状态。                                                     |
+| `connection_pool_max_size`      | 10      | 定义连接池的最大连接数，每个 Catalog 对应的每个 FE 或 BE 节点最多可持有此数量的连接。                                                 |
+| `connection_pool_max_wait_time` | 5000    | 如果连接池中没有可用连接，定义客户端等待连接的最大毫秒数。                                                                       |
+| `connection_pool_max_life_time` | 1800000 | 设置连接在连接池中保持活跃的最大时长（毫秒）。超时的连接将被回收。同时，此值的一半将作为连接池的最小逐出空闲时间，达到该时间的连接将成为逐出候选对象。执行回收操作的频率将是该最大生命周期的十分之一。 |
+| `connection_pool_keep_alive`    | false   | 仅在 BE 节点上有效，用于决定是否保持达到最小逐出空闲时间但未到最大生命周期的连接活跃。默认关闭，以减少不必要的资源使用。                                      |
+
+为了避免在 BE 上累积过多的未使用的连接池缓存，可以通过设置 BE 的 `jdbc_connection_pool_cache_clear_time_sec` 参数来指定清理缓存的时间间隔。默认值为 28800 秒（8小时），此间隔过后，BE 将强制清理所有超过该时间未使用的连接池缓存。
+
 ## 使用指南
 
 ### 查看 JDBC Catalog
@@ -478,7 +494,6 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 | date                                   | DATE          |                                                              |
 | datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                              |
 | char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                              |
-| binary/varbinary                       | STRING        |                                                              |
 | time/datetimeoffset                    | STRING        |                                                              |
 | Other                                  | UNSUPPORTED   |                                                              |
 

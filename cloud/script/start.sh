@@ -54,6 +54,8 @@ if [[ -f "${DORIS_HOME}/bin/${process}.pid" ]]; then
     rm -f "${DORIS_HOME}/bin/${process}.pid"
 fi
 
+chmod 550 "${DORIS_HOME}/lib/doris_cloud"
+
 lib_path="${DORIS_HOME}/lib"
 bin="${DORIS_HOME}/lib/doris_cloud"
 if ldd "${bin}" | grep -Ei 'libfdb_c.*not found' &>/dev/null; then

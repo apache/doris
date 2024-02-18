@@ -20,7 +20,6 @@ package org.apache.doris.planner.external.hudi;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
-import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -28,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HivePartition;
+import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.FileSplit;
@@ -43,6 +43,7 @@ import org.apache.doris.thrift.THudiFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
@@ -194,7 +195,8 @@ public class HudiScanNode extends HiveScanNode {
                     return filteredPartitionIds.stream().map(id -> {
                         String path = basePath + "/" + partitionIdToNameMap.get(id);
                         return new HivePartition(
-                                dbName, tblName, false, inputFormat, path, partitionValuesMap.get(id));
+                                dbName, tblName, false, inputFormat, path, partitionValuesMap.get(id),
+                                Maps.newHashMap());
                     }).collect(Collectors.toList());
                 } finally {
                     partitionValues.readLock().unlock();
@@ -205,7 +207,7 @@ public class HudiScanNode extends HiveScanNode {
         // so that we can unify the interface.
         HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
                 hmsTable.getRemoteTable().getSd().getInputFormat(),
-                hmsTable.getRemoteTable().getSd().getLocation(), null);
+                hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
         this.totalPartitionNum = 1;
         this.readPartitionNum = 1;
         return Lists.newArrayList(dummyPartition);

@@ -81,6 +81,7 @@ private:
     std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     int _partition_exprs_num = 0;
+    std::shared_ptr<vectorized::PartitionSortInfo> _partition_sort_info = nullptr;
 
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _emplace_key_timer = nullptr;
@@ -130,11 +131,11 @@ private:
     bool _has_global_limit = false;
     int64_t _partition_inner_limit = 0;
 
-    Status _split_block_by_partition(vectorized::Block* input_block, int batch_size,
-                                     PartitionSortSinkLocalState& local_state);
-    void _emplace_into_hash_table(const vectorized::ColumnRawPtrs& key_columns,
-                                  const vectorized::Block* input_block, int batch_size,
-                                  PartitionSortSinkLocalState& local_state);
+    Status _split_block_by_partition(vectorized::Block* input_block,
+                                     PartitionSortSinkLocalState& local_state, bool eos);
+    Status _emplace_into_hash_table(const vectorized::ColumnRawPtrs& key_columns,
+                                    const vectorized::Block* input_block,
+                                    PartitionSortSinkLocalState& local_state, bool eos);
 };
 
 } // namespace pipeline

@@ -213,6 +213,10 @@ public class Backend implements Writable {
         return id;
     }
 
+    public String getAddress() {
+        return host + ":" + heartbeatPort;
+    }
+
     public String getHost() {
         return host;
     }
@@ -368,6 +372,10 @@ public class Backend implements Writable {
 
     public long getLastMissingHeartbeatTime() {
         return lastMissingHeartbeatTime;
+    }
+
+    public void setLastMissingHeartbeatTime(long lastMissingHeartbeatTime) {
+        this.lastMissingHeartbeatTime = lastMissingHeartbeatTime;
     }
 
     // Backend process epoch, is uesd to tag a beckend process
@@ -673,7 +681,7 @@ public class Backend implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, host, heartbeatPort, bePort, isAlive);
+        return Objects.hash(id, host, heartbeatPort, bePort, isAlive.get());
     }
 
     @Override

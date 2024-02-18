@@ -135,24 +135,23 @@ public abstract class JdbcClient {
             dataSource.setUrl(config.getJdbcUrl());
             dataSource.setUsername(config.getUser());
             dataSource.setPassword(config.getPassword());
-            dataSource.setMinIdle(config.getMinIdleSize());
-            dataSource.setInitialSize(config.getMinPoolSize());
-            dataSource.setMaxActive(config.getMaxPoolSize());
-            dataSource.setTimeBetweenEvictionRunsMillis(config.getMaxIdleTime() * 2L);
-            dataSource.setMinEvictableIdleTimeMillis(config.getMaxIdleTime());
+            dataSource.setMinIdle(config.getConnectionPoolMinSize()); // default 1
+            dataSource.setInitialSize(config.getConnectionPoolMinSize()); // default 1
+            dataSource.setMaxActive(config.getConnectionPoolMaxSize()); // default 10
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
             // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
             // it may cause the thrift rpc timeout.
-            dataSource.setMaxWait(config.getMaxWaitTime());
-            dataSource.setKeepAlive(config.isKeepAlive());
-            LOG.info("JdbcExecutor set minPoolSize = " + config.getMinPoolSize()
-                    + ", maxPoolSize = " + config.getMaxPoolSize()
-                    + ", maxIdleTime = " + config.getMaxIdleTime()
-                    + ", maxWaitTime = " + config.getMaxWaitTime()
-                    + ", minIdleSize = " + config.getMinIdleSize()
-                    + ", keepAlive = " + config.isKeepAlive());
+            dataSource.setMaxWait(config.getConnectionPoolMaxWaitTime()); // default 5000
+            dataSource.setTimeBetweenEvictionRunsMillis(config.getConnectionPoolMaxLifeTime() / 10L); // default 3 min
+            dataSource.setMinEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime() / 2L); // default 15 min
+            dataSource.setMaxEvictableIdleTimeMillis(config.getConnectionPoolMaxLifeTime()); // default 30 min
+            LOG.info("JdbcClient set"
+                    + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
+                    + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
+                    + ", ConnectionPoolMaxWaitTime = " + config.getConnectionPoolMaxWaitTime()
+                    + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime());
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + config.getDriverUrl(), e);
         } finally {
@@ -326,7 +325,6 @@ public abstract class JdbcClient {
                    We used this method to retrieve the key column of the JDBC table, but since we only tested mysql,
                    we kept the default key behavior in the parent class and only overwrite it in the mysql subclass
                 */
-                field.setKey(true);
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
                 field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
@@ -355,7 +353,7 @@ public abstract class JdbcClient {
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
             dorisTableSchema.add(new Column(field.getColumnName(),
-                    jdbcTypeToDoris(field), field.isKey, null,
+                    jdbcTypeToDoris(field), true, null,
                     field.isAllowNull(), field.getRemarks(),
                     true, -1));
         }
@@ -504,7 +502,6 @@ public abstract class JdbcClient {
         protected int dataType;
         // The SQL type of the corresponding java.sql.types (Type Name)
         protected String dataTypeName;
-        protected boolean isKey;
         // For CHAR/DATA, columnSize means the maximum number of chars.
         // For NUMERIC/DECIMAL, columnSize means precision.
         protected int columnSize;
@@ -518,8 +515,6 @@ public abstract class JdbcClient {
         // because for utf8 encoding, a Chinese character takes up 3 bytes
         protected int charOctetLength;
         protected boolean isAllowNull;
-        protected boolean isAutoincrement;
-        protected String defaultValue;
     }
 
     protected abstract Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema);

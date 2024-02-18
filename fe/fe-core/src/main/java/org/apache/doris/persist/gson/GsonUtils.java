@@ -33,10 +33,12 @@ import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OdbcCatalogResource;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
@@ -64,6 +66,9 @@ import org.apache.doris.catalog.external.PaimonExternalDatabase;
 import org.apache.doris.catalog.external.PaimonExternalTable;
 import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalTable;
+import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.EsExternalCatalog;
@@ -92,6 +97,10 @@ import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
+import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
+import org.apache.doris.mtmv.MTMVTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
@@ -122,6 +131,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
+import com.google.gson.ReflectionAccessFilter;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
@@ -240,6 +250,12 @@ public class GsonUtils {
                     .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName())
                     .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName());
 
+    private static RuntimeTypeAdapterFactory<MTMVSnapshotIf> mtmvSnapshotTypeAdapterFactory =
+            RuntimeTypeAdapterFactory.of(MTMVSnapshotIf.class, "clazz")
+                    .registerSubtype(MTMVMaxTimestampSnapshot.class, MTMVMaxTimestampSnapshot.class.getSimpleName())
+                    .registerSubtype(MTMVTimestampSnapshot.class, MTMVTimestampSnapshot.class.getSimpleName())
+                    .registerSubtype(MTMVVersionSnapshot.class, MTMVVersionSnapshot.class.getSimpleName());
+
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")
             .registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
@@ -278,10 +294,32 @@ public class GsonUtils {
             .registerSubtype(FrontendHbResponse.class, FrontendHbResponse.class.getSimpleName())
             .registerSubtype(BrokerHbResponse.class, BrokerHbResponse.class.getSimpleName());
 
+    // runtime adapter for class "CloudReplica".
+    private static RuntimeTypeAdapterFactory<Replica> replicaTypeAdapterFactory = RuntimeTypeAdapterFactory
+            .of(Replica.class, "clazz")
+            .registerDefaultSubtype(Replica.class)
+            .registerSubtype(Replica.class, Replica.class.getSimpleName())
+            .registerSubtype(CloudReplica.class, CloudReplica.class.getSimpleName());
+
+    // runtime adapter for class "CloudPartition".
+    private static RuntimeTypeAdapterFactory<Partition> partitionTypeAdapterFactory = RuntimeTypeAdapterFactory
+            .of(Partition.class, "clazz")
+            .registerDefaultSubtype(Partition.class)
+            .registerSubtype(Partition.class, Partition.class.getSimpleName())
+            .registerSubtype(CloudPartition.class, CloudPartition.class.getSimpleName());
+
+    // runtime adapter for class "CloudInternalCatalog".
+    private static RuntimeTypeAdapterFactory<InternalCatalog> internalCatalogTypeAdapterFactory =
+            RuntimeTypeAdapterFactory.of(InternalCatalog.class, "clazz")
+            .registerDefaultSubtype(InternalCatalog.class)
+            .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
+            .registerSubtype(CloudInternalCatalog.class, CloudInternalCatalog.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
                     new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
+            .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
@@ -293,10 +331,14 @@ public class GsonUtils {
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
             .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
+            .registerTypeAdapterFactory(replicaTypeAdapterFactory)
+            .registerTypeAdapterFactory(partitionTypeAdapterFactory)
+            .registerTypeAdapterFactory(internalCatalogTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
+            .registerTypeAdapterFactory(mtmvSnapshotTypeAdapterFactory)
             .registerTypeAdapterFactory(constraintTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())

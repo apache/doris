@@ -28,7 +28,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletMetaInfo;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
 import org.apache.doris.transaction.TransactionState;
@@ -232,7 +232,7 @@ public class TabletInvertedIndex {
                             // check if should clear transactions
                             if (backendTabletInfo.isSetTransactionIds()) {
                                 List<Long> transactionIds = backendTabletInfo.getTransactionIds();
-                                GlobalTransactionMgr transactionMgr = Env.getCurrentGlobalTransactionMgr();
+                                GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
                                 for (Long transactionId : transactionIds) {
                                     TransactionState transactionState
                                             = transactionMgr.getTransactionState(tabletMeta.getDbId(), transactionId);
@@ -644,19 +644,28 @@ public class TabletInvertedIndex {
         return tabletIds;
     }
 
-    public List<Long> getTabletIdsByBackendIdAndStorageMedium(long backendId, TStorageMedium storageMedium) {
-        List<Long> tabletIds = Lists.newArrayList();
+    public List<Pair<Long, Long>> getTabletSizeByBackendIdAndStorageMedium(long backendId,
+            TStorageMedium storageMedium) {
+        List<Pair<Long, Long>> tabletIdSizes = Lists.newArrayList();
         long stamp = readLock();
         try {
             Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
             if (replicaMetaWithBackend != null) {
-                tabletIds = replicaMetaWithBackend.keySet().stream().filter(
-                        id -> tabletMetaMap.get(id).getStorageMedium() == storageMedium).collect(Collectors.toList());
+                tabletIdSizes = replicaMetaWithBackend.entrySet().stream()
+                        .filter(entry -> tabletMetaMap.get(entry.getKey()).getStorageMedium() == storageMedium)
+                        .map(entry -> Pair.of(entry.getKey(), entry.getValue().getDataSize()))
+                        .collect(Collectors.toList());
             }
         } finally {
             readUnlock(stamp);
         }
-        return tabletIds;
+        return tabletIdSizes;
+    }
+
+    public List<Long> getTabletIdsByBackendIdAndStorageMedium(long backendId,
+            TStorageMedium storageMedium) {
+        return getTabletSizeByBackendIdAndStorageMedium(backendId, storageMedium).stream()
+                .map(Pair::key).collect(Collectors.toList());
     }
 
     public int getTabletNumByBackendId(long backendId) {

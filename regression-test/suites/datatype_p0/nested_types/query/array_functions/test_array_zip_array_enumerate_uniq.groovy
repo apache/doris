@@ -25,7 +25,7 @@ suite("test_array_zip_array_enumerate_uniq", "p0") {
                SELECT array_zip();
                 """
     } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("errCode = 2, detailMessage = Unexpected exception: 0"))
+        assertTrue(ex.getMessage().contains("errCode = 2, detailMessage = Unexpected exception: "))
     }
 
     try {

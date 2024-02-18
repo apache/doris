@@ -40,10 +40,11 @@ void NodeStatistics::from_pb(const PNodeStatistics& node_statistics) {
 }
 
 void QueryStatistics::merge(const QueryStatistics& other) {
-    scan_rows += other.scan_rows;
-    scan_bytes += other.scan_bytes;
-    int64_t other_cpu_time = other.cpu_nanos.load(std::memory_order_relaxed);
-    cpu_nanos += other_cpu_time;
+    scan_rows += other.scan_rows.load(std::memory_order_relaxed);
+    scan_bytes += other.scan_bytes.load(std::memory_order_relaxed);
+    cpu_nanos += other.cpu_nanos.load(std::memory_order_relaxed);
+    shuffle_send_bytes += other.shuffle_send_bytes.load(std::memory_order_relaxed);
+    shuffle_send_rows += other.shuffle_send_rows.load(std::memory_order_relaxed);
 
     int64_t other_peak_mem = other.max_peak_memory_bytes.load(std::memory_order_relaxed);
     if (other_peak_mem > this->max_peak_memory_bytes) {
@@ -85,6 +86,8 @@ void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
     statistics->__set_max_peak_memory_bytes(max_peak_memory_bytes.load(std::memory_order_relaxed));
     statistics->__set_current_used_memory_bytes(
             current_used_memory_bytes.load(std::memory_order_relaxed));
+    statistics->__set_shuffle_send_bytes(shuffle_send_bytes.load(std::memory_order_relaxed));
+    statistics->__set_shuffle_send_rows(shuffle_send_rows.load(std::memory_order_relaxed));
 }
 
 void QueryStatistics::from_pb(const PQueryStatistics& statistics) {

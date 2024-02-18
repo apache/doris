@@ -118,7 +118,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     protected String comment = "";
 
     @SerializedName(value = "ta")
-    private TableAttributes tableAttributes = new TableAttributes();
+    protected TableAttributes tableAttributes = new TableAttributes();
 
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
@@ -354,6 +354,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     // should override in subclass if necessary
     public List<Column> getBaseSchema() {
         return getBaseSchema(Util.showHiddenColumns());
+    }
+
+    @Override
+    public List<Column> getSchemaAllIndexes(boolean full) {
+        return getBaseSchema();
     }
 
     public List<Column> getBaseSchema(boolean full) {

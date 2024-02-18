@@ -196,9 +196,10 @@ struct ExchangeRpcContext {
 
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 template <typename Parent>
-class ExchangeSinkBuffer {
+class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId, int, PlanNodeId, int, QueryContext*);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
+                       RuntimeState* state);
     ~ExchangeSinkBuffer();
     void register_sink(TUniqueId);
 
@@ -256,6 +257,7 @@ private:
     int _sender_id;
     int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
+    RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
 
     Status _send_rpc(InstanceLoId);
@@ -272,7 +274,6 @@ private:
     static constexpr int QUEUE_CAPACITY_FACTOR = 64;
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
     std::shared_ptr<Dependency> _finish_dependency;
-    QueryStatistics* _statistics = nullptr;
     std::atomic<bool> _should_stop {false};
 };
 

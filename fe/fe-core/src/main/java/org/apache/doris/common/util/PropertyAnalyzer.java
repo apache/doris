@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
@@ -48,6 +49,7 @@ import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -166,6 +168,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
+    public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
@@ -194,6 +197,70 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
 
+    public enum RewriteType {
+        PUT,      // always put property
+        REPLACE,  // replace if exists property
+        DELETE,   // delete property
+    }
+
+    public static class RewriteProperty {
+        RewriteType rewriteType;
+        String key;
+        String value;
+
+        private RewriteProperty(RewriteType rewriteType, String key, String value) {
+            this.rewriteType = rewriteType;
+            this.key = key;
+            this.value = value;
+        }
+
+        public static RewriteProperty put(String key, String value) {
+            return new RewriteProperty(RewriteType.PUT, key, value);
+        }
+
+        public static RewriteProperty replace(String key, String value) {
+            return new RewriteProperty(RewriteType.REPLACE, key, value);
+        }
+
+        public static RewriteProperty  delete(String key) {
+            return new RewriteProperty(RewriteType.DELETE, key, null);
+        }
+
+        public void rewrite(Map<String, String> properties) {
+            switch (rewriteType) {
+                case PUT:
+                    properties.put(key, value);
+                    break;
+                case REPLACE:
+                    if (properties.containsKey(key)) {
+                        properties.put(key, value);
+                    }
+                    break;
+                case DELETE:
+                    properties.remove(key);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+    }
+
+    protected ImmutableList<RewriteProperty> forceProperties;
+
+    public PropertyAnalyzer() {
+        forceProperties = ImmutableList.of(
+                RewriteProperty.replace(PROPERTIES_FILE_CACHE_TTL_SECONDS, "0")
+                );
+    }
+
+    private static class SingletonHolder {
+        private static final PropertyAnalyzer INSTANCE = EnvFactory.getInstance().createPropertyAnalyzer();
+    }
+
+    public static PropertyAnalyzer getInstance() {
+        return SingletonHolder.INSTANCE;
+    }
 
     /**
      * check and replace members of DataProperty by properties.
@@ -1285,7 +1352,21 @@ public class PropertyAnalyzer {
         }
     }
 
-    public static Map<String, String> rewriteReplicaAllocationProperties(
+    public Map<String, String> rewriteOlapProperties(
+            String ctl, String db, Map<String, String> properties) {
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        rewriteReplicaAllocationProperties(ctl, db, properties);
+        rewriteForceProperties(properties);
+        return properties;
+    }
+
+    private void rewriteForceProperties(Map<String, String> properties) {
+        forceProperties.forEach(property -> property.rewrite(properties));
+    }
+
+    private static Map<String, String> rewriteReplicaAllocationProperties(
             String ctl, String db, Map<String, String> properties) {
         if (Config.force_olap_table_replication_num <= 0) {
             return rewriteReplicaAllocationPropertiesByDatabase(ctl, db, properties);
@@ -1357,6 +1438,10 @@ public class PropertyAnalyzer {
     // due to backward compatibility, we just explicitly set the value of this property to `true` if
     // the user doesn't specify the property in `CreateTableStmt`/`CreateTableInfo`
     public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
+        if (Config.isCloudMode()) {
+            // FIXME: MOW is not supported in cloud mode yet.
+            return properties;
+        }
         if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {
             properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         }

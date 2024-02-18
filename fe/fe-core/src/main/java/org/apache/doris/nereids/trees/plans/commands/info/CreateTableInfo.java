@@ -51,7 +51,7 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -198,7 +198,13 @@ public class CreateTableInfo {
         return tableName;
     }
 
+    /**
+     * full qualifier table name.
+     */
     public List<String> getTableNameParts() {
+        if (ctlName != null && dbName != null) {
+            return ImmutableList.of(ctlName, dbName, tableName);
+        }
         if (dbName != null) {
             return ImmutableList.of(dbName, tableName);
         }
@@ -218,6 +224,12 @@ public class CreateTableInfo {
 
         if (properties == null) {
             properties = Maps.newHashMap();
+        }
+
+        if (Config.isCloudMode() && properties != null
+                && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
+            // FIXME: MOW is not supported in cloud mode yet.
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false");
         }
 
         if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase("olap")) {
@@ -284,16 +296,15 @@ public class CreateTableInfo {
         }
 
         if (engineName.equalsIgnoreCase("olap")) {
-            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(ctlName, dbName,
-                    properties);
             boolean enableDuplicateWithoutKeysByDefault = false;
-            if (properties != null) {
-                try {
+            properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(ctlName, dbName, properties);
+            try {
+                if (properties != null) {
                     enableDuplicateWithoutKeysByDefault =
-                            PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
-                } catch (Exception e) {
-                    throw new AnalysisException(e.getMessage(), e.getCause());
+                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
                 }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
             }
             if (keys.isEmpty()) {
                 boolean hasAggColumn = false;
@@ -807,6 +818,17 @@ public class CreateTableInfo {
                             ? partitions.stream().map(PartitionDefinition::translateToCatalogStyle)
                                     .collect(Collectors.toList())
                             : null;
+
+            int createTablePartitionMaxNum = ConnectContext.get().getSessionVariable().getCreateTablePartitionMaxNum();
+            if (partitionDescs != null && partitionDescs.size() > createTablePartitionMaxNum) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(String.format(
+                        "The number of partitions to be created is [%s], exceeding the maximum value of [%s]. "
+                                + "Creating too many partitions can be time-consuming. If necessary, "
+                                + "You can set the session variable 'create_table_partition_max_num' "
+                                + "to a larger value.",
+                        partitionDescs.size(), createTablePartitionMaxNum));
+            }
+
             try {
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
@@ -860,7 +882,7 @@ public class CreateTableInfo {
         }
 
         return new CreateTableStmt(ifNotExists, isExternal,
-                new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(), dbName, tableName),
+                new TableName(ctlName, dbName, tableName),
                 catalogColumns, catalogIndexes, engineName,
                 new KeysDesc(keysType, keys, clusterKeysColumnNames, clusterKeysColumnIds),
                 partitionDesc, distributionDesc, Maps.newHashMap(properties), extProperties,

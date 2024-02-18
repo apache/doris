@@ -33,7 +33,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.qe.ConnectContext;
@@ -441,7 +441,11 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(qs.scan_bytes));
             trow.addToColumnValue(new TCell().setLongVal(qs.max_peak_memory_bytes));
             trow.addToColumnValue(new TCell().setLongVal(qs.current_used_memory_bytes));
+            trow.addToColumnValue(new TCell().setLongVal(qs.shuffle_send_bytes));
+            trow.addToColumnValue(new TCell().setLongVal(qs.shuffle_send_rows));
         } else {
+            trow.addToColumnValue(new TCell().setLongVal(0L));
+            trow.addToColumnValue(new TCell().setLongVal(0L));
             trow.addToColumnValue(new TCell().setLongVal(0L));
             trow.addToColumnValue(new TCell().setLongVal(0L));
             trow.addToColumnValue(new TCell().setLongVal(0L));
@@ -630,7 +634,7 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setStringVal(mv.getEnvInfo().toString()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvProperties().toString()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvPartitionInfo().toNameString()));
-                trow.addToColumnValue(new TCell().setBoolVal(MTMVUtil.isMTMVSync(mv)));
+                trow.addToColumnValue(new TCell().setBoolVal(MTMVPartitionUtil.isMTMVSync(mv)));
                 dataBatch.add(trow);
             }
         }

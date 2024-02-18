@@ -30,13 +30,13 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.external.elasticsearch.EsShardPartitions;
-import org.apache.doris.external.elasticsearch.EsShardRouting;
-import org.apache.doris.external.elasticsearch.EsTablePartitions;
-import org.apache.doris.external.elasticsearch.QueryBuilders;
-import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
-import org.apache.doris.external.elasticsearch.QueryBuilders.BuilderOptions;
-import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
+import org.apache.doris.datasource.es.EsShardPartitions;
+import org.apache.doris.datasource.es.EsShardRouting;
+import org.apache.doris.datasource.es.EsTablePartitions;
+import org.apache.doris.datasource.es.QueryBuilders;
+import org.apache.doris.datasource.es.QueryBuilders.BoolQueryBuilder;
+import org.apache.doris.datasource.es.QueryBuilders.BuilderOptions;
+import org.apache.doris.datasource.es.QueryBuilders.QueryBuilder;
 import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.statistics.StatisticalType;
@@ -314,7 +314,7 @@ public class EsScanNode extends ExternalScanNode {
         return output.toString();
     }
 
-    private void buildQuery() {
+    private void buildQuery() throws UserException {
         if (conjuncts.isEmpty()) {
             queryBuilder = QueryBuilders.matchAllQuery();
         } else {

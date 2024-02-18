@@ -1542,6 +1542,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
         if (this.type.isAggStateType()) {
             List<Type> subTypes = ((AggStateType) targetType).getSubTypes();
+            List<Boolean> subNullables = ((AggStateType) targetType).getSubTypeNullables();
 
             if (this instanceof FunctionCallExpr) {
                 if (subTypes.size() != getChildren().size()) {
@@ -1549,6 +1550,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
                 for (int i = 0; i < subTypes.size(); i++) {
                     setChild(i, getChild(i).castTo(subTypes.get(i)));
+                    if (getChild(i).isNullable() && !subNullables.get(i)) {
+                        FunctionCallExpr newChild = new FunctionCallExpr("non_nullable",
+                                Lists.newArrayList(getChild(i)));
+                        newChild.analyzeImplForDefaultValue(subTypes.get(i));
+                        setChild(i, newChild);
+                    } else if (!getChild(i).isNullable() && subNullables.get(i)) {
+                        FunctionCallExpr newChild = new FunctionCallExpr("nullable", Lists.newArrayList(getChild(i)));
+                        newChild.analyzeImplForDefaultValue(subTypes.get(i));
+                        setChild(i, newChild);
+                    }
                 }
                 type = targetType;
             } else {
@@ -1674,10 +1685,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         Type t2 = getChild(1).getType();
         // add operand casts
         Preconditions.checkState(compatibleType.isValid());
-        if (t1.getPrimitiveType() != compatibleType.getPrimitiveType()) {
+        if (t1.isDecimalV3() || t1.isDecimalV2()) {
+            if (!t1.equals(compatibleType)) {
+                castChild(compatibleType, 0);
+            }
+        } else if (t1.getPrimitiveType() != compatibleType.getPrimitiveType()) {
             castChild(compatibleType, 0);
         }
-        if (t2.getPrimitiveType() != compatibleType.getPrimitiveType()) {
+
+        if (t2.isDecimalV3() || t2.isDecimalV2()) {
+            if (!t2.equals(compatibleType)) {
+                castChild(compatibleType, 1);
+            }
+        } else if (t2.getPrimitiveType() != compatibleType.getPrimitiveType()) {
             castChild(compatibleType, 1);
         }
         return compatibleType;
@@ -2626,6 +2646,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         for (Expr expr : getChildren()) {
             expr.replaceSlot(tuple);
         }
+    }
+
+    public boolean isNullLiteral() {
+        return this instanceof NullLiteral;
+    }
+
+    public boolean isZeroLiteral() {
+        return this instanceof LiteralExpr && ((LiteralExpr) this).isZero();
     }
 }
 

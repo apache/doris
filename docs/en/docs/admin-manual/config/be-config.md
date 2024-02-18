@@ -614,7 +614,7 @@ BaseCompaction:546859:
 
 * Type: bool
 * Description: Enable to use segment compaction during loading to avoid -238 error
-* Default value: false
+* Default value: true
 
 #### `segcompaction_batch_size`
 
@@ -1203,7 +1203,7 @@ BaseCompaction:546859:
 #### `sync_tablet_meta`
 
 * Description: Whether the storage engine opens sync and keeps it to the disk
-* Default value: false
+* Default value: true
 
 #### `pending_data_expire_time_sec`
 

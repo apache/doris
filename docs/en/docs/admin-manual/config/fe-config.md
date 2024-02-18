@@ -1659,7 +1659,7 @@ fe.warn.log  all WARNING and ERROR log of FE process.
 
 Default：INFO
 
-log level：INFO, WARNING, ERROR, FATAL
+log level：INFO, WARN, ERROR, FATAL
 
 #### `sys_log_roll_num`
 

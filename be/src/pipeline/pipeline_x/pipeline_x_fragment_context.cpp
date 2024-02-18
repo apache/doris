@@ -133,12 +133,12 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id)) {
-        if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
+        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+            _is_report_on_cancel = false;
+        } else {
             for (auto& id : _fragment_instance_ids) {
                 LOG(WARNING) << "PipelineXFragmentContext cancel instance: " << print_id(id);
             }
-        } else {
-            _set_is_report_on_cancel(false); // TODO bug llj
         }
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
@@ -182,8 +182,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     // 1. Set up the global runtime state.
     _runtime_state = RuntimeState::create_unique(request.query_id, request.fragment_id,
                                                  request.query_options, _query_ctx->query_globals,
-                                                 _exec_env);
-    _runtime_state->set_query_ctx(_query_ctx.get());
+                                                 _exec_env, _query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -479,7 +478,6 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         auto init_runtime_state = [&](std::unique_ptr<RuntimeState>& runtime_state) {
             runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
-            runtime_state->set_query_ctx(_query_ctx.get());
             runtime_state->set_task_execution_context(shared_from_this());
             runtime_state->set_be_number(local_params.backend_num);
 
@@ -533,7 +531,6 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         if (local_params.__isset.runtime_filter_params) {
             runtime_filter_mgr->set_runtime_filter_params(local_params.runtime_filter_params);
         }
-        RETURN_IF_ERROR(runtime_filter_mgr->init());
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
         _runtime_filter_states.push_back(std::move(filterparams));
@@ -567,7 +564,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                 _task_runtime_states.push_back(RuntimeState::create_unique(
                         this, local_params.fragment_instance_id, request.query_id,
                         request.fragment_id, request.query_options, _query_ctx->query_globals,
-                        _exec_env));
+                        _exec_env, _query_ctx.get()));
                 auto& task_runtime_state = _task_runtime_states.back();
                 init_runtime_state(task_runtime_state);
                 auto cur_task_id = _total_tasks++;
@@ -618,10 +615,16 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                     for (auto& dep : deps) {
                         if (pipeline_id_to_task.contains(dep)) {
                             task->add_upstream_dependency(
-                                    pipeline_id_to_task[dep]->get_downstream_dependency());
+                                    pipeline_id_to_task[dep]->get_downstream_dependency(),
+                                    pipeline_id_to_task[dep]->get_shared_states());
                         }
                     }
                 }
+            }
+        }
+        for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
+            if (pipeline_id_to_task.contains(_pipelines[pip_idx]->id())) {
+                auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
                 RETURN_IF_ERROR(prepare_and_set_parent_profile(task, pip_idx));
             }
         }
@@ -739,7 +742,7 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
                                             is_shuffled_hash_join, shuffle_idx_to_instance_idx));
 
     // 2. Create and initialize LocalExchangeSharedState.
-    auto shared_state = LocalExchangeSharedState::create_shared();
+    auto shared_state = LocalExchangeSharedState::create_shared(_num_instances);
     switch (data_distribution.distribution_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
@@ -771,12 +774,10 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)data_distribution.distribution_type));
     }
-    shared_state->source_dependencies.resize(_num_instances, nullptr);
-    shared_state->mem_trackers.resize(_num_instances, nullptr);
     auto sink_dep = std::make_shared<LocalExchangeSinkDependency>(sink_id, local_exchange_id,
                                                                   _runtime_state->get_query_ctx());
-    sink_dep->set_shared_state(shared_state);
-    shared_state->sink_dependency = sink_dep.get();
+    sink_dep->set_shared_state(shared_state.get());
+    shared_state->sink_dependency = sink_dep;
     _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});
 
     // 3. Set two pipelines' operator list. For example, split pipeline [Scan - AggSink] to
@@ -1219,10 +1220,7 @@ Status PipelineXFragmentContext::submit() {
 
     int submit_tasks = 0;
     Status st;
-    auto* scheduler = _exec_env->pipeline_task_scheduler();
-    if (_task_group_entity) {
-        scheduler = _exec_env->pipeline_task_group_scheduler();
-    }
+    auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
     for (auto& task : _tasks) {
         for (auto& t : task) {
             st = scheduler->schedule_task(t.get());
@@ -1312,8 +1310,7 @@ Status PipelineXFragmentContext::send_report(bool done) {
              TUniqueId(), _backend_num, _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2),
-             nullptr},
+                       std::placeholders::_2)},
             std::dynamic_pointer_cast<PipelineXFragmentContext>(shared_from_this()));
 }
 

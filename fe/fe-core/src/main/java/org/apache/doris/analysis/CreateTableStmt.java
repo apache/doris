@@ -40,7 +40,7 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -98,7 +98,7 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("broker");
     }
 
-    // if auto bucket auto bucket enable, rewrite distribution bucket num &&
+    // if auto bucket enable, rewrite distribution bucket num &&
     // set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
     private static Map<String, String> maybeRewriteByAutoBucket(DistributionDesc distributionDesc,
             Map<String, String> properties) throws AnalysisException {
@@ -277,6 +277,12 @@ public class CreateTableStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (Config.isCloudMode() && properties != null
+                && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
+            // FIXME: MOW is not supported in cloud mode yet.
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false");
+        }
+
         if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             this.properties = maybeRewriteByAutoBucket(distributionDesc, properties);
         }
@@ -494,8 +500,8 @@ public class CreateTableStmt extends DdlStmt {
 
         if (engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             // before analyzing partition, handle the replication allocation info
-            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(tableName.getCtl(), tableName.getDb(),
-                    properties);
+            properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(tableName.getCtl(),
+                    tableName.getDb(), properties);
             // analyze partition
             if (partitionDesc != null) {
                 if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc) {

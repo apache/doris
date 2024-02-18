@@ -315,6 +315,10 @@
     "message": "多源数据目录",
     "description": "The label for category Lakehouse.Multi Catalog in sidebar docs"
   },
+  "sidebar.docs.category.Cloud Service Authentication": {
+    "message": "云服务认证接入",
+    "description": "The label for category Lakehouse.Cloud Service Authentication in sidebar docs"
+  },
   "sidebar.docs.category.External Table": {
     "message": "外部表",
     "description": "The label for category Lakehouse.External Table in sidebar docs"

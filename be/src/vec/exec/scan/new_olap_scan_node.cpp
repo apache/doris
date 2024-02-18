@@ -34,7 +34,9 @@
 #include <variant>
 #include <vector>
 
-#include "common/config.h"
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -74,7 +76,6 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : VScanNode(pool, tnode, descs), _olap_scan_node(tnode.olap_scan_node) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
-    _col_distribute_ids = tnode.olap_scan_node.distribute_column_ids;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
@@ -85,6 +86,7 @@ Status NewOlapScanNode::prepare(RuntimeState* state) {
     // if you want to add some profile in scan node, even it have not new VScanner object
     // could add here, not in the _init_profile() function
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
+    _key_range_counter = ADD_COUNTER(_runtime_profile, "KeyRangesNum", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -494,22 +496,30 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     bool is_dup_mow_key = false;
     size_t segment_count = 0;
     std::vector<TabletReader::ReadSource> tablets_read_source;
-    tablets_read_source.reserve(_scan_ranges.size());
     std::vector<std::vector<size_t>> tablet_rs_seg_count;
-    tablet_rs_seg_count.reserve(_scan_ranges.size());
-    std::vector<std::pair<BaseTabletSPtr, int64_t /* version */>> tablets_to_scan;
-    tablets_to_scan.reserve(_scan_ranges.size());
+    std::vector<TabletWithVersion> tablets_to_scan;
 
-    std::vector<TabletWithVersion> tablets;
+    tablets_read_source.reserve(_scan_ranges.size());
+    tablet_rs_seg_count.reserve(_scan_ranges.size());
+    tablets_to_scan.reserve(_scan_ranges.size());
 
     for (auto&& scan_range : _scan_ranges) {
         auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
         int64_t version = 0;
         std::from_chars(scan_range->version.data(),
                         scan_range->version.data() + scan_range->version.size(), version);
-        tablets.emplace_back(
-                TabletWithVersion {std::dynamic_pointer_cast<Tablet>(tablet), version});
         tablets_to_scan.emplace_back(std::move(tablet), version);
+    }
+
+    if (config::is_cloud_mode()) {
+        std::vector<std::function<Status()>> tasks;
+        tasks.reserve(_scan_ranges.size());
+        for (auto&& [tablet, version] : tablets_to_scan) {
+            tasks.emplace_back([tablet, version]() {
+                return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
+            });
+        }
+        RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
     }
 
     bool enable_parallel_scan = _state->enable_parallel_scan();
@@ -564,7 +574,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         }
 
         ParallelScannerBuilder<NewOlapScanNode> scanner_builder(
-                this, tablets, _scanner_profile, key_ranges, _state, _limit_per_scanner,
+                this, tablets_to_scan, _scanner_profile, key_ranges, _state, _limit_per_scanner,
                 is_dup_mow_key, _olap_scan_node.is_preaggregation);
 
         int max_scanners_count = _state->parallel_scan_max_scanners_count();
@@ -594,6 +604,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     auto build_new_scanner = [&](BaseTabletSPtr tablet, int64_t version,
                                  const std::vector<OlapScanRange*>& key_ranges,
                                  TabletReader::ReadSource read_source) {
+        COUNTER_UPDATE(_key_range_counter, key_ranges.size());
         auto scanner =
                 NewOlapScanner::create_shared(this, NewOlapScanner::Params {
                                                             _state,
@@ -643,7 +654,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 }
 
                 const auto max_add_seg_nums = rs_seg_count[rowset_idx] - segment_idx_to_scan;
-                auto& split = rs_splits.emplace_back();
+                auto& split = rs_splits.emplace_back(); // NOLINT(bugprone-use-after-move)
                 split.rs_reader = read_source.rs_splits[rowset_idx].rs_reader->clone();
 
                 // if segments assigned to current scanner are already more than the average count,

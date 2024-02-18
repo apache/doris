@@ -22,7 +22,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.TableIf;
@@ -34,7 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.external.iceberg.util.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.planner.external.TableFormatType;
@@ -69,6 +68,9 @@ import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.DateTimeUtil;
 import org.apache.iceberg.util.TableScanUtil;
 
 import java.io.IOException;
@@ -125,7 +127,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
-        icebergTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(source);
+        icebergTable = source.getIcebergTable();
         super.doInitialize();
     }
 
@@ -220,11 +222,23 @@ public class IcebergScanNode extends FileQueryScanNode {
                 List<String> partitionValues = new ArrayList<>();
                 if (isPartitionedTable) {
                     StructLike structLike = splitTask.file().partition();
+                    List<PartitionField> fields = splitTask.spec().fields();
+                    Types.StructType structType = icebergTable.schema().asStruct();
 
                     // set partitionValue for this IcebergSplit
                     for (int i = 0; i < structLike.size(); i++) {
-                        String partition = String.valueOf(structLike.get(i, Object.class));
-                        partitionValues.add(partition);
+                        Object obj = structLike.get(i, Object.class);
+                        String value = String.valueOf(obj);
+                        PartitionField partitionField = fields.get(i);
+                        if (partitionField.transform().isIdentity()) {
+                            Type type = structType.fieldType(partitionField.name());
+                            if (type != null && type.typeId().equals(Type.TypeID.DATE)) {
+                                // iceberg use integer to store date,
+                                // we need transform it to string
+                                value = DateTimeUtil.daysToIsoDate((Integer) obj);
+                            }
+                        }
+                        partitionValues.add(value);
                     }
 
                     // Counts the number of partitions read
@@ -332,17 +346,22 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public TFileType getLocationType(String location) throws UserException {
         final String fLocation = normalizeLocation(location);
-        return Optional.ofNullable(LocationPath.getTFileType(location)).orElseThrow(() ->
+        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
                 new DdlException("Unknown file location " + fLocation + " for iceberg table " + icebergTable.name()));
     }
 
     private String normalizeLocation(String location) {
         Map<String, String> props = source.getCatalog().getProperties();
+        LocationPath locationPath = new LocationPath(location, props);
         String icebergCatalogType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
         if ("hadoop".equalsIgnoreCase(icebergCatalogType)) {
-            if (!location.startsWith(HdfsResource.HDFS_PREFIX)) {
+            // if no scheme info, fill will HADOOP_FS_NAME
+            // if no HADOOP_FS_NAME, then should be local file system
+            if (locationPath.getLocationType() == LocationPath.LocationType.NOSCHEME) {
                 String fsName = props.get(HdfsResource.HADOOP_FS_NAME);
-                location = fsName + location;
+                if (fsName != null) {
+                    location = fsName + location;
+                }
             }
         }
         return location;

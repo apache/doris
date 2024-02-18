@@ -63,46 +63,6 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
-struct TabletTxnInfo {
-    PUniqueId load_id;
-    RowsetSharedPtr rowset;
-    PendingRowsetGuard pending_rs_guard;
-    bool unique_key_merge_on_write {false};
-    DeleteBitmapPtr delete_bitmap;
-    // records rowsets calc in commit txn
-    RowsetIdUnorderedSet rowset_ids;
-    int64_t creation_time;
-    bool ingest {false};
-    std::shared_ptr<PartialUpdateInfo> partial_update_info;
-    TxnState state {TxnState::PREPARED};
-
-    TabletTxnInfo() = default;
-
-    TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset)
-            : load_id(load_id), rowset(rowset), creation_time(UnixSeconds()) {}
-
-    TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset, bool ingest_arg)
-            : load_id(load_id), rowset(rowset), creation_time(UnixSeconds()), ingest(ingest_arg) {}
-
-    TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset, bool merge_on_write,
-                  DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& ids)
-            : load_id(load_id),
-              rowset(rowset),
-              unique_key_merge_on_write(merge_on_write),
-              delete_bitmap(delete_bitmap),
-              rowset_ids(ids),
-              creation_time(UnixSeconds()) {}
-
-    void prepare() { state = TxnState::PREPARED; }
-    void commit() { state = TxnState::COMMITTED; }
-    void rollback() { state = TxnState::ROLLEDBACK; }
-    void abort() {
-        if (state == TxnState::PREPARED) {
-            state = TxnState::ABORTED;
-        }
-    }
-};
-
 TxnManager::TxnManager(StorageEngine& engine, int32_t txn_map_shard_size, int32_t txn_shard_size)
         : _engine(engine),
           _txn_map_shard_size(txn_map_shard_size),
@@ -521,33 +481,15 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     });
     // update delete_bitmap
     if (tablet_txn_info->unique_key_merge_on_write) {
-        std::unique_ptr<RowsetWriter> rowset_writer;
-        RETURN_IF_ERROR(tablet->create_transient_rowset_writer(
-                rowset, &rowset_writer, tablet_txn_info->partial_update_info));
-
         int64_t t2 = MonotonicMicros();
-        RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset, tablet_txn_info->rowset_ids,
-                                                     tablet_txn_info->delete_bitmap, transaction_id,
-                                                     rowset_writer.get()));
+        RETURN_IF_ERROR(
+                Tablet::update_delete_bitmap(tablet, tablet_txn_info.get(), transaction_id));
         int64_t t3 = MonotonicMicros();
         stats->calc_delete_bitmap_time_us = t3 - t2;
-        if (tablet_txn_info->partial_update_info &&
-            tablet_txn_info->partial_update_info->is_partial_update) {
-            // build rowset writer and merge transient rowset
-            RETURN_IF_ERROR(rowset_writer->flush());
-            RowsetSharedPtr transient_rowset;
-            RETURN_IF_ERROR(rowset_writer->build(transient_rowset));
-            rowset->merge_rowset_meta(transient_rowset->rowset_meta());
-
-            // erase segment cache cause we will add a segment to rowset
-            SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
-        }
-        stats->partial_update_write_segment_us = MonotonicMicros() - t3;
-        int64_t t4 = MonotonicMicros();
         RETURN_IF_ERROR(TabletMetaManager::save_delete_bitmap(
                 tablet->data_dir(), tablet->tablet_id(), tablet_txn_info->delete_bitmap,
                 version.second));
-        stats->save_meta_time_us = MonotonicMicros() - t4;
+        stats->save_meta_time_us = MonotonicMicros() - t3;
     }
 
     /// Step 3:  add to binlog
@@ -788,11 +730,11 @@ void TxnManager::get_all_related_tablets(std::set<TabletInfo>* tablet_infos) {
 }
 
 void TxnManager::get_all_commit_tablet_txn_info_by_tablet(
-        const TabletSharedPtr& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec) {
+        const Tablet& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec) {
     for (int32_t i = 0; i < _txn_map_shard_size; i++) {
         std::shared_lock txn_rdlock(_txn_map_locks[i]);
         for (const auto& [txn_key, load_info_map] : _txn_tablet_maps[i]) {
-            auto tablet_load_it = load_info_map.find(tablet->get_tablet_info());
+            auto tablet_load_it = load_info_map.find(tablet.get_tablet_info());
             if (tablet_load_it != load_info_map.end()) {
                 const auto& [_, load_info] = *tablet_load_it;
                 const auto& rowset = load_info->rowset;

@@ -99,9 +99,10 @@ bool init_glog(const char* basename) {
     // Set roll num
     FLAGS_log_filenum_quota = config::log_filenum_quota;
 
-    // FIXME(walter) update glog patch
+#ifdef GLOG_HAS_WARN_LOG_FILENUM_QUOTA
     // Set warn log roll num
-    // FLAGS_warn_log_filenum_quota = config::warn_log_filenum_quota;
+    FLAGS_warn_log_filenum_quota = config::warn_log_filenum_quota;
+#endif
 
     // clang-format off
     // set log level

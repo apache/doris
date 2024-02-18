@@ -50,26 +50,26 @@ Status WalWriter::init() {
 Status WalWriter::finalize() {
     auto st = _file_writer->close();
     if (!st.ok()) {
-        LOG(WARNING) << "fail to close file " << _file_name;
+        LOG(WARNING) << "fail to close wal " << _file_name;
     }
     return Status::OK();
 }
 
 Status WalWriter::append_blocks(const PBlockArray& blocks) {
     size_t total_size = 0;
-    for (const auto& block : blocks) {
-        total_size += LENGTH_SIZE + block->ByteSizeLong() + CHECKSUM_SIZE;
-    }
     size_t offset = 0;
     for (const auto& block : blocks) {
         uint8_t len_buf[sizeof(uint64_t)];
         uint64_t block_length = block->ByteSizeLong();
+        total_size += LENGTH_SIZE + block_length + CHECKSUM_SIZE;
         encode_fixed64_le(len_buf, block_length);
         RETURN_IF_ERROR(_file_writer->append({len_buf, sizeof(uint64_t)}));
         offset += LENGTH_SIZE;
+
         std::string content = block->SerializeAsString();
         RETURN_IF_ERROR(_file_writer->append(content));
         offset += block_length;
+
         uint8_t checksum_buf[sizeof(uint32_t)];
         uint32_t checksum = crc32c::Value(content.data(), block_length);
         encode_fixed32_le(checksum_buf, checksum);

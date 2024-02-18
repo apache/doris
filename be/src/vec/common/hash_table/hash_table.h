@@ -611,10 +611,11 @@ public:
         std::swap(_need_partition, rhs._need_partition);
         std::swap(_partitioned_threshold, rhs._partitioned_threshold);
 
-        Hash::operator=(std::move(rhs));
-        Allocator::operator=(std::move(rhs));
-        Cell::State::operator=(std::move(rhs));
-        ZeroValueStorage<Cell::need_zero_value_storage, Cell>::operator=(std::move(rhs));
+        Hash::operator=(std::move(rhs));        // NOLINT(bugprone-use-after-move)
+        Allocator::operator=(std::move(rhs));   // NOLINT(bugprone-use-after-move)
+        Cell::State::operator=(std::move(rhs)); // NOLINT(bugprone-use-after-move)
+        ZeroValueStorage<Cell::need_zero_value_storage, Cell>::operator=(
+                std::move(rhs)); // NOLINT(bugprone-use-after-move)
 
         return *this;
     }

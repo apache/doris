@@ -37,25 +37,18 @@ class BlockingQueue;
 
 namespace doris::vectorized {
 class ScannerDelegate;
+class ScanTask;
 class ScannerContext;
 
 // Responsible for the scheduling and execution of all Scanners of a BE node.
-// ScannerScheduler has two types of thread pools:
-// 1. Scheduling thread pool
-//     Responsible for Scanner scheduling.
-//     A set of Scanners for a query will be encapsulated into a ScannerContext
-//     and submitted to the ScannerScheduler's scheduling queue.
-//     There are multiple scheduling queues in ScannerScheduler, and each scheduling queue
-//     is handled by a scheduling thread.
-//     The scheduling thread is scheduled in granularity of ScannerContext,
-//     that is, a group of Scanners in a ScannerContext are scheduled at a time.
-//
-//2. Execution thread pool
-//     The scheduling thread will submit the Scanners selected from the ScannerContext
+// Execution thread pool
+//     When a ScannerContext is launched, it will submit the running scanners to this scheduler.
+//     The scheduling thread will submit the running scanner and its ScannerContext
 //     to the execution thread pool to do the actual scan task.
-//     Each Scanner will act as a producer, read a group of blocks and put them into
+//     Each Scanner will act as a producer, read the next block and put it into
 //     the corresponding block queue.
 //     The corresponding ScanNode will act as a consumer to consume blocks from the block queue.
+//     After the block is consumed, the unfinished scanner will resubmit to this scheduler.
 class ScannerScheduler {
 public:
     ScannerScheduler();
@@ -63,7 +56,7 @@ public:
 
     [[nodiscard]] Status init(ExecEnv* env);
 
-    [[nodiscard]] Status submit(std::shared_ptr<ScannerContext> ctx);
+    void submit(std::shared_ptr<ScannerContext> ctx, std::shared_ptr<ScanTask> scan_task);
 
     void stop();
 
@@ -73,32 +66,13 @@ public:
     int remote_thread_pool_max_size() const { return _remote_thread_pool_max_size; }
 
 private:
-    // scheduling thread function
-    void _schedule_thread(int queue_id);
-    // schedule scanners in a certain ScannerContext
-    void _schedule_scanners(std::shared_ptr<ScannerContext> ctx);
-    // execution thread function
-    void _scanner_scan(ScannerScheduler* scheduler, std::shared_ptr<ScannerContext> ctx,
-                       std::weak_ptr<ScannerDelegate> scanner);
+    static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
+                              std::shared_ptr<ScanTask> scan_task);
 
     void _register_metrics();
 
     static void _deregister_metrics();
 
-    // Scheduling queue number.
-    // TODO: make it configurable.
-    static const int QUEUE_NUM = 4;
-    // The ScannerContext will be submitted to the pending queue roundrobin.
-    // _queue_idx pointer to the current queue.
-    // Use std::atomic_uint to prevent numerical overflow from memory out of bound.
-    // The scheduler thread will take ctx from pending queue, schedule it,
-    // and put it to the _scheduling_map.
-    // If any scanner finish, it will take ctx from and put it to pending queue again.
-    std::atomic_uint _queue_idx = {0};
-    BlockingQueue<std::shared_ptr<ScannerContext>>** _pending_queues = nullptr;
-
-    // scheduling thread pool
-    std::unique_ptr<ThreadPool> _scheduler_pool;
     // execution thread pool
     // _local_scan_thread_pool is for local scan task(typically, olap scanner)
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)

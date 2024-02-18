@@ -586,6 +586,11 @@ ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
     }
 }
 
+ColumnObject::ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column)
+        : is_nullable(is_nullable_) {
+    add_sub_column({}, std::move(column), type);
+}
+
 ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)
         : is_nullable(is_nullable_),
           subcolumns(std::move(subcolumns_)),

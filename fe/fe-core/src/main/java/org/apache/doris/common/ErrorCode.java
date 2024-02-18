@@ -1210,8 +1210,10 @@ public enum ErrorCode {
     ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT(5097, new byte[]{'4', '2', '0', '0', '0'},
             "There can only be one stmt that returns the result and it is at the end."),
 
-    ERR_CLOUD_CLUSTER_ERROR(5093, new byte[]{'4', '2', '0', '0', '0'},
-            "Cluster %s not exist, use SQL 'SHOW CLUSTERS' to get a valid cluster");
+    ERR_CLOUD_CLUSTER_ERROR(5098, new byte[]{'4', '2', '0', '0', '0'},
+            "Cluster %s not exist, use SQL 'SHOW CLUSTERS' to get a valid cluster"),
+
+    ERR_NO_CLUSTER_ERROR(5099, new byte[]{'4', '2', '0', '0', '0'}, "No cluster selected");
 
     // This is error code
     private final int code;
