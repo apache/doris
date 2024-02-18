@@ -98,8 +98,6 @@ public:
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
-    void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params) const;
-
     // for ut and non-query.
     void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
     void init_mem_trackers(const TUniqueId& id = TUniqueId(), const std::string& name = "unknown");
@@ -594,9 +592,6 @@ private:
 
     // owned by PipelineXFragmentContext
     RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
-
-    // Protects _data_stream_recvrs_pool
-    std::mutex _data_stream_recvrs_lock;
 
     // Data stream receivers created by a plan fragment are gathered here to make sure
     // they are destroyed before _obj_pool (class members are destroyed in reverse order).

@@ -101,7 +101,8 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     _runtime_filter_mgr.reset(new RuntimeFilterMgr(fragment_exec_params.query_id,
                                                    RuntimeFilterParamsContext::create(this)));
     if (fragment_exec_params.__isset.runtime_filter_params) {
-        _runtime_filter_mgr->set_runtime_filter_params(fragment_exec_params.runtime_filter_params);
+        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                fragment_exec_params.runtime_filter_params);
     }
 }
 
@@ -303,11 +304,6 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     _import_label = print_id(fragment_instance_id);
 
     return Status::OK();
-}
-
-void RuntimeState::set_runtime_filter_params(
-        const TRuntimeFilterParams& runtime_filter_params) const {
-    _runtime_filter_mgr->set_runtime_filter_params(runtime_filter_params);
 }
 
 void RuntimeState::init_mem_trackers(const TUniqueId& id, const std::string& name) {

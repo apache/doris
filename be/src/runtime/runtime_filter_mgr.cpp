@@ -106,6 +106,55 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
     return Status::OK();
 }
 
+Status RuntimeFilterMgr::register_local_merge_producer_filter(
+        const doris::TRuntimeFilterDesc& desc, const doris::TQueryOptions& options,
+        doris::IRuntimeFilter** producer_filter, bool build_bf_exactly, bool is_global,
+        int parallel_tasks) {
+    SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
+    int32_t key = desc.filter_id;
+
+    decltype(_local_merge_producer_map.end()) iter;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        iter = _local_merge_producer_map.find(key);
+        if (iter == _local_merge_producer_map.end()) {
+            auto [new_iter, _] = _local_merge_producer_map.emplace(key, LocalMergeFilters {});
+            iter = new_iter;
+        }
+    }
+
+    DCHECK(_state != nullptr);
+    RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options,
+                                           RuntimeFilterRole::PRODUCER, -1, producer_filter,
+                                           build_bf_exactly, is_global, parallel_tasks));
+    {
+        std::lock_guard<std::mutex> l(*iter->second.lock);
+        if (iter->second.filters.empty()) {
+            IRuntimeFilter* merge_filter = nullptr;
+            RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options,
+                                                   RuntimeFilterRole::PRODUCER, -1, &merge_filter,
+                                                   build_bf_exactly, is_global, parallel_tasks));
+            iter->second.filters.emplace_back(merge_filter);
+        }
+        iter->second.merge_time++;
+        iter->second.filters.emplace_back(*producer_filter);
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterMgr::get_local_merge_producer_filters(
+        int filter_id, doris::LocalMergeFilters** local_merge_filters) {
+    std::lock_guard<std::mutex> l(_lock);
+    auto iter = _local_merge_producer_map.find(filter_id);
+    if (iter == _local_merge_producer_map.end()) {
+        return Status::InvalidArgument("unknown filter: {}, role: CONSUMER.", filter_id);
+    }
+    *local_merge_filters = &iter->second;
+    DCHECK(!iter->second.filters.empty());
+    DCHECK_GT(iter->second.merge_time, 0);
+    return Status::OK();
+}
+
 Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc,
                                                   const TQueryOptions& options,
                                                   IRuntimeFilter** producer_filter,
@@ -143,8 +192,11 @@ Status RuntimeFilterMgr::update_filter(const PPublishFilterRequest* request,
 
 void RuntimeFilterMgr::set_runtime_filter_params(
         const TRuntimeFilterParams& runtime_filter_params) {
-    this->_merge_addr = runtime_filter_params.runtime_filter_merge_addr;
-    this->_has_merge_addr = true;
+    std::lock_guard l(_lock);
+    if (!_has_merge_addr) {
+        _merge_addr = runtime_filter_params.runtime_filter_merge_addr;
+        _has_merge_addr = true;
+    }
 }
 
 Status RuntimeFilterMgr::get_merge_addr(TNetworkAddress* addr) {

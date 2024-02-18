@@ -991,10 +991,25 @@ Status IRuntimeFilter::publish(bool publish_local) {
             filter->signal();
         }
     } else if (!publish_local) {
-        TNetworkAddress addr;
-        DCHECK(_state != nullptr);
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
-        return push_to_remote(&addr, _opt_remote_rf);
+        if (_is_broadcast_join) {
+            TNetworkAddress addr;
+            DCHECK(_state != nullptr);
+            RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
+            return push_to_remote(&addr, _opt_remote_rf);
+        } else {
+            LocalMergeFilters* local_merge_filters = nullptr;
+            RETURN_IF_ERROR(_state->runtime_filter_mgr->get_local_merge_producer_filters(
+                    _filter_id, &local_merge_filters));
+            std::lock_guard l(*local_merge_filters->lock);
+            RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper));
+            local_merge_filters->merge_time--;
+            if (local_merge_filters->merge_time == 0) {
+                TNetworkAddress addr;
+                DCHECK(_state != nullptr);
+                RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
+                return local_merge_filters->filters[0]->push_to_remote(&addr, _opt_remote_rf);
+            }
+        }
     } else {
         // remote broadcast join only push onetime in build shared hash table
         // publish_local only set true on copy shared hash table

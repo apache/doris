@@ -99,9 +99,18 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _hash_table_init(state);
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                p._runtime_filter_descs[i], state->query_options(), &_runtime_filters[i],
-                _build_expr_ctxs.size() == 1, p._use_global_rf, p._child_x->parallel_tasks()));
+        if (p._runtime_filter_descs[i].has_remote_targets) {
+            RETURN_IF_ERROR(state->get_query_ctx()
+                                    ->runtime_filter_mgr()
+                                    ->register_local_merge_producer_filter(
+                                            p._runtime_filter_descs[i], state->query_options(),
+                                            &_runtime_filters[i], _build_expr_ctxs.size() == 1,
+                                            p._use_global_rf, p._child_x->parallel_tasks()));
+        } else {
+            RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
+                    p._runtime_filter_descs[i], state->query_options(), &_runtime_filters[i],
+                    _build_expr_ctxs.size() == 1, p._use_global_rf, p._child_x->parallel_tasks()));
+        }
     }
 
     return Status::OK();

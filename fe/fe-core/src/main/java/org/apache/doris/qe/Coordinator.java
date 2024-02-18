@@ -2143,7 +2143,8 @@ public class Coordinator implements CoordInterface {
             }
 
             for (RuntimeFilterId rid : fragment.getBuilderRuntimeFilterIds()) {
-                ridToBuilderNum.merge(rid, params.instanceExecParams.size(), Integer::sum);
+                ridToBuilderNum.merge(rid,
+                        (int) params.instanceExecParams.stream().map(ins -> ins.host).distinct().count(), Integer::sum);
             }
         }
         // Use the uppermost fragment as a merged node, the uppermost fragment has one and only one instance
