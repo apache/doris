@@ -48,7 +48,7 @@ Status EngineAlterTabletTask::execute() {
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
     Status res = Status::OK();
     try {
-        res = SchemaChangeHandler::process_alter_tablet_v2(_alter_tablet_req);
+        res = SchemaChangeJob::execute_schema_change_job(_alter_tablet_req);
     } catch (const Exception& e) {
         res = e.to_status();
     }

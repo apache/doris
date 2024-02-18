@@ -101,37 +101,40 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     @SerializedName(value = "partitionIdToBaseRollupTabletIdMap")
     private Map<Long, Map<Long, Long>> partitionIdToBaseRollupTabletIdMap = Maps.newHashMap();
     @SerializedName(value = "partitionIdToRollupIndex")
-    private Map<Long, MaterializedIndex> partitionIdToRollupIndex = Maps.newHashMap();
+    protected Map<Long, MaterializedIndex> partitionIdToRollupIndex = Maps.newHashMap();
 
     // rollup and base schema info
     @SerializedName(value = "baseIndexId")
-    private long baseIndexId;
+    protected long baseIndexId;
     @SerializedName(value = "rollupIndexId")
-    private long rollupIndexId;
+    protected long rollupIndexId;
     @SerializedName(value = "baseIndexName")
-    private String baseIndexName;
+    protected String baseIndexName;
     @SerializedName(value = "rollupIndexName")
-    private String rollupIndexName;
+    protected String rollupIndexName;
 
     @SerializedName(value = "rollupSchema")
-    private List<Column> rollupSchema = Lists.newArrayList();
+    protected List<Column> rollupSchema = Lists.newArrayList();
     @SerializedName(value = "whereColumn")
-    private Column whereColumn;
+    protected Column whereColumn;
     @SerializedName(value = "baseSchemaHash")
-    private int baseSchemaHash;
+    protected int baseSchemaHash;
     @SerializedName(value = "rollupSchemaHash")
-    private int rollupSchemaHash;
+    protected int rollupSchemaHash;
 
     @SerializedName(value = "rollupKeysType")
-    private KeysType rollupKeysType;
+    protected KeysType rollupKeysType;
     @SerializedName(value = "rollupShortKeyColumnCount")
-    private short rollupShortKeyColumnCount;
+    protected short rollupShortKeyColumnCount;
     @SerializedName(value = "origStmt")
-    private OriginStatement origStmt;
+    protected OriginStatement origStmt;
 
     // optional
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
+
+    @SerializedName(value = "isCloudRollup")
+    protected boolean isCloudRollup = false;
 
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
@@ -140,17 +143,18 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     private Analyzer analyzer;
 
-    private RollupJobV2() {
+    protected RollupJobV2() {
         super(JobType.ROLLUP);
     }
 
+    // Don't call it directly, use AlterJobV2Factory to replace
     public RollupJobV2(String rawSql, long jobId, long dbId, long tableId, String tableName, long timeoutMs,
                        long baseIndexId,
                        long rollupIndexId, String baseIndexName, String rollupIndexName, List<Column> rollupSchema,
                        Column whereColumn,
                        int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
                        short rollupShortKeyColumnCount,
-                       OriginStatement origStmt) throws AnalysisException {
+                       OriginStatement origStmt, boolean isCloudRollup) throws AnalysisException {
         super(rawSql, jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
@@ -167,7 +171,12 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.rollupShortKeyColumnCount = rollupShortKeyColumnCount;
 
         this.origStmt = origStmt;
+        this.isCloudRollup = isCloudRollup;
         initAnalyzer();
+    }
+
+    public boolean isCloudRollup() {
+        return isCloudRollup;
     }
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
@@ -196,23 +205,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
     }
 
-    /**
-     * runPendingJob():
-     * 1. Create all rollup replicas and wait them finished.
-     * 2. After creating done, add this shadow rollup index to catalog, user can not see this
-     *    rollup, but internal load process will generate data for this rollup index.
-     * 3. Get a new transaction id, then set job's state to WAITING_TXN
-     */
-    @Override
-    protected void runPendingJob() throws Exception {
-        Preconditions.checkState(jobState == JobState.PENDING, jobState);
-
-        LOG.info("begin to send create rollup replica tasks. job: {}", jobId);
+    protected void createRollupReplica() throws AlterCancelException {
         Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
-        if (!checkTableStable(db)) {
-            return;
-        }
 
         // 1. create rollup replicas
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -331,6 +326,26 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         } finally {
             tbl.writeUnlock();
         }
+    }
+
+    /**
+     * runPendingJob():
+     * 1. Create all rollup replicas and wait them finished.
+     * 2. After creating done, add this shadow rollup index to catalog, user can not see this
+     *    rollup, but internal load process will generate data for this rollup index.
+     * 3. Get a new transaction id, then set job's state to WAITING_TXN
+     */
+    @Override
+    protected void runPendingJob() throws Exception {
+        Preconditions.checkState(jobState == JobState.PENDING, jobState);
+
+        LOG.info("begin to send create rollup replica tasks. job: {}", jobId);
+        Database db = Env.getCurrentInternalCatalog()
+                .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
+        if (!checkTableStable(db)) {
+            return;
+        }
+        createRollupReplica();
 
         this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
         this.jobState = JobState.WAITING_TXN;
@@ -340,7 +355,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         LOG.info("transfer rollup job {} state to {}, watershed txn id: {}", jobId, this.jobState, watershedTxnId);
     }
 
-    private void addRollupIndexToCatalog(OlapTable tbl) {
+    protected void addRollupIndexToCatalog(OlapTable tbl) {
         for (Partition partition : tbl.getPartitions()) {
             long partitionId = partition.getId();
             MaterializedIndex rollupIndex = this.partitionIdToRollupIndex.get(partitionId);
@@ -507,9 +522,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
+        LOG.debug("jobId:{}, cloudClusterName:{}", jobId, cloudClusterName);
         if (!rollupBatchTask.isFinished()) {
             LOG.info("rollup tasks not finished. job: {}", jobId);
             List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(2000);
+            checkCloudClusterName(tasks);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
@@ -574,7 +591,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     }
                 } // end for tablets
             } // end for partitions
-
+            commitRollupIndex();
             onFinished(tbl);
         } finally {
             tbl.writeUnlock();
@@ -631,6 +648,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
+        // try best to drop roll index, when job is cancelled
+        postProcessRollupIndex();
+
         LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         return true;
     }
@@ -760,6 +780,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      */
     private void replayCancelled(RollupJobV2 replayedJob) {
         cancelInternal();
+        // try best to drop roll index, when job is cancelled
+        postProcessRollupIndex();
         this.jobState = JobState.CANCELLED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         this.errMsg = replayedJob.errMsg;
@@ -880,6 +902,12 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
         setColumnsDefineExpr(stmt.getMVColumnItemList());
     }
+
+    protected void commitRollupIndex() throws AlterCancelException {}
+
+    protected void postProcessRollupIndex() {}
+
+    protected void checkCloudClusterName(List<AgentTask> tasks) throws AlterCancelException {}
 
     @Override
     public String toJson() {

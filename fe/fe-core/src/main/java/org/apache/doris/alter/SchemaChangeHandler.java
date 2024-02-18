@@ -1504,7 +1504,7 @@ public class SchemaChangeHandler extends AlterHandler {
         IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
         long jobId = idGeneratorBuffer.getNextId();
         SchemaChangeJobV2 schemaChangeJob =
-                new SchemaChangeJobV2(rawSql, jobId, dbId, olapTable.getId(), olapTable.getName(),
+                AlterJobV2Factory.createSchemaChangeJobV2(rawSql, jobId, dbId, olapTable.getId(), olapTable.getName(),
                         timeoutSecond * 1000);
         schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
         schemaChangeJob.setAlterIndexInfo(hasIndexChange, indexes);
@@ -2591,7 +2591,8 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     @Override
-    public void addAlterJobV2(AlterJobV2 alterJob) {
+    public void addAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
+        alterJob = AlterJobV2Factory.rebuildAlterJobV2(alterJob);
         super.addAlterJobV2(alterJob);
         runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
     }
@@ -2641,7 +2642,8 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     @Override
-    public void replayAlterJobV2(AlterJobV2 alterJob) {
+    public void replayAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
+        alterJob = AlterJobV2Factory.rebuildAlterJobV2(alterJob);
         if (!alterJob.isDone() && !runnableSchemaChangeJobV2.containsKey(alterJob.getJobId())) {
             runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
         }
@@ -2653,7 +2655,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                              Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
                                              List<Index> alterIndexes, boolean isDropIndex,
                                              long jobId, boolean isReplay)
-            throws DdlException {
+            throws DdlException, AnalysisException {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("indexSchemaMap:{}, indexes:{}", indexSchemaMap, indexes);
@@ -2680,7 +2682,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
         //for compatibility, we need create a finished state schema change job v2
 
-        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(rawSql, jobId, db.getId(), olapTable.getId(),
+        SchemaChangeJobV2 schemaChangeJob = AlterJobV2Factory.createSchemaChangeJobV2(
+                rawSql, jobId, db.getId(), olapTable.getId(),
                 olapTable.getName(), 1000);
 
         for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {

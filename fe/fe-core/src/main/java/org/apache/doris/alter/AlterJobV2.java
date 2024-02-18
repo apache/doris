@@ -89,6 +89,8 @@ public abstract class AlterJobV2 implements Writable {
     protected long timeoutMs = -1;
     @SerializedName(value = "rawSql")
     protected String rawSql;
+    @SerializedName(value = "cloudClusterName")
+    protected String cloudClusterName = "";
 
     // The job will wait all transactions before this txn id finished, then send the schema_change/rollup tasks.
     @SerializedName(value = "watershedTxnId")
@@ -111,6 +113,22 @@ public abstract class AlterJobV2 implements Writable {
 
     protected AlterJobV2(JobType type) {
         this.type = type;
+    }
+
+    public String getCloudClusterName() {
+        return cloudClusterName;
+    }
+
+    public void setCloudClusterName(final String clusterName) {
+        cloudClusterName = clusterName;
+    }
+
+    protected void sleepSeveralSeconds() {
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException ie) {
+            LOG.warn("ignore InterruptedException");
+        }
     }
 
     public long getJobId() {
