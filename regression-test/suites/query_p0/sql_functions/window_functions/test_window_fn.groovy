@@ -218,6 +218,12 @@ suite("test_window_fn", "arrow_flight_sql") {
         SELECT dense_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
     """
     qt_sql """
+        SELECT percent_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
+    """
+    qt_sql """
+        SELECT cume_dist() OVER (PARTITION BY four ORDER BY ten), ten, four FROM ${tbName2} WHERE unique2 < 10 order by four, ten;
+    """
+    qt_sql """
         select ten,   sum(unique1) + sum(unique2) as res,   rank() over (order by sum(unique1) + sum(unique2)) as rank from ${tbName2} group by ten order by ten;
     """
 

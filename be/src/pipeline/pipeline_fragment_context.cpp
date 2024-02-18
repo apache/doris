@@ -229,13 +229,12 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     // 1. init _runtime_state
     _runtime_state = RuntimeState::create_unique(
             local_params.fragment_instance_id, request.query_id, request.fragment_id,
-            request.query_options, _query_ctx->query_globals, _exec_env);
+            request.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
     if (local_params.__isset.runtime_filter_params) {
         _runtime_state->set_runtime_filter_params(local_params.runtime_filter_params);
     }
 
     _runtime_state->set_task_execution_context(shared_from_this());
-    _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     // TODO should be combine with plan_fragment_executor.prepare funciton

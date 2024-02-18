@@ -244,11 +244,11 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         if (null == newJobStatus) {
             throw new IllegalArgumentException("jobStatus cannot be null");
         }
+        if (jobStatus == newJobStatus) {
+            return;
+        }
         String errorMsg = String.format("Can't update job %s status to the %s status",
                 jobStatus.name(), newJobStatus.name());
-        if (jobStatus == newJobStatus) {
-            throw new IllegalArgumentException(errorMsg);
-        }
         if (newJobStatus.equals(JobStatus.RUNNING) && !jobStatus.equals(JobStatus.PAUSED)) {
             throw new IllegalArgumentException(errorMsg);
         }

@@ -51,7 +51,7 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -224,6 +224,12 @@ public class CreateTableInfo {
 
         if (properties == null) {
             properties = Maps.newHashMap();
+        }
+
+        if (Config.isCloudMode() && properties != null
+                && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
+            // FIXME: MOW is not supported in cloud mode yet.
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false");
         }
 
         if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase("olap")) {

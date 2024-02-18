@@ -20,7 +20,7 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.external.iceberg.util.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;

@@ -21,6 +21,7 @@ suite("test_decimal256_index") {
 
     def delta_time = 100
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
@@ -116,6 +117,7 @@ suite("test_decimal256_index") {
     sql "sync"
 
     sql """CREATE INDEX k2_bitmap_index ON test_decimal256_bitmap_index(k2) USING BITMAP;"""
+    sql """BUILD INDEX k2_bitmap_index ON test_decimal256_bitmap_index;"""
     wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 3000);
 
     qt_sql_bitmap_index_select_all """

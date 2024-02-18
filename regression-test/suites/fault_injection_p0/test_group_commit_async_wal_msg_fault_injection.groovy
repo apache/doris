@@ -49,7 +49,7 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
             assertFalse(true);
         } catch (Exception e) {
             logger.info(e.getMessage())
-            assertTrue(e.getMessage().contains('pre allocated 0 Bytes'))
+            assertTrue(e.getMessage().contains('estimated wal bytes 0 Bytes'))
             exception = true;
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg")
@@ -86,7 +86,7 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
             assertFalse(true);
         } catch (Exception e) {
             logger.info(e.getMessage())
-            assertTrue(e.getMessage().contains('pre allocated 0 Bytes'))
+            assertTrue(e.getMessage().contains('estimated wal bytes 0 Bytes'))
             exception = true;
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg")

@@ -75,9 +75,7 @@ public:
 
     TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 
-    RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
-        return _runtime_state.get();
-    }
+    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
     virtual RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId /*fragment_instance_id*/) {
         return _runtime_state->runtime_filter_mgr();
@@ -113,11 +111,6 @@ public:
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
     void close_a_pipeline();
-
-    void set_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handler = handler;
-    }
 
     virtual void add_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
@@ -194,8 +187,6 @@ protected:
     std::vector<std::unique_ptr<DataSink>> _multi_cast_stream_sink_senders;
 
     std::shared_ptr<QueryContext> _query_ctx;
-
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _start_timer = nullptr;

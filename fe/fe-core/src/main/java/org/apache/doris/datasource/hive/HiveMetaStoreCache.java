@@ -39,7 +39,6 @@ import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.RemoteFiles;
 import org.apache.doris.fs.remote.RemoteFile;

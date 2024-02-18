@@ -48,6 +48,9 @@
 namespace doris {
 namespace io {
 
+std::filesystem::perms LocalFileSystem::PERMS_OWNER_RW =
+        std::filesystem::perms::owner_read | std::filesystem::perms::owner_write;
+
 std::shared_ptr<LocalFileSystem> LocalFileSystem::create(Path path, std::string id) {
     return std::shared_ptr<LocalFileSystem>(new LocalFileSystem(std::move(path), std::move(id)));
 }
@@ -450,6 +453,20 @@ Status LocalFileSystem::_glob(const std::string& pattern, std::vector<std::strin
     }
 
     globfree(&glob_result);
+    return Status::OK();
+}
+
+Status LocalFileSystem::permission(const Path& file, std::filesystem::perms prms) {
+    auto path = absolute_path(file);
+    FILESYSTEM_M(permission_impl(path, prms));
+}
+
+Status LocalFileSystem::permission_impl(const Path& file, std::filesystem::perms prms) {
+    std::error_code ec;
+    std::filesystem::permissions(file, prms, ec);
+    if (ec) {
+        return localfs_error(ec, fmt::format("failed to change file permission {}", file.native()));
+    }
     return Status::OK();
 }
 
