@@ -33,7 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.external.iceberg.util.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.planner.external.TableFormatType;
