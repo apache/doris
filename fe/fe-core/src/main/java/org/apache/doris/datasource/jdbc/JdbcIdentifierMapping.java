@@ -23,8 +23,8 @@ import org.apache.doris.datasource.mapping.IdentifierMapping;
 public class JdbcIdentifierMapping extends IdentifierMapping {
     private final JdbcClient jdbcClient;
 
-    public JdbcIdentifierMapping(boolean isLowerCaseMetaNames, String suffixNamesMatching, JdbcClient jdbcClient) {
-        super(isLowerCaseMetaNames, suffixNamesMatching);
+    public JdbcIdentifierMapping(boolean isLowerCaseMetaNames, String metaNamesMapping, JdbcClient jdbcClient) {
+        super(isLowerCaseMetaNames, metaNamesMapping);
         this.jdbcClient = jdbcClient;
     }
 

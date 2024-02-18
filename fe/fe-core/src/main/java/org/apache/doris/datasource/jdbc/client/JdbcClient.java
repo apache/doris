@@ -59,7 +59,7 @@ public abstract class JdbcClient {
     protected DruidDataSource dataSource = null;
     protected boolean isOnlySpecifiedDatabase;
     protected boolean isLowerCaseMetaNames;
-    protected String suffixNamesMatching;
+    protected String metaNamesMapping;
     protected Map<String, Boolean> includeDatabaseMap;
     protected Map<String, Boolean> excludeDatabaseMap;
     protected JdbcIdentifierMapping jdbcLowerCaseMetaMatching;
@@ -94,7 +94,7 @@ public abstract class JdbcClient {
         this.jdbcUser = jdbcClientConfig.getUser();
         this.isOnlySpecifiedDatabase = Boolean.parseBoolean(jdbcClientConfig.getOnlySpecifiedDatabase());
         this.isLowerCaseMetaNames = Boolean.parseBoolean(jdbcClientConfig.getIsLowerCaseMetaNames());
-        this.suffixNamesMatching = jdbcClientConfig.getSuffixNamesMatching();
+        this.metaNamesMapping = jdbcClientConfig.getMetaNamesMapping();
         this.includeDatabaseMap =
                 Optional.ofNullable(jdbcClientConfig.getIncludeDatabaseMap()).orElse(Collections.emptyMap());
         this.excludeDatabaseMap =
@@ -102,7 +102,7 @@ public abstract class JdbcClient {
         String jdbcUrl = jdbcClientConfig.getJdbcUrl();
         this.dbType = parseDbType(jdbcUrl);
         initializeDataSource(jdbcClientConfig);
-        this.jdbcLowerCaseMetaMatching = new JdbcIdentifierMapping(isLowerCaseMetaNames, suffixNamesMatching, this);
+        this.jdbcLowerCaseMetaMatching = new JdbcIdentifierMapping(isLowerCaseMetaNames, metaNamesMapping, this);
     }
 
     // Initialize DruidDataSource

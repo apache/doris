@@ -112,7 +112,7 @@ public class JdbcResource extends Resource {
             CREATE_TIME,
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_META_NAMES,
-            SUFFIX_NAMES_MATCHING,
+            META_NAMES_MAPPING,
             INCLUDE_DATABASE_LIST,
             EXCLUDE_DATABASE_LIST,
             CONNECTION_POOL_MIN_SIZE,
@@ -124,7 +124,7 @@ public class JdbcResource extends Resource {
     private static final ImmutableList<String> OPTIONAL_PROPERTIES = new ImmutableList.Builder<String>().add(
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_META_NAMES,
-            SUFFIX_NAMES_MATCHING,
+            META_NAMES_MAPPING,
             INCLUDE_DATABASE_LIST,
             EXCLUDE_DATABASE_LIST,
             CONNECTION_POOL_MIN_SIZE,
@@ -141,7 +141,7 @@ public class JdbcResource extends Resource {
     static {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ONLY_SPECIFIED_DATABASE, "false");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_META_NAMES, "false");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(SUFFIX_NAMES_MATCHING, "");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(META_NAMES_MAPPING, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(INCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(EXCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MIN_SIZE, "1");

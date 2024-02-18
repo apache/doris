@@ -52,7 +52,7 @@ PROPERTIES ("key"="value", ...)
 | `driver_url`              | 是   |         | JDBC Driver Jar 包名称                                                   |
 | `driver_class`            | 是   |         | JDBC Driver Class 名称                                                  |
 | `lower_case_meta_names`   | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名以及列名                                         |
-| `suffix_names_mapping`    | 否   | ""      | 当jdbc外部数据源存在名称相同只有大小写不同的情况，例如 DORIS 和 doris，Doris 由于歧义而在查询 Catalog 时报错，此时需要配置 `suffix_names_mapping` 参数来解决冲突。 |
+| `meta_names_mapping`    | 否   | ""      | 当jdbc外部数据源存在名称相同只有大小写不同的情况，例如 DORIS 和 doris，Doris 由于歧义而在查询 Catalog 时报错，此时需要配置 `meta_names_mapping` 参数来解决冲突。 |
 | `only_specified_database` | 否   | "false" | 指定是否只同步指定的 database                                                   |
 | `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。     |
 | `exclude_database_list`   | 否   | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。 |
@@ -71,28 +71,28 @@ PROPERTIES ("key"="value", ...)
 
 当 `lower_case_meta_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，使查询时能够使用小写去查询外部数据源非小写的数据库和表以及列。
 
-由于 FE 存在 lower_case_table_names 的参数，会影响查询时的表名大小写规则，所以规则如下
+由于 FE 存在 `lower_case_table_names` 的参数，会影响查询时的表名大小写规则，所以规则如下
 
-* 当 FE lower_case_table_names config 为 0 时
+* 当 FE `lower_case_table_names` config 为 0 时
 
    lower_case_meta_names = false，大小写和源库一致。
    lower_case_meta_names = true，小写存储库表列名。
 
-* 当 FE lower_case_table_names config 为 1 时
+* 当 FE `lower_case_table_names` config 为 1 时
 
    lower_case_meta_names = false，db 和 column 的大小写和源库一致，但是 table 存储为小写
    lower_case_meta_names = true，小写存储库表列名。
 
-* 当 FE lower_case_table_names config 为 2 时
+* 当 FE `lower_case_table_names` config 为 2 时
 
    lower_case_meta_names = false，大小写和源库一致。
    lower_case_meta_names = true，小写存储库表列名。
 
 如果创建 Catalog 时的参数配置匹配到了上述规则中的转变小写规则，则 Doris 会将对应的名称转变为小写存储在 Doris 中，查询时需使用 Doris 显示的小写名称去查询。
 
-如果外部数据源存在名称相同只有大小写不同的情况，例如 DORIS 和 doris，Doris 由于歧义而在查询 Catalog 时报错，此时需要配置 `suffix_names_mapping` 参数来解决冲突。
+如果外部数据源存在名称相同只有大小写不同的情况，例如 DORIS 和 doris，Doris 由于歧义而在查询 Catalog 时报错，此时需要配置 `meta_names_mapping` 参数来解决冲突。
 
-`suffix_names_mapping` 参数接受一个 Json 格式的字符串，格式如下：
+`meta_names_mapping` 参数接受一个 Json 格式的字符串，格式如下：
 
 ```json
 {
@@ -132,20 +132,27 @@ PROPERTIES ("key"="value", ...)
 }
 ```
 
-在将此配置填写到创建 Catalog 的语句中时，需要对双引号加上转义符，例如：
+在将此配置填写到创建 Catalog 的语句中时，Json 中存在双引号，因此在填写时需要将双引号转义或者直接使用单引号包裹 Json 字符串。
 
 ```sql
-CREATE CATALOG jdbc_oracle PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-    "driver_url" = "ojdbc8.jar",
-    "driver_class" = "oracle.jdbc.driver.OracleDriver",
-    "lower_case_meta_names" = "true",
-    "suffix_names_mapping" = "{\"databases\":[{\"remoteDatabase\":\"DORIS\",\"mapping\":\"doris_1\"},{\"remoteDatabase\":\"doris\",\"mapping\":\"doris_2\"}],\"tables\":[{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"DORIS\",\"mapping\":\"doris_1\"},{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"doris\",\"mapping\":\"doris_2\"}],\"columns\":[{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"DORIS\",\"remoteColumn\":\"DORIS\",\"mapping\":\"doris_1\"},{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"DORIS\",\"remoteColumn\":\"doris\",\"mapping\":\"doris_2\"}]}"
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = "{\"databases\":[{\"remoteDatabase\":\"DORIS\",\"mapping\":\"doris_1\"},{\"remoteDatabase\":\"doris\",\"mapping\":\"doris_2\"}]}"
+    ...
 );
 ```
+
+或者
+```sql
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = '{"databases":[{"remoteDatabase":"DORIS","mapping":"doris_1"},{"remoteDatabase":"doris","mapping":"doris_2"}]}'
+    ...
+);
+
+```
+
+
 
 **注意：**
 

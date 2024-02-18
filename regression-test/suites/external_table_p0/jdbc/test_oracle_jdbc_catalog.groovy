@@ -280,7 +280,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
                     "lower_case_meta_names" = "true",
-                    "suffix_names_matching" = "{\\\"columns\\\": [{\\\"remoteDatabase\\\": \\\"DORIS_TEST\\\",\\\"remoteTable\\\": \\\"LOWER_TEST\\\",\\\"remoteColumn\\\": \\\"DORIS\\\",\\\"mapping\\\": \\\"doris_1\\\"},{\\\"remoteDatabase\\\": \\\"DORIS_TEST\\\",\\\"remoteTable\\\": \\\"LOWER_TEST\\\",\\\"remoteColumn\\\": \\\"Doris\\\",\\\"mapping\\\": \\\"doris_2\\\"},{\\\"remoteDatabase\\\": \\\"DORIS_TEST\\\",\\\"remoteTable\\\": \\\"LOWER_TEST\\\",\\\"remoteColumn\\\": \\\"doris\\\",\\\"mapping\\\": \\\"doris_3\\\"}]}"
+                    "meta_names_mapping" = '{"columns": [{"remoteDatabase": "DORIS_TEST","remoteTable": "LOWER_TEST","remoteColumn": "DORIS","mapping": "doris_1"},{"remoteDatabase": "DORIS_TEST","remoteTable": "LOWER_TEST","remoteColumn": "Doris","mapping": "doris_2"},{"remoteDatabase": "DORIS_TEST","remoteTable": "LOWER_TEST","remoteColumn": "doris","mapping": "doris_3"}]}'
         );"""
         sql """ switch ${catalog_name} """
         qt_query_lower_desc """ desc doris_test.lower_test; """

@@ -166,8 +166,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 JdbcResource.LOWER_CASE_META_NAMES));
     }
 
-    public String getSuffixNamesMatching() {
-        return catalogProperty.getOrDefault(JdbcResource.SUFFIX_NAMES_MATCHING, "");
+    public String getMetaNamesMapping() {
+        return catalogProperty.getOrDefault(JdbcResource.META_NAMES_MAPPING, JdbcResource.getDefaultPropertyValue(
+                JdbcResource.META_NAMES_MAPPING));
     }
 
     public int getConnectionPoolMinSize() {
@@ -206,7 +207,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setDriverClass(getDriverClass())
                 .setOnlySpecifiedDatabase(getOnlySpecifiedDatabase())
                 .setIsLowerCaseMetaNames(getLowerCaseMetaNames())
-                .setSuffixNamesMatching(getSuffixNamesMatching())
+                .setMetaNamesMapping(getMetaNamesMapping())
                 .setIncludeDatabaseMap(getIncludeDatabaseMap())
                 .setExcludeDatabaseMap(getExcludeDatabaseMap())
                 .setConnectionPoolMinSize(getConnectionPoolMinSize())

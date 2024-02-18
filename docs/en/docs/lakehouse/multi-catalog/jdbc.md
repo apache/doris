@@ -53,7 +53,7 @@ PROPERTIES ("key"="value", ...)
 | `driver_class `           | Yes             |               | JDBC Driver Class                                                                                                        |
 | `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                                                  |
 | `lower_case_meta_names`   | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.          |
-| `suffix_names_mapping`    | No              | ""            | When the database name, table name, and column name of the jdbc external data source are the same but different in case, you can use this parameter to resolve the conflict. |
+| `meta_names_mapping`      | No              | ""            | When the jdbc external data source has the same name but different case, such as DORIS and doris, Doris reports an error when querying the Catalog due to ambiguity. In this case, the `meta_names_mapping` parameter needs to be configured to resolve the conflict. |
 | `include_database_list`   | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.   |
 | `exclude_database_list`   | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
 
@@ -71,28 +71,28 @@ PROPERTIES ("key"="value", ...)
 
 When `lower_case_meta_names` is set to `true`, Doris maintains the mapping of lowercase names to actual names in the remote system, enabling queries to use lowercase to query non-lowercase databases, tables and columns of external data sources.
 
-Since FE has the lower_case_table_names parameter, it will affect the table name case rules during query, so the rules are as follows
+Since FE has the `lower_case_table_names` parameter, it will affect the table name case rules during query, so the rules are as follows
 
-* When FE lower_case_table_names config is 0
+* When FE `lower_case_table_names` config is 0
 
   lower_case_meta_names = false, the case is consistent with the source library.
   lower_case_meta_names = true, lowercase repository table column names.
 
-* When FE lower_case_table_names config is 1
+* When FE `lower_case_table_names` config is 1
 
   lower_case_meta_names = false, the case of db and column is consistent with the source library, but the table is stored in lowercase
   lower_case_meta_names = true, lowercase repository table column names.
 
-* When FE lower_case_table_names config is 2
+* When FE `lower_case_table_names` config is 2
 
   lower_case_meta_names = false, the case is consistent with the source library.
   lower_case_meta_names = true, lowercase repository table column names.
 
 If the parameter configuration when creating the Catalog matches the lowercase conversion rule in the above rules, Doris will convert the corresponding name to lowercase and store it in Doris. When querying, you need to use the lowercase name displayed by Doris.
 
-If the external data source has the same name but different case, such as DORIS and doris, Doris will report an error when querying the Catalog due to ambiguity. In this case, you need to configure the `suffix_names_mapping` parameter to resolve the conflict.
+If the external data source has the same name but different case, such as DORIS and doris, Doris will report an error when querying the Catalog due to ambiguity. In this case, you need to configure the `meta_names_mapping` parameter to resolve the conflict.
 
-The `suffix_names_mapping` parameter accepts a Json format string with the following format:
+The `meta_names_mapping` parameter accepts a Json format string with the following format:
 
 ```json
 {
@@ -132,19 +132,24 @@ The `suffix_names_mapping` parameter accepts a Json format string with the follo
 }
 ```
 
-When filling this configuration into the statement that creates the Catalog, you need to escape the double quotes, for example:
+When filling this configuration into the statement that creates the Catalog, there are double quotes in Json, so you need to escape the double quotes or directly use single quotes to wrap the Json string when filling in.
 
 ```sql
-CREATE CATALOG jdbc_oracle PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-    "driver_url" = "ojdbc8.jar",
-    "driver_class" = "oracle.jdbc.driver.OracleDriver",
-    "lower_case_meta_names" = "true",
-    "suffix_names_mapping" = "{\"databases\":[{\"remoteDatabase\":\"DORIS\",\"mapping\":\"doris_1\"},{\"remoteDatabase\":\"doris\ ",\"mapping\":\"doris_2\"}],\"tables\":[{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"DORIS\",\" mapping\":\"doris_1\"},{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"doris\",\"mapping\":\"doris_2\"}], \"columns\":[{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"DORIS\",\"remoteColumn\":\"DORIS\",\"mapping\": \"doris_1\"},{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"DORIS\",\"remoteColumn\":\"doris\",\"mapping\": \"doris_2\"}]}"
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = "{\"databases\":[{\"remoteDatabase\":\"DORIS\",\"mapping\":\"doris_1\"},{\"remoteDatabase\":\"doris\",\"mapping\":\"doris_2\"}]}"
+    ...
 );
+```
+
+或者
+```sql
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = '{"databases":[{"remoteDatabase":"DORIS","mapping":"doris_1"},{"remoteDatabase":"doris","mapping":"doris_2"}]}'
+    ...
+);
+
 ```
 
 **Notice:**

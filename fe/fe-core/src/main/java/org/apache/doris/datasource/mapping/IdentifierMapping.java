@@ -49,15 +49,15 @@ public abstract class IdentifierMapping {
             = new ConcurrentHashMap<>();
 
     private final boolean isLowerCaseMetaNames;
-    private final String suffixNamesMatching;
+    private final String metaNamesMapping;
 
-    public IdentifierMapping(boolean isLowerCaseMetaNames, String suffixNamesMatching) {
+    public IdentifierMapping(boolean isLowerCaseMetaNames, String metaNamesMapping) {
         this.isLowerCaseMetaNames = isLowerCaseMetaNames;
-        this.suffixNamesMatching = suffixNamesMatching;
+        this.metaNamesMapping = metaNamesMapping;
     }
 
     public List<String> setDatabaseNameMapping(List<String> remoteDatabaseNames) {
-        JsonNode databasesNode = readAndParseJson(suffixNamesMatching, "databases");
+        JsonNode databasesNode = readAndParseJson(metaNamesMapping, "databases");
 
         Map<String, String> databaseNameMapping = Maps.newTreeMap();
         if (databasesNode.isArray()) {
@@ -76,13 +76,13 @@ public abstract class IdentifierMapping {
             throw new RuntimeException(
                     "Conflict database/schema names found when lower_case_meta_names is true: " + conflictNames
                             + ". Please set lower_case_meta_names to false or"
-                            + " use suffix_names_mapping to specify the names.");
+                            + " use meta_name_mapping to specify the names.");
         }
         return localDatabaseNames;
     }
 
     public List<String> setTableNameMapping(String remoteDbName, List<String> remoteTableNames) {
-        JsonNode tablesNode = readAndParseJson(suffixNamesMatching, "tables");
+        JsonNode tablesNode = readAndParseJson(metaNamesMapping, "tables");
 
         Map<String, String> tableNameMapping = Maps.newTreeMap();
         if (tablesNode.isArray()) {
@@ -111,7 +111,7 @@ public abstract class IdentifierMapping {
                 throw new RuntimeException(
                         "Conflict table names found in remote database/schema: " + remoteDbName
                                 + " when lower_case_table_names is 1: " + conflictNames
-                                + ". Please use suffix_names_mapping to specify the names.");
+                                + ". Please use meta_name_mapping to specify the names.");
             }
         } else {
             Map<String, List<String>> result = nameListToMapping(remoteTableNames,
@@ -125,14 +125,14 @@ public abstract class IdentifierMapping {
                         "Conflict table names found in remote database/schema: " + remoteDbName
                                 + "when lower_case_meta_names is true: " + conflictNames
                                 + ". Please set lower_case_meta_names to false or"
-                                + " use suffix_names_mapping to specify the table names.");
+                                + " use meta_name_mapping to specify the table names.");
             }
         }
         return localTableNames;
     }
 
     public List<Column> setColumnNameMapping(String remoteDbName, String remoteTableName, List<Column> remoteColumns) {
-        JsonNode tablesNode = readAndParseJson(suffixNamesMatching, "columns");
+        JsonNode tablesNode = readAndParseJson(metaNamesMapping, "columns");
 
         Map<String, String> columnNameMapping = Maps.newTreeMap();
         if (tablesNode.isArray()) {
@@ -169,7 +169,7 @@ public abstract class IdentifierMapping {
                             + " in remote table: " + remoteTableName
                             + " when lower_case_meta_names is true: " + conflictNames
                             + ". Please set lower_case_meta_names to false or"
-                            + " use suffix_names_mapping to specify the column names.");
+                            + " use meta_name_mapping to specify the column names.");
         }
         // Replace the name in remoteColumns with localColumnNames
         for (int i = 0; i < remoteColumns.size(); i++) {
@@ -237,10 +237,16 @@ public abstract class IdentifierMapping {
         }
     }
 
+    // Load the database name from the data source.
+    // In the corresponding getDatabaseNameList(), setDatabaseNameMapping() must be used to update the mapping.
     protected abstract void loadDatabaseNames();
 
+    // Load the table names for the specified database from the data source.
+    // In the corresponding getTableNameList(), setTableNameMapping() must be used to update the mapping.
     protected abstract void loadTableNames(String localDbName);
 
+    // Load the column names for a specified table in a database from the data source.
+    // In the corresponding getColumnNameList(), setColumnNameMapping() must be used to update the mapping.
     protected abstract void loadColumnNames(String localDbName, String localTableName);
 
     private JsonNode readAndParseJson(String jsonPath, String nodeName) {
@@ -249,7 +255,7 @@ public abstract class IdentifierMapping {
             rootNode = mapper.readTree(jsonPath);
             return rootNode.path(nodeName);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("parse suffix_names_matching property error", e);
+            throw new RuntimeException("parse meta_names_mapping property error", e);
         }
     }
 
