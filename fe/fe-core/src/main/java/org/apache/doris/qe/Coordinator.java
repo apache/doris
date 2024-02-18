@@ -3995,11 +3995,7 @@ public class Coordinator implements CoordInterface {
     private void attachInstanceProfileToFragmentProfile() {
         if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
-                if (enablePipelineXEngine) {
-                    synchronized (this) {
-                        ctx.attachPipelineProfileToFragmentProfile();
-                    }
-                } else {
+                if (!enablePipelineXEngine) {
                     ctx.profileStream()
                             .forEach(p -> executionProfile.addInstanceProfile(ctx.profileFragmentId, p));
                 }
