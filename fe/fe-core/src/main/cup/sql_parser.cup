@@ -3486,7 +3486,7 @@ key_value_map ::=
 
 opt_properties ::=
     {:
-    RESULT = null;
+    RESULT = Maps.newHashMap();
     :}
     | properties:properties
     {:
@@ -3496,7 +3496,7 @@ opt_properties ::=
 
 opt_ext_properties ::=
     {:
-    RESULT = null;
+    RESULT = Maps.newHashMap();
     :}
     | KW_BROKER properties:properties
     {:
