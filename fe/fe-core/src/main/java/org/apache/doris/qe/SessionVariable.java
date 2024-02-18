@@ -531,7 +531,7 @@ public class SessionVariable implements Serializable, Writable {
     public  boolean enableStats = true;
 
     // session origin value
-    public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
+    public Map<SessionVariableField, String> sessionOriginValue = new HashMap<>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
@@ -2464,11 +2464,11 @@ public class SessionVariable implements Serializable, Writable {
         this.isSingleSetVar = issinglesetvar;
     }
 
-    public Map<Field, String> getSessionOriginValue() {
+    public Map<SessionVariableField, String> getSessionOriginValue() {
         return sessionOriginValue;
     }
 
-    public void addSessionOriginValue(Field key, String value) {
+    public void addSessionOriginValue(SessionVariableField key, String value) {
         if (sessionOriginValue.containsKey(key)) {
             // If we already set the origin value, just skip the reset.
             return;
