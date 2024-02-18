@@ -210,7 +210,7 @@ Status S3FileWriter::close() {
             DCHECK(buf != nullptr);
             buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
         } else {
-            // if there is no pending buffer, we need to create a empty file
+            // if there is no pending buffer, we need to create an empty file
             auto builder = FileBufferBuilder();
             builder.set_type(BufferType::UPLOAD)
                     .set_upload_callback([this](UploadFileBuffer& buf) { _put_object(buf); })
