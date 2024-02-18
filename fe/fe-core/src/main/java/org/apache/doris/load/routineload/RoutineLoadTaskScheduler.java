@@ -116,10 +116,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
 
     private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
         routineLoadTaskInfo.setLastScheduledTime(System.currentTimeMillis());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("schedule routine load task info {} for job {}",
-                    routineLoadTaskInfo.id, routineLoadTaskInfo.getJobId());
-        }
+        LOG.debug("schedule routine load task info {} for job {}",
+                routineLoadTaskInfo.id, routineLoadTaskInfo.getJobId());
         // check if task has been abandoned
         if (!routineLoadManager.checkTaskInJob(routineLoadTaskInfo)) {
             // task has been abandoned while renew task has been added in queue
@@ -184,10 +182,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             long startTime = System.currentTimeMillis();
             tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("create routine load task cost(ms): {}, job id: {}",
-                        (System.currentTimeMillis() - startTime), routineLoadTaskInfo.getJobId());
-            }
+            LOG.debug("create routine load task cost(ms): {}, job id: {}",
+                    (System.currentTimeMillis() - startTime), routineLoadTaskInfo.getJobId());
         } catch (MetaNotFoundException e) {
             // this means database or table has been dropped, just stop this routine load job.
             // set BE id to -1 to release the BE slot
@@ -210,16 +206,12 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             long startTime = System.currentTimeMillis();
             submitTask(routineLoadTaskInfo.getBeId(), tRoutineLoadTask);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("send routine load task cost(ms): {}, job id: {}",
-                        (System.currentTimeMillis() - startTime), routineLoadTaskInfo.getJobId());
-            }
+            LOG.debug("send routine load task cost(ms): {}, job id: {}",
+                    (System.currentTimeMillis() - startTime), routineLoadTaskInfo.getJobId());
             if (tRoutineLoadTask.isSetKafkaLoadInfo()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("send kafka routine load task {} with partition offset: {}, job: {}",
-                            tRoutineLoadTask.label, tRoutineLoadTask.kafka_load_info.partition_begin_offset,
-                            tRoutineLoadTask.getJobId());
-                }
+                LOG.debug("send kafka routine load task {} with partition offset: {}, job: {}",
+                        tRoutineLoadTask.label, tRoutineLoadTask.kafka_load_info.partition_begin_offset,
+                        tRoutineLoadTask.getJobId());
             }
         } catch (LoadException e) {
             // submit task failed (such as TOO_MANY_TASKS error), but txn has already begun.
@@ -245,25 +237,19 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 || (currentTime - lastBackendSlotUpdateTime > BACKEND_SLOT_UPDATE_INTERVAL_MS)) {
             routineLoadManager.updateBeIdToMaxConcurrentTasks();
             lastBackendSlotUpdateTime = currentTime;
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("update backend max slot for routine load task scheduling. current task num per BE: {}",
-                        Config.max_routine_load_task_num_per_be);
-            }
+            LOG.debug("update backend max slot for routine load task scheduling. current task num per BE: {}",
+                    Config.max_routine_load_task_num_per_be);
         }
     }
 
     public void addTaskInQueue(RoutineLoadTaskInfo routineLoadTaskInfo) {
         needScheduleTasksQueue.add(routineLoadTaskInfo);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("total tasks num in routine load task queue: {}", needScheduleTasksQueue.size());
-        }
+        LOG.debug("total tasks num in routine load task queue: {}", needScheduleTasksQueue.size());
     }
 
     public void addTasksInQueue(List<RoutineLoadTaskInfo> routineLoadTaskInfoList) {
         needScheduleTasksQueue.addAll(routineLoadTaskInfoList);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("total tasks num in routine load task queue: {}", needScheduleTasksQueue.size());
-        }
+        LOG.debug("total tasks num in routine load task queue: {}", needScheduleTasksQueue.size());
     }
 
     private void submitTask(long beId, TRoutineLoadTask tTask) throws LoadException {
@@ -285,9 +271,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 throw new LoadException("failed to submit task. error code: " + tStatus.getStatusCode()
                         + ", msg: " + (tStatus.getErrorMsgsSize() > 0 ? tStatus.getErrorMsgs().get(0) : "NaN"));
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("send routine load task {} to BE: {}", DebugUtil.printId(tTask.id), beId);
-            }
+            LOG.debug("send routine load task {} to BE: {}", DebugUtil.printId(tTask.id), beId);
         } catch (Exception e) {
             throw new LoadException("failed to send task: " + e.getMessage(), e);
         } finally {

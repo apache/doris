@@ -726,9 +726,7 @@ public class SelectStmt extends QueryStmt {
             // be prevent from reading from ScanNode.Those columns will be finally
             // read by the second fetch phase
             isTwoPhaseOptEnabled = true;
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("two phase read optimize enabled");
-            }
+            LOG.debug("two phase read optimize enabled");
             // Expr.analyze(resultExprs, analyzer);
             Set<SlotRef> resultSlots = Sets.newHashSet();
             Set<SlotRef> orderingSlots = Sets.newHashSet();
@@ -754,15 +752,9 @@ public class SelectStmt extends QueryStmt {
                 slot.setNeedMaterialize(false);
             }
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("resultsSlots {}", resultSlots);
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("orderingSlots {}", orderingSlots);
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("conjuntSlots {}", conjuntSlots);
-            }
+            LOG.debug("resultsSlots {}", resultSlots);
+            LOG.debug("orderingSlots {}", orderingSlots);
+            LOG.debug("conjuntSlots {}", conjuntSlots);
         }
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
@@ -836,16 +828,12 @@ public class SelectStmt extends QueryStmt {
         if (tbl.getTable().getType() != Table.TableType.OLAP) {
             return false;
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("table ref {}", tbl);
-        }
+        LOG.debug("table ref {}", tbl);
         // Need enable light schema change, since opt rely on
         // column_unique_id of each slot
         OlapTable olapTable = (OlapTable) tbl.getTable();
         if (!olapTable.isDupKeysOrMergeOnWrite()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("only support duplicate key or MOW model");
-            }
+            LOG.debug("only support duplicate key or MOW model");
             return false;
         }
         if (!olapTable.getEnableLightSchemaChange()) {
@@ -865,12 +853,8 @@ public class SelectStmt extends QueryStmt {
             }
             // Check order by exprs are all slot refs
             // Rethink? implement more generic to support all exprs
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("getOrderingExprs {}", sortInfo.getOrderingExprs());
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("getOrderByElements {}", getOrderByElements());
-            }
+            LOG.debug("getOrderingExprs {}", sortInfo.getOrderingExprs());
+            LOG.debug("getOrderByElements {}", getOrderByElements());
             for (Expr sortExpr : sortInfo.getOrderingExprs()) {
                 if (!(sortExpr instanceof SlotRef)) {
                     return false;
@@ -1095,9 +1079,7 @@ public class SelectStmt extends QueryStmt {
             long rowCount = 0;
             if (tblRef.getTable().getType() == TableType.OLAP) {
                 rowCount = ((OlapTable) (tblRef.getTable())).getRowCount();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("tableName={} rowCount={}", tblRef.getAlias(), rowCount);
-                }
+                LOG.debug("tableName={} rowCount={}", tblRef.getAlias(), rowCount);
             }
             candidates.add(Pair.of(tblRef, rowCount));
         }
@@ -1224,12 +1206,8 @@ public class SelectStmt extends QueryStmt {
         baseTblResultExprs = Expr.trySubstituteList(resultExprs, baseTblSmap, analyzer, false);
         if (LOG.isDebugEnabled()) {
             LOG.debug("baseTblSmap_: " + baseTblSmap.debugString());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("resultExprs: " + Expr.debugString(resultExprs));
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("baseTblResultExprs: " + Expr.debugString(baseTblResultExprs));
-            }
+            LOG.debug("resultExprs: " + Expr.debugString(resultExprs));
+            LOG.debug("baseTblResultExprs: " + Expr.debugString(baseTblResultExprs));
         }
     }
 
@@ -1612,12 +1590,8 @@ public class SelectStmt extends QueryStmt {
         // to reanalyze the exprs at this point.
         if (LOG.isDebugEnabled()) {
             LOG.debug("combined smap: " + combinedSmap.debugString());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("desctbl: " + analyzer.getDescTbl().debugString());
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("resultexprs: " + Expr.debugString(resultExprs));
-            }
+            LOG.debug("desctbl: " + analyzer.getDescTbl().debugString());
+            LOG.debug("resultexprs: " + Expr.debugString(resultExprs));
         }
 
         if (havingClauseAfterAnalyzed != null) {
@@ -2830,9 +2804,7 @@ public class SelectStmt extends QueryStmt {
         OlapTable olapTable = (OlapTable) tbl.getTable();
         Preconditions.checkNotNull(eqPredicates);
         eqPredicates = getExpectedBinaryPredicates(eqPredicates, whereClause, TExprOpcode.EQ);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("predicates {}", eqPredicates);
-        }
+        LOG.debug("predicates {}", eqPredicates);
         if (eqPredicates == null) {
             return false;
         }
@@ -2892,9 +2864,7 @@ public class SelectStmt extends QueryStmt {
             if (binaryPredicate.getOpcode() != expected) {
                 return null;
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("binary pred {}", expr);
-            }
+            LOG.debug("binary pred {}", expr);
             Pair<SlotRef, Expr> p = binaryPredicate.extract();
             if (p == null || result.containsKey(p.first)) {
                 return null;

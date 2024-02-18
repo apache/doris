@@ -80,9 +80,7 @@ public abstract class ExternalScanNode extends ScanNode {
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("There is {} scanRangeLocations for execution.", scanRangeLocations.size());
-        }
+        LOG.debug("There is {} scanRangeLocations for execution.", scanRangeLocations.size());
         return scanRangeLocations;
     }
 
@@ -96,3 +94,4 @@ public abstract class ExternalScanNode extends ScanNode {
         return scanRangeLocations.size();
     }
 }
+

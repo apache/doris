@@ -179,3 +179,4 @@ public abstract class HiveCompatibleCatalog extends BaseMetastoreCatalog impleme
         return conf;
     }
 }
+

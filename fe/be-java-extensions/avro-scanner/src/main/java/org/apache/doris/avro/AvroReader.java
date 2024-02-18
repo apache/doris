@@ -63,9 +63,7 @@ public abstract class AvroReader {
     protected void openSchemaReader() throws IOException {
         InputStream inputStream = new BufferedInputStream(fileSystem.open(path));
         schemaReader = new DataFileStream<>(inputStream, new GenericDatumReader<>());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("success open avro schema reader.");
-        }
+        LOG.debug("success open avro schema reader.");
     }
 
     protected void openDataReader(AvroFileContext avroFileContext) throws IOException {
@@ -74,9 +72,7 @@ public abstract class AvroReader {
         FileSplit fileSplit =
                 new FileSplit(path, avroFileContext.getSplitStartOffset(), avroFileContext.getSplitSize(), job);
         dataReader = new AvroRecordReader<>(job, fileSplit);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("success open avro data reader.");
-        }
+        LOG.debug("success open avro data reader.");
     }
 
     protected void projectionSchema(JobConf job, AvroFileContext avroFileContext) {
@@ -103,9 +99,7 @@ public abstract class AvroReader {
             projectionSchema = avroSchema;
         }
         AvroJob.setInputSchema(job, projectionSchema);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("projection avro schema is:" + projectionSchema.toString());
-        }
+        LOG.debug("projection avro schema is:" + projectionSchema.toString());
     }
 
 }

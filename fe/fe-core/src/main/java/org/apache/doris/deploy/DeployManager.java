@@ -368,9 +368,7 @@ public class DeployManager extends MasterDaemon {
                 continue;
             }
             List<HostInfo> remoteHosts = getGroupHostInfos(nodeType);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("get serviceName: {},remoteHosts: {}", nodeTypeAttr.getServiceName(), remoteHosts);
-            }
+            LOG.debug("get serviceName: {},remoteHosts: {}", nodeTypeAttr.getServiceName(), remoteHosts);
             process(nodeType, remoteHosts);
         }
     }
@@ -470,15 +468,11 @@ public class DeployManager extends MasterDaemon {
 
         if (LOG.isDebugEnabled()) {
             for (HostInfo hostInfo : remoteHostInfos) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("inspectNodeChange: remote host info: {}", hostInfo);
-                }
+                LOG.debug("inspectNodeChange: remote host info: {}", hostInfo);
             }
 
             for (HostInfo hostInfo : localHostInfos) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("inspectNodeChange: local host info: {}", hostInfo);
-                }
+                LOG.debug("inspectNodeChange: local host info: {}", hostInfo);
             }
         }
 

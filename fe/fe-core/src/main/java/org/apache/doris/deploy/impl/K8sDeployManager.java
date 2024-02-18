@@ -299,9 +299,7 @@ public class K8sDeployManager extends DeployManager {
         for (int i = 0; i < num; i++) {
             String domainName = getDomainName(nodeType, i);
             hostInfos.add(new HostInfo(domainName, servicePort));
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("get hostInfo from domainName: {}, hostInfo: {}", domainName, hostInfos.get(i).toString());
-            }
+            LOG.debug("get hostInfo from domainName: {}, hostInfo: {}", domainName, hostInfos.get(i).toString());
         }
         return hostInfos;
     }

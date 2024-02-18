@@ -374,12 +374,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 location.setBackendId(backend.getId());
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
-                            curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(),
-                            fileSplit.getStart(), fileSplit.getLength(),
-                            Joiner.on("|").join(fileSplit.getHosts()));
-                }
+                LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
+                        curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(), fileSplit.getStart(),
+                        fileSplit.getLength(), Joiner.on("|").join(fileSplit.getHosts()));
                 scanRangeLocations.add(curLocations);
                 this.totalFileSize += fileSplit.getLength();
             }
@@ -388,10 +385,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setCreateScanRangeFinishTime();
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("create #{} ScanRangeLocations cost: {} ms",
-                    scanRangeLocations.size(), (System.currentTimeMillis() - start));
-        }
+        LOG.debug("create #{} ScanRangeLocations cost: {} ms",
+                scanRangeLocations.size(), (System.currentTimeMillis() - start));
     }
 
     private void setLocationPropertiesIfNecessary(Backend selectedBackend, TFileType locationType,
@@ -410,11 +405,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     FsBroker broker;
                     if (brokerName != null) {
                         broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerName, selectedBackend.getHost());
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug(String.format(
-                                    "Set location for broker [%s], selected BE host: [%s] selected broker host: [%s]",
-                                    brokerName, selectedBackend.getHost(), broker.host));
-                        }
+                        LOG.debug(String.format(
+                                "Set location for broker [%s], selected BE host: [%s] selected broker host: [%s]",
+                                brokerName, selectedBackend.getHost(), broker.host));
                     } else {
                         broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
                     }
@@ -523,3 +516,4 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 }
+

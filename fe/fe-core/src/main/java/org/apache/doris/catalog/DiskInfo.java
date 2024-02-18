@@ -169,10 +169,8 @@ public class DiskInfo implements Writable {
      *      floodStage threshold means a loosely limit, and we use 'AND' to give a more loosely limit.
      */
     public boolean exceedLimit(boolean floodStage) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("flood stage: {}, diskAvailableCapacityB: {}, totalCapacityB: {}",
-                    floodStage, diskAvailableCapacityB, totalCapacityB);
-        }
+        LOG.debug("flood stage: {}, diskAvailableCapacityB: {}, totalCapacityB: {}",
+                floodStage, diskAvailableCapacityB, totalCapacityB);
         if (floodStage) {
             return diskAvailableCapacityB < Config.storage_flood_stage_left_capacity_bytes
                 && this.getUsedPct() > (Config.storage_flood_stage_usage_percent / 100.0);

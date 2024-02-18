@@ -64,9 +64,7 @@ public class PaimonJniScanner extends JniScanner {
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("params:{}", params);
-        }
+        LOG.debug("params:{}", params);
         this.params = params;
         String[] requiredFields = params.get("required_fields").split(",");
         String[] requiredTypes = params.get("columns_types").split("#");
@@ -119,17 +117,13 @@ public class PaimonJniScanner extends JniScanner {
 
     private List<Predicate> getPredicates() {
         List<Predicate> predicates = PaimonScannerUtils.decodeStringToObject(paimonPredicate);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("predicates:{}", predicates);
-        }
+        LOG.debug("predicates:{}", predicates);
         return predicates;
     }
 
     private Split getSplit() {
         Split split = PaimonScannerUtils.decodeStringToObject(paimonSplit);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("split:{}", split);
-        }
+        LOG.debug("split:{}", split);
         return split;
     }
 
@@ -207,9 +201,7 @@ public class PaimonJniScanner extends JniScanner {
         }
         this.table = tableExt.getTable();
         paimonAllFieldNames = PaimonScannerUtils.fieldNames(this.table.rowType());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
-        }
+        LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
     }
 
 }

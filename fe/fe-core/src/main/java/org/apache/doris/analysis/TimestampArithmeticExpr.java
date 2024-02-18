@@ -289,9 +289,7 @@ public class TimestampArithmeticExpr extends Expr {
                 }
             }
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("fn is {} name is {}", fn, funcOpName);
-        }
+        LOG.debug("fn is {} name is {}", fn, funcOpName);
     }
 
     @Override

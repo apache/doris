@@ -49,9 +49,7 @@ public class AgentClient {
 
     public TAgentResult makeSnapshot(TSnapshotRequest request) {
         TAgentResult result = null;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("submit make snapshot task. request: {}", request);
-        }
+        LOG.debug("submit make snapshot task. request: {}", request);
         try {
             borrowClient();
             // submit make snapshot task
@@ -67,9 +65,7 @@ public class AgentClient {
 
     public TAgentResult releaseSnapshot(String snapshotPath) {
         TAgentResult result = null;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("submit release snapshot task. snapshotPath: {}", snapshotPath);
-        }
+        LOG.debug("submit release snapshot task. snapshotPath: {}", snapshotPath);
         try {
             borrowClient();
             // submit release snapshot task
@@ -85,9 +81,7 @@ public class AgentClient {
 
     public Status submitExportTask(TExportTaskRequest request) {
         Status result = Status.CANCELLED;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("submit export task. request: {}", request);
-        }
+        LOG.debug("submit export task. request: {}", request);
         try {
             borrowClient();
             // submit export task
@@ -104,9 +98,7 @@ public class AgentClient {
     public TExportStatusResult getExportStatus(long jobId, long taskId) {
         TExportStatusResult result = null;
         TUniqueId request = new TUniqueId(jobId, taskId);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get export task status. request: {}", request);
-        }
+        LOG.debug("get export task status. request: {}", request);
         try {
             borrowClient();
             // get export status
@@ -123,9 +115,7 @@ public class AgentClient {
     public Status eraseExportTask(long jobId, long taskId) {
         Status result = Status.CANCELLED;
         TUniqueId request = new TUniqueId(jobId, taskId);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("erase export task. request: {}", request);
-        }
+        LOG.debug("erase export task. request: {}", request);
         try {
             borrowClient();
             // erase export task
@@ -141,9 +131,7 @@ public class AgentClient {
 
     public TCheckStorageFormatResult checkStorageFormat() {
         TCheckStorageFormatResult result = null;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("submit make snapshot task.");
-        }
+        LOG.debug("submit make snapshot task.");
         try {
             borrowClient();
             result = client.checkStorageFormat();

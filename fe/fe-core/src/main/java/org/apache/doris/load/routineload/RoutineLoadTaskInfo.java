@@ -178,9 +178,7 @@ public abstract class RoutineLoadTaskInfo {
             // this should not happen for a routine load task, throw it out
             throw e;
         } catch (AnalysisException | BeginTransactionException e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("begin txn failed for routine load task: {}, {}", DebugUtil.printId(id), e.getMessage());
-            }
+            LOG.debug("begin txn failed for routine load task: {}, {}", DebugUtil.printId(id), e.getMessage());
             return false;
         } catch (MetaNotFoundException | QuotaExceedException e) {
             LOG.warn("failed to begin txn for routine load task: {}, job id: {}",

@@ -257,9 +257,7 @@ public class EsScanNode extends ExternalScanNode {
                 scratchBuilder.append(scanRangeLocations.toString());
                 scratchBuilder.append(" ");
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("ES table {}  scan ranges {}", table.getName(), scratchBuilder.toString());
-            }
+            LOG.debug("ES table {}  scan ranges {}", table.getName(), scratchBuilder.toString());
         }
         return result;
     }

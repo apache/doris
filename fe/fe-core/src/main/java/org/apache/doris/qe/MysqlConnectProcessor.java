@@ -76,9 +76,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             }
             printB.append(" ");
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("debug packet {}", printB.toString().substring(0, 200));
-        }
+        LOG.debug("debug packet {}", printB.toString().substring(0, 200));
     }
 
     // process COM_EXECUTE, parse binary row data
@@ -92,14 +90,10 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         packetBuf.get();
         // iteration_count always 1,
         packetBuf.getInt();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("execute prepared statement {}", stmtId);
-        }
+        LOG.debug("execute prepared statement {}", stmtId);
         PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
         if (prepareCtx == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("No such statement in context, stmtId:{}", stmtId);
-            }
+            LOG.debug("No such statement in context, stmtId:{}", stmtId);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
                     "msg: Not supported such prepared statement");
             return;
@@ -120,9 +114,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 // parse params's types
                 for (int i = 0; i < paramCount; ++i) {
                     int typeCode = packetBuf.getChar();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("code {}", typeCode);
-                    }
+                    LOG.debug("code {}", typeCode);
                     prepareCtx.stmt.placeholders().get(i).setTypeCode(typeCode);
                 }
             }
@@ -141,9 +133,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             // TODO set real origin statement
             executeStmt.setOrigStmt(new OriginStatement("null", 0));
             executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("executeStmt {}", executeStmt);
-            }
+            LOG.debug("executeStmt {}", executeStmt);
             executor = new StmtExecutor(ctx, executeStmt);
             ctx.setExecutor(executor);
             executor.execute();
@@ -185,9 +175,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.warn("Unknown command(" + code + ")");
             return;
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("handle command {}", command);
-        }
+        LOG.debug("handle command {}", command);
         ctx.setCommand(command);
         ctx.setStartTime();
 
@@ -275,3 +263,5 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
     }
 }
+
+

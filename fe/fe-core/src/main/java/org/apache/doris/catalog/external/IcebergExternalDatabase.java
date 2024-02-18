@@ -50,9 +50,7 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
 
     @Override
     public void dropTable(String tableName) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("drop table [{}]", tableName);
-        }
+        LOG.debug("drop table [{}]", tableName);
         Long tableId = tableNameToId.remove(tableName);
         if (tableId == null) {
             LOG.warn("drop table [{}] failed", tableName);
@@ -62,9 +60,7 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
 
     @Override
     public void createTable(String tableName, long tableId) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("create table [{}]", tableName);
-        }
+        LOG.debug("create table [{}]", tableName);
         tableNameToId.put(tableName, tableId);
         IcebergExternalTable table = new IcebergExternalTable(tableId, tableName, name,
                 (IcebergExternalCatalog) extCatalog);

@@ -3053,9 +3053,7 @@ public class SessionVariable implements Serializable, Writable {
                     continue;
                 }
 
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("set forward variable: {} = {}", varAttr.name(), val);
-                }
+                LOG.debug("set forward variable: {} = {}", varAttr.name(), val);
 
                 // set config field
                 switch (f.getType().getSimpleName()) {

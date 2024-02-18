@@ -515,13 +515,11 @@ public class SparkLoadJob extends BulkLoadJob {
                                         tBrokerScanRange.getBrokerAddresses().add(
                                                 new TNetworkAddress(fsBroker.host, fsBroker.port));
 
-                                        if (LOG.isDebugEnabled()) {
-                                            LOG.debug("push task for replica {}, broker {}:{},"
-                                                            + " backendId {}, filePath {}, fileSize {}",
-                                                    replicaId, fsBroker.host,
-                                                    fsBroker.port, backendId, tBrokerRangeDesc.path,
-                                                    tBrokerRangeDesc.file_size);
-                                        }
+                                        LOG.debug("push task for replica {}, broker {}:{},"
+                                                        + " backendId {}, filePath {}, fileSize {}",
+                                                replicaId, fsBroker.host,
+                                                fsBroker.port, backendId, tBrokerRangeDesc.path,
+                                                tBrokerRangeDesc.file_size);
 
                                         PushTask pushTask = new PushTask(backendId, dbId, olapTable.getId(),
                                                 partitionId, indexId, tabletId, replicaId, schemaHash, 0, id,
@@ -669,9 +667,7 @@ public class SparkLoadJob extends BulkLoadJob {
     private void clearJob() {
         Preconditions.checkState(state == JobState.FINISHED || state == JobState.CANCELLED);
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("kill etl job and delete etl files. id: {}, state: {}", id, state);
-        }
+        LOG.debug("kill etl job and delete etl files. id: {}, state: {}", id, state);
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
         if (state == JobState.CANCELLED) {
             if ((!Strings.isNullOrEmpty(appId) && sparkResource.isYarnMaster()) || sparkLoadAppHandle != null) {
@@ -692,9 +688,7 @@ public class SparkLoadJob extends BulkLoadJob {
             }
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("clear push tasks and infos that not persist. id: {}, state: {}", id, state);
-        }
+        LOG.debug("clear push tasks and infos that not persist. id: {}, state: {}", id, state);
         writeLock();
         try {
             // clear push task first

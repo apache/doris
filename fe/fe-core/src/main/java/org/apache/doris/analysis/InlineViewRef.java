@@ -102,9 +102,7 @@ public class InlineViewRef extends TableRef {
     public InlineViewRef(String alias, QueryStmt queryStmt, List<String> colLabels) {
         this(alias, queryStmt);
         explicitColLabels = Lists.newArrayList(colLabels);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("inline view explicitColLabels {}", explicitColLabels);
-        }
+        LOG.debug("inline view explicitColLabels {}", explicitColLabels);
     }
 
     /**
@@ -247,14 +245,10 @@ public class InlineViewRef extends TableRef {
         // TODO: relax this a bit by allowing propagation out of the inline view (but
         // not into it)
         List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("inline view query {}", queryStmt.toSql());
-        }
+        LOG.debug("inline view query {}", queryStmt.toSql());
         for (int i = 0; i < getColLabels().size(); ++i) {
             String colName = getColLabels().get(i);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("inline view register {}", colName);
-            }
+            LOG.debug("inline view register {}", colName);
             SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(),
                                             colName, getSubColPath().get(i));
             Expr colExpr = queryStmt.getResultExprs().get(i);
@@ -280,9 +274,7 @@ public class InlineViewRef extends TableRef {
         analyzer.changeSlotsToNotNullable(slots);
         if (LOG.isDebugEnabled()) {
             LOG.debug("inline view " + getUniqueAlias() + " smap: " + sMap.debugString());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("inline view " + getUniqueAlias() + " baseTblSmap: " + baseTblSmap.debugString());
-            }
+            LOG.debug("inline view " + getUniqueAlias() + " baseTblSmap: " + baseTblSmap.debugString());
         }
 
         // analyzeLateralViewRefs

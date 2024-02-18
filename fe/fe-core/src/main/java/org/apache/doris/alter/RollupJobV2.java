@@ -608,10 +608,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.getIndexMetaByIndexId(rollupIndexId).setMaxColUniqueId(maxColUniqueId);
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("rollupIndexId:{}, maxColUniqueId:{}, indexIdToSchema:{}", rollupIndexId, maxColUniqueId,
-                    tbl.getIndexIdToSchema(true));
-        }
+        LOG.debug("rollupIndexId:{}, maxColUniqueId:{}, indexIdToSchema:{}", rollupIndexId, maxColUniqueId,
+                tbl.getIndexIdToSchema(true));
         tbl.rebuildFullSchema();
     }
 

@@ -315,9 +315,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         Preconditions.checkState(match.getReturnType().getPrimitiveType() == PrimitiveType.BOOLEAN);
         //todo(dhc): should add oppCode
         //this.vectorOpcode = match.opcode;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(debugString() + " opcode: " + vectorOpcode);
-        }
+        LOG.debug(debugString() + " opcode: " + vectorOpcode);
     }
 
     private boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {

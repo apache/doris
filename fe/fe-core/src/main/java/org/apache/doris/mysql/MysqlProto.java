@@ -135,9 +135,7 @@ public class MysqlProto {
         try {
             channel.sendAndFlush(serializer.toByteBuffer());
         } catch (IOException e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Send and flush channel exception, ignore.", e);
-            }
+            LOG.debug("Send and flush channel exception, ignore.", e);
             return false;
         }
 
@@ -151,14 +149,10 @@ public class MysqlProto {
         ByteBuffer handshakeResponse;
 
         if (capability.isClientUseSsl()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("client is using ssl connection.");
-            }
+            LOG.debug("client is using ssl connection.");
             // During development, we set SSL mode to true by default.
             if (SERVER_USE_SSL) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("server is also using ssl connection. Will use ssl mode for data exchange.");
-                }
+                LOG.debug("server is also using ssl connection. Will use ssl mode for data exchange.");
                 MysqlSslContext mysqlSslContext = context.getMysqlSslContext();
                 mysqlSslContext.init();
                 channel.initSslBuffer();
@@ -191,9 +185,7 @@ public class MysqlProto {
 
                 // Set channel mode to ssl mode to handle socket packet in ssl format.
                 channel.setSslMode(true);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("switch to ssl mode.");
-                }
+                LOG.debug("switch to ssl mode.");
                 handshakeResponse = channel.fetchOnePacket();
             } else {
                 handshakeResponse = clientRequestPacket;
@@ -244,9 +236,7 @@ public class MysqlProto {
         }
 
         if (useLdapAuthenticate) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("user:{} start to ldap authenticate.", qualifiedUser);
-            }
+            LOG.debug("user:{} start to ldap authenticate.", qualifiedUser);
             // server send authentication switch packet to request password clear text.
             // https://dev.mysql.com/doc/internals/en/authentication-method-change.html
             serializer.reset();

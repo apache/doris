@@ -226,9 +226,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         List<Split> result = Lists.newArrayList();
         TFileCompressType compressType = Util.inferFileCompressTypeByPath(path.toString());
         if (!splittable || compressType != TFileCompressType.PLAIN) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Path {} is not splittable.", path);
-            }
+            LOG.debug("Path {} is not splittable.", path);
             String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
             result.add(splitCreator.create(path, 0, length, length, modificationTime, hosts, partitionValues));
             return result;
@@ -254,9 +252,7 @@ public abstract class FileScanNode extends ExternalScanNode {
                     length, modificationTime, hosts, partitionValues));
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Path {} includes {} splits.", path, result.size());
-        }
+        LOG.debug("Path {} includes {} splits.", path, result.size());
         return result;
     }
 

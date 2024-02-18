@@ -199,9 +199,7 @@ public final class QeProcessorImpl implements QeProcessor {
             LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
                     DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
                     params.backend_num, beAddr);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("params: {}", params);
-            }
+            LOG.debug("params: {}", params);
         }
         final TReportExecStatusResult result = new TReportExecStatusResult();
 

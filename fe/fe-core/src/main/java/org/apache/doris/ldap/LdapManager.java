@@ -216,9 +216,7 @@ public class LdapManager {
                 roles.add(Env.getCurrentEnv().getAuth().getRoleByName(qualifiedRole));
             }
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get user:{} ldap groups:{} and doris roles:{}", userName, ldapGroups, roles);
-        }
+        LOG.debug("get user:{} ldap groups:{} and doris roles:{}", userName, ldapGroups, roles);
 
         Role ldapGroupsPrivs = new Role(LDAP_DEFAULT_ROLE);
         grantDefaultPrivToTempUser(ldapGroupsPrivs);

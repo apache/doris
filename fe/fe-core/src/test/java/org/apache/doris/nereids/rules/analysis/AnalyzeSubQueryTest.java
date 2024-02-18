@@ -186,3 +186,4 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
                 );
     }
 }
+

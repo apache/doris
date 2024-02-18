@@ -1037,9 +1037,7 @@ public class Analyzer {
                                                 newTblName == null ? d.getTable().getName() : newTblName.toString());
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
-        }
+        LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
         if (col.getType().isVariantType() || (subColNames != null && !subColNames.isEmpty())) {
             if (getContext() != null && !getContext().getSessionVariable().enableVariantAccessInOriginalPlanner
                     && (subColNames != null && !subColNames.isEmpty())) {
@@ -1077,9 +1075,7 @@ public class Analyzer {
                 return result;
             }
             result = globalState.descTbl.addSlotDescriptor(d);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("register slot descriptor {}", result);
-            }
+            LOG.debug("register slot descriptor {}", result);
             result.setSubColLables(subColNames);
             result.setColumn(col);
             if (!subColNames.isEmpty()) {

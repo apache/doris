@@ -157,10 +157,7 @@ public class MTMVTask extends AbstractTask {
             ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
             if (LOG.isDebugEnabled()) {
                 String taskSessionContext = ctx.getSessionVariable().toJson().toJSONString();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("mtmv task session variable, taskId: {}, session: {}",
-                            super.getTaskId(), taskSessionContext);
-                }
+                LOG.debug("mtmv task session variable, taskId: {}, session: {}", super.getTaskId(), taskSessionContext);
             }
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name

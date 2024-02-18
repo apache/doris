@@ -125,9 +125,7 @@ public class InternalSqlTemplate {
         }
 
         matcher.appendTail(sb);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Template:{}, params: {}, SQL: {}", template, params, sb.toString());
-        }
+        LOG.debug("Template:{}, params: {}, SQL: {}", template, params, sb.toString());
 
         return sb.toString();
     }

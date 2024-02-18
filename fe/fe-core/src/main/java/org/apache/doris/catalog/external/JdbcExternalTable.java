@@ -117,9 +117,7 @@ public class JdbcExternalTable extends ExternalTable {
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
         if (tableStats != null) {
             long rowCount = tableStats.rowCount;
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
-            }
+            LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
             return rowCount;
         }
         return 1;

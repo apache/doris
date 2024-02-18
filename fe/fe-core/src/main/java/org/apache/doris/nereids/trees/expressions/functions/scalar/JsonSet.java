@@ -67,3 +67,4 @@ public class JsonSet extends ScalarFunction
         return visitor.visitJsonSet(this, context);
     }
 }
+

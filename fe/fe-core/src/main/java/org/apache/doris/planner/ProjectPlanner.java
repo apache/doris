@@ -49,9 +49,7 @@ public class ProjectPlanner {
             planNode.initOutputSlotIds(outputSlotIds, analyzer);
             planNode.projectOutputTuple();
         } catch (NotImplementedException e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug(e);
-            }
+            LOG.debug(e);
         }
         if (planNode.getChildren().size() == 0) {
             return;
@@ -60,9 +58,7 @@ public class ProjectPlanner {
         try {
             inputSlotIds = planNode.computeInputSlotIds(analyzer);
         } catch (NotImplementedException e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug(e);
-            }
+            LOG.debug(e);
         }
         for (PlanNode child : planNode.getChildren()) {
             projectPlanNode(inputSlotIds, child);

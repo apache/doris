@@ -318,9 +318,7 @@ public class UdafExecutor extends BaseExecutor {
                         Pair<Boolean, JavaUdfDataType> returnType = UdfUtils.setReturnType(funcRetType,
                                 methods[idx].getReturnType());
                         if (!returnType.first) {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("result function set return parameterTypes has error");
-                            }
+                            LOG.debug("result function set return parameterTypes has error");
                         } else {
                             retType = returnType.second;
                             retClass = methods[idx].getReturnType();
@@ -332,18 +330,14 @@ public class UdafExecutor extends BaseExecutor {
                         addIndex = methodAccess.getIndex(UDAF_ADD_FUNCTION);
                         argClass = methods[idx].getParameterTypes();
                         if (argClass.length != parameterTypes.length + 1) {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("add function parameterTypes length not equal " + argClass.length + " "
-                                        + parameterTypes.length + " " + methods[idx].getName());
-                            }
+                            LOG.debug("add function parameterTypes length not equal " + argClass.length + " "
+                                    + parameterTypes.length + " " + methods[idx].getName());
                         }
                         if (!(parameterTypes.length == 0)) {
                             Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes,
                                     argClass, true);
                             if (!inputType.first) {
-                                if (LOG.isDebugEnabled()) {
-                                    LOG.debug("add function set arg parameterTypes has error");
-                                }
+                                LOG.debug("add function set arg parameterTypes has error");
                             } else {
                                 argTypes = inputType.second;
                             }

@@ -33,3 +33,4 @@ interface Queue<E> {
 
     boolean isEmpty();
 }
+

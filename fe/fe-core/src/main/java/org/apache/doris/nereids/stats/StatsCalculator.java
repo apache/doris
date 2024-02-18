@@ -623,9 +623,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // Use -1 for catalog id and db id when failed to get them from metadata.
             // This is OK because catalog id and db id is not in the hashcode function of ColumnStatistics cache
             // and the table id is globally unique.
-            if (LOG.isDebugEnabled()) {
-                LOG.debug(String.format("Fail to get catalog id and db id for table %s", table.getName()));
-            }
+            LOG.debug(String.format("Fail to get catalog id and db id for table %s", table.getName()));
             catalogId = -1;
             dbId = -1;
         }

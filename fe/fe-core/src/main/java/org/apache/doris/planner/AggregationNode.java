@@ -205,10 +205,8 @@ public class AggregationNode extends PlanNode {
         for (Expr groupingExpr : groupingExprs) {
             long numDistinct = groupingExpr.getNumDistinctValues();
             // TODO: remove these before 1.0
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
-                        numDistinct));
-            }
+            LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
+                    numDistinct));
             if (numDistinct == -1) {
                 cardinality = -1;
                 break;
@@ -216,22 +214,16 @@ public class AggregationNode extends PlanNode {
             cardinality *= numDistinct;
         }
         // take HAVING predicate into account
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Agg: cardinality=" + Long.toString(cardinality));
-        }
+        LOG.debug("Agg: cardinality=" + Long.toString(cardinality));
         if (cardinality > 0) {
             cardinality = Math.round((double) cardinality * computeOldSelectivity());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("sel=" + Double.toString(computeOldSelectivity()));
-            }
+            LOG.debug("sel=" + Double.toString(computeOldSelectivity()));
         }
         // if we ended up with an overflow, the estimate is certain to be wrong
         if (cardinality < 0) {
             cardinality = -1;
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Agg: cardinality=" + Long.toString(cardinality));
-        }
+        LOG.debug("stats Agg: cardinality=" + Long.toString(cardinality));
     }
 
     private void updateplanNodeName() {

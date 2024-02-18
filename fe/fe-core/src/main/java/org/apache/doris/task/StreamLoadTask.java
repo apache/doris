@@ -546,3 +546,4 @@ public class StreamLoadTask implements LoadTaskInfo {
         return groupCommit;
     }
 }
+

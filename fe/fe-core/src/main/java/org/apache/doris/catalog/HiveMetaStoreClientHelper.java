@@ -847,3 +847,5 @@ public class HiveMetaStoreClientHelper {
         return conf;
     }
 }
+
+

@@ -165,9 +165,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     // if finish transaction state failed, then update publish version time, should check
                     // to finish after some interval
                     transactionState.updateSendTaskTime();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("publish version for transaction {} failed", transactionState);
-                    }
+                    LOG.debug("publish version for transaction {} failed", transactionState);
                 }
             }
 

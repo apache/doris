@@ -303,9 +303,7 @@ public class VariableMgr {
         try {
             checkUpdate(setVar, varCtx.getFlag());
         } catch (DdlException e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
-            }
+            LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
             return;
         }
         setVarInternal(sessionVariable, setVar, varCtx);

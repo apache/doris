@@ -42,3 +42,6 @@ public class HudiSplit extends FileSplit {
     private List<String> nestedFields;
 }
 
+
+
+

@@ -313,10 +313,8 @@ public abstract class BaseAnalysisTask {
             queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
             job.appendBuf(this, Collections.singletonList(colStatsData));
         } finally {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("End cost time in millisec: " + (System.currentTimeMillis() - startTime)
-                        + " Analyze SQL: " + sql + " QueryId: " + queryId);
-            }
+            LOG.debug("End cost time in millisec: " + (System.currentTimeMillis() - startTime)
+                    + " Analyze SQL: " + sql + " QueryId: " + queryId);
         }
     }
 

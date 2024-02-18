@@ -138,9 +138,7 @@ public abstract class BaseExecutor {
                 classLoader.close();
             } catch (IOException e) {
                 // Log and ignore.
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Error closing the URLClassloader.", e);
-                }
+                LOG.debug("Error closing the URLClassloader.", e);
             }
         }
         // We are now un-usable (because the class loader has been

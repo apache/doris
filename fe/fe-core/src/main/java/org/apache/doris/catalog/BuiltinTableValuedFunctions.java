@@ -67,3 +67,4 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
     // Note: Do not add any code here!
     private BuiltinTableValuedFunctions() {}
 }
+

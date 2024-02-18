@@ -69,3 +69,4 @@ public class AvgDistinctToSumDivCount extends OneRewriteRuleFactory {
         );
     }
 }
+

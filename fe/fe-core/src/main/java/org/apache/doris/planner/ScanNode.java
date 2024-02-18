@@ -454,9 +454,7 @@ public abstract class ScanNode extends PlanNode {
             }
 
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
-        }
+        LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
         return partitionColumnFilter;
     }
 

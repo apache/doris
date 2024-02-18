@@ -52,9 +52,7 @@ public class BinlogGcer extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("start binlog syncer jobs.");
-        }
+        LOG.debug("start binlog syncer jobs.");
         try {
             List<BinlogTombstone> tombstones = Env.getCurrentEnv().getBinlogManager().gc();
             if (tombstones != null && !tombstones.isEmpty()) {

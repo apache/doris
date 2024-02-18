@@ -610,9 +610,7 @@ public class HashJoinNode extends JoinNodeBase {
             // numDistinct = Math.min(numDistinct, rhsTbl.getNumRows());
             // }
             maxNumDistinct = Math.max(maxNumDistinct, numDistinct);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("min slotref: {}, #distinct: {}", rhsSlotRef.toSql(), numDistinct);
-            }
+            LOG.debug("min slotref: {}, #distinct: {}", rhsSlotRef.toSql(), numDistinct);
         }
 
         if (maxNumDistinct == 0) {
@@ -623,13 +621,9 @@ public class HashJoinNode extends JoinNodeBase {
         } else {
             cardinality = Math.round(
                     (double) getChild(0).cardinality * (double) getChild(1).cardinality / (double) maxNumDistinct);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("lhs card: {}, rhs card: {}", getChild(0).cardinality, getChild(1).cardinality);
-            }
+            LOG.debug("lhs card: {}, rhs card: {}", getChild(0).cardinality, getChild(1).cardinality);
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats HashJoin: cardinality {}", cardinality);
-        }
+        LOG.debug("stats HashJoin: cardinality {}", cardinality);
     }
 
     /**

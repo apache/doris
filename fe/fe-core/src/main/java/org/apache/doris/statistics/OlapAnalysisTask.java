@@ -88,9 +88,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * 3. insert col stats and partition stats
      */
     protected void doSample() throws Exception {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Will do sample collection for column {}", col.getName());
-        }
+        LOG.debug("Will do sample collection for column {}", col.getName());
         Pair<List<Long>, Long> pair = calcActualSampleTablets(tbl.isPartitionColumn(col.getName()));
         LOG.info("Number of tablets selected {}, rows in tablets {}", pair.first.size(), pair.second);
         List<Long> tabletIds = pair.first;
@@ -199,9 +197,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * 3. calculate column stats based on partition stats
      */
     protected void doFull() throws Exception {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Will do full collection for column {}", col.getName());
-        }
+        LOG.debug("Will do full collection for column {}", col.getName());
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);

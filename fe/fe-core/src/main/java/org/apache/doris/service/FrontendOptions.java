@@ -68,9 +68,7 @@ public class FrontendOptions {
         boolean hasMatchedIp = false;
         if (!priorityCidrs.isEmpty()) {
             for (InetAddress addr : hosts) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("check ip address: {}", addr);
-                }
+                LOG.debug("check ip address: {}", addr);
                 if (isInPriorNetwork(addr.getHostAddress())) {
                     localAddr = addr;
                     hasMatchedIp = true;
@@ -109,9 +107,7 @@ public class FrontendOptions {
         try {
             fqdnString = InetAddress.getLocalHost().getCanonicalHostName();
             String ip = InetAddress.getLocalHost().getHostAddress();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("ip is {}", ip);
-            }
+            LOG.debug("ip is {}", ip);
         } catch (UnknownHostException e) {
             LOG.error("Got a UnknownHostException when try to get FQDN");
             System.exit(-1);
@@ -145,14 +141,10 @@ public class FrontendOptions {
 
         // Check the InetAddress obtained via FQDN
         boolean hasInetAddr = false;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("fqdnString is {}", fqdnString);
-        }
+        LOG.debug("fqdnString is {}", fqdnString);
         for (InetAddress addr : hosts) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Try to match addr, ip: {}, FQDN: {}",
-                        addr.getHostAddress(), addr.getCanonicalHostName());
-            }
+            LOG.debug("Try to match addr, ip: {}, FQDN: {}",
+                    addr.getHostAddress(), addr.getCanonicalHostName());
             if (addr.getCanonicalHostName().equals(uncheckedInetAddress.getCanonicalHostName())) {
                 hasInetAddr = true;
                 break;

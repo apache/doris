@@ -1848,9 +1848,7 @@ public class Env {
     protected boolean isMyself() {
         Preconditions.checkNotNull(selfNode);
         Preconditions.checkNotNull(helperNodes);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("self: {}. helpers: {}", selfNode, helperNodes);
-        }
+        LOG.debug("self: {}. helpers: {}", selfNode, helperNodes);
         // if helper nodes contain itself, remove other helpers
         boolean containSelf = false;
         for (HostInfo helperNode : helperNodes) {
@@ -2755,9 +2753,7 @@ public class Env {
             EditLog.loadJournal(this, logId, entity);
             long loadJournalEndTime = System.currentTimeMillis();
             replayedJournalId.incrementAndGet();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("journal {} replayed.", replayedJournalId);
-            }
+            LOG.debug("journal {} replayed.", replayedJournalId);
             if (feType != FrontendNodeType.MASTER) {
                 journalObservable.notifyObservers(replayedJournalId.get());
             }
@@ -4158,9 +4154,7 @@ public class Env {
                 clusterColumns.put(column.getClusterKeyId(), column);
             }
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("index column size: {}, cluster column size: {}", indexColumns.size(), clusterColumns.size());
-        }
+        LOG.debug("index column size: {}, cluster column size: {}", indexColumns.size(), clusterColumns.size());
         if (isKeysRequired && indexColumns.isEmpty()) {
             throw new DdlException("The materialized view need key column");
         }
@@ -4734,9 +4728,7 @@ public class Env {
     }
 
     public void replayRenameColumn(TableRenameColumnInfo info) throws MetaNotFoundException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("info:{}", info);
-        }
+        LOG.debug("info:{}", info);
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         String colName = info.getColName();
@@ -4838,11 +4830,8 @@ public class Env {
                 newDataProperty, replicaAlloc, isInMemory, partitionInfo.getStoragePolicy(partition.getId()),
                 tblProperties);
         editLog.logModifyPartition(info);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("modify partition[{}-{}-{}] replica allocation to {}", db.getId(), table.getId(),
-                    partition.getName(),
-                    replicaAlloc.toCreateStmt());
-        }
+        LOG.debug("modify partition[{}-{}-{}] replica allocation to {}", db.getId(), table.getId(), partition.getName(),
+                replicaAlloc.toCreateStmt());
     }
 
     /**
@@ -4863,10 +4852,8 @@ public class Env {
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         properties);
         editLog.logModifyReplicationNum(info);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("modify table[{}] replication num to {}", table.getName(),
-                    properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
-        }
+        LOG.debug("modify table[{}] replication num to {}", table.getName(),
+                properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
     }
 
     // The caller need to hold the table write lock
@@ -5404,10 +5391,8 @@ public class Env {
                 Replica replica = tablet.getReplicaById(info.getReplicaId());
                 if (replica != null) {
                     replica.setBad(true);
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("get replica {} of tablet {} on backend {} to bad when replaying",
-                                info.getReplicaId(), info.getTabletId(), info.getBackendId());
-                    }
+                    LOG.debug("get replica {} of tablet {} on backend {} to bad when replaying", info.getReplicaId(),
+                            info.getTabletId(), info.getBackendId());
                 }
             } finally {
                 olapTable.writeUnlock();
@@ -5828,9 +5813,7 @@ public class Env {
     }
 
     private static void getTableMeta(OlapTable olapTable, TGetMetaDBMeta dbMeta) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get table meta. table: {}", olapTable.getName());
-        }
+        LOG.debug("get table meta. table: {}", olapTable.getName());
 
         TGetMetaTableMeta tableMeta = new TGetMetaTableMeta();
         olapTable.readLock();

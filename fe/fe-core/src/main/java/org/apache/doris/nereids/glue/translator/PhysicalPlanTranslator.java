@@ -2474,9 +2474,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private void injectRowIdColumnSlot(TupleDescriptor tupleDesc) {
         SlotDescriptor slotDesc = context.addSlotDesc(tupleDesc);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("inject slot {}", slotDesc);
-        }
+        LOG.debug("inject slot {}", slotDesc);
         String name = Column.ROWID_COL;
         Column col = new Column(name, Type.STRING, false, null, false, "", "rowid column");
         slotDesc.setType(Type.STRING);

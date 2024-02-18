@@ -225,9 +225,7 @@ public class SortNode extends PlanNode {
                 cardinality = Math.min(cardinality, limit);
             }
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
-        }
+        LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
     }
 
     public void init(Analyzer analyzer) throws UserException {
@@ -270,9 +268,7 @@ public class SortNode extends PlanNode {
         if (LOG.isDebugEnabled()) {
             LOG.debug("sort id " + tupleIds.get(0).toString() + " smap: "
                     + outputSmap.debugString());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("sort input exprs: " + Expr.debugString(resolvedTupleExprs));
-            }
+            LOG.debug("sort input exprs: " + Expr.debugString(resolvedTupleExprs));
         }
     }
 

@@ -41,3 +41,4 @@ public class CloudDynamicPartitionProperty extends DynamicPartitionProperty {
     }
 
 }
+

@@ -346,8 +346,6 @@ public class DeleteHandler implements Writable {
                 iter1.remove();
             }
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("remove expired delete job info num: {}", counter);
-        }
+        LOG.debug("remove expired delete job info num: {}", counter);
     }
 }

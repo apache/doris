@@ -63,9 +63,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
                 Preconditions.checkState(transport instanceof TFramedTransport);
                 // NOTE: we need patch code in TNonblockingServer, we don't use for now.
                 //  see https://issues.apache.org/jira/browse/THRI FT-1053
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("TFramedTransport cannot create thrift context. server type: {}", thriftServer.getType());
-                }
+                LOG.debug("TFramedTransport cannot create thrift context. server type: {}", thriftServer.getType());
                 return null;
             case SIMPLE:
             case THREAD_POOL:
@@ -94,9 +92,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
 
         thriftServer.addConnect(clientAddress);
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("create thrift context. client: {}, server type: {}", clientAddress, thriftServer.getType());
-        }
+        LOG.debug("create thrift context. client: {}, server type: {}", clientAddress, thriftServer.getType());
         return new ThriftServerContext(clientAddress);
     }
 
@@ -111,9 +107,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
         TNetworkAddress clientAddress = thriftServerContext.getClient();
         connectionContext.remove();
         thriftServer.removeConnect(clientAddress);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("delete thrift context. client: {}, server type: {}", clientAddress, thriftServer.getType());
-        }
+        LOG.debug("delete thrift context. client: {}, server type: {}", clientAddress, thriftServer.getType());
     }
 
     @Override

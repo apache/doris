@@ -93,9 +93,7 @@ public class MetaServiceClient {
     public void shutdown(boolean debugLog) {
         channel.shutdown();
         if (debugLog) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("shut down meta service client: {}", address);
-            }
+            LOG.debug("shut down meta service client: {}", address);
         } else {
             LOG.warn("shut down meta service client: {}", address);
         }

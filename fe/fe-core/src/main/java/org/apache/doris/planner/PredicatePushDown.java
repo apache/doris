@@ -108,9 +108,7 @@ public class PredicatePushDown {
                     if (otherSlot.isBound(leftSlot.getSlotId())
                             && rightSlot.isBound(rightSideTuple)) {
                         Expr pushDownConjunct = rewritePredicate(analyzer, conjunct, rightSlot);
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("pushDownConjunct: {}", pushDownConjunct);
-                        }
+                        LOG.debug("pushDownConjunct: {}", pushDownConjunct);
                         if (!analyzer.getGlobalInDeDuplication().contains(pushDownConjunct)
                                 && !analyzer.getGlobalSlotToLiteralDeDuplication()
                                 .contains(Pair.of(pushDownConjunct.getChild(0), pushDownConjunct.getChild(1)))) {
@@ -119,9 +117,7 @@ public class PredicatePushDown {
                     } else if (otherSlot.isBound(rightSlot.getSlotId())
                             && leftSlot.isBound(rightSideTuple)) {
                         Expr pushDownConjunct = rewritePredicate(analyzer, conjunct, leftSlot);
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("pushDownConjunct: {}", pushDownConjunct);
-                        }
+                        LOG.debug("pushDownConjunct: {}", pushDownConjunct);
                         if (!analyzer.getGlobalInDeDuplication().contains(pushDownConjunct)
                                 && !analyzer.getGlobalSlotToLiteralDeDuplication()
                                 .contains(Pair.of(pushDownConjunct.getChild(0), pushDownConjunct.getChild(1)))) {

@@ -136,9 +136,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
      * <code>{@link Config#hms_events_batch_size_per_rpc}</code>
      */
     private List<NotificationEvent> getNextHMSEvents(HMSExternalCatalog hmsExternalCatalog) throws Exception {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start to pull events on catalog [{}]", hmsExternalCatalog.getName());
-        }
+        LOG.debug("Start to pull events on catalog [{}]", hmsExternalCatalog.getName());
         NotificationEventResponse response;
         if (Env.getCurrentEnv().isMaster()) {
             response = getNextEventResponseForMaster(hmsExternalCatalog);
@@ -197,10 +195,8 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             return null;
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Catalog [{}] getNextEventResponse, currentEventId is {}, lastSyncedEventId is {}",
-                    hmsExternalCatalog.getName(), currentEventId, lastSyncedEventId);
-        }
+        LOG.debug("Catalog [{}] getNextEventResponse, currentEventId is {}, lastSyncedEventId is {}",
+                hmsExternalCatalog.getName(), currentEventId, lastSyncedEventId);
         if (currentEventId == lastSyncedEventId) {
             LOG.info("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
             return null;
@@ -250,10 +246,8 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             return null;
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Catalog [{}] getNextEventResponse, masterLastSyncedEventId is {}, lastSyncedEventId is {}",
-                    hmsExternalCatalog.getName(), masterLastSyncedEventId, lastSyncedEventId);
-        }
+        LOG.debug("Catalog [{}] getNextEventResponse, masterLastSyncedEventId is {}, lastSyncedEventId is {}",
+                hmsExternalCatalog.getName(), masterLastSyncedEventId, lastSyncedEventId);
 
         // For slave FE nodes, only fetch events which id is lower than masterLastSyncedEventId
         int maxEventSize = Math.min((int) (masterLastSyncedEventId - lastSyncedEventId),
@@ -316,9 +310,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         OriginStatement originStmt = new OriginStatement(sql, 0);
         MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, new ConnectContext(),
                     RedirectStatus.FORWARD_WITH_SYNC, false);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Transfer to master to refresh catalog, stmt: {}", sql);
-        }
+        LOG.debug("Transfer to master to refresh catalog, stmt: {}", sql);
         masterOpExecutor.execute();
     }
 

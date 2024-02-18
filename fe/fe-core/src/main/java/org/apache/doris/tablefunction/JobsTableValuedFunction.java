@@ -124,3 +124,4 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
         }
     }
 }
+

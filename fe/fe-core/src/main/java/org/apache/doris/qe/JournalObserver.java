@@ -69,10 +69,8 @@ public class JournalObserver implements Comparable<JournalObserver> {
                 // check if the replayed journal version is already larger than the expected version
                 long replayedJournalId = Env.getCurrentEnv().getReplayedJournalId();
                 if (replayedJournalId >= targetJournalVersion || timeoutMs <= 0) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("the replayed journal version {} already large than expected version: {}",
-                                  replayedJournalId, targetJournalVersion);
-                    }
+                    LOG.debug("the replayed journal version {} already large than expected version: {}",
+                              replayedJournalId, targetJournalVersion);
                     return;
                 }
 

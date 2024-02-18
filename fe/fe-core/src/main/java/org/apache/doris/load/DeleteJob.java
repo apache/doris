@@ -380,10 +380,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     checkAndUpdateQuorum();
                     Thread.sleep(1000);
                     nowQuorumTimeMs = System.currentTimeMillis();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("wait for quorum finished delete job: {}, txn id: {}",
-                                id, signature);
-                    }
+                    LOG.debug("wait for quorum finished delete job: {}, txn id: {}",
+                            id, signature);
                 }
                 break;
             default:

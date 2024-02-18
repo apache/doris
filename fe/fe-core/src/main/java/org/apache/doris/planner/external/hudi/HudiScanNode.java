@@ -94,13 +94,9 @@ public class HudiScanNode extends HiveScanNode {
         isCowOrRoTable = hmsTable.isHoodieCowTable() || "skip_merge".equals(
                 hmsTable.getCatalogProperties().get("hoodie.datasource.merge.type"));
         if (isCowOrRoTable) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Hudi table {} can read as cow/read optimize table", hmsTable.getName());
-            }
+            LOG.debug("Hudi table {} can read as cow/read optimize table", hmsTable.getName());
         } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Hudi table {} is a mor table, and will use JNI to read data in BE", hmsTable.getName());
-            }
+            LOG.debug("Hudi table {} is a mor table, and will use JNI to read data in BE", hmsTable.getName());
         }
     }
 

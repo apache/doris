@@ -253,18 +253,12 @@ public class OriginalPlanner extends Planner {
         } else {
             List<Expr> resExprs = Expr.substituteList(queryStmt.getResultExprs(),
                     rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("result Exprs {}", queryStmt.getResultExprs());
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("substitute result Exprs {}", resExprs);
-            }
+            LOG.debug("result Exprs {}", queryStmt.getResultExprs());
+            LOG.debug("substitute result Exprs {}", resExprs);
             rootFragment.setOutputExprs(resExprs);
         }
         rootFragment.setResultSinkType(ConnectContext.get().getResultSinkType());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("finalize plan fragments");
-        }
+        LOG.debug("finalize plan fragments");
         for (PlanFragment fragment : fragments) {
             fragment.finalize(queryStmt);
         }
@@ -279,22 +273,16 @@ public class OriginalPlanner extends Planner {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             if (queryStmt.getSortInfo() != null || selectStmt.getAggInfo() != null) {
                 isBlockQuery = true;
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("this is block query");
-                }
+                LOG.debug("this is block query");
             } else {
                 isBlockQuery = false;
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("this isn't block query");
-                }
+                LOG.debug("this isn't block query");
             }
             // Check SelectStatement if optimization condition satisfied
             if (selectStmt.isPointQueryShortCircuit()) {
                 // Optimize for point query like: SELECT * FROM t1 WHERE pk1 = 1 and pk2 = 2
                 // such query will use direct RPC to do point query
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("it's a point query");
-                }
+                LOG.debug("it's a point query");
                 Map<SlotRef, Expr> eqConjuncts = ((SelectStmt) selectStmt).getPointQueryEQPredicates();
                 OlapScanNode olapScanNode = (OlapScanNode) singleNodePlan;
                 olapScanNode.setDescTable(analyzer.getDescTbl());
@@ -400,9 +388,7 @@ public class OriginalPlanner extends Planner {
 
     private SlotDescriptor injectRowIdColumnSlot(Analyzer analyzer, TupleDescriptor tupleDesc) {
         SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(tupleDesc);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("inject slot {}", slotDesc);
-        }
+        LOG.debug("inject slot {}", slotDesc);
         String name = Column.ROWID_COL;
         Column col = new Column(name, Type.STRING, false, null, false, "",
                                         "rowid column");

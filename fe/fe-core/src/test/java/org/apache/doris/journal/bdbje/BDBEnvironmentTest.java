@@ -77,9 +77,7 @@ public class BDBEnvironmentTest {
         }
         UUID uuid = UUID.randomUUID();
         File dir = Files.createDirectories(Paths.get(dorisHome, "fe", "mocked", "BDBEnvironmentTest-" + uuid.toString())).toFile();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("createTmpDir path {}", dir.getAbsolutePath());
-        }
+        LOG.debug("createTmpDir path {}", dir.getAbsolutePath());
         tmpDirs.add(dir.getAbsolutePath());
         return dir.getAbsolutePath();
     }
@@ -92,9 +90,7 @@ public class BDBEnvironmentTest {
     @AfterAll
     public static void cleanUp() throws Exception {
         for (String dir : tmpDirs) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("deleteTmpDir path {}", dir);
-            }
+            LOG.debug("deleteTmpDir path {}", dir);
             FileUtils.deleteDirectory(new File(dir));
         }
     }
@@ -131,9 +127,7 @@ public class BDBEnvironmentTest {
         int port = findValidPort();
         String selfNodeName = Env.genFeNodeName("127.0.0.1", port, false);
         String selfNodeHostPort = "127.0.0.1:" + port;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("selfNodeName:{}, selfNodeHostPort:{}", selfNodeName, selfNodeHostPort);
-        }
+        LOG.debug("selfNodeName:{}, selfNodeHostPort:{}", selfNodeName, selfNodeHostPort);
 
         BDBEnvironment bdbEnvironment = new BDBEnvironment(true, false);
         bdbEnvironment.setup(new File(createTmpDir()), selfNodeName, selfNodeHostPort, selfNodeHostPort);
@@ -159,9 +153,7 @@ public class BDBEnvironmentTest {
 
         String expectedMessage = "Database was closed.";
         String actualMessage = exception.getMessage();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("exception:", exception);
-        }
+        LOG.debug("exception:", exception);
         Assertions.assertTrue(actualMessage.contains(expectedMessage));
 
         Database epochDb = bdbEnvironment.getEpochDB();
@@ -198,9 +190,7 @@ public class BDBEnvironmentTest {
         });
         expectedMessage = "Environment is closed.";
         actualMessage = exception.getMessage();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("exception:", exception);
-        }
+        LOG.debug("exception:", exception);
         Assertions.assertTrue(actualMessage.contains(expectedMessage));
     }
 
@@ -294,9 +284,7 @@ public class BDBEnvironmentTest {
         int masterPort = findValidPort();
         String masterNodeName = Env.genFeNodeName("127.0.0.1", masterPort, false);
         String masterNodeHostPort = "127.0.0.1:" + masterPort;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("masterNodeName:{}, masterNodeHostPort:{}", masterNodeName, masterNodeHostPort);
-        }
+        LOG.debug("masterNodeName:{}, masterNodeHostPort:{}", masterNodeName, masterNodeHostPort);
 
         BDBEnvironment masterEnvironment = new BDBEnvironment(true, false);
         File masterDir = new File(createTmpDir());
@@ -308,9 +296,7 @@ public class BDBEnvironmentTest {
             int followerPort = findValidPort();
             String followerNodeName = Env.genFeNodeName("127.0.0.1", followerPort, false);
             String followerNodeHostPort = "127.0.0.1:" + followerPort;
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("followerNodeName{}:{}, followerNodeHostPort{}:{}", i, i, followerNodeName, followerNodeHostPort);
-            }
+            LOG.debug("followerNodeName{}:{}, followerNodeHostPort{}:{}", i, i, followerNodeName, followerNodeHostPort);
 
             BDBEnvironment followerEnvironment = new BDBEnvironment(true, false);
             File followerDir = new File(createTmpDir());
@@ -322,9 +308,7 @@ public class BDBEnvironmentTest {
         int observerPort = findValidPort();
         String observerNodeName = Env.genFeNodeName("127.0.0.1", observerPort, false);
         String observerNodeHostPort = "127.0.0.1:" + observerPort;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("observerNodeName:{}, observerNodeHostPort:{}", observerNodeName, observerNodeHostPort);
-        }
+        LOG.debug("observerNodeName:{}, observerNodeHostPort:{}", observerNodeName, observerNodeHostPort);
 
         BDBEnvironment observerEnvironment = new BDBEnvironment(false, false);
         File observerDir = new File(createTmpDir());

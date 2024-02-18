@@ -582,9 +582,7 @@ public class SingleNodePlanner {
                     TableRef olapTableRef = selectStmt.getTableRefs().get(0);
                     if (Expr.isBound(Lists.newArrayList(aggExpr), Lists.newArrayList(olapTableRef.getId()))) {
                         // do nothing
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("All agg exprs is bound to olapTable: {}" + olapTableRef.getTable().getName());
-                        }
+                        LOG.debug("All agg exprs is bound to olapTable: {}" + olapTableRef.getTable().getName());
                     } else {
                         List<TupleId> tupleIds = Lists.newArrayList();
                         List<SlotId> slotIds = Lists.newArrayList();
@@ -605,12 +603,10 @@ public class SingleNodePlanner {
                                             + selectStmt.getTableRefs().get(0).toSql() + "]";
                                     aggTableValidate = false;
                                 } else {
-                                    if (LOG.isDebugEnabled()) {
-                                        LOG.debug("The table which agg expr [{}] is bound to, is not OLAP table [{}]",
-                                                aggExpr.debugString(),
-                                                analyzer.getTupleDesc(tupleId).getTable() == null ? "inline view" :
-                                                        analyzer.getTupleDesc(tupleId).getTable().getName());
-                                    }
+                                    LOG.debug("The table which agg expr [{}] is bound to, is not OLAP table [{}]",
+                                            aggExpr.debugString(),
+                                            analyzer.getTupleDesc(tupleId).getTable() == null ? "inline view" :
+                                                    analyzer.getTupleDesc(tupleId).getTable().getName());
                                 }
                             }
 
@@ -936,18 +932,14 @@ public class SingleNodePlanner {
                 // use 0 for the size to avoid it becoming the leftmost input
                 // TODO: Consider raw size of scanned partitions in the absence of stats.
                 candidates.add(Pair.of(ref, new Long(0)));
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("The candidate of " + ref.getUniqueAlias() + ": -1. "
-                            + "Using 0 instead of -1 to avoid error");
-                }
+                LOG.debug("The candidate of " + ref.getUniqueAlias() + ": -1. "
+                        + "Using 0 instead of -1 to avoid error");
                 continue;
             }
             Preconditions.checkState(ref.isAnalyzed());
             long materializedSize = plan.getCardinality();
             candidates.add(Pair.of(ref, new Long(materializedSize)));
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("The candidate of " + ref.getUniqueAlias() + ": " + materializedSize);
-            }
+            LOG.debug("The candidate of " + ref.getUniqueAlias() + ": " + materializedSize);
         }
         if (candidates.isEmpty()) {
             // This branch should not be reached, because the first one should be inner join.
@@ -999,9 +991,7 @@ public class SingleNodePlanner {
     // (ML): change the function name
     private PlanNode createJoinPlan(Analyzer analyzer, TableRef leftmostRef, List<Pair<TableRef, PlanNode>> refPlans)
             throws UserException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Try to create a query plan starting with " + leftmostRef.getUniqueAlias());
-        }
+        LOG.debug("Try to create a query plan starting with " + leftmostRef.getUniqueAlias());
 
         // the refs that have yet to be joined
         List<Pair<TableRef, PlanNode>> remainingRefs = new ArrayList<>();
@@ -1099,9 +1089,7 @@ public class SingleNodePlanner {
                     stringBuilder.append("The " + tblRefOfCandidate.getUniqueAlias() + " is right child of join node.");
                     stringBuilder.append("The join cardinality is " + candidate.getCardinality() + ".");
                     stringBuilder.append("In round " + successfulSelectionTimes);
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug(stringBuilder.toString());
-                    }
+                    LOG.debug(stringBuilder.toString());
                 }
 
                 // Use 'candidate' as the new root; don't consider any other table refs at this
@@ -1165,10 +1153,8 @@ public class SingleNodePlanner {
             ++successfulSelectionTimes;
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("The final join sequence is "
-                    + joinedRefs.stream().map(TableRef::getUniqueAlias).collect(Collectors.joining(",")));
-        }
+        LOG.debug("The final join sequence is "
+                + joinedRefs.stream().map(TableRef::getUniqueAlias).collect(Collectors.joining(",")));
         return root;
     }
 
@@ -1184,9 +1170,7 @@ public class SingleNodePlanner {
         }
 
         if (analyzer.enableStarJoinReorder()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("use old reorder logical in select stmt");
-            }
+            LOG.debug("use old reorder logical in select stmt");
             selectStmt.reorderTable(analyzer);
         }
 
@@ -1226,9 +1210,7 @@ public class SingleNodePlanner {
         AggregateInfo aggInfo = selectStmt.getAggInfo();
 
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Using new join reorder strategy when enable_join_reorder_based_cost is true");
-            }
+            LOG.debug("Using new join reorder strategy when enable_join_reorder_based_cost is true");
             // create plans for our table refs; use a list here instead of a map to
             // maintain a deterministic order of traversing the TableRefs during join
             // plan generation (helps with tests)
@@ -2034,18 +2016,14 @@ public class SingleNodePlanner {
                 errMsg.setRef("non-equal " + op.toString() + " is not supported");
                 LOG.warn(errMsg);
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("no candidates for join.");
-            }
+            LOG.debug("no candidates for join.");
             return;
         }
 
         for (Expr e : candidates) {
             // Ignore predicate if one of its children is a constant.
             if (e.getChild(0).isLiteral() || e.getChild(1).isLiteral()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("double is constant.");
-                }
+                LOG.debug("double is constant.");
                 continue;
             }
 
@@ -2071,9 +2049,7 @@ public class SingleNodePlanner {
             } else if (e.getChild(0).isBoundByTupleIds(lhsIds)) {
                 lhsExpr = e.getChild(0);
             } else {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("not an equi-join condition between lhsIds and rhsId");
-                }
+                LOG.debug("not an equi-join condition between lhsIds and rhsId");
                 continue;
             }
 

@@ -64,10 +64,8 @@ public class MovesCacheMap {
     // Cyclical update the cache mapping, cuz the tag may be deleted, we should delete the corresponding cache too.
     public void updateMapping(Map<Tag, LoadStatisticForTag> statisticMap, long expireAfterAccessSecond) {
         if (expireAfterAccessSecond > 0 && lastExpireConfig != expireAfterAccessSecond) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Reset expireAfterAccess, last {} s, now {} s. Moves will be cleared.",
-                        lastExpireConfig, expireAfterAccessSecond);
-            }
+            LOG.debug("Reset expireAfterAccess, last {} s, now {} s. Moves will be cleared.",
+                    lastExpireConfig, expireAfterAccessSecond);
             cacheMap.clear();
             lastExpireConfig = expireAfterAccessSecond;
         }

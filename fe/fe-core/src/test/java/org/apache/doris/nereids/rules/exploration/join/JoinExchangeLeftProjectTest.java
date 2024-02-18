@@ -71,3 +71,4 @@ class JoinExchangeLeftProjectTest implements MemoPatternMatchSupported {
                 );
     }
 }
+

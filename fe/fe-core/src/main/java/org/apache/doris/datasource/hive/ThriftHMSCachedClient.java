@@ -480,3 +480,4 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         return HiveMetaStoreClientHelper.ugiDoAs(hiveConf, action);
     }
 }
+

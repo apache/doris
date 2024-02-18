@@ -22,3 +22,4 @@ public enum NodeSelectionStrategy {
     RANDOM,
     CONSISTENT_HASHING
 }
+

@@ -190,10 +190,8 @@ public class BackupJob extends AbstractJob {
         taskProgress.remove(task.getTabletId());
         Long oldValue = unfinishedTaskIds.remove(task.getTabletId());
         taskErrMsg.remove(task.getTabletId());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
-                    info, unfinishedTaskIds.size(), (oldValue != null), this);
-        }
+        LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
+                info, unfinishedTaskIds.size(), (oldValue != null), this);
 
         return oldValue != null;
     }
@@ -249,10 +247,8 @@ public class BackupJob extends AbstractJob {
         taskProgress.remove(task.getSignature());
         Long oldValue = unfinishedTaskIds.remove(task.getSignature());
         taskErrMsg.remove(task.getSignature());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
-                    unfinishedTaskIds.size(), (oldValue != null), this);
-        }
+        LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
+                unfinishedTaskIds.size(), (oldValue != null), this);
         return oldValue != null;
     }
 
@@ -323,9 +319,7 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("run backup job: {}", this);
-        }
+        LOG.debug("run backup job: {}", this);
 
         // run job base on current state
         switch (state) {
@@ -704,9 +698,7 @@ public class BackupJob extends AbstractJob {
             return;
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("waiting {} tablets to upload snapshot. {}", unfinishedTaskIds.size(), this);
-        }
+        LOG.debug("waiting {} tablets to upload snapshot. {}", unfinishedTaskIds.size(), this);
     }
 
     private void saveMetaInfo() {
@@ -756,9 +748,7 @@ public class BackupJob extends AbstractJob {
             }
             jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId,
                     getContent(), backupMeta, snapshotInfos, tableCommitSeqMap);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("job info: {}. {}", jobInfo, this);
-            }
+            LOG.debug("job info: {}. {}", jobInfo, this);
             File jobInfoFile = new File(jobDir, Repository.PREFIX_JOB_INFO + createTimeStr);
             if (!jobInfoFile.createNewFile()) {
                 status = new Status(ErrCode.COMMON_ERROR, "Failed to create job info file: " + jobInfoFile.toString());
@@ -1064,3 +1054,4 @@ public class BackupJob extends AbstractJob {
         return sb.toString();
     }
 }
+

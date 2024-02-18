@@ -45,3 +45,4 @@ public interface Cost {
         return CostV1.zero();
     }
 }
+

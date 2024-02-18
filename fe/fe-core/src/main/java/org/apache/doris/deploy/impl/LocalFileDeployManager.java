@@ -97,9 +97,7 @@ public class LocalFileDeployManager extends DeployManager {
                 if (!str.startsWith(groupName)) {
                     continue;
                 }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("read line: {}", str);
-                }
+                LOG.debug("read line: {}", str);
                 String[] parts = str.split("=");
                 if (parts.length != 2 || Strings.isNullOrEmpty(parts[1])) {
                     return result;

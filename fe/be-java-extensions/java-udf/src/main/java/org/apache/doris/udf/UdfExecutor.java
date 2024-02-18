@@ -142,9 +142,7 @@ public class UdfExecutor extends BaseExecutor {
         String className = request.fn.scalar_fn.symbol;
         ArrayList<String> signatures = Lists.newArrayList();
         try {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Loading UDF '" + className + "' from " + jarPath);
-            }
+            LOG.debug("Loading UDF '" + className + "' from " + jarPath);
             ClassLoader loader;
             if (jarPath != null) {
                 // Save for cleanup.
@@ -188,9 +186,7 @@ public class UdfExecutor extends BaseExecutor {
                         retType = returnType.second;
                     }
                     argTypes = new JavaUdfDataType[0];
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
-                    }
+                    LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
                     return;
                 }
                 returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
@@ -207,9 +203,7 @@ public class UdfExecutor extends BaseExecutor {
                 } else {
                     argTypes = inputType.second;
                 }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
-                }
+                LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
                 retType.setKeyType(keyType);
                 retType.setValueType(valueType);
                 return;

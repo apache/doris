@@ -65,3 +65,4 @@ class JoinExchangeTest implements MemoPatternMatchSupported {
                 );
     }
 }
+

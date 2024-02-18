@@ -1021,9 +1021,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     private void unprotectAddReplica(OlapTable olapTable, ReplicaPersistInfo info) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("replay add a replica {}", info);
-        }
+        LOG.debug("replay add a replica {}", info);
         Partition partition = olapTable.getPartition(info.getPartitionId());
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
@@ -1042,9 +1040,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     private void unprotectUpdateReplica(OlapTable olapTable, ReplicaPersistInfo info) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("replay update a replica {}", info);
-        }
+        LOG.debug("replay update a replica {}", info);
         Partition partition = olapTable.getPartition(info.getPartitionId());
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
@@ -2036,9 +2032,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     // Create olap table and related base index synchronously.
     private void createOlapTable(Database db, CreateTableStmt stmt) throws UserException {
         String tableName = stmt.getTableName();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("begin create olap table: {}", tableName);
-        }
+        LOG.debug("begin create olap table: {}", tableName);
 
         BinlogConfig dbBinlogConfig;
         db.readLock();
@@ -2103,9 +2097,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // calc short key column count
         short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties(), isKeysRequired);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("create table[{}] short key column count: {}", tableName, shortKeyColumnCount);
-        }
+        LOG.debug("create table[{}] short key column count: {}", tableName, shortKeyColumnCount);
 
         // create table
         long tableId = idGeneratorBuffer.getNextId();

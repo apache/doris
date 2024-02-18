@@ -483,33 +483,25 @@ public class BackupJobInfo implements Writable {
     // eg: __db_10001/__tbl_10002/__part_10003/__idx_10002/__10004
     public String getFilePath(String db, String tbl, String part, String idx, long tabletId) {
         if (!db.equalsIgnoreCase(dbName)) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("db name does not equal: {}-{}", dbName, db);
-            }
+            LOG.debug("db name does not equal: {}-{}", dbName, db);
             return null;
         }
 
         BackupOlapTableInfo tblInfo = backupOlapTableObjects.get(tbl);
         if (tblInfo == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("tbl {} does not exist", tbl);
-            }
+            LOG.debug("tbl {} does not exist", tbl);
             return null;
         }
 
         BackupPartitionInfo partInfo = tblInfo.getPartInfo(part);
         if (partInfo == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("part {} does not exist", part);
-            }
+            LOG.debug("part {} does not exist", part);
             return null;
         }
 
         BackupIndexInfo idxInfo = partInfo.getIdx(idx);
         if (idxInfo == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("idx {} does not exist", idx);
-            }
+            LOG.debug("idx {} does not exist", idx);
             return null;
         }
 

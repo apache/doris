@@ -93,9 +93,7 @@ public abstract class PrivTable {
                 throw new DdlException("entry already exist");
             } else {
                 mergePriv(existingEntry, newEntry);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("merge priv entry: {}", existingEntry);
-                }
+                LOG.debug("merge priv entry: {}", existingEntry);
             }
         }
         return existingEntry;
@@ -140,16 +138,12 @@ public abstract class PrivTable {
         }
 
         // revoke privs from existing priv entry
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("before revoke: {}, privs to be revoked: {}",
-                    existingEntry.getPrivSet(), entry.getPrivSet());
-        }
+        LOG.debug("before revoke: {}, privs to be revoked: {}",
+                existingEntry.getPrivSet(), entry.getPrivSet());
         tmp = existingEntry.getPrivSet().copy();
         tmp.xor(entry.getPrivSet());
         existingEntry.getPrivSet().and(tmp);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("after revoke: {}", existingEntry);
-        }
+        LOG.debug("after revoke: {}", existingEntry);
 
         if (existingEntry.getPrivSet().isEmpty() && deleteEntryWhenEmpty) {
             // no priv exists in this entry, remove it
@@ -226,9 +220,7 @@ public abstract class PrivTable {
                 addEntry(entry, false, false, true);
             } catch (DdlException e) {
                 //will no exception
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(e.getMessage());
-                }
+                LOG.debug(e.getMessage());
             }
         }
     }

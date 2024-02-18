@@ -131,9 +131,7 @@ public enum ExpressionFunctions {
                     if (ConnectContext.get() != null) {
                         ConnectContext.get().getState().reset();
                     }
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("failed to invoke", e);
-                    }
+                    LOG.debug("failed to invoke", e);
                     return constExpr;
                 }
             }

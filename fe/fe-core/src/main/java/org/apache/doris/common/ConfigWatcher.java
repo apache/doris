@@ -49,9 +49,7 @@ public class ConfigWatcher extends Daemon {
 
     @Override
     protected void runOneCycle() {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("start config watcher loop");
-        }
+        LOG.debug("start config watcher loop");
         try {
             WatchService watchService = FileSystems.getDefault().newWatchService();
             configPath.register(watchService, StandardWatchEventKinds.ENTRY_CREATE,

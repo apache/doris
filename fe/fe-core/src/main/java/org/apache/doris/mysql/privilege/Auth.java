@@ -274,10 +274,8 @@ public class Auth implements Writable {
     // ==== Catalog ====
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("should not check NODE priv in catalog level. user: {}, catalog: {}",
-                        currentUser, ctl);
-            }
+            LOG.debug("should not check NODE priv in catalog level. user: {}, catalog: {}",
+                    currentUser, ctl);
             return false;
         }
         readLock();
@@ -297,10 +295,8 @@ public class Auth implements Writable {
     // ==== Database ====
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("should not check NODE priv in Database level. user: {}, db: {}",
-                        currentUser, db);
-            }
+            LOG.debug("should not check NODE priv in Database level. user: {}, db: {}",
+                    currentUser, db);
             return false;
         }
         readLock();
@@ -321,9 +317,7 @@ public class Auth implements Writable {
     // ==== Table ====
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("should check NODE priv in GLOBAL level. user: {}, db: {}, tbl: {}", currentUser, db, tbl);
-            }
+            LOG.debug("should check NODE priv in GLOBAL level. user: {}, db: {}, tbl: {}", currentUser, db, tbl);
             return false;
         }
         readLock();
@@ -870,9 +864,7 @@ public class Auth implements Writable {
 
     public void replaySetLdapPassword(LdapInfo info) {
         ldapInfo = info;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("finish replaying ldap admin password.");
-        }
+        LOG.debug("finish replaying ldap admin password.");
     }
 
     public void refreshLdap(RefreshLdapStmt refreshLdapStmt) {

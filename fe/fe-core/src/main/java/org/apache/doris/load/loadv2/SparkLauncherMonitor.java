@@ -154,10 +154,8 @@ public class SparkLauncherMonitor {
                             }
                         }
 
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("spark appId that handle get is {}, state: {}",
-                                    handle.getAppId(), handle.getState().toString());
-                        }
+                        LOG.debug("spark appId that handle get is {}, state: {}",
+                                handle.getAppId(), handle.getState().toString());
                         switch (newState) {
                             case UNKNOWN:
                             case CONNECTED:

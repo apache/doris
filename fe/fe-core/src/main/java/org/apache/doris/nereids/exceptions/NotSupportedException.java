@@ -25,3 +25,4 @@ public class NotSupportedException extends RuntimeException {
         super(String.format("Not Supported: %s", msg));
     }
 }
+

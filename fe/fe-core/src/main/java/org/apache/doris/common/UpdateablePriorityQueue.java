@@ -24,3 +24,4 @@ interface UpdateablePriorityQueue<E>
         extends Queue<E>, Iterable<E> {
     boolean addOrUpdate(E element, long priority);
 }
+

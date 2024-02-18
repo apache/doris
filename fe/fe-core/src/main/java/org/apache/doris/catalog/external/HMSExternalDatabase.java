@@ -64,9 +64,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
 
     @Override
     public void dropTable(String tableName) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("replayDropTableFromEvent [{}]", tableName);
-        }
+        LOG.debug("replayDropTableFromEvent [{}]", tableName);
         Long tableId = tableNameToId.remove(tableName);
         if (tableId == null) {
             LOG.warn("replayDropTableFromEvent [{}] failed", tableName);
@@ -77,9 +75,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
 
     @Override
     public void createTable(String tableName, long tableId) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("create table [{}]", tableName);
-        }
+        LOG.debug("create table [{}]", tableName);
         tableNameToId.put(tableName, tableId);
         HMSExternalTable table = getExternalTable(tableName, tableId, extCatalog);
         idToTbl.put(tableId, table);

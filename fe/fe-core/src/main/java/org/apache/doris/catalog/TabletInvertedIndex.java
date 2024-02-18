@@ -135,9 +135,7 @@ public class TabletInvertedIndex {
         long stamp = readLock();
         long start = System.currentTimeMillis();
         try {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
-            }
+            LOG.debug("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
             Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
             if (replicaMetaWithBackend != null) {
                 taskPool.submit(() -> {
@@ -243,10 +241,8 @@ public class TabletInvertedIndex {
                                         synchronized (transactionsToClear) {
                                             transactionsToClear.put(transactionId, tabletMeta.getPartitionId());
                                         }
-                                        if (LOG.isDebugEnabled()) {
-                                            LOG.debug("transaction id [{}] is not valid any more, "
-                                                    + "clear it from backend [{}]", transactionId, backendId);
-                                        }
+                                        LOG.debug("transaction id [{}] is not valid any more, "
+                                                + "clear it from backend [{}]", transactionId, backendId);
                                     } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                                         TableCommitInfo tableCommitInfo
                                                 = transactionState.getTableCommitInfo(tabletMeta.getTableId());
@@ -326,9 +322,7 @@ public class TabletInvertedIndex {
                         } else {
                             // 2. (meta - be)
                             // may need delete from meta
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("backend[{}] does not report tablet[{}-{}]", backendId, tabletId, tabletMeta);
-                            }
+                            LOG.debug("backend[{}] does not report tablet[{}-{}]", backendId, tabletId, tabletMeta);
                             synchronized (tabletDeleteFromMeta) {
                                 tabletDeleteFromMeta.put(tabletMeta.getDbId(), tabletId);
                             }
@@ -541,14 +535,10 @@ public class TabletInvertedIndex {
             tabletMetaMap.put(tabletId, tabletMeta);
             if (!tabletMetaTable.contains(tabletMeta.getPartitionId(), tabletMeta.getIndexId())) {
                 tabletMetaTable.put(tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletMeta);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("add tablet meta: {}", tabletId);
-                }
+                LOG.debug("add tablet meta: {}", tabletId);
             }
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("add tablet: {}", tabletId);
-            }
+            LOG.debug("add tablet: {}", tabletId);
         } finally {
             writeUnlock(stamp);
         }
@@ -570,14 +560,10 @@ public class TabletInvertedIndex {
             TabletMeta tabletMeta = tabletMetaMap.remove(tabletId);
             if (tabletMeta != null) {
                 tabletMetaTable.remove(tabletMeta.getPartitionId(), tabletMeta.getIndexId());
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("delete tablet meta: {}", tabletId);
-                }
+                LOG.debug("delete tablet meta: {}", tabletId);
             }
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("delete tablet: {}", tabletId);
-            }
+            LOG.debug("delete tablet: {}", tabletId);
         } finally {
             writeUnlock(stamp);
         }
@@ -592,10 +578,8 @@ public class TabletInvertedIndex {
             replicaMetaTable.put(tabletId, replica.getBackendId(), replica);
             replicaToTabletMap.put(replica.getId(), tabletId);
             backingReplicaMetaTable.put(replica.getBackendId(), tabletId, replica);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("add replica {} of tablet {} in backend {}",
-                        replica.getId(), tabletId, replica.getBackendId());
-            }
+            LOG.debug("add replica {} of tablet {} in backend {}",
+                    replica.getId(), tabletId, replica.getBackendId());
         } finally {
             writeUnlock(stamp);
         }
@@ -611,10 +595,8 @@ public class TabletInvertedIndex {
                 replicaToTabletMap.remove(replica.getId());
                 replicaMetaTable.remove(tabletId, backendId);
                 backingReplicaMetaTable.remove(backendId, tabletId);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("delete replica {} of tablet {} in backend {}",
-                            replica.getId(), tabletId, backendId);
-                }
+                LOG.debug("delete replica {} of tablet {} in backend {}",
+                        replica.getId(), tabletId, backendId);
             } else {
                 // this may happen when fe restart after tablet is empty(bug cause)
                 // add log instead of assertion to observe
@@ -798,9 +780,7 @@ public class TabletInvertedIndex {
                     partitionReplicasInfoMaps.put(medium, partitionReplicasInfo);
                 } catch (IllegalStateException | NullPointerException e) {
                     // If the tablet or be has some problem, don't count in
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug(e.getMessage());
-                    }
+                    LOG.debug(e.getMessage());
                 }
             }
         } finally {

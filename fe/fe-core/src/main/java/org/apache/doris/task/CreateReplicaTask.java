@@ -194,10 +194,8 @@ public class CreateReplicaTask extends AgentTask {
     public void countDownLatch(long backendId, long tabletId) {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tabletId)) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("CreateReplicaTask current latch count: {}, backend: {}, tablet:{}",
-                              latch.getCount(), backendId, tabletId);
-                }
+                LOG.debug("CreateReplicaTask current latch count: {}, backend: {}, tablet:{}",
+                          latch.getCount(), backendId, tabletId);
             }
         }
     }
@@ -206,9 +204,7 @@ public class CreateReplicaTask extends AgentTask {
     public void countDownToZero(String errMsg) {
         if (this.latch != null) {
             latch.countDownToZero(new Status(TStatusCode.CANCELLED, errMsg));
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("CreateReplicaTask download to zero. error msg: {}", errMsg);
-            }
+            LOG.debug("CreateReplicaTask download to zero. error msg: {}", errMsg);
         }
     }
 
@@ -280,9 +276,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setVersionColIdx(versionCol);
         if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
             tSchema.setClusterKeyIdxes(clusterKeyIndexes);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("cluster key index={}, table_id={}, tablet_id={}", clusterKeyIndexes, tableId, tabletId);
-            }
+            LOG.debug("cluster key index={}, table_id={}, tablet_id={}", clusterKeyIndexes, tableId, tabletId);
         }
         if (CollectionUtils.isNotEmpty(indexes)) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();

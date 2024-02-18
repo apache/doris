@@ -129,9 +129,7 @@ public class LdapClient {
     boolean doesUserExist(String userName) {
         String user = getUserDn(userName);
         if (user == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("User:{} does not exist in LDAP.", userName);
-            }
+            LOG.debug("User:{} does not exist in LDAP.", userName);
             return false;
         }
         return true;

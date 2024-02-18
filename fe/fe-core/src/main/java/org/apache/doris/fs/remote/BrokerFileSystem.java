@@ -156,9 +156,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
 
     @Override
     public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
-        }
+        LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
 
         long start = System.currentTimeMillis();
 
@@ -230,14 +228,10 @@ public class BrokerFileSystem extends RemoteFileSystem {
                             status = new Status(Status.ErrCode.COMMON_ERROR, lastErrMsg);
                         }
                         if (rep.opStatus.statusCode != TBrokerOperationStatusCode.END_OF_FILE) {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("download. readLen: {}, read data len: {}, left size:{}. total size: {}",
-                                        readLen, rep.getData().length, leftSize, fileSize);
-                            }
+                            LOG.debug("download. readLen: {}, read data len: {}, left size:{}. total size: {}",
+                                    readLen, rep.getData().length, leftSize, fileSize);
                         } else {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("read eof: " + remoteFilePath);
-                            }
+                            LOG.debug("read eof: " + remoteFilePath);
                         }
                         break;
                     } catch (TTransportException e) {

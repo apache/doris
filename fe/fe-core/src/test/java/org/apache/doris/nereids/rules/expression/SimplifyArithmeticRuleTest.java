@@ -158,3 +158,4 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
 
     }
 }
+

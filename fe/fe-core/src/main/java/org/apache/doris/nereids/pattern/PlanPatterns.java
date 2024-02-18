@@ -311,3 +311,4 @@ public interface PlanPatterns extends Patterns {
         return new PatternDescriptor(new TypePattern(Aggregate.class, child.pattern), defaultPromise());
     }
 }
+

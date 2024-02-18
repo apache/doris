@@ -181,10 +181,8 @@ public class ConsistencyChecker extends MasterDaemon {
         }
 
         if (!isTime) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("current time is {}:00, waiting to {}:00 to {}:00",
-                          currentTime, startTime, endTime);
-            }
+            LOG.debug("current time is {}:00, waiting to {}:00 to {}:00",
+                      currentTime, startTime, endTime);
         }
 
         return isTime;
@@ -192,9 +190,7 @@ public class ConsistencyChecker extends MasterDaemon {
 
     private void clearJob(CheckConsistencyJob job) {
         job.clear();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("tablet[{}] consistency checking job is cleared", job.getTabletId());
-        }
+        LOG.debug("tablet[{}] consistency checking job is cleared", job.getTabletId());
     }
 
     private boolean addJob(CheckConsistencyJob job) {
@@ -285,18 +281,14 @@ public class ConsistencyChecker extends MasterDaemon {
                             // check partition's replication num. if 1 replication. skip
                             if (table.getPartitionInfo().getReplicaAllocation(
                                     partition.getId()).getTotalReplicaNum() == (short) 1) {
-                                if (LOG.isDebugEnabled()) {
-                                    LOG.debug("partition[{}]'s replication num is 1. ignore", partition.getId());
-                                }
+                                LOG.debug("partition[{}]'s replication num is 1. ignore", partition.getId());
                                 continue;
                             }
 
                             // check if this partition has no data
                             if (partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION) {
-                                if (LOG.isDebugEnabled()) {
-                                    LOG.debug("partition[{}]'s version is {}. ignore", partition.getId(),
-                                            Partition.PARTITION_INIT_VERSION);
-                                }
+                                LOG.debug("partition[{}]'s version is {}. ignore", partition.getId(),
+                                        Partition.PARTITION_INIT_VERSION);
                                 continue;
                             }
                             partitionQueue.add(partition);
@@ -331,10 +323,8 @@ public class ConsistencyChecker extends MasterDaemon {
                                     // check if version has already been checked
                                     if (partition.getVisibleVersion() == tablet.getCheckedVersion()) {
                                         if (tablet.isConsistent()) {
-                                            if (LOG.isDebugEnabled()) {
-                                                LOG.debug("tablet[{}]'s version[{}] has been checked. ignore",
-                                                        chosenTabletId, tablet.getCheckedVersion());
-                                            }
+                                            LOG.debug("tablet[{}]'s version[{}] has been checked. ignore",
+                                                    chosenTabletId, tablet.getCheckedVersion());
                                         }
                                     } else {
                                         LOG.info("chose tablet[{}-{}-{}-{}-{}] to check consistency", db.getId(),

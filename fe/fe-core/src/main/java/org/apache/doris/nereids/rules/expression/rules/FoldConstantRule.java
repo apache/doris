@@ -38,3 +38,4 @@ public class FoldConstantRule extends AbstractExpressionRewriteRule {
         return FoldConstantRuleOnFE.INSTANCE.rewrite(expr, ctx);
     }
 }
+

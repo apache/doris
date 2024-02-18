@@ -149,3 +149,4 @@ public class InsertArrayStmtTest {
         Assert.assertEquals(state.getErrorMessage(), MysqlStateType.OK, state.getStateType());
     }
 }
+

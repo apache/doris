@@ -41,9 +41,7 @@ public class SyncChecker extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("start check sync jobs.");
-        }
+        LOG.debug("start check sync jobs.");
         try {
             process();
             cleanOldSyncJobs();

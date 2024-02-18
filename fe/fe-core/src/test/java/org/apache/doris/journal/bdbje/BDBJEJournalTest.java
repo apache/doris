@@ -66,9 +66,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         }
         Preconditions.checkArgument(!Strings.isNullOrEmpty(dorisHome));
         File dir = Files.createTempDirectory(Paths.get(dorisHome, "fe", "mocked"), "BDBJEJournalTest").toFile();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("createTmpDir path {}", dir.getAbsolutePath());
-        }
+        LOG.debug("createTmpDir path {}", dir.getAbsolutePath());
         tmpDirs.add(dir);
         return dir;
     }
@@ -76,9 +74,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
     @AfterAll
     public static void cleanUp() throws Exception {
         for (File dir : tmpDirs) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("deleteTmpDir path {}", dir.getAbsolutePath());
-            }
+            LOG.debug("deleteTmpDir path {}", dir.getAbsolutePath());
             FileUtils.deleteDirectory(dir);
         }
     }
@@ -170,9 +166,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         Assertions.assertEquals(1, journal.getMinJournalId());
         Assertions.assertEquals(0, journal.getFinalizedJournalId());
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
-        }
+        LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
         Assertions.assertEquals(1, journal.getDatabaseNames().size());
         Assertions.assertEquals(1, journal.getDatabaseNames().get(0));
 
@@ -198,9 +192,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         Assertions.assertEquals(1, journal.getMinJournalId());
         Assertions.assertEquals(40, journal.getFinalizedJournalId());
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
-        }
+        LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
         Assertions.assertEquals(5, journal.getDatabaseNames().size());
         Assertions.assertEquals(41, journal.getDatabaseNames().get(4));
 
@@ -232,9 +224,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
                 journal.getBDBEnvironment().getReplicatedEnvironment().getState());
         journal.deleteJournals(21);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
-        }
+        LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
         Assertions.assertEquals(3, journal.getDatabaseNames().size());
         Assertions.assertEquals(21, journal.getDatabaseNames().get(0));
         journal.close();
@@ -312,9 +302,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         Assertions.assertEquals(1, journal.getMinJournalId());
         Assertions.assertEquals(0, journal.getFinalizedJournalId());
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
-        }
+        LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
         Assertions.assertEquals(1, journal.getDatabaseNames().size());
         Assertions.assertEquals(1, journal.getDatabaseNames().get(0));
 

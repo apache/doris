@@ -236,9 +236,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                     unprotectUpdateState(JobState.RUNNING, null, false);
                 }
             } else {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Ignore to divide routine load job while job state {}", state);
-                }
+                LOG.debug("Ignore to divide routine load job while job state {}", state);
             }
             // save task into queue of needScheduleTasks
             Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTasksInQueue(result);
@@ -254,11 +252,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             desireTaskConcurrentNum = Config.max_routine_load_task_concurrent_num;
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("current concurrent task number is min"
-                            + "(partition num: {}, desire task concurrent num: {} config: {})",
-                    partitionNum, desireTaskConcurrentNum, Config.max_routine_load_task_concurrent_num);
-        }
+        LOG.debug("current concurrent task number is min"
+                        + "(partition num: {}, desire task concurrent num: {} config: {})",
+                partitionNum, desireTaskConcurrentNum, Config.max_routine_load_task_concurrent_num);
         currentTaskConcurrentNum = Math.min(partitionNum, Math.min(desireTaskConcurrentNum,
                 Config.max_routine_load_task_concurrent_num));
         return currentTaskConcurrentNum;
@@ -276,12 +272,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         // Running here, the status of the transaction should be ABORTED,
         // and it is caused by other errors. In this case, we should not update the offset.
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("no need to update the progress of kafka routine load. txn status: {}, "
-                            + "txnStatusChangeReason: {}, task: {}, job: {}",
-                    txnState.getTransactionStatus(), txnStatusChangeReason,
-                    DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()), id);
-        }
+        LOG.debug("no need to update the progress of kafka routine load. txn status: {}, "
+                        + "txnStatusChangeReason: {}, task: {}, job: {}",
+                txnState.getTransactionStatus(), txnStatusChangeReason,
+                DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()), id);
         return false;
     }
 
@@ -723,11 +717,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 // (because librdkafa's query_watermark_offsets() will return the next offset.
                 //  For example, there 4 msg in partition with offset 0,1,2,3,
                 //  query_watermark_offsets() will return 4.)
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("has more data to consume. offsets to be consumed: {},"
-                                    + "latest offsets: {}, task {}, job {}",
-                            partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
-                }
+                LOG.debug("has more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
+                        partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
             } else {
                 needUpdateCache = true;
                 break;
@@ -757,11 +748,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 long partitionLatestOffset = cachedPartitionWithLatestOffsets.get(partitionId);
                 long recordPartitionOffset = entry.getValue();
                 if (recordPartitionOffset < partitionLatestOffset) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("has more data to consume. offsets to be consumed: {},"
-                                + " latest offsets: {}, task {}, job {}",
-                                partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
-                    }
+                    LOG.debug("has more data to consume. offsets to be consumed: {},"
+                            + " latest offsets: {}, task {}, job {}",
+                            partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
                     return true;
                 } else if (recordPartitionOffset > partitionLatestOffset) {
                     String msg = "offset set in job: " + recordPartitionOffset
@@ -773,10 +762,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             }
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("no more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
-                    partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
-        }
+        LOG.debug("no more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
+                partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
         return false;
     }
 

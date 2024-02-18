@@ -148,10 +148,8 @@ public class HiveScanNode extends FileQueryScanNode {
                             hivePartitionValues.getSingleColumnRangeMap(),
                             true);
                     Collection<Long> filteredPartitionIds = pruner.prune();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
-                                hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
-                    }
+                    LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
+                            hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
                     partitionItems = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
                     for (Long id : filteredPartitionIds) {
                         partitionItems.add(idToPartitionItem.get(id));
@@ -201,11 +199,8 @@ public class HiveScanNode extends FileQueryScanNode {
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
             List<Split> allFiles = Lists.newArrayList();
             getFileSplitByPartitions(cache, getPartitions(), allFiles, bindBrokerName);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("get #{} files for table: {}.{}, cost: {} ms",
-                        allFiles.size(), hmsTable.getDbName(), hmsTable.getName(),
-                        (System.currentTimeMillis() - start));
-            }
+            LOG.debug("get #{} files for table: {}.{}, cost: {} ms",
+                    allFiles.size(), hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
             return allFiles;
         } catch (Throwable t) {
             LOG.warn("get file split failed for table: {}", hmsTable.getName(), t);

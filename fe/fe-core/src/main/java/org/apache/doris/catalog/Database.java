@@ -578,9 +578,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         StringBuilder sb = new StringBuilder(signatureVersion);
         sb.append(fullQualifiedName);
         String md5 = DigestUtils.md5Hex(sb.toString());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get signature of database {}: {}. signature string: {}", fullQualifiedName, md5, sb.toString());
-        }
+        LOG.debug("get signature of database {}: {}. signature string: {}", fullQualifiedName, md5, sb.toString());
         return md5;
     }
 

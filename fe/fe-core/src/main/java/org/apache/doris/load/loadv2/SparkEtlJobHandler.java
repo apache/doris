@@ -348,9 +348,7 @@ public class SparkEtlJobHandler {
             }
             filePathToSize.put(fstatus.getPath(), fstatus.getSize());
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get spark etl file paths. files map: {}", filePathToSize);
-        }
+        LOG.debug("get spark etl file paths. files map: {}", filePathToSize);
 
         return filePathToSize;
     }

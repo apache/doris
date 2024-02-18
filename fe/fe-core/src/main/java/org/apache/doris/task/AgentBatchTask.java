@@ -175,10 +175,8 @@ public class AgentBatchTask implements Runnable {
                 client.submitTasks(agentTaskRequests);
                 if (LOG.isDebugEnabled()) {
                     for (AgentTask task : tasks) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("send task: type[{}], backend[{}], signature[{}]",
-                                    task.getTaskType(), backendId, task.getSignature());
-                        }
+                        LOG.debug("send task: type[{}], backend[{}], signature[{}]",
+                                task.getTaskType(), backendId, task.getSignature());
                     }
                 }
                 ok = true;
@@ -393,9 +391,7 @@ public class AgentBatchTask implements Runnable {
                 return tAgentTaskRequest;
             }
             default:
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("could not find task type for task [{}]", task);
-                }
+                LOG.debug("could not find task type for task [{}]", task);
                 return null;
         }
     }

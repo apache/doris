@@ -205,11 +205,9 @@ public class Subquery extends Expr {
     @Override
     public Subquery clone() {
         Subquery ret = new Subquery(this);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("SUBQUERY clone old={} new={}",
-                    System.identityHashCode(this),
-                    System.identityHashCode(ret));
-        }
+        LOG.debug("SUBQUERY clone old={} new={}",
+                System.identityHashCode(this),
+                System.identityHashCode(ret));
         return ret;
     }
 

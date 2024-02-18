@@ -423,9 +423,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             // Column maybe renamed, rebuild the column name map
             indexMeta.initColumnNameMap();
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
-        }
+        LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
     }
 
     public boolean deleteIndexInfo(String indexName) {
@@ -1378,9 +1376,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
 
         String md5 = DigestUtils.md5Hex(sb.toString());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get signature of table {}: {}. signature string: {}", name, md5, sb.toString());
-        }
+        LOG.debug("get signature of table {}: {}. signature string: {}", name, md5, sb.toString());
         return md5;
     }
 
@@ -1619,9 +1615,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
 
         for (MaterializedIndex deleteIndex : shadowIndex) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
-            }
+            LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
             copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
         }
         copied.setState(OlapTableState.NORMAL);

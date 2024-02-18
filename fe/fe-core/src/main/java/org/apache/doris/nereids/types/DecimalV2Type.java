@@ -231,3 +231,4 @@ public class DecimalV2Type extends FractionalType {
     }
 
 }
+

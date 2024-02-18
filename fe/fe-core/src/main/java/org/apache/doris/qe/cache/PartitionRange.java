@@ -427,9 +427,7 @@ public class PartitionRange {
 
     public boolean rewritePredicate(CompoundPredicate predicate, List<PartitionSingle> rangeList) {
         if (predicate.getOp() != CompoundPredicate.Operator.AND) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("predicate op {}", predicate.getOp().toString());
-            }
+            LOG.debug("predicate op {}", predicate.getOp().toString());
             return false;
         }
         for (Expr expr : predicate.getChildren()) {
@@ -572,9 +570,7 @@ public class PartitionRange {
     private PartitionColumnFilter createPartitionFilter(CompoundPredicate partitionKeyPredicate,
                                                         Column partitionColumn) {
         if (partitionKeyPredicate.getOp() != CompoundPredicate.Operator.AND) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("not and op");
-            }
+            LOG.debug("not and op");
             return null;
         }
         PartitionColumnFilter partitionColumnFilter = new PartitionColumnFilter();
@@ -587,9 +583,7 @@ public class PartitionRange {
                     continue;
                 }
                 if (binPredicate.getOp() == BinaryPredicate.Operator.NE) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("not support NE operator");
-                    }
+                    LOG.debug("not support NE operator");
                     continue;
                 }
                 Expr slotBinding;
@@ -598,9 +592,7 @@ public class PartitionRange {
                 } else if (binPredicate.getChild(0) instanceof LiteralExpr) {
                     slotBinding = binPredicate.getChild(0);
                 } else {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("not find LiteralExpr");
-                    }
+                    LOG.debug("not find LiteralExpr");
                     continue;
                 }
 

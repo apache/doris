@@ -132,9 +132,7 @@ public class ProfileManager {
             builder.build();
         } catch (Exception e) {
             element.errMsg = e.getMessage();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to build profile tree", e);
-            }
+            LOG.debug("failed to build profile tree", e);
             return element;
         }
         element.builder = builder;

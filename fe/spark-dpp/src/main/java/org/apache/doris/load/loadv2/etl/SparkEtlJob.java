@@ -100,22 +100,16 @@ public class SparkEtlJob {
     }
 
     private void initConfig() throws IOException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("job config file path: " + jobConfigFilePath);
-        }
+        LOG.debug("job config file path: " + jobConfigFilePath);
         Configuration hadoopConf = SparkHadoopUtil.get().newConfiguration(this.conf);
         String jsonConfig;
         Path path = new Path(jobConfigFilePath);
         try (FileSystem fs = path.getFileSystem(hadoopConf); DataInputStream in = fs.open(path)) {
             jsonConfig = CharStreams.toString(new InputStreamReader(in));
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("rdd read json config: " + jsonConfig);
-        }
+        LOG.debug("rdd read json config: " + jsonConfig);
         etlJobConfig = EtlJobConfig.configFromJson(jsonConfig);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("etl job config: " + etlJobConfig);
-        }
+        LOG.debug("etl job config: " + etlJobConfig);
     }
 
     /*

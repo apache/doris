@@ -211,9 +211,7 @@ public class MysqlLoadManager {
                 while (buffer != null && buffer.limit() != 0) {
                     buffer = context.getMysqlChannel().fetchOnePacket();
                 }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Finished reading the left bytes.");
-                }
+                LOG.debug("Finished reading the left bytes.");
             }
             // make cancel message to user
             if (loadContextMap.containsKey(loadId) && loadContextMap.get(loadId).isCancelled()) {

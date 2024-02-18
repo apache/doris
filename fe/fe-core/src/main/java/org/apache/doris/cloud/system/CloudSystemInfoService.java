@@ -111,19 +111,13 @@ public class CloudSystemInfoService extends SystemInfoService {
         Set<String> existedBes = idToBackendRef.values().stream()
                 .map(i -> i.getHost() + ":" + i.getHeartbeatPort())
                 .collect(Collectors.toSet());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("deduplication existedBes={}", existedBes);
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("before deduplication toAdd={} toDel={}", toAdd, toDel);
-        }
+        LOG.debug("deduplication existedBes={}", existedBes);
+        LOG.debug("before deduplication toAdd={} toDel={}", toAdd, toDel);
         toAdd = toAdd.stream().filter(i -> !existedBes.contains(i.getHost() + ":" + i.getHeartbeatPort()))
             .collect(Collectors.toList());
         toDel = toDel.stream().filter(i -> existedBes.contains(i.getHost() + ":" + i.getHeartbeatPort()))
             .collect(Collectors.toList());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("after deduplication toAdd={} toDel={}", toAdd, toDel);
-        }
+        LOG.debug("after deduplication toAdd={} toDel={}", toAdd, toDel);
 
         Map<String, List<Backend>> existedHostToBeList = idToBackendRef.values().stream().collect(Collectors.groupingBy(
                 Backend::getHost));
@@ -262,9 +256,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     public static synchronized void updateFrontends(List<Frontend> toAdd,
                                                     List<Frontend> toDel) throws DdlException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("updateCloudFrontends toAdd={} toDel={}", toAdd, toDel);
-        }
+        LOG.debug("updateCloudFrontends toAdd={} toDel={}", toAdd, toDel);
         String masterIp = Env.getCurrentEnv().getMasterHost();
         for (Frontend fe : toAdd) {
             if (masterIp.equals(fe.getHost())) {
@@ -447,9 +439,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public void setInstanceStatus(InstanceInfoPB.Status instanceStatus) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("fe set instance status {}", instanceStatus);
-        }
+        LOG.debug("fe set instance status {}", instanceStatus);
         if (this.instanceStatus != instanceStatus) {
             LOG.info("fe change instance status from {} to {}", this.instanceStatus, instanceStatus);
         }

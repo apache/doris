@@ -67,3 +67,4 @@ public class JsonExtract extends ScalarFunction
         return visitor.visitJsonExtract(this, context);
     }
 }
+

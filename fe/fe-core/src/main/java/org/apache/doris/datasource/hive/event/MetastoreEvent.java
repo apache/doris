@@ -206,9 +206,7 @@ public abstract class MetastoreEvent {
         }
         String formatString = LOG_FORMAT_EVENT_ID_TYPE + logFormattedStr;
         Object[] formatArgs = getLogFormatArgs(args);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(formatString, formatArgs);
-        }
+        LOG.debug(formatString, formatArgs);
     }
 
     protected String getPartitionName(Map<String, String> part, List<String> partitionColNames) {

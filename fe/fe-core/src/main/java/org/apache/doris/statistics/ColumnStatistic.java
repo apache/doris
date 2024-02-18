@@ -122,9 +122,7 @@ public class ColumnStatistic {
                 }
             }
         } catch (Throwable t) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Failed to deserialize column stats", t);
-            }
+            LOG.debug("Failed to deserialize column stats", t);
             return ColumnStatistic.UNKNOWN;
         }
         if (columnStatistic == null) {
@@ -155,11 +153,9 @@ public class ColumnStatistic {
             String colName = row.get(5);
             Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
             if (col == null) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Failed to deserialize column statistics, ctlId: {} dbId: {}"
-                                    + "tblId: {} column: {} not exists",
-                            catalogId, dbID, tblId, colName);
-                }
+                LOG.debug("Failed to deserialize column statistics, ctlId: {} dbId: {}"
+                                + "tblId: {} column: {} not exists",
+                        catalogId, dbID, tblId, colName);
                 return ColumnStatistic.UNKNOWN;
             }
             String min = row.get(10);

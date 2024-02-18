@@ -166,9 +166,7 @@ public class FederationBackendPolicy {
                 }
             }
         } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("user info in ExternalFileScanNode should not be null, add log to observer");
-            }
+            LOG.debug("user info in ExternalFileScanNode should not be null, add log to observer");
         }
 
         // scan node is used for query
@@ -294,10 +292,8 @@ public class FederationBackendPolicy {
                 }
             }
             if (candidateNodes.isEmpty()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("No nodes available to schedule {}. Available nodes {}", split,
-                            backends);
-                }
+                LOG.debug("No nodes available to schedule {}. Available nodes {}", split,
+                        backends);
                 throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
             }
 
@@ -508,3 +504,4 @@ public class FederationBackendPolicy {
         }
     }
 }
+

@@ -106,9 +106,7 @@ public class ShowVariablesStmt extends ShowStmt {
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(tableName, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("select stmt is {}", selectStmt.toSql());
-        }
+        LOG.debug("select stmt is {}", selectStmt.toSql());
 
         // DB: type
         // table: thread id

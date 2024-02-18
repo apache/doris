@@ -200,10 +200,8 @@ public class KafkaProgress extends RoutineLoadProgress {
         // + 1 to point to the next msg offset to be consumed
         newProgress.partitionIdToOffset.entrySet().stream()
                 .forEach(entity -> this.partitionIdToOffset.put(entity.getKey(), entity.getValue() + 1));
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("update kafka progress: {}, task: {}, job: {}",
-                    newProgress.toJsonString(), DebugUtil.printId(attachment.getTaskId()), attachment.getJobId());
-        }
+        LOG.debug("update kafka progress: {}, task: {}, job: {}",
+                newProgress.toJsonString(), DebugUtil.printId(attachment.getTaskId()), attachment.getJobId());
     }
 
     @Override

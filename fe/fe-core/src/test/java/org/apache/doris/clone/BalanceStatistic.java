@@ -99,3 +99,4 @@ public class BalanceStatistic {
         System.out.println("=== max / min : " + (maxTotalDataSize / (double) minTotalDataSize));
     }
 }
+

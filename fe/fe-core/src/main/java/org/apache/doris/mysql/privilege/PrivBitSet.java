@@ -176,3 +176,4 @@ public class PrivBitSet implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 }
+

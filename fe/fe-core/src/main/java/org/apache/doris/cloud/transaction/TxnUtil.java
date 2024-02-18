@@ -259,17 +259,13 @@ public class TxnUtil {
     public static RLTaskTxnCommitAttachment rtTaskTxnCommitAttachmentFromPb(
             TxnCommitAttachmentPB txnCommitAttachmentPB) {
         RLTaskTxnCommitAttachmentPB rlTaskTxnCommitAttachmentPB = txnCommitAttachmentPB.getRlTaskTxnCommitAttachment();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("RLTaskTxnCommitAttachmentPB={}", rlTaskTxnCommitAttachmentPB);
-        }
+        LOG.debug("RLTaskTxnCommitAttachmentPB={}", rlTaskTxnCommitAttachmentPB);
         return new RLTaskTxnCommitAttachment(txnCommitAttachmentPB.getRlTaskTxnCommitAttachment());
     }
 
     public static LoadJobFinalOperation loadJobFinalOperationFromPb(TxnCommitAttachmentPB txnCommitAttachmentPB) {
         LoadJobFinalOperationPB loadJobFinalOperationPB = txnCommitAttachmentPB.getLoadJobFinalOperation();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("loadJobFinalOperationPB={}", loadJobFinalOperationPB);
-        }
+        LOG.debug("loadJobFinalOperationPB={}", loadJobFinalOperationPB);
         FailMsg failMsg = loadJobFinalOperationPB.hasFailMsg()
                 ? TxnUtil.failMsgFromPb(loadJobFinalOperationPB.getFailMsg()) : null;
         return new LoadJobFinalOperation(loadJobFinalOperationPB.getId(),
@@ -294,9 +290,7 @@ public class TxnUtil {
     }
 
     public static TransactionState transactionStateFromPb(TxnInfoPB txnInfo) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("txnInfo={}", txnInfo);
-        }
+        LOG.debug("txnInfo={}", txnInfo);
         long dbId = txnInfo.getDbId();
         List<Long> tableIdList = txnInfo.getTableIdsList();
         long transactionId = txnInfo.getTxnId();
@@ -357,9 +351,7 @@ public class TxnUtil {
                 commitTime,
                 finishTime
         );
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("transactionState={}", transactionState);
-        }
+        LOG.debug("transactionState={}", transactionState);
         return transactionState;
     }
 }

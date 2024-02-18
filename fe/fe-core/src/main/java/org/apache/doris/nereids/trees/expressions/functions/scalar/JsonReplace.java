@@ -67,3 +67,4 @@ public class JsonReplace extends ScalarFunction
         return visitor.visitJsonReplace(this, context);
     }
 }
+

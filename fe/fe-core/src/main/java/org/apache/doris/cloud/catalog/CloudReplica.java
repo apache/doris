@@ -116,19 +116,13 @@ public class CloudReplica extends Replica {
                     LOG.warn("get cluster by session context exception");
                     return -1;
                 }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get cluster by session context cluster: {}", cluster);
-                }
+                LOG.debug("get cluster by session context cluster: {}", cluster);
             } else {
                 cluster = context.getCloudCluster();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get cluster by context {}", cluster);
-                }
+                LOG.debug("get cluster by context {}", cluster);
             }
         } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("connect context is null in getBackendId");
-            }
+            LOG.debug("connect context is null in getBackendId");
             return -1;
         }
 
@@ -178,9 +172,7 @@ public class CloudReplica extends Replica {
             if (backendId > 0) {
                 Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
                 if (be != null && be.isQueryAvailable()) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("backendId={} ", backendId);
-                    }
+                    LOG.debug("backendId={} ", backendId);
                     return backendId;
                 }
             }
@@ -201,9 +193,7 @@ public class CloudReplica extends Replica {
             long backendId = clusterToBackends.get(clusterId).get(0);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
             if (be != null && be.isQueryAvailable()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("backendId={} ", backendId);
-                }
+                LOG.debug("backendId={} ", backendId);
                 return backendId;
             }
         }
@@ -232,9 +222,7 @@ public class CloudReplica extends Replica {
             }
             return -1;
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("availableBes={}", availableBes);
-        }
+        LOG.debug("availableBes={}", availableBes);
         long index = -1;
         HashCode hashCode = null;
         if (idx == -1) {
@@ -281,9 +269,7 @@ public class CloudReplica extends Replica {
             }
             return new ArrayList<Long>();
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("availableBes={}", availableBes);
-        }
+        LOG.debug("availableBes={}", availableBes);
 
         int realReplicaNum = replicaNum > availableBes.size() ? availableBes.size() : replicaNum;
         List<Long> bes = new ArrayList<Long>();
@@ -345,9 +331,7 @@ public class CloudReplica extends Replica {
             String clusterId = Text.readString(in);
             String realClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getCloudClusterIdByName(clusterId);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("cluster Id {}, real cluster Id {}", clusterId, realClusterId);
-            }
+            LOG.debug("cluster Id {}, real cluster Id {}", clusterId, realClusterId);
 
             if (!Strings.isNullOrEmpty(realClusterId)) {
                 clusterId = realClusterId;

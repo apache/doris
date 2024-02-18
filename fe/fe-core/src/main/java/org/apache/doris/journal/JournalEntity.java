@@ -187,9 +187,7 @@ public class JournalEntity implements Writable {
         // set it to true after the entity is truly read,
         // to avoid someone forget to call read method.
         boolean isRead = false;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get opcode: {}", opCode);
-        }
+        LOG.debug("get opcode: {}", opCode);
         switch (opCode) {
             case OperationType.OP_LOCAL_EOF: {
                 data = null;

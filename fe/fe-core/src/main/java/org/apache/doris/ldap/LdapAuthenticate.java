@@ -48,9 +48,7 @@ public class LdapAuthenticate {
     public static boolean authenticate(ConnectContext context, String password, String qualifiedUser) {
         String usePasswd = (Strings.isNullOrEmpty(password)) ? "NO" : "YES";
         String userName = ClusterNamespace.getNameFromFullName(qualifiedUser);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("user:{}", userName);
-        }
+        LOG.debug("user:{}", userName);
 
         // check user password by ldap server.
         try {
@@ -72,9 +70,7 @@ public class LdapAuthenticate {
         UserIdentity userIdentity;
         if (userIdentities.isEmpty()) {
             userIdentity = tempUserIdentity;
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("User:{} does not exists in doris, login as temporary users.", userName);
-            }
+            LOG.debug("User:{} does not exists in doris, login as temporary users.", userName);
             context.setIsTempUser(true);
         } else {
             userIdentity = userIdentities.get(0);
@@ -82,9 +78,7 @@ public class LdapAuthenticate {
 
         context.setCurrentUserIdentity(userIdentity);
         context.setRemoteIP(remoteIp);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("ldap authentication success: identity:{}", context.getCurrentUserIdentity());
-        }
+        LOG.debug("ldap authentication success: identity:{}", context.getCurrentUserIdentity());
         return true;
     }
 }

@@ -38,16 +38,12 @@ public class JournalObservable {
         }
 
         obs.add(o);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("JournalObservable addObserver=[{}], the size is {}", o, obs.size());
-        }
+        LOG.debug("JournalObservable addObserver=[{}], the size is {}", o, obs.size());
     }
 
     private synchronized void deleteObserver(JournalObserver o) {
         obs.remove(o);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("JournalObservable deleteObserver=[{}], the size is {}", o, obs.size());
-        }
+        LOG.debug("JournalObservable deleteObserver=[{}], the size is {}", o, obs.size());
     }
 
     public void waitOn(Long expectedJournalVersion, int timeoutMs) throws DdlException {
@@ -91,9 +87,7 @@ public class JournalObservable {
         }
 
         int pos = upperBound(arrLocal, size, journalId);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("notify observers: journal: {}, pos: {}, size: {}, obs: {}", journalId, pos, size, obs);
-        }
+        LOG.debug("notify observers: journal: {}, pos: {}, size: {}, obs: {}", journalId, pos, size, obs);
 
         for (int i = 0; i < pos; i++) {
             JournalObserver observer = ((JournalObserver) arrLocal[i]);

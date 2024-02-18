@@ -52,3 +52,4 @@ public class User extends ScalarFunction
         return visitor.visitUser(this, context);
     }
 }
+

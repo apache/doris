@@ -108,12 +108,8 @@ public final class AnalyticInfo extends AggregateInfoBase {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("analytictuple=" + result.outputTupleDesc.debugString());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("analytictuplesmap=" + result.analyticTupleSmap.debugString());
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("analytic info:\n" + result.debugString());
-            }
+            LOG.debug("analytictuplesmap=" + result.analyticTupleSmap.debugString());
+            LOG.debug("analytic info:\n" + result.debugString());
         }
         return result;
     }

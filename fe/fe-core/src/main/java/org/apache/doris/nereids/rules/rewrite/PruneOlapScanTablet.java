@@ -93,3 +93,4 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
         ).prune();
     }
 }
+

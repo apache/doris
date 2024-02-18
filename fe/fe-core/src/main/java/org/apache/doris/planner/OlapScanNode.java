@@ -526,9 +526,7 @@ public class OlapScanNode extends ScanNode {
                 slotDescriptor.setColumn(mvColumn);
             }
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("updateSlotUniqueId() slots: {}", desc.getSlots());
-        }
+        LOG.debug("updateSlotUniqueId() slots: {}", desc.getSlots());
     }
 
     public OlapTable getOlapTable() {
@@ -606,9 +604,7 @@ public class OlapScanNode extends ScanNode {
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("OlapScanNode get scan range locations. Tuple: {}", desc);
-        }
+        LOG.debug("OlapScanNode get scan range locations. Tuple: {}", desc);
         /**
          * If JoinReorder is turned on, it will be calculated init(), and this value is
          * not accurate.
@@ -829,9 +825,7 @@ public class OlapScanNode extends ScanNode {
                     Collections.shuffle(replicas);
                 }
             } else {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("use fix replica, value: {}, replica count: {}", useFixReplica, replicas.size());
-                }
+                LOG.debug("use fix replica, value: {}, replica count: {}", useFixReplica, replicas.size());
                 // sort by replica id
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
@@ -839,10 +833,8 @@ public class OlapScanNode extends ScanNode {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
                     // If the fixed replica is bad, then not clear the replicas using random replica
                     if (backend == null || !backend.isAlive()) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
-                                    replica.getId());
-                        }
+                        LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
+                                replica.getId());
                         Collections.shuffle(replicas);
                     } else {
                         replicas.clear();
@@ -882,10 +874,8 @@ public class OlapScanNode extends ScanNode {
             for (Replica replica : replicas) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
                 if (backend == null || !backend.isAlive()) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
-                                replica.getId());
-                    }
+                    LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
+                            replica.getId());
                     errs.add("replica " + replica.getId() + "'s backend " + replica.getBackendId()
                             + " does not exist or not alive");
                     continue;
@@ -964,10 +954,8 @@ public class OlapScanNode extends ScanNode {
                         partition.getName(), "RESTORING");
             }
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("partition prune cost: {} ms, partitions: {}",
-                    (System.currentTimeMillis() - start), selectedPartitionIds);
-        }
+        LOG.debug("partition prune cost: {} ms, partitions: {}",
+                (System.currentTimeMillis() - start), selectedPartitionIds);
     }
 
     public void selectBestRollupByRollupSelector(Analyzer analyzer) throws UserException {
@@ -980,18 +968,14 @@ public class OlapScanNode extends ScanNode {
             // and the selection logic of materialized view is selected in
             // "MaterializedViewSelector"
             selectedIndexId = olapTable.getBaseIndexId();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("The best index will be selected later in mv selector");
-            }
+            LOG.debug("The best index will be selected later in mv selector");
             return;
         }
         final RollupSelector rollupSelector = new RollupSelector(analyzer, desc, olapTable);
         selectedIndexId = rollupSelector.selectBestRollup(selectedPartitionIds, conjuncts, isPreAggregation);
         updateSlotUniqueId();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("select best roll up cost: {} ms, best index id: {}", (System.currentTimeMillis() - start),
-                    selectedIndexId);
-        }
+        LOG.debug("select best roll up cost: {} ms, best index id: {}", (System.currentTimeMillis() - start),
+                selectedIndexId);
     }
 
     @Override
@@ -1006,9 +990,7 @@ public class OlapScanNode extends ScanNode {
         long start = System.currentTimeMillis();
         computeSampleTabletIds();
         computeTabletInfo();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
-        }
+        LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
 
     public void setOutputColumnUniqueIds(Set<Integer> outputColumnUniqueIds) {
@@ -1113,17 +1095,12 @@ public class OlapScanNode extends ScanNode {
         }
         if (sampleTabletIds.size() != 0) {
             sampleTabletIds.retainAll(hitTabletIds);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("after computeSampleTabletIds, hitRows {}, totalRows {}, selectedTablets {}, sampleRows {}",
-                        hitRows, selectedRows, sampleTabletIds.size(), totalSampleRows);
-            }
+            LOG.debug("after computeSampleTabletIds, hitRows {}, totalRows {}, selectedTablets {}, sampleRows {}",
+                    hitRows, selectedRows, sampleTabletIds.size(), totalSampleRows);
         } else {
             sampleTabletIds = hitTabletIds;
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("after computeSampleTabletIds, hitRows {}, selectedRows {}, sampleRows {}",
-                        hitRows, selectedRows,
-                        totalSampleRows);
-            }
+            LOG.debug("after computeSampleTabletIds, hitRows {}, selectedRows {}, sampleRows {}", hitRows, selectedRows,
+                    totalSampleRows);
         }
     }
 
@@ -1155,18 +1132,14 @@ public class OlapScanNode extends ScanNode {
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
             Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("distribution prune tablets: {}", tabletIds);
-            }
+            LOG.debug("distribution prune tablets: {}", tabletIds);
             if (sampleTabletIds.size() != 0) {
                 if (tabletIds != null) {
                     tabletIds.retainAll(sampleTabletIds);
                 } else {
                     tabletIds = sampleTabletIds;
                 }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("after sample tablets: {}", tabletIds);
-                }
+                LOG.debug("after sample tablets: {}", tabletIds);
             }
 
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
@@ -1776,3 +1749,5 @@ public class OlapScanNode extends ScanNode {
         return getScanTabletIds().size();
     }
 }
+
+

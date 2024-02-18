@@ -66,9 +66,7 @@ public class AgentTaskQueue {
         }
         signatureMap.put(signature, task);
         ++taskNum;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("add task: type[{}], backend[{}], signature[{}]", type, backendId, signature);
-        }
+        LOG.debug("add task: type[{}], backend[{}], signature[{}]", type, backendId, signature);
         return true;
     }
 
@@ -90,9 +88,7 @@ public class AgentTaskQueue {
             return;
         }
         signatureMap.remove(signature);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("remove task: type[{}], backend[{}], signature[{}]", type, backendId, signature);
-        }
+        LOG.debug("remove task: type[{}], backend[{}], signature[{}]", type, backendId, signature);
         --taskNum;
     }
 
@@ -118,9 +114,7 @@ public class AgentTaskQueue {
         }
 
         signatureMap.remove(signature);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("remove task: type[{}], backend[{}], signature[{}]", taskType, backendId, signature);
-        }
+        LOG.debug("remove task: type[{}], backend[{}], signature[{}]", taskType, backendId, signature);
         --taskNum;
     }
 
@@ -215,9 +209,7 @@ public class AgentTaskQueue {
                 } else {
                     if (typeTasks.containsKey(tabletId)) {
                         typeTasks.remove(tabletId);
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("remove task: type[{}], backend[{}], signature[{}]", type, backendId, tabletId);
-                        }
+                        LOG.debug("remove task: type[{}], backend[{}], signature[{}]", type, backendId, tabletId);
                         --taskNum;
                     }
                 }

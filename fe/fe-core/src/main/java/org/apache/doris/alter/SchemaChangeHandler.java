@@ -968,9 +968,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         //type key column do not allow light schema change.
         if (newColumn.isKey()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("newColumn: {}, isKey()==true", newColumn);
-            }
+            LOG.debug("newColumn: {}, isKey()==true", newColumn);
             lightSchemaChange = false;
         }
 
@@ -1182,9 +1180,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // value
             modIndexSchema.add(toAddColumn);
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("newColumn setUniqueId({}), modIndexSchema:{}", newColumnUniqueId, modIndexSchema);
-        }
+        LOG.debug("newColumn setUniqueId({}), modIndexSchema:{}", newColumnUniqueId, modIndexSchema);
     }
 
     private void checkIndexExists(OlapTable olapTable, String targetIndexName) throws DdlException {
@@ -1381,15 +1377,11 @@ public class SchemaChangeHandler extends AlterHandler {
             }
 
             if (!needAlter) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("index[{}] is not changed. ignore", alterIndexId);
-                }
+                LOG.debug("index[{}] is not changed. ignore", alterIndexId);
                 continue;
             }
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("index[{}] is changed. start checking...", alterIndexId);
-            }
+            LOG.debug("index[{}] is changed. start checking...", alterIndexId);
             // 1. check order: a) has key; b) value after key
             boolean meetValue = false;
             boolean hasKey = false;
@@ -1482,17 +1474,13 @@ public class SchemaChangeHandler extends AlterHandler {
             // 5. calc short key
             short newShortKeyColumnCount = Env.calcShortKeyColumnCount(alterSchema,
                     indexIdToProperties.get(alterIndexId), !olapTable.isDuplicateWithoutKey());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("alter index[{}] short key column count: {}", alterIndexId, newShortKeyColumnCount);
-            }
+            LOG.debug("alter index[{}] short key column count: {}", alterIndexId, newShortKeyColumnCount);
             indexIdToShortKeyColumnCount.put(alterIndexId, newShortKeyColumnCount);
 
             // 6. store the changed columns for edit log
             changedIndexIdToSchema.put(alterIndexId, alterSchema);
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("schema change[{}-{}-{}] check pass.", dbId, tableId, alterIndexId);
-            }
+            LOG.debug("schema change[{}-{}-{}] check pass.", dbId, tableId, alterIndexId);
         } // end for indices
 
         if (changedIndexIdToSchema.isEmpty() && !hasIndexChange) {
@@ -1815,18 +1803,14 @@ public class SchemaChangeHandler extends AlterHandler {
                         @Override
                         public int getAsInt() {
                             pendingMaxColUniqueId++;
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("index id:{}, pendingMaxColUniqueId:{}", indexId, pendingMaxColUniqueId);
-                            }
+                            LOG.debug("index id:{}, pendingMaxColUniqueId:{}", indexId, pendingMaxColUniqueId);
                             return pendingMaxColUniqueId;
                         }
                     };
                 }
                 colUniqueIdSupplierMap.put(entry.getKey(), colUniqueIdSupplier);
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("in process indexSchemaMap:{}", indexSchemaMap);
-            }
+            LOG.debug("in process indexSchemaMap:{}", indexSchemaMap);
 
             List<Index> newIndexes = olapTable.getCopiedIndexes();
             List<Index> alterIndexes = new ArrayList<>();
@@ -2026,12 +2010,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             } // end for alter clauses
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("table: {}({}), lightSchemaChange: {}, lightIndexChange: {},"
-                        + " buildIndexChange: {}, indexSchemaMap:{}",
-                        olapTable.getName(), olapTable.getId(), lightSchemaChange,
-                        lightIndexChange, buildIndexChange, indexSchemaMap);
-            }
+            LOG.debug("table: {}({}), lightSchemaChange: {}, lightIndexChange: {},"
+                    + " buildIndexChange: {}, indexSchemaMap:{}",
+                    olapTable.getName(), olapTable.getId(), lightSchemaChange,
+                    lightIndexChange, buildIndexChange, indexSchemaMap);
 
             if (lightSchemaChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
@@ -2467,17 +2449,13 @@ public class SchemaChangeHandler extends AlterHandler {
                         continue;
                     }
                     jobList.add(job);
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("add build index job {} on table {} for specific id", jobId, tableName);
-                    }
+                    LOG.debug("add build index job {} on table {} for specific id", jobId, tableName);
                 }
             } else {
                 for (IndexChangeJob job : indexChangeJobs.values()) {
                     if (!job.isDone() && job.getTableId() == olapTable.getId()) {
                         jobList.add(job);
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("add build index job {} on table {} for all", job.getJobId(), tableName);
-                        }
+                        LOG.debug("add build index job {} on table {} for all", job.getJobId(), tableName);
                     }
                 }
             }
@@ -2489,9 +2467,7 @@ public class SchemaChangeHandler extends AlterHandler {
         if (jobList.size() > 0) {
             for (IndexChangeJob job : jobList) {
                 long jobId = job.getJobId();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("cancel build index job {} on table {}", jobId, tableName);
-                }
+                LOG.debug("cancel build index job {} on table {}", jobId, tableName);
                 if (!job.cancel("user cancelled")) {
                     LOG.warn("cancel build index job {} on table {} failed", jobId, tableName);
                     throw new DdlException("Job can not be cancelled. State: " + job.getJobState());
@@ -2655,9 +2631,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                              long jobId, boolean isReplay)
             throws DdlException {
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("indexSchemaMap:{}, indexes:{}", indexSchemaMap, indexes);
-        }
+        LOG.debug("indexSchemaMap:{}, indexes:{}", indexSchemaMap, indexes);
         // for bitmapIndex
         boolean hasIndexChange = false;
         Set<Index> newSet = new HashSet<>(indexes);
@@ -2711,9 +2685,7 @@ public class SchemaChangeHandler extends AlterHandler {
             if (!isReplay) {
                 TableAddOrDropInvertedIndicesInfo info = new TableAddOrDropInvertedIndicesInfo(rawSql, db.getId(),
                         olapTable.getId(), indexSchemaMap, indexes, alterIndexes, isDropIndex, jobId);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
-                }
+                LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
 
                 if (isDropIndex) {
@@ -2737,9 +2709,7 @@ public class SchemaChangeHandler extends AlterHandler {
             if (!isReplay) {
                 TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo(rawSql, db.getId(), olapTable.getId(),
                         indexSchemaMap, indexes, jobId);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
-                }
+                LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
             }
             LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
@@ -2748,9 +2718,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     public void replayModifyTableLightSchemaChange(TableAddOrDropColumnsInfo info) throws MetaNotFoundException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("info:{}", info);
-        }
+        LOG.debug("info:{}", info);
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<Long, LinkedList<Column>> indexSchemaMap = info.getIndexSchemaMap();
@@ -2778,9 +2746,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // Must get all columns including invisible columns.
             // Because in alter process, all columns must be considered.
             List<Column> alterSchema = indexSchemaMap.get(alterIndexId);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("index[{}] is changed. start checking...", alterIndexId);
-            }
+            LOG.debug("index[{}] is changed. start checking...", alterIndexId);
             // 1. check order: a) has key; b) value after key
             boolean meetValue = false;
             boolean hasKey = false;
@@ -2846,9 +2812,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // 5. store the changed columns for edit log
             changedIndexIdToSchema.put(alterIndexId, alterSchema);
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("schema change[{}-{}-{}] check pass.", db.getId(), olapTable.getId(), alterIndexId);
-            }
+            LOG.debug("schema change[{}-{}-{}] check pass.", db.getId(), olapTable.getId(), alterIndexId);
         } // end for indices
         return changedIndexIdToSchema;
     }
@@ -2884,9 +2848,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
     public void replayModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info)
             throws MetaNotFoundException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("info:{}", info);
-        }
+        LOG.debug("info:{}", info);
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<Long, LinkedList<Column>> indexSchemaMap = info.getIndexSchemaMap();

@@ -100,9 +100,7 @@ public abstract class Rebalancer {
     protected boolean unPickOverLongTime(Tag tag, TStorageMedium medium) {
         Long lastPickTime = lastPickTimeTable.get(tag, medium);
         Long now = System.currentTimeMillis();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("tag={}, medium={}, lastPickTime={}, now={}", tag, medium, lastPickTime, now);
-        }
+        LOG.debug("tag={}, medium={}, lastPickTime={}, now={}", tag, medium, lastPickTime, now);
         return lastPickTime == null || now - lastPickTime >= Config.be_rebalancer_idle_seconds * 1000L;
     }
 

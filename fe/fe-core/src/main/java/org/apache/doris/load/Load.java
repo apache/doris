@@ -324,9 +324,7 @@ public class Load {
                 } else {
                     columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
                 }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("add base column {} to stream load task", column.getName());
-                }
+                LOG.debug("add base column {} to stream load task", column.getName());
                 copiedColumnExprs.add(columnDesc);
             }
             if (hiddenColumns != null) {
@@ -334,9 +332,7 @@ public class Load {
                     Column column = tbl.getColumn(columnName);
                     if (column != null && !column.isVisible()) {
                         ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("add hidden column {} to stream load task", column.getName());
-                        }
+                        LOG.debug("add hidden column {} to stream load task", column.getName());
                         copiedColumnExprs.add(columnDesc);
                     }
                 }
@@ -453,9 +449,7 @@ public class Load {
             }
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("plan srcTupleDesc {}", srcTupleDesc.toString());
-        }
+        LOG.debug("plan srcTupleDesc {}", srcTupleDesc.toString());
 
         /*
          * The extension column of the materialized view is added to the expression evaluation of load
@@ -473,17 +467,12 @@ public class Load {
             }
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("slotDescByName: {}, exprsByName: {}, mvDefineExpr: {}",
-                    slotDescByName, exprsByName, mvDefineExpr);
-        }
+        LOG.debug("slotDescByName: {}, exprsByName: {}, mvDefineExpr: {}", slotDescByName, exprsByName, mvDefineExpr);
 
         // in vectorized load, reanalyze exprs with castExpr type
         // otherwise analyze exprs with varchar type
         analyzeAllExprs(tbl, analyzer, exprsByName, mvDefineExpr, slotDescByName);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("after init column, exprMap: {}", exprsByName);
-        }
+        LOG.debug("after init column, exprMap: {}", exprsByName);
     }
 
     private static SlotRef getSlotFromDesc(SlotDescriptor slotDesc) {
@@ -724,9 +713,7 @@ public class Load {
                     exprs.add(NullLiteral.create(Type.VARCHAR));
                 }
 
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("replace_value expr: {}", exprs);
-                }
+                LOG.debug("replace_value expr: {}", exprs);
                 FunctionCallExpr newFn = new FunctionCallExpr("if", exprs);
                 return newFn;
             } else if (funcName.equalsIgnoreCase("strftime")) {
@@ -1054,9 +1041,7 @@ public class Load {
             }
 
             long start = System.currentTimeMillis();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("begin to get load job info, size: {}", loadJobs.size());
-            }
+            LOG.debug("begin to get load job info, size: {}", loadJobs.size());
 
             for (LoadJob loadJob : loadJobs) {
                 // filter first
@@ -1078,9 +1063,7 @@ public class Load {
                 loadJobInfos.add(composeJobInfoByLoadJob(loadJob));
             } // end for loadJobs
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
-            }
+            LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
         } finally {
             readUnlock();
         }
@@ -1195,9 +1178,7 @@ public class Load {
             }
 
             long start = System.currentTimeMillis();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("begin to get load job info, size: {}", loadJobs.size());
-            }
+            LOG.debug("begin to get load job info, size: {}", loadJobs.size());
             PatternMatcher matcher = null;
             if (labelValue != null && !accurateMatch) {
                 matcher = PatternMatcherWrapper.createMysqlPattern(labelValue,
@@ -1252,9 +1233,7 @@ public class Load {
                 loadJobInfos.add(composeJobInfoByLoadJob(loadJob));
             } // end for loadJobs
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
-            }
+            LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
         } finally {
             readUnlock();
         }

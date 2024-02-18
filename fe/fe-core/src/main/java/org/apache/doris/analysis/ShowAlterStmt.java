@@ -204,9 +204,7 @@ public class ShowAlterStmt extends ShowStmt {
             throw new UserException("SHOW " + type.name() + " does not implement yet");
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("process SHOW PROC '{}';", sb.toString());
-        }
+        LOG.debug("process SHOW PROC '{}';", sb.toString());
         // create show proc stmt
         // '/jobs/db_name/rollup|schema_change/
         node = ProcService.getInstance().open(sb.toString());

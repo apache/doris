@@ -357,9 +357,7 @@ public class TabletScheduler extends MasterDaemon {
             LoadStatisticForTag loadStatistic = new LoadStatisticForTag(tag, infoService, invertedIndex);
             loadStatistic.init();
             newStatisticMap.put(tag, loadStatistic);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("update load statistic for tag {}:\n{}", tag, loadStatistic.getBrief());
-            }
+            LOG.debug("update load statistic for tag {}:\n{}", tag, loadStatistic.getBrief());
         }
         Map<Long, Long> pathsCopingSize = getPathsCopingSize();
         for (LoadStatisticForTag loadStatistic : newStatisticMap.values()) {
@@ -387,9 +385,7 @@ public class TabletScheduler extends MasterDaemon {
     private void schedulePendingTablets() {
         long start = System.currentTimeMillis();
         List<TabletSchedCtx> currentBatch = getNextTabletCtxBatch();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get {} tablets to schedule", currentBatch.size());
-        }
+        LOG.debug("get {} tablets to schedule", currentBatch.size());
 
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TabletSchedCtx tabletCtx : currentBatch) {
@@ -779,17 +775,13 @@ public class TabletScheduler extends MasterDaemon {
                 // and this task is a VERSION_INCOMPLETE task.
                 // This will lead to failure to select a suitable dest replica.
                 // At this time, we try to convert this task to a REPLICA_MISSING task, and schedule it again.
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("failed to find version incomplete replica for VERSION_INCOMPLETE task. tablet id: {}, "
-                            + "try to find a new backend", tabletCtx.getTabletId());
-                }
+                LOG.debug("failed to find version incomplete replica for VERSION_INCOMPLETE task. tablet id: {}, "
+                        + "try to find a new backend", tabletCtx.getTabletId());
                 tabletCtx.releaseResource(this, true);
                 tabletCtx.setTabletStatus(TabletStatus.REPLICA_MISSING);
                 handleReplicaMissing(tabletCtx, batchTask);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("succeed to find new backend for VERSION_INCOMPLETE task. tablet id: {}",
-                            tabletCtx.getTabletId());
-                }
+                LOG.debug("succeed to find new backend for VERSION_INCOMPLETE task. tablet id: {}",
+                        tabletCtx.getTabletId());
                 return;
             } else {
                 throw e;
@@ -1405,19 +1397,15 @@ public class TabletScheduler extends MasterDaemon {
         List<BePathLoadStatPair> allFitPathsDiffMedium = Lists.newArrayList();
         for (BackendLoadStatistic bes : beStatistics) {
             if (!bes.isAvailable()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("backend {} is not available, skip. tablet: {}", bes.getBeId(), tabletCtx.getTabletId());
-                }
+                LOG.debug("backend {} is not available, skip. tablet: {}", bes.getBeId(), tabletCtx.getTabletId());
                 continue;
             }
 
             // exclude BE which already has replica of this tablet or another BE at same host has this replica
             if (tabletCtx.filterDestBE(bes.getBeId())) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("backend {} already has replica of this tablet or another BE "
-                                    + "at same host has this replica, skip. tablet: {}",
-                            bes.getBeId(), tabletCtx.getTabletId());
-                }
+                LOG.debug("backend {} already has replica of this tablet or another BE "
+                                + "at same host has this replica, skip. tablet: {}",
+                        bes.getBeId(), tabletCtx.getTabletId());
                 continue;
             }
 
@@ -1425,17 +1413,13 @@ public class TabletScheduler extends MasterDaemon {
             // Else, check the tag.
             if (forColocate) {
                 if (!tabletCtx.getColocateBackendsSet().contains(bes.getBeId())) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("backend {} is not in colocate backend set, skip. tablet: {}",
-                                bes.getBeId(), tabletCtx.getTabletId());
-                    }
+                    LOG.debug("backend {} is not in colocate backend set, skip. tablet: {}",
+                            bes.getBeId(), tabletCtx.getTabletId());
                     continue;
                 }
             } else if (!bes.getTag().equals(tag)) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("backend {}'s tag {} is not equal to tablet's tag {}, skip. tablet: {}",
-                            bes.getBeId(), bes.getTag(), tag, tabletCtx.getTabletId());
-                }
+                LOG.debug("backend {}'s tag {} is not equal to tablet's tag {}, skip. tablet: {}",
+                        bes.getBeId(), bes.getTag(), tag, tabletCtx.getTabletId());
                 continue;
             }
 
@@ -1445,18 +1429,14 @@ public class TabletScheduler extends MasterDaemon {
             if (st.ok()) {
                 resultPaths.stream().forEach(path -> allFitPathsSameMedium.add(new BePathLoadStatPair(bes, path)));
             } else {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("backend {} unable to find path for tablet: {}. {}", bes.getBeId(), tabletCtx, st);
-                }
+                LOG.debug("backend {} unable to find path for tablet: {}. {}", bes.getBeId(), tabletCtx, st);
                 resultPaths.clear();
                 st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), resultPaths, true);
                 if (st.ok()) {
                     resultPaths.stream().forEach(path -> allFitPathsDiffMedium.add(new BePathLoadStatPair(bes, path)));
                 } else {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("backend {} unable to find path for supplementing tablet: {}. {}",
-                                bes.getBeId(), tabletCtx, st);
-                    }
+                    LOG.debug("backend {} unable to find path for supplementing tablet: {}. {}",
+                            bes.getBeId(), tabletCtx, st);
                 }
             }
         }
@@ -1476,33 +1456,27 @@ public class TabletScheduler extends MasterDaemon {
         for (BePathLoadStatPair bePathLoadStat : allFitPaths) {
             RootPathLoadStatistic rootPathLoadStatistic = bePathLoadStat.getPathLoadStatistic();
             if (rootPathLoadStatistic.getStorageMedium() != tabletCtx.getStorageMedium()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("backend {}'s path {}'s storage medium {} "
-                            + "is not equal to tablet's storage medium {}, skip. tablet: {}",
-                            rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
-                            rootPathLoadStatistic.getStorageMedium(), tabletCtx.getStorageMedium(),
-                            tabletCtx.getTabletId());
-                }
+                LOG.debug("backend {}'s path {}'s storage medium {} "
+                        + "is not equal to tablet's storage medium {}, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        rootPathLoadStatistic.getStorageMedium(), tabletCtx.getStorageMedium(),
+                        tabletCtx.getTabletId());
                 continue;
             }
 
             PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
             if (slot == null) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("backend {}'s path {}'s slot is null, skip. tablet: {}",
-                            rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
-                            tabletCtx.getTabletId());
-                }
+                LOG.debug("backend {}'s path {}'s slot is null, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        tabletCtx.getTabletId());
                 continue;
             }
 
             long pathHash = slot.takeSlot(rootPathLoadStatistic.getPathHash());
             if (pathHash == -1) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("backend {}'s path {}'s slot is full, skip. tablet: {}",
-                            rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
-                            tabletCtx.getTabletId());
-                }
+                LOG.debug("backend {}'s path {}'s slot is full, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        tabletCtx.getTabletId());
                 continue;
             }
             return rootPathLoadStatistic;
@@ -1515,22 +1489,18 @@ public class TabletScheduler extends MasterDaemon {
             RootPathLoadStatistic rootPathLoadStatistic = bePathLoadStat.getPathLoadStatistic();
             PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
             if (slot == null) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("backend {}'s path {}'s slot is null, skip. tablet: {}",
-                            rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
-                            tabletCtx.getTabletId());
-                }
+                LOG.debug("backend {}'s path {}'s slot is null, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        tabletCtx.getTabletId());
                 continue;
             }
 
             hasBePath = true;
             long pathHash = slot.takeSlot(rootPathLoadStatistic.getPathHash());
             if (pathHash == -1) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("backend {}'s path {}'s slot is full, skip. tablet: {}",
-                            rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
-                            tabletCtx.getTabletId());
-                }
+                LOG.debug("backend {}'s path {}'s slot is full, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        tabletCtx.getTabletId());
                 continue;
             }
             return rootPathLoadStatistic;
@@ -2058,15 +2028,11 @@ public class TabletScheduler extends MasterDaemon {
 
             Slot slot = pathSlots.get(pathHash);
             if (slot == null) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("path {} is not exist", pathHash);
-                }
+                LOG.debug("path {} is not exist", pathHash);
                 return -1;
             }
             if (slot.used >= slot.getTotal()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("path {} has no available slot", pathHash);
-                }
+                LOG.debug("path {} has no available slot", pathHash);
                 return -1;
             }
             slot.used++;

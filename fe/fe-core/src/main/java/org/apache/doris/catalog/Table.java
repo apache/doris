@@ -583,9 +583,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         OlapTable olapTable = (OlapTable) this;
 
         if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("table {} is a colocate table, skip tablet checker.", name);
-            }
+            LOG.debug("table {} is a colocate table, skip tablet checker.", name);
             return false;
         }
 

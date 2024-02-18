@@ -266,3 +266,4 @@ public class LoadScanProvider {
         return fileGroupInfo.getTargetTable();
     }
 }
+

@@ -268,41 +268,29 @@ public class NereidsPlanner extends Planner {
     }
 
     private void analyze() {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start analyze plan");
-        }
+        LOG.debug("Start analyze plan");
         cascadesContext.newAnalyzer().analyze();
         getHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("End analyze plan");
-        }
+        LOG.debug("End analyze plan");
     }
 
     /**
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start rewrite plan");
-        }
+        LOG.debug("Start rewrite plan");
         Rewriter.getWholeTreeRewriter(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndRewritePlan");
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("End rewrite plan");
-        }
+        LOG.debug("End rewrite plan");
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
     private void optimize() {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start optimize plan");
-        }
+        LOG.debug("Start optimize plan");
         new Optimizer(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndOptimizePlan");
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("End optimize plan");
-        }
+        LOG.debug("End optimize plan");
     }
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {

@@ -127,3 +127,4 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         return PlanUtils.filterOrSelf(predicates, plan);
     }
 }
+

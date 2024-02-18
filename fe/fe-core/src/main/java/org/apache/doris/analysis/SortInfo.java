@@ -282,9 +282,7 @@ public class SortInfo {
 
         // Update the tuple descriptor used to materialize the input of the sort.
         setMaterializedTupleInfo(sortTupleDesc, sortTupleExprs);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("sortTupleDesc {}", sortTupleDesc);
-        }
+        LOG.debug("sortTupleDesc {}", sortTupleDesc);
 
         return substOrderBy;
     }
@@ -313,9 +311,7 @@ public class SortInfo {
             materializedDesc.initFromExpr(origOrderingExpr);
             materializedDesc.setIsMaterialized(true);
             SlotRef origSlotRef = origOrderingExpr.getSrcSlotRef();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("origOrderingExpr {}", origOrderingExpr);
-            }
+            LOG.debug("origOrderingExpr {}", origOrderingExpr);
             if (origSlotRef != null) {
                 // need do this for two phase read of topn query optimization
                 // check https://github.com/apache/doris/pull/15642 for detail

@@ -82,10 +82,8 @@ public class BaseController {
             ctx.setCurrentUserIdentity(currentUser);
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("check auth without cookie success for user: {}, thread: {}",
-                        currentUser, Thread.currentThread().getId());
-            }
+            LOG.debug("check auth without cookie success for user: {}, thread: {}",
+                    currentUser, Thread.currentThread().getId());
             return authInfo;
         }
 
@@ -109,9 +107,7 @@ public class BaseController {
         cookie.setPath("/");
         cookie.setHttpOnly(true);
         response.addCookie(cookie);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
-        }
+        LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
         HttpAuthManager.getInstance().addSessionValue(key, value);
     }
 
@@ -142,10 +138,8 @@ public class BaseController {
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("check cookie success for user: {}, thread: {}",
-                    sessionValue.currentUser, Thread.currentThread().getId());
-        }
+        LOG.debug("check cookie success for user: {}, thread: {}",
+                sessionValue.currentUser, Thread.currentThread().getId());
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
         authInfo.remoteIp = request.getRemoteHost();
@@ -244,9 +238,7 @@ public class BaseController {
                     request.getHeader("Authorization"), request.getRequestURI());
             throw new UnauthorizedException("Need auth information.");
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get auth info: {}", authInfo);
-        }
+        LOG.debug("get auth info: {}", authInfo);
         return authInfo;
     }
 

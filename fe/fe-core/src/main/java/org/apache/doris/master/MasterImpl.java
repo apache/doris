@@ -216,9 +216,7 @@ public class MasterImpl {
         }
 
         if (tStatus.getStatusCode() == TStatusCode.OK) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("report task success. {}", request.toString());
-            }
+            LOG.debug("report task success. {}", request.toString());
         }
 
         return result;
@@ -264,10 +262,8 @@ public class MasterImpl {
                         request.getReportVersion(), task.getDbId(), task.getTableId());
 
                 createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
-                            tabletId, task.getBackendId(), request.getReportVersion());
-                }
+                LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
+                        tabletId, task.getBackendId(), request.getReportVersion());
             }
         } finally {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
@@ -285,10 +281,8 @@ public class MasterImpl {
                         + request.getTaskStatus().getErrorMsgs().toString());
             } else {
                 tabletTask.countDownLatch(task.getBackendId(), tabletTask.getTablets());
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("finish update tablet meta. tablet id: {}, be: {}",
-                            tabletTask.getTablets(), task.getBackendId());
-                }
+                LOG.debug("finish update tablet meta. tablet id: {}, be: {}",
+                        tabletTask.getTablets(), task.getBackendId());
             }
         } finally {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.UPDATE_TABLET_META_INFO, task.getSignature());
@@ -335,9 +329,7 @@ public class MasterImpl {
             LOG.warn("invalid push report infos. finishTabletInfos' size: " + finishTabletInfos.size());
             return;
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("push report state: {}", pushState.name());
-        }
+        LOG.debug("push report state: {}", pushState.name());
 
         OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
         if (olapTable == null || !olapTable.writeLockIfExist()) {
@@ -403,9 +395,7 @@ public class MasterImpl {
             }
 
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("finish push replica. tabletId: {}, backendId: {}", pushTabletId, backendId);
-            }
+            LOG.debug("finish push replica. tabletId: {}, backendId: {}", pushTabletId, backendId);
         } catch (MetaNotFoundException e) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error", e);

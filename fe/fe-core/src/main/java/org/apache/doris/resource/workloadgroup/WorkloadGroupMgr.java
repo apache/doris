@@ -127,9 +127,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 currentQueryQueue.resetQueueProperty(newPropQq.getMaxConcurrency(), newPropQq.getMaxQueueSize(),
                         newPropQq.getQueueTimeout(), newPropQq.getPropVersion());
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug(currentQueryQueue.debugString()); // for test debug
-            }
+            LOG.debug(currentQueryQueue.debugString()); // for test debug
         }
     }
 

@@ -612,9 +612,7 @@ public class Backend implements Writable {
                     isChanged = true;
                 }
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("update disk info. backendId: {}, diskInfo: {}", id, diskInfo.toString());
-            }
+            LOG.debug("update disk info. backendId: {}, diskInfo: {}", id, diskInfo.toString());
         }
 
         // remove not exist rootPath in backend

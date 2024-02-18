@@ -90,9 +90,7 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
                     break;
             }
         } catch (Exception e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to process audit event", e);
-            }
+            LOG.debug("failed to process audit event", e);
         }
     }
 
@@ -162,3 +160,4 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
         AuditLog.getStreamLoadAudit().log(auditLog);
     }
 }
+

@@ -56,9 +56,7 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
                 Range<LiteralExpr> partitionRange = Range.closedOpen(partitionLowerBound, partitionUpperBound);
                 partitionRangeMapByLiteral.put(partitionRange, entry.getKey());
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("update partitionRangeMapByLiteral");
-            }
+            LOG.debug("update partitionRangeMapByLiteral");
             this.lastPartitionRangeMapUpdateTimestampMs = System.currentTimeMillis();
             return true;
         }

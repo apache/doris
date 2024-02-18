@@ -448,11 +448,9 @@ public class Replica implements Writable {
 
         // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("current version {} is larger than last failed version {}, "
-                            + "maybe a fatal error or be report version, print a stack here ",
-                        this.version, lastFailedVersion, new Exception());
-            }
+            LOG.debug("current version {} is larger than last failed version {}, "
+                        + "maybe a fatal error or be report version, print a stack here ",
+                    this.version, lastFailedVersion, new Exception());
         }
 
         if (lastFailedVersion != this.lastFailedVersion) {
@@ -521,10 +519,8 @@ public class Replica implements Writable {
         }
 
         if (this.version < expectedVersion) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("replica version does not catch up with version: {}. replica: {}",
-                          expectedVersion, this);
-            }
+            LOG.debug("replica version does not catch up with version: {}. replica: {}",
+                      expectedVersion, this);
             return false;
         }
         return true;

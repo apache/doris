@@ -75,14 +75,10 @@ public class JoinCostEvaluation {
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug(nodeOverview);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("broadcast: cost=" + Long.toString(broadcastCost));
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("rhs card=" + Long.toString(rhsTreeCardinality)
-                        + " rhs row_size=" + Float.toString(rhsTreeAvgRowSize)
-                        + " lhs nodes=" + Integer.toString(lhsTreeNumNodes));
-            }
+            LOG.debug("broadcast: cost=" + Long.toString(broadcastCost));
+            LOG.debug("rhs card=" + Long.toString(rhsTreeCardinality)
+                    + " rhs row_size=" + Float.toString(rhsTreeAvgRowSize)
+                    + " lhs nodes=" + Integer.toString(lhsTreeNumNodes));
         }
     }
 
@@ -97,17 +93,11 @@ public class JoinCostEvaluation {
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug(nodeOverview);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("partition: cost=" + Long.toString(partitionCost));
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("lhs card=" + Long.toString(lhsTreeCardinality) + " row_size="
-                        + Float.toString(lhsTreeAvgRowSize));
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("rhs card=" + Long.toString(rhsTreeCardinality) + " row_size="
-                        + Float.toString(rhsTreeAvgRowSize));
-            }
+            LOG.debug("partition: cost=" + Long.toString(partitionCost));
+            LOG.debug("lhs card=" + Long.toString(lhsTreeCardinality) + " row_size="
+                    + Float.toString(lhsTreeAvgRowSize));
+            LOG.debug("rhs card=" + Long.toString(rhsTreeCardinality) + " row_size="
+                    + Float.toString(rhsTreeAvgRowSize));
         }
     }
 

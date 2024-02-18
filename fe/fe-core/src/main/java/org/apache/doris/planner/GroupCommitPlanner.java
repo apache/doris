@@ -144,9 +144,7 @@ public class GroupCommitPlanner {
                 if (!backend.isDecommissioned()) {
                     ctx.setInsertGroupCommit(this.table.getId(), backend);
                     find = true;
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("choose new be {}", backend.getId());
-                    }
+                    LOG.debug("choose new be {}", backend.getId());
                     break;
                 }
             }
@@ -213,10 +211,8 @@ public class GroupCommitPlanner {
         if (selectStmt.getValueList() != null) {
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
                 InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
-                            .collect(Collectors.joining(",")));
-                }
+                LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
+                        .collect(Collectors.joining(",")));
                 rows.add(data);
             }
         } else {
@@ -229,12 +225,11 @@ public class GroupCommitPlanner {
                 }
             }
             InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
-                        .collect(Collectors.joining(",")));
-            }
+            LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
+                    .collect(Collectors.joining(",")));
             rows.add(data);
         }
         return rows;
     }
 }
+

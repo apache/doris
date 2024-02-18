@@ -116,3 +116,4 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
         return SCHEMA;
     }
 }
+

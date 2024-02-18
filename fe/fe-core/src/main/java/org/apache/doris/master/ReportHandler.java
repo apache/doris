@@ -511,9 +511,7 @@ public class ReportHandler extends Daemon {
     }
 
     private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("begin to handle task report from backend {}", backendId);
-        }
+        LOG.debug("begin to handle task report from backend {}", backendId);
         long start = System.currentTimeMillis();
 
         if (LOG.isDebugEnabled()) {
@@ -521,9 +519,7 @@ public class ReportHandler extends Daemon {
                 Set<Long> taskSet = runningTasks.get(type);
                 if (!taskSet.isEmpty()) {
                     String signatures = StringUtils.join(taskSet, ", ");
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("backend task[{}]: {}", type.name(), signatures);
-                    }
+                    LOG.debug("backend task[{}]: {}", type.name(), signatures);
                 }
             }
         }
@@ -551,9 +547,7 @@ public class ReportHandler extends Daemon {
 
         }
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get {} diff task(s) to resend", batchTask.getTaskNum());
-        }
+        LOG.debug("get {} diff task(s) to resend", batchTask.getTaskNum());
         if (batchTask.getTaskNum() > 0) {
             AgentTaskExecutor.submit(batchTask);
         }
@@ -722,17 +716,13 @@ public class ReportHandler extends Daemon {
                             }
 
                             ++syncCounter;
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("sync replica {} of tablet {} in backend {} in db {}. report version: {}",
-                                        replica.getId(), tabletId, backendId, dbId, backendReportVersion);
-                            }
+                            LOG.debug("sync replica {} of tablet {} in backend {} in db {}. report version: {}",
+                                    replica.getId(), tabletId, backendId, dbId, backendReportVersion);
                         } else {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("replica {} of tablet {} in backend {} version is changed"
-                                                + " between check and real sync. meta[{}]. backend[{}]",
-                                        replica.getId(), tabletId, backendId, metaVersion,
-                                        backendVersion);
-                            }
+                            LOG.debug("replica {} of tablet {} in backend {} version is changed"
+                                            + " between check and real sync. meta[{}]. backend[{}]",
+                                    replica.getId(), tabletId, backendId, metaVersion,
+                                    backendVersion);
                         }
                     }
                 } finally {
@@ -922,9 +912,7 @@ public class ReportHandler extends Daemon {
             TTabletInfo backendTabletInfo = backendTablet.getTabletInfos().get(0);
             boolean needDelete = false;
             TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("process tablet [{}], backend[{}]", tabletId, backendId);
-            }
+            LOG.debug("process tablet [{}], backend[{}]", tabletId, backendId);
             if (!tabletFoundInMeta.contains(tabletId)) {
                 if (isBackendReplicaHealthy(backendTabletInfo)) {
                     // if this tablet meta is still in invertedIndex. try to add it.
@@ -932,9 +920,7 @@ public class ReportHandler extends Daemon {
                     if (tabletMeta != null && addReplica(tabletId, tabletMeta, backendTabletInfo, backendId)) {
                         // update counter
                         ++addToMetaCounter;
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("add to meta. tablet[{}], backend[{}]", tabletId, backendId);
-                        }
+                        LOG.debug("add to meta. tablet[{}], backend[{}]", tabletId, backendId);
                     } else {
                         LOG.info("failed add to meta. tablet[{}], backend[{}]", tabletId, backendId);
                         needDelete = true;

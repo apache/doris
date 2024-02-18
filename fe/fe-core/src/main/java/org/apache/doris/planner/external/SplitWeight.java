@@ -127,3 +127,4 @@ public final class SplitWeight {
         return BigDecimal.valueOf(value, -UNIT_SCALE).stripTrailingZeros().toPlainString();
     }
 }
+

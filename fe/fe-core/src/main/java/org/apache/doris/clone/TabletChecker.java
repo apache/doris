@@ -211,9 +211,7 @@ public class TabletChecker extends MasterDaemon {
         removePriosIfNecessary();
 
         stat.counterTabletCheckRound.incrementAndGet();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(stat.incrementalBrief());
-        }
+        LOG.debug(stat.incrementalBrief());
     }
 
     public static class CheckerCounter {

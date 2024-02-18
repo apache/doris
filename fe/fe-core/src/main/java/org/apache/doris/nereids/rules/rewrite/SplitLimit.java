@@ -44,3 +44,4 @@ public class SplitLimit extends OneRewriteRuleFactory {
                 }).toRule(RuleType.SPLIT_LIMIT);
     }
 }
+

@@ -109,3 +109,4 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         return new SelectedPartitions(idToPartitionItem.size(), selectedPartitionItems, true);
     }
 }
+

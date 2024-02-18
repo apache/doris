@@ -87,9 +87,7 @@ public class BeLoadRebalancer extends Rebalancer {
         boolean isUrgent = clusterStat.getLowHighBEsWithIsUrgent(lowBEs, highBEs, medium);
 
         if (lowBEs.isEmpty() && highBEs.isEmpty()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("cluster is balance with medium: {}. skip", medium);
-            }
+            LOG.debug("cluster is balance with medium: {}. skip", medium);
             return alternativeTablets;
         }
 
@@ -175,10 +173,8 @@ public class BeLoadRebalancer extends Rebalancer {
                 }
             }
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("high be {}, medium: {}, path high: {}, remainingPaths: {}, chose high disk: {}",
-                        beStat.getBeId(), medium, pathHigh, remainingPaths, choseHighDisk);
-            }
+            LOG.debug("high be {}, medium: {}, path high: {}, remainingPaths: {}, chose high disk: {}",
+                    beStat.getBeId(), medium, pathHigh, remainingPaths, choseHighDisk);
 
             if (remainingPaths.isEmpty()) {
                 continue;
@@ -377,10 +373,8 @@ public class BeLoadRebalancer extends Rebalancer {
                 BalanceStatus bs = beStat.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), null,
                         false /* not supplement */);
                 if (bs != BalanceStatus.OK) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("tablet not fit in BE {}, reason: {}, {}",
-                                beStat.getBeId(), bs.getErrMsgs(), isUrgentInfo);
-                    }
+                    LOG.debug("tablet not fit in BE {}, reason: {}, {}",
+                            beStat.getBeId(), bs.getErrMsgs(), isUrgentInfo);
                     continue;
                 }
 
@@ -396,9 +390,7 @@ public class BeLoadRebalancer extends Rebalancer {
 
                 PathSlot slot = backendsWorkingSlots.get(beStat.getBeId());
                 if (slot == null) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("BE does not have slot: {}", beStat.getBeId());
-                    }
+                    LOG.debug("BE does not have slot: {}", beStat.getBeId());
                     continue;
                 }
 

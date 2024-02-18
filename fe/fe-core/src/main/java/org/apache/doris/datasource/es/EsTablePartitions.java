@@ -73,16 +73,12 @@ public class EsTablePartitions {
                         idx++;
                     }
                     sb.append(")");
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("begin to parse es table [{}] state from search shards,"
-                                + " with partition info [{}]", esTable.getName(), sb.toString());
-                    }
+                    LOG.debug("begin to parse es table [{}] state from search shards,"
+                            + " with partition info [{}]", esTable.getName(), sb.toString());
                 }
             } else if (esTable.getPartitionInfo() instanceof SinglePartitionInfo) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("begin to parse es table [{}] state from search shards, "
-                            + "with no partition info", esTable.getName());
-                }
+                LOG.debug("begin to parse es table [{}] state from search shards, "
+                        + "with no partition info", esTable.getName());
             } else {
                 throw new DorisEsException("es table only support range partition, "
                         + "but current partition type is "
@@ -90,9 +86,7 @@ public class EsTablePartitions {
             }
         }
         esTablePartitions.addIndexState(esTable.getIndexName(), shardPartitions);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("add index {} to es table {}", shardPartitions, esTable.getName());
-        }
+        LOG.debug("add index {} to es table {}", shardPartitions, esTable.getName());
         if (partitionInfo != null) {
             // sort the index state according to partition key and then add to range map
             List<EsShardPartitions> esShardPartitionsList = new ArrayList<>(
@@ -105,10 +99,8 @@ public class EsTablePartitions {
                 esTablePartitions.addPartition(esShardPartitions.getIndexName(), partitionId);
                 esShardPartitions.setPartitionId(partitionId);
                 ++partitionId;
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("add partition to es table [{}] with range [{}]", esTable.getName(),
-                            item.getItems());
-                }
+                LOG.debug("add partition to es table [{}] with range [{}]", esTable.getName(),
+                        item.getItems());
             }
         }
         return esTablePartitions;
