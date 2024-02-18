@@ -300,15 +300,6 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
     return ColumnStruct::create(new_columns);
 }
 
-void ColumnStruct::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnStruct&>(column);
-    res.columns.resize(columns.size());
-
-    for (size_t i = 0; i != columns.size(); ++i) {
-        columns[i]->replicate(indexs, target_size, *res.columns[i]);
-    }
-}
-
 MutableColumnPtr ColumnStruct::get_shrinked_column() {
     const size_t tuple_size = columns.size();
     MutableColumns new_columns(tuple_size);

@@ -542,22 +542,6 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnVector<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
-                                IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnVector<T>&>(column);
-    typename Self::Container& res_data = res.get_data();
-    DCHECK(res_data.empty());
-    res_data.resize(target_size);
-    auto* __restrict left = res_data.data();
-    auto* __restrict right = data.data();
-    auto* __restrict idxs = indexs;
-
-    for (size_t i = 0; i < target_size; ++i) {
-        left[i] = right[idxs[i]];
-    }
-}
-
-template <typename T>
 ColumnPtr ColumnVector<T>::index(const IColumn& indexes, size_t limit) const {
     return select_index_impl(*this, indexes, limit);
 }
