@@ -349,6 +349,7 @@ suite("test_bitmap_index") {
                 "dynamic_partition.reserved_history_periods" = "NULL",
                 "dynamic_partition.storage_policy" = "",
                 "storage_format" = "V2",
+                "enable_unique_key_merge_on_write" = "false",
                 "light_schema_change" = "true",
                 "disable_auto_compaction" = "false",
                 "enable_single_replica_compaction" = "false"
