@@ -206,3 +206,8 @@ Specific syntax can be viewed [DROP MATERIALIZED VIEW](../../sql-manual/sql-refe
 ## The use of materialized views
 
 can be viewed [Query async materialized view](./query-async-materialized-view.md)
+
+## Notice
+
+- Asynchronous materialized views are only supported for use in the Nereids optimizer, [Nereids optimizer](../nereids.md)
+- Currently, only `OlapTable` is supported for determining whether the materialized view and base table are synchronized. For other appearances, they are directly considered synchronous. For example, the base tables of materialized views are all appearances. When querying `mv_infos()`, SyncWithBaseTables will always be 1 (true). When refreshing the materialized view, it is necessary to manually refresh the specified partition or specify `complete` to refresh all partitions

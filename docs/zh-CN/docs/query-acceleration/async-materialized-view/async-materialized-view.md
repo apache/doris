@@ -210,5 +210,5 @@ DROP MATERIALIZED VIEW mv1;
 ## 注意事项
 
 - 异步物化视图仅支持在Nereids优化器使用，[Nereids优化器](../nereids.md)
-- 当前判断物化视图和基表是否同步仅支持`OlapTable`， 对于其它外表，会直接认为是同步的，例如物化视图的基表全是外表，在查询`mv_infos()`时，SyncWithBaseTables会永远为1(true),在刷新物化视图时需要手动刷新指定的分区或指定`complete`刷新全部分区
+- 当前判断物化视图和基表是否同步仅支持`OlapTable`。对于其它外表，会直接认为是同步的。例如，物化视图的基表全是外表。在查询`mv_infos()`时，SyncWithBaseTables会永远为1（true）。在刷新物化视图时需要手动刷新指定的分区或指定`complete`刷新全部分区
 
