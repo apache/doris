@@ -317,8 +317,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
             // this rule should invoke after topic "Join pull up"
             topic("eliminate group by keys according to fd items",
-                    topDown(new EliminateGroupByKey()),
-                    custom(RuleType.COLUMN_PRUNING, ColumnPruning::new)
+                    topDown(new EliminateGroupByKey())
             ),
 
             topic("Limit optimization",
