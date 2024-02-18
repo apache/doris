@@ -599,7 +599,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_task_group_manager);
-    SAFE_DELETE(_without_group_task_scheduler);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
@@ -635,6 +634,9 @@ void ExecEnv::destroy() {
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     SAFE_DELETE(_runtime_query_statistics_mgr);
+
+    // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
+    SAFE_DELETE(_without_group_task_scheduler);
 
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
