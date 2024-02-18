@@ -17,13 +17,53 @@
 
 suite("test_analyze_mv") {
 
-    def wait_mv_finish = { db ->
+    def wait_mv_finish = { db, table ->
         while(true) {
             Thread.sleep(1000)
             boolean finished = true;
-            def result = sql """SHOW ALTER TABLE MATERIALIZED VIEW FROM ${db};"""
+            def result = sql """SHOW ALTER TABLE MATERIALIZED VIEW FROM ${db} WHERE tableName="${table}";"""
             for (int i = 0; i < result.size(); i++) {
                 if (result[i][8] != 'FINISHED') {
+                    finished = false;
+                    break;
+                }
+            }
+            if (finished) {
+                break;
+            }
+        }
+    }
+
+    def wait_row_count_reported = { ->
+        while(true) {
+            Thread.sleep(5000)
+            boolean reported = true;
+            def result = sql """SHOW DATA;"""
+            logger.info("result " + result)
+            for (int i = 0; i < result.size(); i++) {
+                if (result[i][1] == "0.000 ") {
+                    reported = false;
+                    break;
+                }
+            }
+            if (reported) {
+                break;
+            }
+        }
+    }
+
+    def wait_analyze_finish = { table ->
+        while(true) {
+            Thread.sleep(1000)
+            boolean finished = true;
+            def result = sql """SHOW ANALYZE ${table};"""
+            logger.info("wait analyze finish: " + result)
+            if (result.size() <= 0) {
+                logger.info("Not analyzed yet.")
+                continue;
+            }
+            for (int i = 0; i < result.size(); i++) {
+                if (result[i][9] != 'FINISHED') {
                     finished = false;
                     break;
                 }
@@ -53,11 +93,11 @@ suite("test_analyze_mv") {
         )
     """
     sql """create materialized view mv1 as select key1 from mvTestDup;"""
-    wait_mv_finish("test_analyze_mv")
+    wait_mv_finish("test_analyze_mv", "mvTestDup")
     sql """create materialized view mv2 as select key2 from mvTestDup;"""
-    wait_mv_finish("test_analyze_mv")
+    wait_mv_finish("test_analyze_mv", "mvTestDup")
     sql """create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestDup group by key1, key2;"""
-    wait_mv_finish("test_analyze_mv")
+    wait_mv_finish("test_analyze_mv", "mvTestDup")
     sql """insert into mvTestDup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestDup with sync;"""
@@ -130,7 +170,6 @@ suite("test_analyze_mv") {
     assertEquals("FULL", result_sample[0][9])
 
 
-
     sql """CREATE TABLE mvTestAgg (
             key1 bigint NOT NULL,
             key2 bigint NOT NULL,
@@ -147,11 +186,11 @@ suite("test_analyze_mv") {
     """
 
     sql """create materialized view mv1 as select key2 from mvTestAgg;"""
-    wait_mv_finish("test_analyze_mv")
+    wait_mv_finish("test_analyze_mv", "mvTestAgg")
     sql """create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestAgg group by key1, key2;"""
-    wait_mv_finish("test_analyze_mv")
+    wait_mv_finish("test_analyze_mv", "mvTestAgg")
     sql """create materialized view mv6 as select key1, sum(value1) from mvTestAgg group by key1;"""
-    wait_mv_finish("test_analyze_mv")
+    wait_mv_finish("test_analyze_mv", "mvTestAgg")
     sql """insert into mvTestAgg values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestAgg with sync;"""
@@ -226,12 +265,10 @@ suite("test_analyze_mv") {
     """
 
     sql """create materialized view mv1 as select key1 from mvTestUni;"""
-    wait_mv_finish("test_analyze_mv")
+    wait_mv_finish("test_analyze_mv", "mvTestUni")
     sql """create materialized view mv6 as select key2, value2, value3 from mvTestUni;"""
-    wait_mv_finish("test_analyze_mv")
+    wait_mv_finish("test_analyze_mv", "mvTestUni")
     sql """insert into mvTestUni values (1, 2, 3, 4, 5), (1, 2, 3, 7, 8), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
-
-    sql """analyze table mvTestUni with sync;"""
 
     sql """analyze table mvTestUni with sync;"""
     result_sample = sql """show column stats mvTestUni"""
@@ -266,6 +303,111 @@ suite("test_analyze_mv") {
     assertEquals("7", result_sample[0][7])
     assertEquals("4001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+
+    wait_row_count_reported()
+    sql """drop stats mvTestDup"""
+    result_sample = sql """show column stats mvTestDup"""
+    assertEquals(0, result_sample.size())
+
+    // Test sample
+    sql """analyze table mvTestDup with sample rows 4000000"""
+    wait_analyze_finish("mvTestDup")
+    result_sample = sql """SHOW ANALYZE mvTestDup;"""
+    logger.info("show analyze result: " + result_sample)
+    def jobId = result_sample[result_sample.size() - 1][0]
+    logger.info("Analyze job id is " + jobId)
+
+    result_sample = sql """show column stats mvTestDup"""
+    assertEquals(12, result_sample.size())
+
+    result_sample = sql """show column stats mvTestDup(key1)"""
+    assertEquals(1, result_sample.size())
+    assertEquals("key1", result_sample[0][0])
+    assertEquals("N/A", result_sample[0][1])
+    assertEquals("6.0", result_sample[0][2])
+    assertEquals("4.0", result_sample[0][3])
+    assertEquals("1", result_sample[0][7])
+    assertEquals("1001", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+
+    result_sample = sql """show column stats mvTestDup(value1)"""
+    assertEquals(1, result_sample.size())
+    assertEquals("value1", result_sample[0][0])
+    assertEquals("N/A", result_sample[0][1])
+    assertEquals("6.0", result_sample[0][2])
+    assertEquals("4.0", result_sample[0][3])
+    assertEquals("3", result_sample[0][7])
+    assertEquals("3001", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+
+    result_sample = sql """show column stats mvTestDup(mv_key1)"""
+    assertEquals(2, result_sample.size())
+    assertEquals("mv_key1", result_sample[0][0])
+    assertTrue(result_sample[0][1] == 'mv1' && result_sample[1][1] == 'mv3' || result_sample[0][1] == 'mv3' && result_sample[1][1] == 'mv1')
+    if (result_sample[0][1] == 'mv1') {
+        assertEquals("6.0", result_sample[0][2])
+    } else {
+        assertEquals("4.0", result_sample[0][2])
+    }
+    assertEquals("4.0", result_sample[0][3])
+    assertEquals("1", result_sample[0][7])
+    assertEquals("1001", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+
+    result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
+    assertEquals(1, result_sample.size())
+    assertEquals("mva_SUM__CAST(`value1` AS BIGINT)", result_sample[0][0])
+    assertEquals("mv3", result_sample[0][1])
+    assertEquals("4.0", result_sample[0][2])
+    assertEquals("4.0", result_sample[0][3])
+    assertEquals("6", result_sample[0][7])
+    assertEquals("3001", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+
+    result_sample = sql """show column stats mvTestDup(`mva_MAX__``value2```)"""
+    assertEquals(1, result_sample.size())
+    assertEquals("mva_MAX__`value2`", result_sample[0][0])
+    assertEquals("mv3", result_sample[0][1])
+    assertEquals("4.0", result_sample[0][2])
+    assertEquals("4.0", result_sample[0][3])
+    assertEquals("4", result_sample[0][7])
+    assertEquals("4001", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+
+    result_sample = sql """show column stats mvTestDup(`mva_MIN__``value3```)"""
+    assertEquals(1, result_sample.size())
+    assertEquals("mva_MIN__`value3`", result_sample[0][0])
+    assertEquals("mv3", result_sample[0][1])
+    assertEquals("4.0", result_sample[0][2])
+    assertEquals("4.0", result_sample[0][3])
+    assertEquals("5", result_sample[0][7])
+    assertEquals("5001", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+
+    result_sample = sql """show analyze task status ${jobId}"""
+    assertEquals(12, result_sample.size())
+    def verifyTaskStatus = { result, colName, indexName ->
+        def found = false;
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][1] == colName && result[i][2] == indexName) {
+                found = true;
+            }
+        }
+        logger.info("col " + colName + " in index " + indexName + " found ? " + found)
+        assertTrue(found)
+    }
+    verifyTaskStatus(result_sample, "key1", "N/A")
+    verifyTaskStatus(result_sample, "key2", "N/A")
+    verifyTaskStatus(result_sample, "value1", "N/A")
+    verifyTaskStatus(result_sample, "value2", "N/A")
+    verifyTaskStatus(result_sample, "value3", "N/A")
+    verifyTaskStatus(result_sample, "mv_key1", "mv1")
+    verifyTaskStatus(result_sample, "mv_key1", "mv3")
+    verifyTaskStatus(result_sample, "mv_key2", "mv2")
+    verifyTaskStatus(result_sample, "mv_key2", "mv3")
+    verifyTaskStatus(result_sample, "mva_MAX__`value2`", "mv3")
+    verifyTaskStatus(result_sample, "mva_MIN__`value3`", "mv3")
+    verifyTaskStatus(result_sample, "mva_SUM__CAST(`value1` AS BIGINT)", "mv3")
 
     sql """drop database if exists test_analyze_mv"""
 }
