@@ -34,8 +34,7 @@ suite("test_inverted_index_mor", "p0"){
         `c_float` FLOAT,
         `c_string` STRING,
         INDEX idx_k2(`k2`) USING INVERTED COMMENT '',
-        INDEX idx_c_int(`c_int`) USING INVERTED COMMENT '',
-        INDEX idx_c_string(`c_string`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+        INDEX idx_c_int(`c_int`) USING INVERTED COMMENT ''
 	) ENGINE=OLAP
 	UNIQUE KEY(`k1`, `k2`)
 	COMMENT 'OLAP'
@@ -60,4 +59,20 @@ suite("test_inverted_index_mor", "p0"){
     qt_21 """ SELECT * FROM $indexTblName ORDER BY k1,k2 """
     qt_22 """ SELECT * FROM $indexTblName WHERE k2 > 2 OR c_int = 12 ORDER BY k1,k2 """
     qt_23 """ SELECT * FROM $indexTblName WHERE k2 > 2 OR c_int = 112 ORDER BY k1,k2 """
+
+    // can not add INVERTED INDEX with parser
+    test{
+        sql """ ALTER TABLE ${indexTblName} ADD INDEX idx_c_string(`c_string`) USING INVERTED PROPERTIES("parser"="english"); """
+        exception "errCode = 2, detailMessage = INVERTED index with parser can NOT be used in value columns of UNIQUE_KEYS table with merge_on_write disable. invalid index: idx_c_string"
+    }
+
+    // can add INVERTED INDEX without parser
+    def success = false;
+    try {
+        sql """ ALTER TABLE ${indexTblName} ADD INDEX idx_c_string(`c_string`) USING INVERTED; """
+        success = true
+    } catch(Exception ex) {
+        logger.info("ALTER TABLE ${indexTblName} ADD INDEX idx_c_string without parser exception: " + ex)
+    }
+    assertTrue(success)
 }
