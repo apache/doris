@@ -720,7 +720,6 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     static_cast<void>(_runtimefilter_controller.add_entity(
             params.params, params.params.query_id, params.query_options, &handler,
             RuntimeFilterParamsContext::create(fragment_executor->runtime_state())));
-    fragment_executor->set_merge_controller_handler(handler);
     {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_instance_map.insert(
@@ -808,7 +807,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             static_cast<void>(_runtimefilter_controller.add_entity(
                     params.local_params[i], params.query_id, params.query_options, &handler,
                     RuntimeFilterParamsContext::create(context->get_runtime_state())));
-            context->set_merge_controller_handler(handler);
             const TUniqueId& fragment_instance_id = params.local_params[i].fragment_instance_id;
             {
                 std::lock_guard<std::mutex> lock(_lock);
@@ -888,7 +886,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             static_cast<void>(_runtimefilter_controller.add_entity(
                     local_params, params.query_id, params.query_options, &handler,
                     RuntimeFilterParamsContext::create(context->get_runtime_state())));
-            context->set_merge_controller_handler(handler);
 
             {
                 std::lock_guard<std::mutex> lock(_lock);
@@ -1382,9 +1379,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             UpdateRuntimeFilterParamsV2 params {request, attach_data, pool,
                                                 filters[0]->column_type()};
             RuntimePredicateWrapper* filter_wrapper = nullptr;
-            RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(
-                    runtime_filter_mgr->get_runtime_filter_context_state(), &params,
-                    &filter_wrapper));
+            RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
 
             std::ranges::for_each(filters, [&](auto& filter) {
                 filter->update_filter(filter_wrapper, request->merge_time(), start_apply);
