@@ -664,6 +664,7 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         // Check if all columns mentioned is enough
+        // For JdbcTable, it is allowed to insert without specifying all columns and without checking
         if (!(targetTable instanceof JdbcTable)) {
             checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
         }
@@ -716,11 +717,12 @@ public class NativeInsertStmt extends InsertStmt {
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
 
+                // For JdbcTable, need to check whether there is a NULL value inserted into the NOT NULL column
                 if (targetTable instanceof JdbcTable) {
                     for (int colIdx = 0; colIdx < targetColumns.size(); ++colIdx) {
                         Column column = targetColumns.get(colIdx);
                         Expr expr = rows.get(0).get(colIdx);
-                        if (!column.isAllowNull() && expr.isNullable()) {
+                        if (!column.isAllowNull() && expr instanceof NullLiteral) {
                             throw new AnalysisException("Column `" + column.getName()
                                     + "` is not nullable, but the inserted value is nullable.");
                         }
