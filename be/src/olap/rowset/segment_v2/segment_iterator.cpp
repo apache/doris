@@ -2449,9 +2449,7 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
 
 bool SegmentIterator::_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
                                           size_t nrows_read) {
-    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS &&
-        !(_opts.tablet_schema->keys_type() == UNIQUE_KEYS &&
-          _opts.enable_unique_key_merge_on_write)) {
+    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
         return false;
     }
 
