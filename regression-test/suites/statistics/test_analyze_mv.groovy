@@ -52,12 +52,12 @@ suite("test_analyze_mv") {
         }
     }
 
-    def wait_auto_analyze_finish = { table ->
+    def wait_analyze_finish = { table ->
         while(true) {
             Thread.sleep(1000)
             boolean finished = true;
-            def result = sql """SHOW AUTO ANALYZE ${table};"""
-            logger.info("wait auto analyze finish: " + result)
+            def result = sql """SHOW ANALYZE ${table};"""
+            logger.info("wait analyze finish: " + result)
             if (result.size() <= 0) {
                 logger.info("Not analyzed yet.")
                 continue;
@@ -272,8 +272,6 @@ suite("test_analyze_mv") {
     sql """insert into mvTestUni values (1, 2, 3, 4, 5), (1, 2, 3, 7, 8), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestUni with sync;"""
-
-    sql """analyze table mvTestUni with sync;"""
     result_sample = sql """show column stats mvTestUni"""
     assertEquals(9, result_sample.size())
 
@@ -311,13 +309,14 @@ suite("test_analyze_mv") {
     sql """drop stats mvTestDup"""
     result_sample = sql """show column stats mvTestDup"""
     assertEquals(0, result_sample.size())
-    sql """analyze database test_analyze_mv PROPERTIES("use.auto.analyzer"="true")"""
-    wait_auto_analyze_finish("mvTestDup")
 
-    result_sample = sql """SHOW AUTO ANALYZE mvTestDup;"""
-    logger.info("show auto analyze result: " + result_sample)
+    // Test sample
+    sql """analyze table mvTestDup with sample rows 4000000"""
+    wait_analyze_finish("mvTestDup")
+    result_sample = sql """SHOW ANALYZE mvTestDup;"""
+    logger.info("show analyze result: " + result_sample)
     def jobId = result_sample[result_sample.size() - 1][0]
-    logger.info("Auto analyze job id is " + jobId)
+    logger.info("Analyze job id is " + jobId)
 
     result_sample = sql """show column stats mvTestDup"""
     assertEquals(12, result_sample.size())
@@ -331,7 +330,6 @@ suite("test_analyze_mv") {
     assertEquals("1", result_sample[0][7])
     assertEquals("1001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
-    assertEquals("SYSTEM", result_sample[0][11])
 
     result_sample = sql """show column stats mvTestDup(value1)"""
     assertEquals(1, result_sample.size())
@@ -342,7 +340,6 @@ suite("test_analyze_mv") {
     assertEquals("3", result_sample[0][7])
     assertEquals("3001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
-    assertEquals("SYSTEM", result_sample[0][11])
 
     result_sample = sql """show column stats mvTestDup(mv_key1)"""
     assertEquals(2, result_sample.size())
@@ -357,7 +354,6 @@ suite("test_analyze_mv") {
     assertEquals("1", result_sample[0][7])
     assertEquals("1001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
-    assertEquals("SYSTEM", result_sample[0][11])
 
     result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
     assertEquals(1, result_sample.size())
@@ -368,7 +364,6 @@ suite("test_analyze_mv") {
     assertEquals("6", result_sample[0][7])
     assertEquals("3001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
-    assertEquals("SYSTEM", result_sample[0][11])
 
     result_sample = sql """show column stats mvTestDup(`mva_MAX__``value2```)"""
     assertEquals(1, result_sample.size())
@@ -379,7 +374,6 @@ suite("test_analyze_mv") {
     assertEquals("4", result_sample[0][7])
     assertEquals("4001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
-    assertEquals("SYSTEM", result_sample[0][11])
 
     result_sample = sql """show column stats mvTestDup(`mva_MIN__``value3```)"""
     assertEquals(1, result_sample.size())
@@ -390,7 +384,6 @@ suite("test_analyze_mv") {
     assertEquals("5", result_sample[0][7])
     assertEquals("5001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
-    assertEquals("SYSTEM", result_sample[0][11])
 
     result_sample = sql """show analyze task status ${jobId}"""
     assertEquals(12, result_sample.size())
