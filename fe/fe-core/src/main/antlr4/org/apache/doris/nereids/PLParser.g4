@@ -325,14 +325,13 @@ package_body_item :
       declare_stmt_item
     | create_function_stmt
     | create_procedure_stmt
-    | drop_procedure_stmt
     ;
 
 create_procedure_stmt :
       (ALTER | CREATE (OR REPLACE)? | REPLACE) (PROCEDURE | PROC) multipartIdentifier create_routine_params? create_routine_options? (AS | IS)? declare_block_inplace? label_stmt? procedure_block (ident_pl SEMICOLON)?
     ;
 drop_procedure_stmt:
-      (DROP  (PROCEDURE | PROC) multipartIdentifier create_routine_params? create_routine_options?)
+      DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier
     ;
 
 create_routine_params :

@@ -3293,6 +3293,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitDropProcedure(DropProcedureContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         FuncNameInfo procedureName = new FuncNameInfo(nameParts);
-        return ParserUtils.withOrigin(ctx, () -> DropProcedureCommand(procedureName, getOriginSql(ctx)));
+        return ParserUtils.withOrigin(ctx, () -> new DropProcedureCommand(procedureName, getOriginSql(ctx)));
     }
 }

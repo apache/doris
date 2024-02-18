@@ -1465,7 +1465,16 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
      */
     @Override
     public Integer visitDrop_procedure_stmt(Drop_procedure_stmtContext ctx) {
-        exec.functions.removeUserProcedure(ctx);
+        FuncNameInfo procedureName = new FuncNameInfo(
+                exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
+        if (builtinFunctions.exists(procedureName.toString())) {
+            exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be removed.");
+            return 0;
+        }
+        if (trace) {
+            trace(ctx, "DROP PROCEDURE " + procedureName.toString());
+        }
+        exec.functions.remove(procedureName);
         removeLocalUdf(ctx);
         return 0;
     }

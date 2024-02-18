@@ -24,7 +24,6 @@ import org.apache.doris.nereids.PLParser.Create_function_stmtContext;
 import org.apache.doris.nereids.PLParser.Create_procedure_stmtContext;
 import org.apache.doris.nereids.PLParser.Create_routine_param_itemContext;
 import org.apache.doris.nereids.PLParser.Create_routine_paramsContext;
-import org.apache.doris.nereids.PLParser.Drop_procedure_stmtContext;
 import org.apache.doris.nereids.PLParser.ExprContext;
 import org.apache.doris.nereids.PLParser.Expr_func_paramsContext;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
@@ -250,20 +249,6 @@ public class InMemoryFunctionRegistry implements FunctionRegistry {
             trace(ctx, "CREATE PROCEDURE " + procedureName.toString());
         }
         procMap.put(procedureName.toString(), ctx);
-    }
-
-    @Override
-    public void removeUserProcedure(Drop_procedure_stmtContext ctx) {
-        FuncNameInfo procedureName = new FuncNameInfo(
-                exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
-        if (builtinFunctions.exists(procedureName.toString())) {
-            exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be removed.");
-            return;
-        }
-        if (trace) {
-            trace(ctx, "DROP PROCEDURE " + procedureName.toString());
-        }
-        procMap.remove(procedureName.toString());
     }
 
     /**
