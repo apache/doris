@@ -253,7 +253,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
     auto tablet_schema = cur_rowset->rowset_meta()->tablet_schema();
     if (!tablet_schema->skip_write_index_on_load()) {
         for (auto& column : tablet_schema->columns()) {
-            const TabletIndex* index_meta = tablet_schema->get_inverted_index(column);
+            const TabletIndex* index_meta = tablet_schema->get_inverted_index(*column);
             if (index_meta) {
                 indices_ids.emplace_back(index_meta->index_id(), index_meta->get_index_suffix());
             }

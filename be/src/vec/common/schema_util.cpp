@@ -314,12 +314,12 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     // Types of subcolumns by path from all tuples.
     std::map<PathInData, DataTypes> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
-        for (const TabletColumn& col : schema->columns()) {
+        for (const TabletColumnPtr& col : schema->columns()) {
             // Get subcolumns of this variant
-            if (!col.path_info().empty() && col.parent_unique_id() > 0 &&
-                col.parent_unique_id() == variant_col_unique_id) {
-                subcolumns_types[col.path_info()].push_back(
-                        DataTypeFactory::instance().create_data_type(col, col.is_nullable()));
+            if (col->has_path_info() && col->parent_unique_id() > 0 &&
+                col->parent_unique_id() == variant_col_unique_id) {
+                subcolumns_types[*col->path_info_ptr()].push_back(
+                        DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }
     }
@@ -328,15 +328,15 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
             // maybe dropped
             continue;
         }
-        for (const TabletColumn& col :
-             schema->mutable_column_by_uid(variant_col_unique_id).sparse_columns()) {
+        for (const TabletColumnPtr& col :
+             schema->column_by_uid(variant_col_unique_id).sparse_columns()) {
             // Get subcolumns of this variant
-            if (!col.path_info().empty() && col.parent_unique_id() > 0 &&
-                col.parent_unique_id() == variant_col_unique_id &&
+            if (col->has_path_info() && col->parent_unique_id() > 0 &&
+                col->parent_unique_id() == variant_col_unique_id &&
                 // this column have been found in origin columns
-                subcolumns_types.find(col.path_info()) != subcolumns_types.end()) {
-                subcolumns_types[col.path_info()].push_back(
-                        DataTypeFactory::instance().create_data_type(col, col.is_nullable()));
+                subcolumns_types.find(*col->path_info_ptr()) != subcolumns_types.end()) {
+                subcolumns_types[*col->path_info_ptr()].push_back(
+                        DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }
     }
@@ -354,14 +354,14 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
             // maybe dropped
             continue;
         }
-        for (const TabletColumn& col :
-             schema->mutable_column_by_uid(variant_col_unique_id).sparse_columns()) {
+        for (const TabletColumnPtr& col :
+             schema->column_by_uid(variant_col_unique_id).sparse_columns()) {
             // Get subcolumns of this variant
-            if (!col.path_info().empty() && col.parent_unique_id() > 0 &&
-                col.parent_unique_id() == variant_col_unique_id &&
-                path_set.find(col.path_info()) == path_set.end()) {
-                subcolumns_types[col.path_info()].push_back(
-                        DataTypeFactory::instance().create_data_type(col, col.is_nullable()));
+            if (col->has_path_info() && col->parent_unique_id() > 0 &&
+                col->parent_unique_id() == variant_col_unique_id &&
+                path_set.find(*col->path_info_ptr()) == path_set.end()) {
+                subcolumns_types[*col->path_info_ptr()].push_back(
+                        DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }
     }
@@ -372,29 +372,29 @@ void inherit_tablet_index(TabletSchemaSPtr& schema) {
     std::unordered_map<int32_t, TabletIndex> variants_index_meta;
     // Get all variants tablet index metas if exist
     for (const auto& col : schema->columns()) {
-        auto index_meta = schema->get_inverted_index(col.unique_id(), "");
-        if (col.is_variant_type() && index_meta != nullptr) {
-            variants_index_meta.emplace(col.unique_id(), *index_meta);
+        auto index_meta = schema->get_inverted_index(col->unique_id(), "");
+        if (col->is_variant_type() && index_meta != nullptr) {
+            variants_index_meta.emplace(col->unique_id(), *index_meta);
         }
     }
 
     // Add index meta if extracted column is missing index meta
     for (const auto& col : schema->columns()) {
-        if (!col.is_extracted_column()) {
+        if (!col->is_extracted_column()) {
             continue;
         }
-        auto it = variants_index_meta.find(col.parent_unique_id());
+        auto it = variants_index_meta.find(col->parent_unique_id());
         // variant has no index meta, ignore
         if (it == variants_index_meta.end()) {
             continue;
         }
-        auto index_meta = schema->get_inverted_index(col);
+        auto index_meta = schema->get_inverted_index(*col);
         // add index meta
         TabletIndex index_info = it->second;
-        index_info.set_escaped_escaped_index_suffix_path(col.path_info().get_path());
+        index_info.set_escaped_escaped_index_suffix_path(col->path_info_ptr()->get_path());
         if (index_meta != nullptr) {
             // already exist
-            schema->update_index(col, index_info);
+            schema->update_index(*col, index_info);
         } else {
             schema->append_index(index_info);
         }
@@ -415,12 +415,12 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         // Merge columns from other schemas
         output_schema->clear_columns();
         // Get all columns without extracted columns and collect variant col unique id
-        for (const TabletColumn& col : base_schema->columns()) {
-            if (col.is_variant_type()) {
-                variant_column_unique_id.push_back(col.unique_id());
+        for (const TabletColumnPtr& col : base_schema->columns()) {
+            if (col->is_variant_type()) {
+                variant_column_unique_id.push_back(col->unique_id());
             }
-            if (!col.is_extracted_column()) {
-                output_schema->append_column(col);
+            if (!col->is_extracted_column()) {
+                output_schema->append_column(*col);
             }
         }
     };
@@ -646,7 +646,7 @@ void rebuild_schema_and_block(const TabletSchemaSPtr& original,
         bool is_nullable = column_ref->is_nullable();
         const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
                 remove_nullable(column_ref)->assume_mutable_ref());
-        const TabletColumn& parent_column = original->columns()[variant_pos];
+        const TabletColumn& parent_column = *original->columns()[variant_pos];
         CHECK(object_column.is_finalized());
         std::shared_ptr<vectorized::ColumnObject::Subcolumns::Node> root;
         // common extracted columns
@@ -689,7 +689,9 @@ void rebuild_schema_and_block(const TabletSchemaSPtr& original,
         vectorized::PathInDataBuilder full_root_path_builder;
         auto full_root_path =
                 full_root_path_builder.append(parent_column.name_lower_case(), false).build();
-        flush_schema->mutable_columns()[variant_pos].set_path_info(full_root_path);
+        TabletColumn new_col = flush_schema->column(variant_pos);
+        new_col.set_path_info(full_root_path);
+        flush_schema->replace_column(variant_pos, new_col);
         VLOG_DEBUG << "set root_path : " << full_root_path.get_path();
     }
 
