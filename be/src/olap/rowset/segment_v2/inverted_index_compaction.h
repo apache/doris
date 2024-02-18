@@ -23,13 +23,18 @@
 #include "io/fs/file_system.h"
 
 namespace doris {
-
+class TabletIndex;
 namespace segment_v2 {
-Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_num,
+class InvertedIndexFileWriter;
+class InvertedIndexFileReader;
+
+Status compact_column(const TabletIndex* index_meta, int src_segment_num, int dest_segment_num,
                       std::vector<std::string> src_index_files,
                       std::vector<std::string> dest_index_files, const io::FileSystemSPtr& fs,
-                      std::string index_writer_path, std::string tablet_path,
+                      std::string segment_path, std::string tablet_path,
                       std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec,
-                      std::vector<uint32_t> dest_segment_num_rows);
+                      std::vector<uint32_t> dest_segment_num_rows,
+                      InvertedIndexFileWriter* inverted_index_file_writer,
+                      const InvertedIndexFileReader* inverted_index_file_reader);
 } // namespace segment_v2
 } // namespace doris
