@@ -238,7 +238,7 @@ public class OlapTableSink extends DataSink {
         return tDataSink;
     }
 
-    private TOlapTableSchemaParam createSchema(long dbId, OlapTable table, Analyzer analyzer) throws AnalysisException {
+    public TOlapTableSchemaParam createSchema(long dbId, OlapTable table, Analyzer analyzer) throws AnalysisException {
         TOlapTableSchemaParam schemaParam = new TOlapTableSchemaParam();
         schemaParam.setDbId(dbId);
         schemaParam.setTableId(table.getId());
@@ -322,7 +322,7 @@ public class OlapTableSink extends DataSink {
         return distColumns;
     }
 
-    private TOlapTablePartitionParam createPartition(long dbId, OlapTable table, Analyzer analyzer)
+    public TOlapTablePartitionParam createPartition(long dbId, OlapTable table, Analyzer analyzer)
             throws UserException {
         TOlapTablePartitionParam partitionParam = new TOlapTablePartitionParam();
         partitionParam.setDbId(dbId);
@@ -584,5 +584,9 @@ public class OlapTableSink extends DataSink {
 
     protected TDataSinkType getDataSinkType() {
         return TDataSinkType.OLAP_TABLE_SINK;
+    }
+
+    public OlapTable getDstTable() {
+        return dstTable;
     }
 }

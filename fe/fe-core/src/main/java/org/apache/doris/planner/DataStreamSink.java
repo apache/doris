@@ -27,8 +27,11 @@ import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDataStreamSink;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TOlapTablePartitionParam;
+import org.apache.doris.thrift.TOlapTableSchemaParam;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.springframework.util.CollectionUtils;
 
@@ -51,6 +54,10 @@ public class DataStreamSink extends DataSink {
     protected List<Expr> conjuncts = Lists.newArrayList();
 
     protected List<RuntimeFilter> runtimeFilters = Lists.newArrayList();
+
+    // use for tablet id shuffle sink only
+    protected TOlapTableSchemaParam schemaParam = null;
+    protected TOlapTablePartitionParam partitionParam = null;
 
     public DataStreamSink() {
 
@@ -118,6 +125,14 @@ public class DataStreamSink extends DataSink {
         this.runtimeFilters.add(runtimeFilter);
     }
 
+    public void setSchemaParam(TOlapTableSchemaParam schemaParam) {
+        this.schemaParam = schemaParam;
+    }
+
+    public void setPartitionParam(TOlapTablePartitionParam partitionParam) {
+        this.partitionParam = partitionParam;
+    }
+
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
@@ -178,6 +193,14 @@ public class DataStreamSink extends DataSink {
             for (RuntimeFilter rf : runtimeFilters) {
                 tStreamSink.addToRuntimeFilters(rf.toThrift());
             }
+        }
+        Preconditions.checkState((schemaParam != null) == (partitionParam != null),
+                "schemaParam and partitionParam should be set together.");
+        if (schemaParam != null) {
+            tStreamSink.setSchema(schemaParam);
+        }
+        if (partitionParam != null) {
+            tStreamSink.setPartition(partitionParam);
         }
         result.setStreamSink(tStreamSink);
         return result;

@@ -60,7 +60,10 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
@@ -74,6 +77,7 @@ import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TTxnParams;
@@ -153,8 +157,8 @@ public class InsertExecutor {
     /**
      * finalize sink to complete enough info for sink execution
      */
-    public void finalizeSink(DataSink sink, boolean isPartialUpdate, boolean isFromInsert,
-            boolean allowAutoPartition) {
+    public void finalizeSink(PlanFragment fragment, DataSink sink,
+            boolean isPartialUpdate, boolean isFromInsert, boolean allowAutoPartition) {
         if (!(sink instanceof OlapTableSink)) {
             return;
         }
@@ -176,6 +180,18 @@ public class InsertExecutor {
             olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
             if (!allowAutoPartition) {
                 olapTableSink.setAutoPartition(false);
+            }
+            // update
+
+            // set schema and partition info for tablet id shuffle exchange
+            if (fragment.getPlanRoot() instanceof ExchangeNode
+                    && fragment.getDataPartition().getType() == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED) {
+                DataStreamSink dataStreamSink = (DataStreamSink) (fragment.getChild(0).getSink());
+                Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
+                dataStreamSink.setSchemaParam(olapTableSink.createSchema(
+                        database.getId(), olapTableSink.getDstTable(), analyzer));
+                dataStreamSink.setPartitionParam(olapTableSink.createPartition(
+                        database.getId(), olapTableSink.getDstTable(), analyzer));
             }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);

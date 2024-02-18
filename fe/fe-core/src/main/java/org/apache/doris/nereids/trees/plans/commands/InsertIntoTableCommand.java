@@ -183,7 +183,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     physicalOlapTableSink.getDatabase(),
                     physicalOlapTableSink.getTargetTable(), label, planner);
             insertExecutor.beginTransaction();
-            insertExecutor.finalizeSink(sink, physicalOlapTableSink.isPartialUpdate(),
+            insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalOlapTableSink.isPartialUpdate(),
                     physicalOlapTableSink.getDmlCommandType() == DMLCommandType.INSERT, this.allowAutoPartition);
         } finally {
             targetTableIf.readUnlock();
