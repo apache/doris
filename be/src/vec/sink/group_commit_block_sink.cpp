@@ -23,6 +23,7 @@
 #include <shared_mutex>
 
 #include "common/exception.h"
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/runtime_state.h"
@@ -45,6 +46,7 @@ GroupCommitBlockSink::GroupCommitBlockSink(ObjectPool* pool, const RowDescriptor
 
 GroupCommitBlockSink::~GroupCommitBlockSink() {
     if (_load_block_queue) {
+        _remove_estimated_wal_bytes();
         _load_block_queue->remove_load_id(_load_id);
     }
 }
@@ -117,6 +119,7 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
         RETURN_IF_ERROR(_add_blocks(state, true));
     }
     if (_load_block_queue) {
+        _remove_estimated_wal_bytes();
         _load_block_queue->remove_load_id(_load_id);
     }
     // wait to wal
@@ -240,16 +243,20 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
                     _db_id, _table_id, _base_schema_version, load_id, _load_block_queue,
                     _state->be_exec_version()));
             if (_group_commit_mode == TGroupCommitMode::ASYNC_MODE) {
-                size_t pre_allocated = _pre_allocated(is_blocks_contain_all_load_data);
-                _group_commit_mode = _load_block_queue->has_enough_wal_disk_space(pre_allocated)
-                                             ? TGroupCommitMode::ASYNC_MODE
-                                             : TGroupCommitMode::SYNC_MODE;
+                size_t estimated_wal_bytes =
+                        _calculate_estimated_wal_bytes(is_blocks_contain_all_load_data);
+                _group_commit_mode =
+                        _load_block_queue->has_enough_wal_disk_space(estimated_wal_bytes)
+                                ? TGroupCommitMode::ASYNC_MODE
+                                : TGroupCommitMode::SYNC_MODE;
                 if (_group_commit_mode == TGroupCommitMode::SYNC_MODE) {
                     LOG(INFO) << "Load id=" << print_id(_state->query_id())
                               << ", use group commit label=" << _load_block_queue->label
                               << " will not write wal because wal disk space usage reach max "
                                  "limit. Detail info: "
                               << _state->exec_env()->wal_mgr()->get_wal_dirs_info_string();
+                } else {
+                    _estimated_wal_bytes = estimated_wal_bytes;
                 }
             }
             _state->set_import_label(_load_block_queue->label);
@@ -266,6 +273,7 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
     _blocks.clear();
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
         if (_load_block_queue) {
+            _remove_estimated_wal_bytes();
             _load_block_queue->remove_load_id(_load_id);
         }
         if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
@@ -281,7 +289,7 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
     return Status::OK();
 }
 
-size_t GroupCommitBlockSink::_pre_allocated(bool is_blocks_contain_all_load_data) {
+size_t GroupCommitBlockSink::_calculate_estimated_wal_bytes(bool is_blocks_contain_all_load_data) {
     size_t blocks_size = 0;
     for (auto block : _blocks) {
         blocks_size += block->bytes();
@@ -291,6 +299,28 @@ size_t GroupCommitBlockSink::_pre_allocated(bool is_blocks_contain_all_load_data
                    : (blocks_size > _state->content_length() ? blocks_size
                                                              : _state->content_length());
 }
+
+void GroupCommitBlockSink::_remove_estimated_wal_bytes() {
+    if (_estimated_wal_bytes == 0) {
+        return;
+    } else {
+        std::string wal_path;
+        Status st = ExecEnv::GetInstance()->wal_mgr()->get_wal_path(_load_block_queue->txn_id,
+                                                                    wal_path);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to get wal path in remove estimated wal bytes, reason: "
+                         << st.to_string();
+            return;
+        }
+        st = ExecEnv::GetInstance()->wal_mgr()->update_wal_dir_estimated_wal_bytes(
+                WalManager::get_base_wal_path(wal_path), 0, _estimated_wal_bytes);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to remove estimated wal bytes, reason: " << st.to_string();
+            return;
+        }
+        _estimated_wal_bytes = 0;
+    }
+};
 
 } // namespace vectorized
 } // namespace doris
