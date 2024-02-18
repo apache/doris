@@ -45,7 +45,7 @@ struct ColumnRowRef {
     ColumnPtr column;
     size_t row_idx;
 
-    // equals
+    // equals when call set insert, this operator will be used
     bool operator==(const ColumnRowRef& other) const {
         return column->compare_at(row_idx, other.row_idx, *column, 0) == 0;
     }
@@ -54,6 +54,7 @@ struct ColumnRowRef {
         return column->compare_at(row_idx, other.row_idx, *column, 0) < 0;
     }
 
+    // when call set find, will use hash to find
     size_t operator()(const ColumnRowRef& a) const {
         std::vector<uint32_t> hash_vec(1);
         auto* __restrict hash_val = hash_vec.data();
