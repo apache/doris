@@ -130,7 +130,8 @@ void RowsetMeta::set_tablet_schema(const TabletSchemaPB& tablet_schema) {
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }
-    auto pair = TabletSchemaCache::instance()->insert(tablet_schema.SerializeAsString());
+    auto pair = TabletSchemaCache::instance()->insert(
+            TabletSchema::deterministic_string_serialize(tablet_schema));
     _handle = pair.first;
     _schema = pair.second;
 }
