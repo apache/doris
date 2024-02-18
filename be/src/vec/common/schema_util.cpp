@@ -35,7 +35,6 @@
 #include <memory>
 #include <ostream>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -213,6 +212,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
     }
     // size is not fixed when type is string or json
     if (WhichDataType(*data_type).is_string() || WhichDataType(*data_type).is_json()) {
+        column.set_length(INT_MAX);
         return;
     }
     if (WhichDataType(*data_type).is_simple()) {
@@ -253,10 +253,10 @@ TabletColumn get_least_type_column(const TabletColumn& original, const DataTypeP
     return result_column;
 }
 
-void update_least_schema_internal(
-        const std::unordered_map<PathInData, DataTypes, PathInData::Hash>& subcolumns_types,
-        TabletSchemaSPtr& common_schema, bool update_sparse_column, int32_t variant_col_unique_id,
-        std::unordered_set<PathInData, PathInData::Hash>* path_set = nullptr) {
+void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
+                                  TabletSchemaSPtr& common_schema, bool update_sparse_column,
+                                  int32_t variant_col_unique_id,
+                                  std::set<PathInData>* path_set = nullptr) {
     PathsInData tuple_paths;
     DataTypes tuple_types;
     // Get the least common type for all paths.
@@ -310,9 +310,9 @@ void update_least_schema_internal(
 
 void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                std::unordered_set<PathInData, PathInData::Hash>* path_set) {
+                                std::set<PathInData>* path_set) {
     // Types of subcolumns by path from all tuples.
-    std::unordered_map<PathInData, DataTypes, PathInData::Hash> subcolumns_types;
+    std::map<PathInData, DataTypes> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
         for (const TabletColumn& col : schema->columns()) {
             // Get subcolumns of this variant
@@ -346,9 +346,9 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 
 void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                const std::unordered_set<PathInData, PathInData::Hash>& path_set) {
+                                const std::set<PathInData>& path_set) {
     // Types of subcolumns by path from all tuples.
-    std::unordered_map<PathInData, DataTypes, PathInData::Hash> subcolumns_types;
+    std::map<PathInData, DataTypes> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
         if (schema->field_index(variant_col_unique_id) == -1) {
             // maybe dropped
@@ -450,7 +450,7 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     //    schema 3:       k (int)     v:a (double)      v:b (smallint)
     //    result :        k (int)     v:a (double)  v:b (bigint) v:c (string)      v:d (string)
     for (int32_t unique_id : variant_column_unique_id) {
-        std::unordered_set<PathInData, PathInData::Hash> path_set;
+        std::set<PathInData> path_set;
         // 1. cast extracted column to common type
         // path set is used to record the paths of those sparse columns that have been merged into the extracted columns, eg: v:b
         update_least_common_schema(schemas, output_schema, unique_id, &path_set);
@@ -464,6 +464,7 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         return Status::DataQualityError("Reached max column size limit {}",
                                         config::variant_max_merged_tablet_schema_size);
     }
+
     return Status::OK();
 }
 
@@ -592,9 +593,9 @@ void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& vari
     }
 }
 
-void _append_column(const TabletColumn& parent_variant,
-                    const ColumnObject::Subcolumns::NodePtr& subcolumn, TabletSchemaSPtr& to_append,
-                    bool is_sparse) {
+static void _append_column(const TabletColumn& parent_variant,
+                           const ColumnObject::Subcolumns::NodePtr& subcolumn,
+                           TabletSchemaSPtr& to_append, bool is_sparse) {
     // If column already exist in original tablet schema, then we pick common type
     // and cast column to common type, and modify tablet column to common type,
     // otherwise it's a new column
@@ -620,6 +621,17 @@ void _append_column(const TabletColumn& parent_variant,
     }
 }
 
+// sort by paths in lexicographical order
+static vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
+        const vectorized::ColumnObject::Subcolumns& subcolumns) {
+    // sort by paths in lexicographical order
+    vectorized::ColumnObject::Subcolumns sorted = subcolumns;
+    std::sort(sorted.begin(), sorted.end(), [](const auto& lhsItem, const auto& rhsItem) {
+        return lhsItem->path < rhsItem->path;
+    });
+    return sorted;
+}
+
 void rebuild_schema_and_block(const TabletSchemaSPtr& original,
                               const std::vector<int>& variant_positions, Block& flush_block,
                               TabletSchemaSPtr& flush_schema) {
@@ -638,7 +650,7 @@ void rebuild_schema_and_block(const TabletSchemaSPtr& original,
         CHECK(object_column.is_finalized());
         std::shared_ptr<vectorized::ColumnObject::Subcolumns::Node> root;
         // common extracted columns
-        for (const auto& entry : object_column.get_subcolumns()) {
+        for (const auto& entry : get_sorted_subcolumns(object_column.get_subcolumns())) {
             if (entry->path.empty()) {
                 // root
                 root = entry;
@@ -652,7 +664,7 @@ void rebuild_schema_and_block(const TabletSchemaSPtr& original,
         }
 
         // add sparse columns to flush_schema
-        for (const auto& entry : object_column.get_sparse_subcolumns()) {
+        for (const auto& entry : get_sorted_subcolumns(object_column.get_sparse_subcolumns())) {
             _append_column(parent_column, entry, flush_schema, true);
         }
 
