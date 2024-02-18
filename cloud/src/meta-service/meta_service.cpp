@@ -1871,7 +1871,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
     std::shared_ptr<Transaction> txn(txn0.release());
     auto [c0, m0] = resource_mgr_->get_instance(txn, cloned_instance_id, instance);
     if (c0 != TxnErrorCode::TXN_OK) {
-        return {cast_as<ErrCategory::READ>(err), "failed to get instance, info=" + m0};
+        return {cast_as<ErrCategory::READ>(c0), "failed to get instance, info=" + m0};
     }
 
     // maybe do not decrypt ak/sk?
