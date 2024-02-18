@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.collect.Range;
@@ -51,6 +52,11 @@ public class RangePartitionItem extends PartitionItem {
         return PartitionKeyDesc.createFixed(
                 PartitionInfo.toPartitionValue(partitionKeyRange.lowerEndpoint()),
                 PartitionInfo.toPartitionValue(partitionKeyRange.upperEndpoint()));
+    }
+
+    @Override
+    public PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException {
+        throw new AnalysisException("not support");
     }
 
     @Override

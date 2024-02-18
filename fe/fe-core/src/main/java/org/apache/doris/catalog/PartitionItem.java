@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Writable;
 
 import java.util.Comparator;
@@ -36,4 +37,6 @@ public abstract class PartitionItem implements Comparable<PartitionItem>, Writab
     }
 
     public abstract PartitionKeyDesc toPartitionKeyDesc();
+
+    public abstract PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException;
 }

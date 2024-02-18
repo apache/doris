@@ -17,9 +17,12 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.gson.annotations.SerializedName;
+
+import java.util.List;
 
 /**
  * MTMVPartitionInfo
@@ -87,6 +90,21 @@ public class MTMVPartitionInfo {
 
     public void setPartitionCol(String partitionCol) {
         this.partitionCol = partitionCol;
+    }
+
+    public int getRelatedColPos() throws AnalysisException {
+        if (partitionType == MTMVPartitionType.SELF_MANAGE) {
+            throw new AnalysisException("partitionType is: " + partitionType);
+        }
+        List<Column> partitionColumns = getRelatedTable().getPartitionColumns();
+        for (int i = 0; i < partitionColumns.size(); i++) {
+            if (partitionColumns.get(i).getName().equalsIgnoreCase(partitionCol)) {
+                return i;
+            }
+        }
+        throw new AnalysisException(
+                String.format("getRelatedColPos error, partitionCol: %s, partitionColumns: %s", partitionCol,
+                        partitionColumns));
     }
 
     @Override

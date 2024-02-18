@@ -81,6 +81,17 @@ public class ListPartitionItem extends PartitionItem {
     }
 
     @Override
+    public PartitionKeyDesc toPartitionKeyDesc(int pos) {
+        List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
+                .collect(Collectors.toList());
+        List<List<PartitionValue>> res = Lists.newArrayList();
+        for (List<PartitionValue> list : inValues) {
+            res.add(Lists.newArrayList(list.get(pos)));
+        }
+        return PartitionKeyDesc.createIn(res);
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         out.writeInt(partitionKeys.size());
         for (PartitionKey partitionKey : partitionKeys) {

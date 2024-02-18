@@ -90,23 +90,47 @@ public class MTMVPartitionUtil {
      */
     public static void alignMvPartition(MTMV mtmv, MTMVRelatedTableIf relatedTable)
             throws DdlException, AnalysisException {
-        Map<Long, PartitionItem> relatedTableItems = Maps.newHashMap(relatedTable.getPartitionItems());
-        Map<Long, PartitionItem> mtmvItems = Maps.newHashMap(mtmv.getPartitionItems());
+        Map<Long, PartitionKeyDesc> mtmvPartitionDescs = transMTMVItemsToDescs(mtmv.getPartitionItems());
+        Set<PartitionKeyDesc> relatedPartitionDescs = transRelatedItemsToDescs(mtmv, relatedTable.getPartitionItems());
         // drop partition of mtmv
-        for (Entry<Long, PartitionItem> entry : mtmvItems.entrySet()) {
-            long partitionId = getExistPartitionId(entry.getValue(), relatedTableItems);
-            if (partitionId == -1L) {
+        for (Entry<Long, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
+            if (!relatedPartitionDescs.contains(entry.getValue())) {
                 dropPartition(mtmv, entry.getKey());
             }
         }
         // add partition for mtmv
-        for (Entry<Long, PartitionItem> entry : relatedTableItems.entrySet()) {
-            long partitionId = getExistPartitionId(entry.getValue(), mtmvItems);
-            if (partitionId == -1L) {
-                addPartition(mtmv, entry.getValue());
+        for (PartitionKeyDesc desc : relatedPartitionDescs) {
+            if (!mtmvPartitionDescs.values().contains(desc)) {
+                addPartition(mtmv, desc);
             }
         }
+        Collection<Object> values = Maps.newHashMap().values();
     }
+
+    public static Set<PartitionKeyDesc> transRelatedItemsToDescs(MTMV mtmv,
+            Map<Long, PartitionItem> relatedPartitionItems) throws AnalysisException {
+        int pos = mtmv.getMvPartitionInfo().getRelatedColPos();
+        Set<PartitionKeyDesc> res = Sets.newHashSet();
+        for (PartitionItem item : relatedPartitionItems.values()) {
+            res.add(item.toPartitionKeyDesc(pos));
+        }
+        return res;
+    }
+
+    /**
+     * transMTMVItemsToDescs
+     *
+     * @param mtmvItems
+     * @return
+     */
+    private static Map<Long, PartitionKeyDesc> transMTMVItemsToDescs(Map<Long, PartitionItem> mtmvItems) {
+        Map<Long, PartitionKeyDesc> result = Maps.newHashMap();
+        for (Entry<Long, PartitionItem> entry : mtmvItems.entrySet()) {
+            result.put(entry.getKey(), entry.getValue().toPartitionKeyDesc());
+        }
+        return result;
+    }
+
 
     /**
      * getPartitionDescsByRelatedTable when create MTMV
@@ -320,12 +344,11 @@ public class MTMVPartitionUtil {
      * add partition for mtmv like relatedPartitionId of relatedTable
      *
      * @param mtmv
-     * @param partitionItem
+     * @param oldPartitionKeyDesc
      * @throws DdlException
      */
-    private static void addPartition(MTMV mtmv, PartitionItem partitionItem)
+    private static void addPartition(MTMV mtmv, PartitionKeyDesc oldPartitionKeyDesc)
             throws DdlException {
-        PartitionKeyDesc oldPartitionKeyDesc = partitionItem.toPartitionKeyDesc();
         Map<String, String> partitionProperties = Maps.newHashMap();
         SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
                 generatePartitionName(oldPartitionKeyDesc),
