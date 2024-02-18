@@ -1042,10 +1042,12 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
-    // for safety reason, only support DUP_KEYS
-    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
+    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS &&
+        !(_opts.tablet_schema->keys_type() == UNIQUE_KEYS &&
+          _opts.enable_unique_key_merge_on_write)) {
         return true;
     }
+
     if (_output_columns.count(-1)) {
         // if _output_columns contains -1, it means that the light
         // weight schema change may not be enabled or other reasons
@@ -2447,7 +2449,9 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
 
 bool SegmentIterator::_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
                                           size_t nrows_read) {
-    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
+    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS &&
+        !(_opts.tablet_schema->keys_type() == UNIQUE_KEYS &&
+          _opts.enable_unique_key_merge_on_write)) {
         return false;
     }
 
