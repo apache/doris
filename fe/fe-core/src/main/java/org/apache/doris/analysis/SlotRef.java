@@ -215,7 +215,9 @@ public class SlotRef extends Expr {
     @Override
     public void computeOutputColumn(Analyzer analyzer) {
         outputColumn = desc.getSlotOffset();
-        LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
+        }
     }
 
     @Override

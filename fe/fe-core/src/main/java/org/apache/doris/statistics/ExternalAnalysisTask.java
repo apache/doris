@@ -95,11 +95,15 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         StringSubstitutor stringSubstitutor;
         if (tableSample == null) {
             // Do full analyze
-            LOG.debug("Will do full collection for column {}", col.getName());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Will do full collection for column {}", col.getName());
+            }
             sb.append(COLLECT_COL_STATISTICS);
         } else {
             // Do sample analyze
-            LOG.debug("Will do sample collection for column {}", col.getName());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Will do sample collection for column {}", col.getName());
+            }
             boolean limitFlag = false;
             boolean bucketFlag = false;
             // If sample size is too large, use limit to control the sample size.

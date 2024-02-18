@@ -127,8 +127,10 @@ public class HiveBucketUtil {
                 int bucketId = bucket.getAsInt();
                 if (bucketId >= numBuckets) {
                     valid = false;
-                    LOG.debug("Hive table {} is corrupt for file {}(bucketId={}), skip bucket pruning.",
-                            tableName, fileName, bucketId);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Hive table {} is corrupt for file {}(bucketId={}), skip bucket pruning.",
+                                tableName, fileName, bucketId);
+                    }
                     break;
                 }
                 if (buckets.contains(bucketId)) {
@@ -136,13 +138,18 @@ public class HiveBucketUtil {
                 }
             } else {
                 valid = false;
-                LOG.debug("File {} is not a bucket file in hive table {}, skip bucket pruning.", fileName, tableName);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("File {} is not a bucket file in hive table {}, skip bucket pruning.",
+                            fileName, tableName);
+                }
                 break;
             }
         }
         if (valid) {
-            LOG.debug("{} / {} input splits in hive table {} after bucket pruning.",
-                    result.size(), splits.size(), tableName);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("{} / {} input splits in hive table {} after bucket pruning.",
+                        result.size(), splits.size(), tableName);
+            }
             return result;
         } else {
             return splits;

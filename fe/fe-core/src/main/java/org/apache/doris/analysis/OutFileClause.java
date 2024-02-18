@@ -588,7 +588,9 @@ public class OutFileClause {
         }
 
         if (processedPropKeys.size() != properties.size()) {
-            LOG.debug("{} vs {}", processedPropKeys, properties);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("{} vs {}", processedPropKeys, properties);
+            }
             throw new AnalysisException("Unknown properties: " + properties.keySet().stream()
                     .filter(k -> !processedPropKeys.contains(k)).collect(Collectors.toList()));
         }

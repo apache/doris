@@ -90,8 +90,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         if (!ctasQuery.isPresent()) {
             createTableInfo.validate(ctx);
             CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
-            LOG.debug("Nereids start to execute the create table command, query id: {}, tableName: {}",
-                    ctx.queryId(), createTableInfo.getTableName());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Nereids start to execute the create table command, query id: {}, tableName: {}",
+                        ctx.queryId(), createTableInfo.getTableName());
+            }
             try {
                 Env.getCurrentEnv().createTable(createTableStmt);
             } catch (Exception e) {
@@ -140,8 +142,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         }
         createTableInfo.validateCreateTableAsSelect(columnsOfQuery.build(), ctx);
         CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
-        LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
-                ctx.queryId(), createTableInfo.getTableName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
+                    ctx.queryId(), createTableInfo.getTableName());
+        }
         try {
             Env.getCurrentEnv().createTable(createTableStmt);
         } catch (Exception e) {

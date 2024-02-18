@@ -768,13 +768,19 @@ public class NativeInsertStmt extends InsertStmt {
 
         if (LOG.isDebugEnabled()) {
             for (Expr expr : queryStmt.getResultExprs()) {
-                LOG.debug("final result expr: {}, {}", expr, System.identityHashCode(expr));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("final result expr: {}, {}", expr, System.identityHashCode(expr));
+                }
             }
             for (Expr expr : queryStmt.getBaseTblResultExprs()) {
-                LOG.debug("final base table result expr: {}, {}", expr, System.identityHashCode(expr));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("final base table result expr: {}, {}", expr, System.identityHashCode(expr));
+                }
             }
             for (String colLabel : queryStmt.getColLabels()) {
-                LOG.debug("final col label: {}", colLabel);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("final col label: {}", colLabel);
+                }
             }
         }
     }
@@ -1194,7 +1200,9 @@ public class NativeInsertStmt extends InsertStmt {
         olapTable.readLock();
         try {
             if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
-                LOG.debug("reuse group commit plan, table={}", olapTable);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("reuse group commit plan, table={}", olapTable);
+                }
                 reuseGroupCommitPlan = true;
                 return groupCommitPlanner;
             }

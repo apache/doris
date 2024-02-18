@@ -620,4 +620,3 @@ public class GsonUtils {
     }
 
 }
-

@@ -65,6 +65,3 @@ public class Column {
         return value;
     }
 }
-
-
-

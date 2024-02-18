@@ -446,8 +446,10 @@ public class MaterializedViewHandler extends AlterHandler {
 
             mvJob.addMVIndex(partitionId, mvIndex);
 
-            LOG.debug("create materialized view index {} based on index {} in partition {}",
-                    mvIndexId, baseIndexId, partitionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("create materialized view index {} based on index {} in partition {}",
+                        mvIndexId, baseIndexId, partitionId);
+            }
         } // end for partitions
 
         LOG.info("finished to create materialized view job: {}", mvJob.getJobId());
@@ -608,7 +610,9 @@ public class MaterializedViewHandler extends AlterHandler {
                 column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
             });
         }
-        LOG.debug("lightSchemaChange:{}, newMVColumns:{}", olapTable.getEnableLightSchemaChange(), newMVColumns);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("lightSchemaChange:{}, newMVColumns:{}", olapTable.getEnableLightSchemaChange(), newMVColumns);
+        }
         return newMVColumns;
     }
 
@@ -852,8 +856,11 @@ public class MaterializedViewHandler extends AlterHandler {
                 column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
             });
         }
-        LOG.debug("lightSchemaChange:{}, rollupSchema:{}, baseSchema:{}",
-                olapTable.getEnableLightSchemaChange(), rollupSchema, olapTable.getSchemaByIndexId(baseIndexId, true));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("lightSchemaChange:{}, rollupSchema:{}, baseSchema:{}",
+                    olapTable.getEnableLightSchemaChange(), rollupSchema,
+                    olapTable.getSchemaByIndexId(baseIndexId, true));
+        }
         return rollupSchema;
     }
 
@@ -1126,9 +1133,11 @@ public class MaterializedViewHandler extends AlterHandler {
                 tableRunningJobSet.add(jobId);
                 shouldJobRun = true;
             } else {
-                LOG.debug("number of running alter job {} in table {} exceed limit {}. job {} is suspended",
-                        tableRunningJobSet.size(), rollupJobV2.getTableId(),
-                        Config.max_running_rollup_job_num_per_table, rollupJobV2.getJobId());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("number of running alter job {} in table {} exceed limit {}. job {} is suspended",
+                            tableRunningJobSet.size(), rollupJobV2.getTableId(),
+                            Config.max_running_rollup_job_num_per_table, rollupJobV2.getJobId());
+                }
                 shouldJobRun = false;
             }
         }

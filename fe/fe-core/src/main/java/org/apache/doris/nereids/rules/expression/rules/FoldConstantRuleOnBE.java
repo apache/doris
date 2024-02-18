@@ -228,7 +228,9 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                         } else {
                             ret = constMap.get(e1.getKey());
                         }
-                        LOG.debug("Be constant folding convert {} to {}", e1.getKey(), ret);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Be constant folding convert {} to {}", e1.getKey(), ret);
+                        }
                         resultMap.put(e1.getKey(), ret);
                     }
                 }
@@ -244,4 +246,3 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
         return resultMap;
     }
 }
-
