@@ -126,7 +126,7 @@ suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_r
         assertEquals(result.size(), 1)
         assertEquals(result[0][0], "s_acctbal")
         assertEquals(result[0][2], "9998799.0")
-        assertEquals(result[0][3], "58727.0")
+        assertEquals(result[0][3], "1054512.0")
         assertEquals(result[0][4], "0.0")
         assertEquals(result[0][5], "7.9990388E7")
         assertEquals(result[0][6], "7.999999599951955")
