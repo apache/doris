@@ -154,6 +154,7 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
             _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
             _file_writer_impl));
+    RETURN_IF_ERROR(_file_writer_impl->open());
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         // just use file writer is enough

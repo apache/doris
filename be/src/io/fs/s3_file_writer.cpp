@@ -189,16 +189,32 @@ Status S3FileWriter::close() {
         return _st;
     }
     VLOG_DEBUG << "S3FileWriter::close, path: " << _path.native();
-    // it might be one file less than 5MB, we do upload here
-    if (_pending_buf != nullptr) {
-        if (_upload_id.empty()) {
+
+    if (_upload_id.empty()) {
+        if (_pending_buf != nullptr) {
+            // it might be one file less than 5MB, we do upload here
             _pending_buf->set_upload_remote_callback(
                     [this, buf = _pending_buf]() { _put_object(*buf); });
+        } else {
+            // if there is no pending buffer, we need to create an empty file
+            _pending_buf = S3FileBufferPool::GetInstance()->allocate();
+            // if there is no upload id, we need to create a new one
+            _pending_buf->set_upload_remote_callback(
+                    [this, buf = _pending_buf]() { _put_object(*buf); });
+            _pending_buf->set_finish_upload([this]() { _countdown_event.signal(); });
+            _pending_buf->set_is_cancel([this]() { return _failed.load(); });
+            _pending_buf->set_on_failed([this](Status st) {
+                VLOG_NOTICE << "failed at key: " << _key << ", status: " << st.to_string();
+                std::unique_lock<std::mutex> _lck {_completed_lock};
+                this->_st = std::move(st);
+                _failed = true;
+            });
         }
-        _countdown_event.add_count();
-        _pending_buf->submit();
-        _pending_buf = nullptr;
     }
+    _countdown_event.add_count();
+    _pending_buf->submit();
+    _pending_buf = nullptr;
+
     RETURN_IF_ERROR(_complete());
 
     return Status::OK();
