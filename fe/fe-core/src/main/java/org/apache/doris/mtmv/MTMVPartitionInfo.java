@@ -98,12 +98,12 @@ public class MTMVPartitionInfo {
         }
         List<Column> partitionColumns = getRelatedTable().getPartitionColumns();
         for (int i = 0; i < partitionColumns.size(); i++) {
-            if (partitionColumns.get(i).getName().equalsIgnoreCase(partitionCol)) {
+            if (partitionColumns.get(i).getName().equalsIgnoreCase(relatedCol)) {
                 return i;
             }
         }
         throw new AnalysisException(
-                String.format("getRelatedColPos error, partitionCol: %s, partitionColumns: %s", partitionCol,
+                String.format("getRelatedColPos error, relatedCol: %s, partitionColumns: %s", relatedCol,
                         partitionColumns));
     }
 

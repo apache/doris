@@ -322,7 +322,7 @@ public class CreateMTMVInfo {
         List<AllPartitionDesc> allPartitionDescs = null;
         try {
             allPartitionDescs = MTMVPartitionUtil
-                    .getPartitionDescsByRelatedTable(relatedTable, properties);
+                    .getPartitionDescsByRelatedTable(relatedTable, properties, mvPartitionInfo.getRelatedCol());
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException("getPartitionDescsByRelatedTable failed", e);
         }

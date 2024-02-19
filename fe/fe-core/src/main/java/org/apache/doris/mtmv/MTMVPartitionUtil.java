@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -91,7 +92,8 @@ public class MTMVPartitionUtil {
     public static void alignMvPartition(MTMV mtmv, MTMVRelatedTableIf relatedTable)
             throws DdlException, AnalysisException {
         Map<Long, PartitionKeyDesc> mtmvPartitionDescs = transMTMVItemsToDescs(mtmv.getPartitionItems());
-        Set<PartitionKeyDesc> relatedPartitionDescs = transRelatedItemsToDescs(mtmv, relatedTable.getPartitionItems())
+        Set<PartitionKeyDesc> relatedPartitionDescs = transRelatedItemsToDescs(
+                mtmv.getMvPartitionInfo().getRelatedColPos(), relatedTable.getPartitionItems())
                 .keySet();
         // drop partition of mtmv
         for (Entry<Long, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
@@ -108,9 +110,8 @@ public class MTMVPartitionUtil {
         }
     }
 
-    public static Map<PartitionKeyDesc, Set<Long>> transRelatedItemsToDescs(MTMV mtmv,
+    public static Map<PartitionKeyDesc, Set<Long>> transRelatedItemsToDescs(int pos,
             Map<Long, PartitionItem> relatedPartitionItems) throws AnalysisException {
-        int pos = mtmv.getMvPartitionInfo().getRelatedColPos();
         Map<PartitionKeyDesc, Set<Long>> res = new HashMap<>();
         for (Entry<Long, PartitionItem> entry : relatedPartitionItems.entrySet()) {
             PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(pos);
@@ -143,24 +144,38 @@ public class MTMVPartitionUtil {
      *
      * @param relatedTable
      * @param tableProperties
+     * @param relatedCol
      * @return
      * @throws AnalysisException
      */
     public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(MTMVRelatedTableIf relatedTable,
-            Map<String, String> tableProperties) throws AnalysisException {
+            Map<String, String> tableProperties, String relatedCol) throws AnalysisException {
         HashMap<String, String> partitionProperties = Maps.newHashMap();
         List<AllPartitionDesc> res = Lists.newArrayList();
-        Map<Long, PartitionItem> relatedTableItems = relatedTable.getPartitionItems();
-        for (Entry<Long, PartitionItem> entry : relatedTableItems.entrySet()) {
-            PartitionKeyDesc oldPartitionKeyDesc = entry.getValue().toPartitionKeyDesc();
+        Set<PartitionKeyDesc> relatedPartitionDescs = transRelatedItemsToDescs(getPos(relatedTable, relatedCol),
+                relatedTable.getPartitionItems())
+                .keySet();
+        for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
             SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
-                    generatePartitionName(oldPartitionKeyDesc),
-                    oldPartitionKeyDesc, partitionProperties);
+                    generatePartitionName(partitionKeyDesc),
+                    partitionKeyDesc, partitionProperties);
             // mtmv can only has one partition col
             singlePartitionDesc.analyze(1, tableProperties);
             res.add(singlePartitionDesc);
         }
         return res;
+    }
+
+    private static int getPos(MTMVRelatedTableIf relatedTable, String relatedCol) throws AnalysisException {
+        List<Column> partitionColumns = relatedTable.getPartitionColumns();
+        for (int i = 0; i < partitionColumns.size(); i++) {
+            if (partitionColumns.get(i).getName().equalsIgnoreCase(relatedCol)) {
+                return i;
+            }
+        }
+        throw new AnalysisException(
+                String.format("getRelatedColPos error, partitionCol: %s, partitionColumns: %s", relatedCol,
+                        partitionColumns));
     }
 
     public static List<String> getPartitionNamesByIds(MTMV mtmv, Collection<Long> ids) throws AnalysisException {
@@ -469,7 +484,8 @@ public class MTMVPartitionUtil {
     private static Set<Long> getMTMVPartitionRelatedPartitions(PartitionItem mtmvPartitionItem,
             MTMVRelatedTableIf relatedTable, MTMV mtmv) throws AnalysisException {
         PartitionKeyDesc mtmvPartitionKeyDesc = mtmvPartitionItem.toPartitionKeyDesc();
-        Map<PartitionKeyDesc, Set<Long>> partitionKeyDescSetMap = transRelatedItemsToDescs(mtmv,
+        Map<PartitionKeyDesc, Set<Long>> partitionKeyDescSetMap = transRelatedItemsToDescs(
+                mtmv.getMvPartitionInfo().getRelatedColPos(),
                 relatedTable.getPartitionItems());
         return partitionKeyDescSetMap.getOrDefault(mtmvPartitionKeyDesc, Sets.newHashSet());
     }
