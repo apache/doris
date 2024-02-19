@@ -17,8 +17,12 @@
 
 package org.apache.doris.catalog.external;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -46,6 +50,8 @@ import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.DoubleType;
 import io.trino.spi.type.IntegerType;
 import io.trino.spi.type.RealType;
+import io.trino.spi.type.RowType;
+import io.trino.spi.type.RowType.Field;
 import io.trino.spi.type.SmallintType;
 import io.trino.spi.type.TimestampType;
 import io.trino.spi.type.TimestampWithTimeZoneType;
@@ -53,6 +59,7 @@ import io.trino.spi.type.TinyintType;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -181,6 +188,27 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         } else if (type instanceof TimestampWithTimeZoneType) {
             TimestampWithTimeZoneType timestampWithTimeZoneType = (TimestampWithTimeZoneType) type;
             return ScalarType.createDatetimeV2Type(timestampWithTimeZoneType.getPrecision());
+        } else if (type instanceof io.trino.spi.type.ArrayType) {
+            Type elementType = trinoConnectorPrimitiveTypeToDorisType(
+                    ((io.trino.spi.type.ArrayType) type).getElementType());
+            return ArrayType.create(elementType, true);
+        } else if (type instanceof io.trino.spi.type.MapType) {
+            Type keyType = trinoConnectorPrimitiveTypeToDorisType(
+                    ((io.trino.spi.type.MapType) type).getKeyType());
+            Type valueType = trinoConnectorPrimitiveTypeToDorisType(
+                    ((io.trino.spi.type.MapType) type).getValueType());
+            return new MapType(keyType, valueType, true, true);
+        } else if (type instanceof RowType) {
+            ArrayList<StructField> dorisFields = Lists.newArrayList();
+            for(Field field : ((RowType) type).getFields()) {
+                Type childType = trinoConnectorPrimitiveTypeToDorisType(field.getType());
+                if (field.getName().isPresent()) {
+                    dorisFields.add(new StructField(field.getName().get(), childType));
+                } else {
+                    dorisFields.add(new StructField(childType));
+                }
+            }
+            return new StructType(dorisFields);
         } else {
             throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }

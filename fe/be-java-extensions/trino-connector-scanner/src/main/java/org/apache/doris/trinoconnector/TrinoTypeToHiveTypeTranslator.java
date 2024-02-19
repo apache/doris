@@ -17,6 +17,7 @@
 
 package org.apache.doris.trinoconnector;
 
+import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.BigintType;
 import io.trino.spi.type.BooleanType;
 import io.trino.spi.type.CharType;
@@ -24,6 +25,8 @@ import io.trino.spi.type.DateType;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.DoubleType;
 import io.trino.spi.type.IntegerType;
+import io.trino.spi.type.MapType;
+import io.trino.spi.type.RowType;
 import io.trino.spi.type.SmallintType;
 import io.trino.spi.type.TimestampType;
 import io.trino.spi.type.TimestampWithTimeZoneType;
@@ -74,6 +77,34 @@ public final class TrinoTypeToHiveTypeTranslator
             return "timestamp";
         } else if (type instanceof TimestampWithTimeZoneType) {
             return "timestamp";
+        } else if (type instanceof ArrayType) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("array<")
+                    .append(fromTrinoTypeToHiveType(((ArrayType) type).getElementType()))
+                    .append(">");
+            return sb.toString();
+        } else if (type instanceof MapType) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("map<")
+                    .append(fromTrinoTypeToHiveType(((MapType) type).getKeyType()))
+                    .append(",")
+                    .append(fromTrinoTypeToHiveType(((MapType) type).getValueType()));
+            sb.append(">");
+            return sb.toString();
+        } else if (type instanceof RowType) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("struct<");
+            for (int i = 0; i < type.getTypeParameters().size(); ++i) {
+                if (i != 0) {
+                    sb.append(",");
+                }
+                Type field = type.getTypeParameters().get(i);
+                sb.append(field.getDisplayName())
+                        .append(":")
+                        .append(fromTrinoTypeToHiveType(field));
+            }
+            sb.append(">");
+            return sb.toString();
         } else {
             throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }

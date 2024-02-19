@@ -189,6 +189,9 @@ public class TrinoConnectorJniScanner extends JniScanner {
                 // assure the page is in memory before handing to another operator
                 page = page.getLoadedPage();
             }
+            if (page.getPositionCount() == 0) {
+                break;
+            }
             for (int i = 0; i < page.getChannelCount(); ++i) {
                 Block block = page.getBlock(i);
                 columnValue.setBlock(block);

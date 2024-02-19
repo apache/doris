@@ -43,9 +43,8 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTrinoConnectorFileDesc;
 
 import com.fasterxml.jackson.databind.Module;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.concurrent.MoreFutures;
 import io.airlift.concurrent.Threads;
@@ -128,13 +127,13 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
                 DynamicFilter.EMPTY,
                 Constraint.alwaysTrue());
         // 4. get trino.Splits and convert it to doris.Splits
-        Builder<Split> splitsBuilder = ImmutableList.builder();
+        List<Split> splits = Lists.newArrayList();
         while (!splitSource.isFinished()) {
             for (io.trino.metadata.Split split : getNextSplitBatch(splitSource)) {
-                splitsBuilder.add(new TrinoConnectorSplit(split.getConnectorSplit()));
+                splits.add(new TrinoConnectorSplit(split.getConnectorSplit()));
             }
         }
-        return splitsBuilder.build();
+        return splits;
     }
 
     private SplitSource getTrinoSplitSource(Connector connector, Session session,

@@ -20,10 +20,15 @@ package org.apache.doris.trinoconnector;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 
+import io.trino.spi.block.ArrayBlock;
 import io.trino.spi.block.Block;
+import io.trino.spi.block.MapBlock;
+import io.trino.spi.block.RowBlock;
+import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.DateTimeEncoding;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.Decimals;
+import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 import io.trino.util.DateTimeUtils;
 import org.slf4j.Logger;
@@ -150,15 +155,58 @@ public class TrinoConnectorColumnValue implements ColumnValue {
         return block.getSlice(position, 0, block.getSliceLength(position)).getBytes();
     }
 
+    // block is ArrayBlock
     @Override
     public void unpackArray(List<ColumnValue> values) {
+        Block array = ((ArrayBlock) block).getArray(position);
+        for (int i = 0; i < array.getPositionCount(); ++i) {
+            TrinoConnectorColumnValue trinoColumnValue = new TrinoConnectorColumnValue();
+            trinoColumnValue.setBlock(array);
+            trinoColumnValue.setColumnType(dorisType.getChildTypes().get(0));
+            trinoColumnValue.setTrinoType(((ArrayType)trinoType).getElementType());
+            trinoColumnValue.setPosition(i);
+            values.add(trinoColumnValue);
+        }
     }
 
+    // block is MapBlock
     @Override
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
+        MapBlock singleMapBlock = ((MapBlock) block).getSingleValueBlock(position);
+
+        // add key ColumnValue
+        Block keyBlock = singleMapBlock.getChildren().get(0);
+        for (int i = 0; i < keyBlock.getPositionCount(); ++i) {
+            TrinoConnectorColumnValue trinoColumnValue = new TrinoConnectorColumnValue();
+            trinoColumnValue.setBlock(keyBlock);
+            trinoColumnValue.setColumnType(dorisType.getChildTypes().get(0));
+            trinoColumnValue.setTrinoType(((MapType)trinoType).getKeyType());
+            trinoColumnValue.setPosition(i);
+            keys.add(trinoColumnValue);
+        }
+
+        // add value ColumnValue
+        Block valueBlock = singleMapBlock.getChildren().get(1);
+        for (int i = 0; i < valueBlock.getPositionCount(); ++i) {
+            TrinoConnectorColumnValue trinoColumnValue = new TrinoConnectorColumnValue();
+            trinoColumnValue.setBlock(valueBlock);
+            trinoColumnValue.setColumnType(dorisType.getChildTypes().get(1));
+            trinoColumnValue.setTrinoType(((MapType)trinoType).getValueType());
+            trinoColumnValue.setPosition(i);
+            values.add(trinoColumnValue);
+        }
     }
 
+    // block is RowBlock
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
+        for (int i : structFieldIndex) {
+            TrinoConnectorColumnValue trinoColumnValue = new TrinoConnectorColumnValue();
+            trinoColumnValue.setBlock(((RowBlock) block).getFieldBlock(i));
+            trinoColumnValue.setColumnType(dorisType.getChildTypes().get(i));
+            trinoColumnValue.setTrinoType(trinoType.getTypeParameters().get(i));
+            trinoColumnValue.setPosition(position);
+            values.add(trinoColumnValue);
+        }
     }
 }
