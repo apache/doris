@@ -26,6 +26,7 @@
 #include <tuple>
 #include <utility>
 
+#include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
@@ -505,6 +506,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
                                                 BaseTabletSPtr new_tablet,
                                                 TabletSchemaSPtr base_tablet_schema,
                                                 TabletSchemaSPtr new_tablet_schema) {
+    LOG_INFO("lightman VBaseSchemaChangeWithSorting::_inner_process");
     // for internal sorting
     std::vector<std::unique_ptr<vectorized::Block>> blocks;
 
@@ -512,7 +514,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
     SegmentsOverlapPB segments_overlap = rowset->rowset_meta()->segments_overlap();
     int64_t newest_write_timestamp = rowset->newest_write_timestamp();
     _temp_delta_versions.first = _temp_delta_versions.second;
-
+    _src_rowsets.clear(); // init _src_rowsets
     auto create_rowset = [&]() -> Status {
         if (blocks.empty()) {
             return Status::OK();
@@ -586,6 +588,7 @@ Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
         const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
         int64_t newest_write_timestamp, BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
         SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema) {
+    LOG_INFO("lightman VBaseSchemaChangeWithSorting::_inner_process");
     uint64_t merged_rows = 0;
     MultiBlockMerger merger(new_tablet);
     RowsetWriterContext context;
@@ -611,6 +614,39 @@ Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
     return rowset;
 }
 
+Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
+        const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
+        int64_t newest_write_timestamp, BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
+        SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema) {
+    
+    uint64_t merged_rows = 0;
+    MultiBlockMerger merger(new_tablet);
+    RowsetWriterContext context;
+    context.version = version;
+    context.rowset_state = VISIBLE;
+    context.segments_overlap = segments_overlap;
+    context.tablet_schema = new_tablet_schema;
+    context.original_tablet_schema = new_tablet_schema;
+    context.newest_write_timestamp = newest_write_timestamp;
+    context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    // TODO(plat1ko): Use monad op
+    if (auto result = new_tablet->create_rowset_writer(context, false); !result.has_value())
+            [[unlikely]] {
+        return unexpected(std::move(result).error());
+    } else {
+        rowset_writer = std::move(result).value();
+    }
+    auto guard = _local_storage_engine.pending_local_rowsets().add(context.rowset_id);
+    _pending_rs_guards.push_back(std::move(guard));
+    RETURN_IF_ERROR_RESULT(merger.merge(blocks, rowset_writer.get(), &merged_rows));
+    LOG_INFO("lightman _internal_sorting").tag("merged_rows", merged_rows);
+    _add_merged_rows(merged_rows);
+    RowsetSharedPtr rowset;
+    RETURN_IF_ERROR_RESULT(rowset_writer->build(rowset));
+    return rowset;
+}
+
 Status VBaseSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_rowsets,
                                                    RowsetWriter* rowset_writer,
                                                    BaseTabletSPtr new_tablet,
@@ -625,6 +661,8 @@ Status VBaseSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& 
     Merger::Statistics stats;
     RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
                                            *new_tablet_schema, rs_readers, rowset_writer, &stats));
+    LOG_INFO("lightman _external_sorting").tag("merged_rows", stats.merged_rows)
+            .tag("src_rowsets len", src_rowsets.size());
     _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);
     return Status::OK();
@@ -639,22 +677,10 @@ Status VLocalSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowse
             _local_storage_engine.add_unused_rowset(row_set);
         }
     }};
+    _pending_rs_guards.clear();
+    LOG_INFO("lightman VLocalSchemaChangeWithSorting::_inner_process");
     return VBaseSchemaChangeWithSorting::_inner_process(rowset_reader, rowset_writer, new_tablet,
             base_tablet_schema, new_tablet_schema);
-}
-
-Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
-        const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
-        const Version& temp_delta_versions, int64_t newest_write_timestamp,
-        BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
-        SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema) {
-    auto res = VBaseSchemaChangeWithSorting::_internal_sorting(blocks, temp_delta_versions, newest_write_timestamp,
-            new_tablet, new_rowset_type, segments_overlap, new_tablet_schema);
-    if (res.has_value()) {
-        auto guard = _local_storage_engine.pending_local_rowsets().add(res.value()->rowset_id());
-        _pending_rs_guards.push_back(std::move(guard));
-    }
-    return res;
 }
 
 Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
@@ -762,8 +788,6 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     // delete handlers for new tablet
     DeleteHandler delete_handler;
     std::vector<ColumnId> return_columns;
-    // Create a new tablet schema, should merge with dropped columns in light weight schema change
-    TabletSchemaSPtr base_tablet_schema = std::make_shared<TabletSchema>();
 
     // Use tablet schema directly from base tablet, they are the newest schema, not contain
     // dropped column during light weight schema change.
@@ -858,10 +882,10 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
                 if (!rs_meta->has_delete_predicate() || rs_meta->start_version() > end_version) {
                     continue;
                 }
-                base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
+                _base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
                 del_preds.push_back(rs_meta);
             }
-            res = delete_handler.init(base_tablet_schema, del_preds, end_version);
+            res = delete_handler.init(_base_tablet_schema, del_preds, end_version);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
                              << _base_tablet->tablet_id() << ", end_version=" << end_version;
@@ -1060,7 +1084,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
 
     // c.Convert historical data
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {
-        VLOG_TRACE << "begin to convert a history rowset. version=" << rs_reader->version().first
+        LOG(INFO) << "lightman begin to convert a history rowset. version=" << rs_reader->version().first
                    << "-" << rs_reader->version().second;
 
         // set status for monitor
@@ -1402,7 +1426,12 @@ Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version)
 
 Status SchemaChangeJob::execute_schema_change_job(const TAlterTabletReqV2& request) {
     Status st;
-    if (!config::is_cloud_mode()) {
+    if (config::is_cloud_mode()) {
+        DCHECK(request.__isset.job_id);
+        CloudSchemaChangeJob job(ExecEnv::GetInstance()->storage_engine().to_cloud(), 
+                std::to_string(request.job_id), request.expiration);
+        st = job.process_alter_tablet(request);
+    } else {
         SchemaChangeJob job(ExecEnv::GetInstance()->storage_engine().to_local(), request);
         st = job.process_alter_tablet(request);
     }

@@ -5,7 +5,6 @@
 
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_meta_mgr.h"
-// #include "cloud/utils.h"
 #include "common/status.h"
 #include "olap/delete_handler.h"
 #include "olap/rowset/beta_rowset.h"
@@ -17,7 +16,7 @@
 #include "olap/tablet_meta.h"
 #include "service/backend_options.h"
 
-namespace doris::cloud {
+namespace doris {
 using namespace ErrorCode;
 
 static constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
@@ -332,4 +331,4 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     }
     return Status::OK();
 }
-} // namespace doris::cloud
+} // namespace doris

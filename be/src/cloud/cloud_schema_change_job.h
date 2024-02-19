@@ -7,7 +7,7 @@
 #include "cloud/cloud_tablet.h"
 #include "olap/tablet_fwd.h"
 
-namespace doris::cloud {
+namespace doris {
 
 class CloudSchemaChangeJob {
 public:
@@ -28,8 +28,8 @@ private:
     TabletSchemaSPtr _new_tablet_schema;
     std::string _job_id;
     std::vector<RowsetSharedPtr> _output_rowsets;
-    int64_t _output_cumulative_point;
+    int64_t _output_cumulative_point = 0;
     int64_t _expiration;
 };
 
-} // namespace doris::cloud
+} // namespace doris
