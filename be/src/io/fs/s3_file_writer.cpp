@@ -52,19 +52,16 @@
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
+#include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/s3_util.h"
 
-namespace Aws {
-namespace S3 {
-namespace Model {
+namespace Aws::S3::Model {
 class DeleteObjectRequest;
-} // namespace Model
-} // namespace S3
-} // namespace Aws
+} // namespace Aws::S3::Model
 
 using Aws::S3::Model::AbortMultipartUploadRequest;
 using Aws::S3::Model::CompletedPart;
@@ -74,8 +71,7 @@ using Aws::S3::Model::CreateMultipartUploadRequest;
 using Aws::S3::Model::UploadPartRequest;
 using Aws::S3::Model::UploadPartOutcome;
 
-namespace doris {
-namespace io {
+namespace doris::io {
 using namespace Aws::S3::Model;
 using Aws::S3::S3Client;
 
@@ -126,8 +122,8 @@ Status S3FileWriter::_create_multi_upload_request() {
                 _bucket, _path.native(), _upload_id);
     });
 
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
     auto outcome = _client->CreateMultipartUpload(create_request);
-    s3_bvar::s3_multi_part_upload_total << 1;
 
     if (outcome.IsSuccess()) {
         _upload_id = outcome.GetResult().GetUploadId();
@@ -176,8 +172,8 @@ Status S3FileWriter::_abort() {
     _wait_until_finish("Abort");
     AbortMultipartUploadRequest request;
     request.WithBucket(_bucket).WithKey(_key).WithUploadId(_upload_id);
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
     auto outcome = _client->AbortMultipartUpload(request);
-    s3_bvar::s3_multi_part_upload_total << 1;
     if (outcome.IsSuccess() ||
         outcome.GetError().GetErrorType() == Aws::S3::S3Errors::NO_SUCH_UPLOAD ||
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
@@ -325,10 +321,11 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
     upload_request.SetContentLength(buf.get_size());
     upload_request.SetContentType("application/octet-stream");
 
-    auto upload_part_callable = _client->UploadPartCallable(upload_request);
-    s3_bvar::s3_multi_part_upload_total << 1;
-
-    UploadPartOutcome upload_part_outcome = upload_part_callable.get();
+    UploadPartOutcome upload_part_outcome;
+    {
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
+        upload_part_outcome = _client->UploadPart(upload_request);
+    }
     DBUG_EXECUTE_IF("s3_file_writer::_upload_one_part", {
         if (part_num > 1) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -410,8 +407,8 @@ Status S3FileWriter::_complete() {
         LOG_WARNING(s.to_string());
         return s;
     });
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
     auto complete_outcome = _client->CompleteMultipartUpload(complete_request);
-    s3_bvar::s3_multi_part_upload_total << 1;
 
     if (!complete_outcome.IsSuccess()) {
         _st = s3fs_error(complete_outcome.GetError(),
@@ -461,8 +458,8 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         LOG(WARNING) << _st;
         return;
     });
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
     auto response = _client->PutObject(request);
-    s3_bvar::s3_put_total << 1;
     if (!response.IsSuccess()) {
         _st = s3fs_error(response.GetError(), fmt::format("failed to put object {}, upload_id={}",
                                                           _path.native(), _upload_id));
@@ -474,5 +471,4 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     s3_file_created_total << 1;
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io
