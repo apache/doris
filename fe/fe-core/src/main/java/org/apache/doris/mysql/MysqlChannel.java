@@ -75,7 +75,7 @@ public class MysqlChannel {
     protected boolean isSslHandshaking;
     private SSLEngine sslEngine;
 
-    protected volatile MysqlSerializer serializer;
+    protected volatile MysqlSerializer serializer = MysqlSerializer.newInstance();
 
     // mysql flag CLIENT_DEPRECATE_EOF
     private boolean clientDeprecatedEOF;
@@ -111,8 +111,6 @@ public class MysqlChannel {
             remoteHostPortString = connection.getPeerAddress().toString();
             remoteIp = connection.getPeerAddress().toString();
         }
-        // The serializer and buffers should only be created if this is a real MysqlChannel
-        this.serializer = MysqlSerializer.newInstance();
         this.defaultBuffer = ByteBuffer.allocate(16 * 1024);
         this.headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
         this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
