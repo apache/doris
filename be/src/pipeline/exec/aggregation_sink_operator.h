@@ -51,31 +51,6 @@ public:
     AggSinkDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AggSinkDependency", true, query_ctx) {}
     ~AggSinkDependency() override = default;
-
-    void set_ready() override {
-        if (_shared_state && _is_streaming_agg_state(_shared_state)) {
-            if (((SharedState*)_shared_state)->data_queue->has_enough_space_to_push()) {
-                Dependency::set_ready();
-            }
-        } else {
-            Dependency::set_ready();
-        }
-    }
-
-    void block() override {
-        if (_is_streaming_agg_state(_shared_state)) {
-            if (!((SharedState*)_shared_state)->data_queue->has_enough_space_to_push()) {
-                Dependency::block();
-            }
-        } else {
-            Dependency::block();
-        }
-    }
-
-private:
-    static bool _is_streaming_agg_state(const BasicSharedState* shared_state) {
-        return ((SharedState*)shared_state)->data_queue != nullptr;
-    }
 };
 
 template <typename LocalStateType>
@@ -98,6 +73,39 @@ protected:
 
     template <typename LocalStateType>
     friend class AggSinkOperatorX;
+
+    struct ExecutorBase {
+        virtual Status execute(AggSinkLocalState<DependencyType, Derived>* local_state,
+                               vectorized::Block* block) = 0;
+        virtual void update_memusage(AggSinkLocalState<DependencyType, Derived>* local_state) = 0;
+        virtual ~ExecutorBase() = default;
+    };
+    template <bool WithoutKey, bool NeedToMerge>
+    struct Executor final : public ExecutorBase {
+        Status execute(AggSinkLocalState<DependencyType, Derived>* local_state,
+                       vectorized::Block* block) override {
+            if constexpr (WithoutKey) {
+                if constexpr (NeedToMerge) {
+                    return local_state->_merge_without_key(block);
+                } else {
+                    return local_state->_execute_without_key(block);
+                }
+            } else {
+                if constexpr (NeedToMerge) {
+                    return local_state->_merge_with_serialized_key(block);
+                } else {
+                    return local_state->_execute_with_serialized_key(block);
+                }
+            }
+        }
+        void update_memusage(AggSinkLocalState<DependencyType, Derived>* local_state) override {
+            if constexpr (WithoutKey) {
+                local_state->_update_memusage_without_key();
+            } else {
+                local_state->_update_memusage_with_serialized_key();
+            }
+        }
+    };
 
     Status _execute_without_key(vectorized::Block* block);
     Status _merge_without_key(vectorized::Block* block);
@@ -322,15 +330,7 @@ protected:
     vectorized::AggregatedDataVariants* _agg_data = nullptr;
     vectorized::Arena* _agg_arena_pool = nullptr;
 
-    using vectorized_execute = std::function<Status(vectorized::Block* block)>;
-    using vectorized_update_memusage = std::function<void()>;
-
-    struct executor {
-        vectorized_execute execute;
-        vectorized_update_memusage update_memusage;
-    };
-
-    executor _executor;
+    std::unique_ptr<ExecutorBase> _executor = nullptr;
 };
 
 class BlockingAggSinkLocalState
@@ -343,6 +343,9 @@ public:
             : AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState>(parent, state) {}
     ~BlockingAggSinkLocalState() override = default;
 };
+
+class StreamingAggSinkDependency;
+class StreamingAggSinkLocalState;
 
 template <typename LocalStateType = BlockingAggSinkLocalState>
 class AggSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
