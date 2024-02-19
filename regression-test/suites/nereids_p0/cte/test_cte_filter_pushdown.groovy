@@ -18,6 +18,7 @@ suite("test_cte_filter_pushdown") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_pipeline_engine=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set disable_join_reorder=true"
     sql "set enable_runtime_filter_prune=false"
     // CTE filter pushing down with the same filter
     qt_cte_filter_pushdown_1 """
@@ -43,5 +44,24 @@ suite("test_cte_filter_pushdown") {
                where m1.k1 = m2.k1
            ) temp
            where k1 = 1;
+    """
+    qt_cte_filter_pushdown_3 """
+            explain shape plan
+            with tmp as (
+                select 
+                    k1,
+                    k3,
+                    sum(k2) over (partition by l.k1 order by l.k3 ) pay_num
+                from ( select * from nereids_test_query_db.test)l
+            ),
+            tmp2 as (
+                select 
+                    tt.*
+                from 
+                tmp tt join (select k3 from nereids_test_query_db.baseall ) dd
+                on tt.k3=dd.k3
+            )
+            SELECT * from tmp2
+            where k3=0 and k1=1;
     """
 }

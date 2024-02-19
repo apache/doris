@@ -38,6 +38,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -91,7 +92,17 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
 
             // 2. handle window's outputs and windowExprs
             // need to replace exprs with SlotReference in WindowSpec, due to LogicalWindow.getExpressions()
-            List<NamedExpression> normalizedOutputs1 = context.normalizeToUseSlotRef(outputs);
+
+            // because alias is pushed down to bottom project
+            // we need replace alias's child expr with corresponding alias's slot in output
+            // so create a customNormalizeMap alias's child -> alias.toSlot to do it
+            Map<Expression, Slot> customNormalizeMap = toBePushedDown.stream()
+                    .filter(expr -> expr instanceof Alias)
+                    .collect(Collectors.toMap(expr -> ((Alias) expr).child(), expr -> ((Alias) expr).toSlot(),
+                            (oldExpr, newExpr) -> oldExpr));
+
+            List<NamedExpression> normalizedOutputs1 = context.normalizeToUseSlotRef(outputs,
+                    (ctx, expr) -> customNormalizeMap.getOrDefault(expr, null));
             Set<WindowExpression> normalizedWindows =
                     ExpressionUtils.collect(normalizedOutputs1, WindowExpression.class::isInstance);
 
