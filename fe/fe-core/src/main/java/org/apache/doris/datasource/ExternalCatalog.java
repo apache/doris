@@ -538,12 +538,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void gsonPostProcess() throws IOException {
-//        dbNameToId = Maps.newConcurrentMap();
-//        for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
-//            dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
-//            db.setExtCatalog(this);
-//            db.setTableExtCatalog(this);
-//        }
         objectCreated = false;
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrade to the new version.
