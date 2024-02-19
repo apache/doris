@@ -882,5 +882,6 @@ template class AggSinkOperatorX<StreamingAggSinkLocalState>;
 template class AggSinkOperatorX<DistinctStreamingAggSinkLocalState>;
 template class AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState>;
 template class AggSinkLocalState<StreamingAggSinkDependency, StreamingAggSinkLocalState>;
-template class AggSinkLocalState<DistinctStreamingAggSinkDependency, DistinctStreamingAggSinkLocalState>;
+template class AggSinkLocalState<DistinctStreamingAggSinkDependency,
+                                 DistinctStreamingAggSinkLocalState>;
 } // namespace doris::pipeline
