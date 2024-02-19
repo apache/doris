@@ -111,18 +111,15 @@ public class S3Resource extends Resource {
         if (needCheck) {
             String bucketName = properties.get(S3Properties.BUCKET);
             String rootPath = properties.get(S3Properties.ROOT_PATH);
-            boolean available = pingS3(credential, bucketName, rootPath, properties);
-            if (!available) {
-                throw new DdlException("S3 can't use, please check your properties");
-            }
+            pingS3(credential, bucketName, rootPath, properties);
         }
         // optional
         S3Properties.optionalS3Property(properties);
         this.properties = properties;
     }
 
-    private static boolean pingS3(CloudCredentialWithEndpoint credential, String bucketName, String rootPath,
-                                  Map<String, String> properties) {
+    private static void pingS3(CloudCredentialWithEndpoint credential, String bucketName, String rootPath,
+            Map<String, String> properties) throws DdlException {
         String bucket = "s3://" + bucketName + "/";
         Map<String, String> propertiesPing = new HashMap<>();
         propertiesPing.put(S3Properties.Env.ACCESS_KEY, credential.getAccessKey());
@@ -136,24 +133,27 @@ public class S3Resource extends Resource {
         String testFile = bucket + rootPath + "/test-object-valid.txt";
         String content = "doris will be better";
         if (FeConstants.runningUnitTest) {
-            return true;
+            return;
         }
+        Status status = Status.OK;
         try {
-            Status status = fileSystem.directUpload(content, testFile);
+            status = fileSystem.directUpload(content, testFile);
             if (status != Status.OK) {
-                LOG.warn("ping update file status: {}, properties: {}", status, propertiesPing);
-                return false;
+                throw new DdlException(
+                        "ping s3 failed(upload), status: " + status + ", properties: " + new PrintableMap<>(
+                                propertiesPing, "=", true, false, true, false));
             }
         } finally {
-            Status delete = fileSystem.delete(testFile);
-            if (delete != Status.OK) {
-                LOG.warn("ping delete file status: {}, properties: {}", delete, propertiesPing);
-                return false;
+            if (status.ok()) {
+                Status delete = fileSystem.delete(testFile);
+                if (delete != Status.OK) {
+                    LOG.warn("delete test file failed, status: {}, properties: {}", delete, new PrintableMap<>(
+                            propertiesPing, "=", true, false, true, false));
+                }
             }
         }
 
         LOG.info("success to ping s3");
-        return true;
     }
 
     @Override
@@ -182,11 +182,7 @@ public class S3Resource extends Resource {
             String rootPath = properties.getOrDefault(S3Properties.ROOT_PATH,
                     this.properties.get(S3Properties.ROOT_PATH));
 
-            boolean available = pingS3(getS3PingCredentials(changedProperties),
-                        bucketName, rootPath, changedProperties);
-            if (!available) {
-                throw new DdlException("S3 can't use, please check your properties");
-            }
+            pingS3(getS3PingCredentials(changedProperties), bucketName, rootPath, changedProperties);
         }
 
         // modify properties
