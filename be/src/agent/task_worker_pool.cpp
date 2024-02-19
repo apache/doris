@@ -897,7 +897,6 @@ void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info)
 
     std::vector<DataDirInfo> data_dir_infos;
     static_cast<void>(engine.get_all_data_dir_info(&data_dir_infos, true /* update */));
-
     for (auto& root_path_info : data_dir_infos) {
         TDisk disk;
         disk.__set_root_path(root_path_info.path);

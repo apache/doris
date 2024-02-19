@@ -114,7 +114,7 @@ public:
 
     bool is_in_compound_value_range() const;
 
-    Status add_match_value(MatchType match_type, const CppType& value);
+    void add_match_value(MatchType match_type, const CppType& value);
 
     bool is_fixed_value_range() const;
 
@@ -146,7 +146,7 @@ public:
 
     bool has_intersection(ColumnValueRange<primitive_type>& range);
 
-    void intersection(ColumnValueRange<primitive_type>& range);
+    Status intersection(ColumnValueRange<primitive_type>& range);
 
     void set_empty_value_range() {
         _fixed_values.clear();
@@ -376,27 +376,27 @@ public:
 
     int scale() const { return _scale; }
 
-    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
-        static_cast<void>(range.add_fixed_value(*value));
+    static Status add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
+        RETURN_IF_ERROR(range.add_fixed_value(*value));
     }
 
     static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
         range.remove_fixed_value(*value);
     }
 
-    static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+    static Status add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                 CppType* value) {
-        static_cast<void>(range.add_range(op, *value));
+        RETURN_IF_ERROR(range.add_range(op, *value));
     }
 
-    static void add_compound_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+    static Status add_compound_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                          CppType* value) {
-        static_cast<void>(range.add_compound_value(op, *value));
+        RETURN_IF_ERROR(range.add_compound_value(op, *value));
     }
 
     static void add_match_value_range(ColumnValueRange<primitive_type>& range, MatchType match_type,
                                       CppType* match_value) {
-        static_cast<void>(range.add_match_value(match_type, *match_value));
+        range.add_match_value(match_type, *match_value);
     }
 
     static ColumnValueRange<primitive_type> create_empty_column_value_range(bool is_nullable_col,
@@ -606,7 +606,7 @@ Status ColumnValueRange<primitive_type>::add_compound_value(SQLFilterOp op, CppT
 }
 
 template <PrimitiveType primitive_type>
-Status ColumnValueRange<primitive_type>::add_match_value(MatchType match_type,
+void ColumnValueRange<primitive_type>::add_match_value(MatchType match_type,
                                                          const CppType& value) {
     std::pair<MatchType, CppType> match_value(match_type, value);
     _match_values.insert(match_value);
@@ -614,7 +614,6 @@ Status ColumnValueRange<primitive_type>::add_match_value(MatchType match_type,
 
     // _high_value = TYPE_MIN;
     // _low_value = TYPE_MAX;
-    return Status::OK();
 }
 
 template <PrimitiveType primitive_type>
@@ -968,7 +967,7 @@ bool ColumnValueRange<primitive_type>::is_in_range(const CppType& value) {
 }
 
 template <PrimitiveType primitive_type>
-void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_type>& range) {
+Status ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_type>& range) {
     // 1. clear if column type not match
     if (_column_type != range._column_type) {
         set_empty_value_range();
@@ -1012,7 +1011,7 @@ void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_t
             _low_value = TYPE_MAX;
         } else if (range.is_match_value_range()) {
             for (auto& value : range._match_values) {
-                static_cast<void>(add_match_value(value.first, value.second));
+                add_match_value(value.first, value.second);
             }
         } else {
             set_empty_value_range();
@@ -1024,8 +1023,8 @@ void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_t
                 set_contain_null(true);
             }
         } else {
-            static_cast<void>(add_range(range._high_op, range._high_value));
-            static_cast<void>(add_range(range._low_op, range._low_value));
+            RETURN_IF_ERROR(add_range(range._high_op, range._high_value));
+            RETURN_IF_ERROR(add_range(range._low_op, range._low_value));
         }
     }
 }
