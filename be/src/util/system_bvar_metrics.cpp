@@ -39,6 +39,8 @@
 
 namespace doris {
 
+const char* SystemBvarMetrics::s_hook_name_ = "system_metrics";
+
 #define DECLARE_INT64_BVAR_METRIC(name, type, unit, description, group_name, labels, core) \
     auto name = std::make_shared<BvarAdderMetric<int64_t>>(type, unit, #name, description, \
                                                            group_name, labels, core);
@@ -377,13 +379,15 @@ struct ProcBvarMetrics {
 const std::string SystemBvarMetrics::to_prometheus(const std::string& registry_name) {
     std::lock_guard<bthread::Mutex> l(mutex_);
     std::stringstream ss;
+    // update before output
+    update();
     for (auto& entities : entities_map_) {
         if (entities.second.empty()) {
             continue;
         }
         int count = 0;
         for (auto& entity : entities.second) {
-            entity->trigger_hook_unlocked(false);
+            // entity->trigger_hook_unlocked(false);
             if (!count) {
                 ss << "# TYPE " << registry_name << "_" << entity->entity_name_ << " "
                    << entity->metrics_type_ << "\n";
@@ -406,12 +410,14 @@ const std::string SystemBvarMetrics::to_core_string(const std::string& registry_
 void SystemBvarMetrics::to_json(rj::Document& doc, bool with_tablet_metrics) {
     rj::Document::AllocatorType& allocator = doc.GetAllocator();
     std::lock_guard<bthread::Mutex> l(mutex_);
+    // update before output
+    update();
     for (const auto& entities : entities_map_) {
         for(const auto& entity : entities.second) {
             // if (entity.first->_type == MetricEntityType::kTablet && !with_tablet_metrics) {
             //     continue;
             // }
-            entity->trigger_hook_unlocked(false);
+            // entity->trigger_hook_unlocked(false);
             for (const auto& metric : entity->metrics_) {
                 rj::Value metric_obj(rj::kObjectType);
                 // tags
@@ -452,7 +458,6 @@ SystemBvarMetrics::SystemBvarMetrics(const std::set<std::string>& disk_devices,
     install_load_avg_metrics();
     install_proc_metrics();
     install_max_metrics();
-    update();
 }
 
 SystemBvarMetrics::~SystemBvarMetrics() {

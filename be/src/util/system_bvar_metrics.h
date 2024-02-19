@@ -107,6 +107,8 @@ private:
 
     
 private:
+    static const char* s_hook_name_;
+
     std::map<std::string, CpuBvarMetrics*> cpu_metrics_;
     std::shared_ptr<MemoryBvarMetrics> memory_metrics_;
     std::map<std::string, DiskBvarMetrics*> disk_metrics_;
@@ -120,10 +122,10 @@ private:
     int proc_net_dev_version_ = 0;
     std::unordered_map<std::string, std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
 
-    std::shared_ptr<BvarAdderMetric<int64_t>> max_disk_io_util_percent = nullptr;
-    std::shared_ptr<BvarAdderMetric<int64_t>> max_network_send_bytes_rate = nullptr;
-    std::shared_ptr<BvarAdderMetric<int64_t>> max_network_receive_bytes_rate = nullptr;
-
+    std::shared_ptr<BvarAdderMetric<int64_t>> max_disk_io_util_percent;
+    std::shared_ptr<BvarAdderMetric<int64_t>> max_network_send_bytes_rate;
+    std::shared_ptr<BvarAdderMetric<int64_t>> max_network_receive_bytes_rate;
+    
     bthread::Mutex mutex_;
 };
 } // namespace doris
