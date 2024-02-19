@@ -133,19 +133,21 @@ public class S3Resource extends Resource {
         if (FeConstants.runningUnitTest) {
             return;
         }
+        Status status = Status.OK;
         try {
-            Status status = fileSystem.directUpload(content, testFile);
+            status = fileSystem.directUpload(content, testFile);
             if (status != Status.OK) {
                 throw new DdlException(
                         "ping s3 failed(upload), status: " + status + ", properties: " + new PrintableMap<>(
                                 propertiesPing, "=", true, false, true, false));
             }
         } finally {
-            Status delete = fileSystem.delete(testFile);
-            if (delete != Status.OK) {
-                throw new DdlException(
-                        "ping s3 failed(delete), status: " + delete + ", properties: " + new PrintableMap<>(
-                                propertiesPing, "=", true, false, true, false));
+            if (status.ok()) {
+                Status delete = fileSystem.delete(testFile);
+                if (delete != Status.OK) {
+                    LOG.warn("delete test file failed, status: {}, properties: {}", delete, new PrintableMap<>(
+                            propertiesPing, "=", true, false, true, false));
+                }
             }
         }
 
