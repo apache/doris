@@ -776,9 +776,4 @@ public class GlobalTransactionMgr implements Writable {
             throws AnalysisException {
         getDatabaseTransactionMgr(dbId).updateMultiTableRunningTransactionTableIds(transactionId, tableIds);
     }
-
-    public void putTransactionTableNames(Long dbId, Long transactionId, List<Long> tableIds)
-            throws AnalysisException {
-        getDatabaseTransactionMgr(dbId).putTransactionTableNames(transactionId, tableIds);
-    }
 }
