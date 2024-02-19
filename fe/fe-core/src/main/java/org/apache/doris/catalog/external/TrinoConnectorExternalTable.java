@@ -124,6 +124,9 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         for (ColumnHandle columnHandle : columnHandleMap.values()) {
             ColumnMetadata columnMetadata = connectorMetadata.getColumnMetadata(connectorSession,
                     connectorTableHandle.get(), columnHandle);
+            if (columnMetadata.isHidden()) {
+                continue;
+            }
             columnMetadataMapBuilder.put(columnMetadata.getName(), columnMetadata);
 
             Column column = new Column(columnMetadata.getName(),
