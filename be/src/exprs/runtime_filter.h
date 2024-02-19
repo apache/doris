@@ -273,12 +273,15 @@ public:
 
     Status merge_from(const RuntimePredicateWrapper* wrapper);
 
-    static Status create_wrapper(const MergeRuntimeFilterParams* param, ObjectPool* pool,
+    static Status create_wrapper(RuntimeFilterParamsContext* state,
+                                 const MergeRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(const UpdateRuntimeFilterParams* param, ObjectPool* pool,
+    static Status create_wrapper(RuntimeFilterParamsContext* state,
+                                 const UpdateRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
-    static Status create_wrapper(const UpdateRuntimeFilterParamsV2* param,
+    static Status create_wrapper(RuntimeFilterParamsContext* state,
+                                 const UpdateRuntimeFilterParamsV2* param,
                                  RuntimePredicateWrapper** wrapper);
     void change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
@@ -291,8 +294,11 @@ public:
     // for ut
     bool is_bloomfilter();
 
+    Status join_rpc();
+
     // async push runtimefilter to remote node
-    Status push_to_remote(const TNetworkAddress* addr, bool opt_remote_rf);
+    Status push_to_remote(RuntimeFilterParamsContext* state, const TNetworkAddress* addr,
+                          bool opt_remote_rf);
 
     void init_profile(RuntimeProfile* parent_profile);
 
@@ -363,7 +369,8 @@ protected:
     Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
-    static Status _create_wrapper(const T* param, ObjectPool* pool,
+    static Status _create_wrapper(RuntimeFilterParamsContext* state, const T* param,
+                                  ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     void _set_push_down() { _is_push_down = true; }
@@ -453,5 +460,4 @@ public:
 private:
     WrapperPtr _wrapper;
 };
-
 } // namespace doris

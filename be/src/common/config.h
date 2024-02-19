@@ -265,6 +265,11 @@ DECLARE_String(log_buffer_level);
 // number of threads available to serve backend execution requests
 DECLARE_Int32(be_service_threads);
 
+// Controls the number of threads to run work per core.  It's common to pick 2x
+// or 3x the number of cores.  This keeps the cores busy without causing excessive
+// thrashing.
+DECLARE_Int32(num_threads_per_core);
+DECLARE_mBool(rowbatch_align_tuple_offset);
 // interval between profile reports; in seconds
 DECLARE_mInt32(status_report_interval);
 DECLARE_mInt32(pipeline_status_report_interval);

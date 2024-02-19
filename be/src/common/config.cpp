@@ -217,6 +217,11 @@ DEFINE_String(log_buffer_level, "");
 // number of threads available to serve backend execution requests
 DEFINE_Int32(be_service_threads, "64");
 
+// Controls the number of threads to run work per core.  It's common to pick 2x
+// or 3x the number of cores.  This keeps the cores busy without causing excessive
+// thrashing.
+DEFINE_Int32(num_threads_per_core, "3");
+DEFINE_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 DEFINE_mInt32(status_report_interval, "5");
 // The pipeline task has a high concurrency, therefore reducing its report frequency

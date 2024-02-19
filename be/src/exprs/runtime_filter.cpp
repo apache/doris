@@ -48,8 +48,6 @@
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/bitmap_value.h"
-#include "util/brpc_client_cache.h"
-#include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
@@ -279,14 +277,17 @@ Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcod
 // This class is a wrapper of runtime predicate function
 class RuntimePredicateWrapper {
 public:
-    RuntimePredicateWrapper(ObjectPool* pool, const RuntimeFilterParams* params)
-            : RuntimePredicateWrapper(pool, params->column_return_type, params->filter_type,
+    RuntimePredicateWrapper(RuntimeFilterParamsContext* state, ObjectPool* pool,
+                            const RuntimeFilterParams* params)
+            : RuntimePredicateWrapper(state, pool, params->column_return_type, params->filter_type,
                                       params->filter_id) {};
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
-    RuntimePredicateWrapper(ObjectPool* pool, PrimitiveType column_type, RuntimeFilterType type,
-                            uint32_t filter_id)
-            : _pool(pool),
+    RuntimePredicateWrapper(RuntimeFilterParamsContext* state, ObjectPool* pool,
+                            PrimitiveType column_type, RuntimeFilterType type, uint32_t filter_id)
+            : _state(state),
+              _be_exec_version(_state->be_exec_version),
+              _pool(pool),
               _column_return_type(column_type),
               _filter_type(type),
               _filter_id(filter_id) {}
@@ -921,6 +922,8 @@ public:
     }
 
 private:
+    RuntimeFilterParamsContext* _state;
+    int _be_exec_version;
     ObjectPool* _pool;
 
     // When a runtime filter received from remote and it is a bloom filter, _column_return_type will be invalid.
@@ -994,61 +997,13 @@ Status IRuntimeFilter::publish(bool publish_local) {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
         RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
-        return push_to_remote(&addr, _opt_remote_rf);
+        return push_to_remote(_state, &addr, _opt_remote_rf);
     } else {
         // remote broadcast join only push onetime in build shared hash table
         // publish_local only set true on copy shared hash table
         DCHECK(_is_broadcast_join);
     }
     return Status::OK();
-}
-
-Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remote_rf) {
-    DCHECK(is_producer());
-    std::shared_ptr<PBackendService_Stub> stub(
-            _state->exec_env->brpc_internal_client_cache()->get_client(*addr));
-    if (!stub) {
-        std::string msg =
-                fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port);
-        return Status::InternalError(msg);
-    }
-
-    auto merge_filter_request = std::make_shared<PMergeFilterRequest>();
-    auto merge_filter_callback = DummyBrpcCallback<PMergeFilterResponse>::create_shared();
-    auto merge_filter_closure =
-            AutoReleaseClosure<PMergeFilterRequest, DummyBrpcCallback<PMergeFilterResponse>>::
-                    create_unique(merge_filter_request, merge_filter_callback);
-    void* data = nullptr;
-    int len = 0;
-
-    auto pquery_id = merge_filter_request->mutable_query_id();
-    pquery_id->set_hi(_state->query_id.hi());
-    pquery_id->set_lo(_state->query_id.lo());
-
-    auto pfragment_instance_id = merge_filter_request->mutable_fragment_instance_id();
-    pfragment_instance_id->set_hi(_state->fragment_instance_id().hi());
-    pfragment_instance_id->set_lo(_state->fragment_instance_id().lo());
-
-    merge_filter_request->set_filter_id(_filter_id);
-    merge_filter_request->set_opt_remote_rf(opt_remote_rf);
-    merge_filter_request->set_is_pipeline(_state->enable_pipeline_exec);
-    merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
-
-    Status serialize_status = serialize(merge_filter_request.get(), &data, &len);
-    if (serialize_status.ok()) {
-        VLOG_NOTICE << "Producer:" << merge_filter_request->ShortDebugString() << addr->hostname
-                    << ":" << addr->port;
-        if (len > 0) {
-            DCHECK(data != nullptr);
-            merge_filter_callback->cntl_->request_attachment().append(data, len);
-        }
-
-        stub->merge_filter(merge_filter_closure->cntl_.get(), merge_filter_closure->request_.get(),
-                           merge_filter_closure->response_.get(), merge_filter_closure.get());
-        // the closure will be released by brpc during closure->Run.
-        merge_filter_closure.release();
-    }
-    return serialize_status;
 }
 
 Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
@@ -1264,7 +1219,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
         _probe_expr = iter->second;
     }
 
-    _wrapper = _pool->add(new RuntimePredicateWrapper(_pool, &params));
+    _wrapper = _pool->add(new RuntimePredicateWrapper(_state, _pool, &params));
     return _wrapper->init(&params);
 }
 
@@ -1280,22 +1235,25 @@ Status IRuntimeFilter::serialize(PPublishFilterRequestV2* request, void** data, 
     return serialize_impl(request, data, len);
 }
 
-Status IRuntimeFilter::create_wrapper(const MergeRuntimeFilterParams* param, ObjectPool* pool,
+Status IRuntimeFilter::create_wrapper(RuntimeFilterParamsContext* state,
+                                      const MergeRuntimeFilterParams* param, ObjectPool* pool,
                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
-    return _create_wrapper(param, pool, wrapper);
+    return _create_wrapper(state, param, pool, wrapper);
 }
 
-Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParams* param, ObjectPool* pool,
+Status IRuntimeFilter::create_wrapper(RuntimeFilterParamsContext* state,
+                                      const UpdateRuntimeFilterParams* param, ObjectPool* pool,
                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
-    return _create_wrapper(param, pool, wrapper);
+    return _create_wrapper(state, param, pool, wrapper);
 }
 
-Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
+Status IRuntimeFilter::create_wrapper(RuntimeFilterParamsContext* state,
+                                      const UpdateRuntimeFilterParamsV2* param,
                                       RuntimePredicateWrapper** wrapper) {
     auto filter_type = param->request->filter_type();
     PrimitiveType column_type = param->column_type;
     *wrapper = param->pool->add(new RuntimePredicateWrapper(
-            param->pool, column_type, get_type(filter_type), param->request->filter_id()));
+            state, param->pool, column_type, get_type(filter_type), param->request->filter_id()));
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         DCHECK(param->request->has_in_filter());
@@ -1329,14 +1287,15 @@ Status IRuntimeFilter::init_bloom_filter(const size_t build_bf_cardinality) {
 }
 
 template <class T>
-Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
+Status IRuntimeFilter::_create_wrapper(RuntimeFilterParamsContext* state, const T* param,
+                                       ObjectPool* pool,
                                        std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     int filter_type = param->request->filter_type();
     PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
     if (param->request->has_in_filter()) {
         column_type = to_primitive_type(param->request->in_filter().column_type());
     }
-    wrapper->reset(new RuntimePredicateWrapper(pool, column_type, get_type(filter_type),
+    wrapper->reset(new RuntimePredicateWrapper(state, pool, column_type, get_type(filter_type),
                                                param->request->filter_id()));
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
@@ -1694,7 +1653,7 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
         set_ignored(in_filter.ignored_msg());
     }
     std::unique_ptr<RuntimePredicateWrapper> wrapper;
-    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, _pool, &wrapper));
+    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, param, _pool, &wrapper));
     auto origin_type = _wrapper->get_real_type();
     RETURN_IF_ERROR(_wrapper->merge(wrapper.get()));
     if (origin_type != _wrapper->get_real_type()) {

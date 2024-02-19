@@ -112,6 +112,11 @@ public:
 
     void close_a_pipeline();
 
+    void set_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+        _merge_controller_handler = handler;
+    }
+
     virtual void add_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
 
@@ -187,6 +192,8 @@ protected:
     std::vector<std::unique_ptr<DataSink>> _multi_cast_stream_sink_senders;
 
     std::shared_ptr<QueryContext> _query_ctx;
+
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _start_timer = nullptr;

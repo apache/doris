@@ -125,8 +125,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             if (!_eos && _data_queue.empty() && _writer_status.ok()) {
                 std::unique_lock l(_m);
                 while (!_eos && _data_queue.empty() && _writer_status.ok()) {
-                    // Add 1s to check to avoid lost signal
-                    _cv.wait_for(l, std::chrono::seconds(1));
+                    _cv.wait(l);
                 }
             }
 
