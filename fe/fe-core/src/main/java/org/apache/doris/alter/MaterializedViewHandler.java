@@ -219,6 +219,10 @@ public class MaterializedViewHandler extends AlterHandler {
 
             olapTable.setState(OlapTableState.ROLLUP);
 
+            // wait wal delete
+            Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
+            Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
+
             Env.getCurrentEnv().getEditLog().logAlterJob(rollupJobV2);
             LOG.info("finished to create materialized view job: {}", rollupJobV2.getJobId());
         } finally {
@@ -301,6 +305,11 @@ public class MaterializedViewHandler extends AlterHandler {
             // ATTN: This order is not mandatory, because database lock will protect us,
             // but this order is more reasonable
             olapTable.setState(OlapTableState.ROLLUP);
+
+            // wait wal delete
+            Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
+            Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
+
             // 2 batch submit rollup job
             List<AlterJobV2> rollupJobV2List = new ArrayList<>(rollupNameJobMap.values());
             batchAddAlterJobV2(rollupJobV2List);
@@ -1161,6 +1170,7 @@ public class MaterializedViewHandler extends AlterHandler {
     private void onJobDone(AlterJobV2 alterJob) {
         removeJobFromRunningQueue(alterJob);
         if (removeAlterJobV2FromTableNotFinalStateJobMap(alterJob)) {
+            Env.getCurrentEnv().getGroupCommitManager().unblockTable(alterJob.getTableId());
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
             LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
                     alterJob.getJobId());
