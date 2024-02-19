@@ -1083,6 +1083,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.LABEL_ALREADY_EXISTS);
             status.addToErrorMsgs(e.getMessage());
             result.setJobStatus(e.getJobStatus());
+        } catch (MetaNotFoundException e) {
+            LOG.warn("failed to begin: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.NOT_FOUND);
+            status.addToErrorMsgs(e.getMessage());
         } catch (UserException e) {
             LOG.warn("failed to begin: {}", e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
@@ -1120,7 +1124,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (Strings.isNullOrEmpty(request.getCluster())) {
                 dbName = request.getDb();
             }
-            throw new UserException("unknown database, database=" + dbName);
+            throw new MetaNotFoundException("unknown database, database=" + dbName);
         }
 
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.tbl, TableType.OLAP);
@@ -1222,7 +1226,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (Strings.isNullOrEmpty(request.getCluster())) {
                 dbName = request.getDb();
             }
-            throw new UserException("unknown database, database=" + dbName);
+            throw new MetaNotFoundException("unknown database, database=" + dbName);
         }
 
         // step 4: fetch all tableIds
@@ -1638,6 +1642,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         try {
             loadTxnRollbackImpl(request);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("failed to rollback txn {}: {}", request.getTxnId(), e.getMessage());
+            status.setStatusCode(TStatusCode.NOT_FOUND);
+            status.addToErrorMsgs(e.getMessage());
         } catch (UserException e) {
             LOG.warn("failed to rollback txn {}: {}", request.getTxnId(), e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
