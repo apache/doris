@@ -1042,7 +1042,8 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
-    if (!_opts.delete_condition_predicates.empty()) {
+    // if there is delete predicate, we always need to read data
+    if (_opts.delete_condition_predicates->num_of_column_predicate() > 0) {
         return true;
     }
     if (_output_columns.count(-1)) {
