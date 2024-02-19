@@ -577,10 +577,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (abortTxn) {
             // abort txn
             try {
-                LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
-                        .add("transaction_id", transactionId)
-                        .add("msg", "begin to abort txn")
-                        .build());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
+                            .add("transaction_id", transactionId)
+                            .add("msg", "begin to abort txn")
+                            .build());
+                }
                 Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, transactionId, failMsg.getMsg());
             } catch (UserException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)

@@ -288,7 +288,9 @@ public class PartitionInfo implements Writable {
 
     public ReplicaAllocation getReplicaAllocation(long partitionId) {
         if (!idToReplicaAllocation.containsKey(partitionId)) {
-            LOG.debug("failed to get replica allocation for partition: {}", partitionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("failed to get replica allocation for partition: {}", partitionId);
+            }
             return ReplicaAllocation.DEFAULT_ALLOCATION;
         }
         return idToReplicaAllocation.get(partitionId);

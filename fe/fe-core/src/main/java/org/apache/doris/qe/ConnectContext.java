@@ -146,7 +146,8 @@ public class ConnectContext {
     protected volatile boolean isTempUser = false;
     // username@host combination for the Doris account
     // that the server used to authenticate the current client.
-    // In other word, currentUserIdentity is the entry that matched in Doris auth table.
+    // In other word, currentUserIdentity is the entry that matched in Doris auth
+    // table.
     // This account determines user's access privileges.
     protected volatile UserIdentity currentUserIdentity;
     // Variables belong to this session.
@@ -179,14 +180,19 @@ public class ConnectContext {
     // So in the query planning stage, do not use any value in this attribute.
     protected QueryDetail queryDetail = null;
 
-    // If set to true, the nondeterministic function will not be rewrote to constant.
+    // If set to true, the nondeterministic function will not be rewrote to
+    // constant.
     private boolean notEvalNondeterministicFunction = false;
-    // The resource tag is used to limit the node resources that the user can use for query.
+    // The resource tag is used to limit the node resources that the user can use
+    // for query.
     // The default is empty, that is, unlimited.
-    // This property is obtained from UserProperty when the client connection is created.
-    // Only when the connection is created again, the new resource tags will be retrieved from the UserProperty
+    // This property is obtained from UserProperty when the client connection is
+    // created.
+    // Only when the connection is created again, the new resource tags will be
+    // retrieved from the UserProperty
     private Set<Tag> resourceTags = Sets.newHashSet();
-    // If set to true, the resource tags set in resourceTags will be used to limit the query resources.
+    // If set to true, the resource tags set in resourceTags will be used to limit
+    // the query resources.
     // If set to false, the system will not restrict query resources.
     private boolean isResourceTagsSet = false;
 
@@ -203,7 +209,6 @@ public class ConnectContext {
 
     private SessionContext sessionContext;
 
-
     // This context is used for SSL connection between server and mysql client.
     private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
 
@@ -219,7 +224,8 @@ public class ConnectContext {
     // internal call like `insert overwrite` need skipAuth
     // For example, `insert overwrite` only requires load permission,
     // but the internal implementation will call the logic of `AlterTable`.
-    // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
+    // In this case, `skipAuth` needs to be set to `true` to skip the permission
+    // check of `AlterTable`
     private boolean skipAuth = false;
     private Exec exec;
     private boolean runProcedure = false;
@@ -516,7 +522,8 @@ public class ConnectContext {
         }
     }
 
-    // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
+    // Get variable value through variable name, used to satisfy statement like
+    // `SELECT @@comment_version`
     public void fillValueForUserDefinedVar(VariableExpr desc) {
         String varName = desc.getName().toLowerCase();
         if (userVars.containsKey(varName)) {
@@ -737,7 +744,8 @@ public class ConnectContext {
     }
 
     public CatalogIf getCurrentCatalog() {
-        // defaultCatalog is switched by SwitchStmt, so we don't need to check to exist of catalog.
+        // defaultCatalog is switched by SwitchStmt, so we don't need to check to exist
+        // of catalog.
         return getCatalog(defaultCatalog);
     }
 
@@ -957,7 +965,8 @@ public class ConnectContext {
      */
     public int getExecTimeout() {
         if (executor != null && executor.isSyncLoadKindStmt()) {
-            // particular for insert stmt, we can expand other type of timeout in the same way
+            // particular for insert stmt, we can expand other type of timeout in the same
+            // way
             return Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
         } else if (executor != null && executor.isAnalyzeStmt()) {
             return sessionVariable.getAnalyzeTimeoutS();
@@ -1014,7 +1023,6 @@ public class ConnectContext {
             return row;
         }
     }
-
 
     public void startAcceptQuery(ConnectProcessor connectProcessor) {
         mysqlChannel.startAcceptQuery(this, connectProcessor);
@@ -1092,4 +1100,3 @@ public class ConnectContext {
         return this.sessionVariable.getNetWriteTimeout();
     }
 }
-

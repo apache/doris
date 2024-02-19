@@ -109,4 +109,3 @@ public class TestExternalCatalog extends ExternalCatalog {
         Map<String, Map<String, List<Column>>> getMetadata();
     }
 }
-

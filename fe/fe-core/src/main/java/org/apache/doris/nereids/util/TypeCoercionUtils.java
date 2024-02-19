@@ -579,7 +579,9 @@ public class TypeCoercionUtils {
                 }
             }
         } catch (Exception e) {
-            LOG.debug("convert '{}' to type {} failed", value, dataType);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("convert '{}' to type {} failed", value, dataType);
+            }
         }
         return Optional.ofNullable(ret);
 

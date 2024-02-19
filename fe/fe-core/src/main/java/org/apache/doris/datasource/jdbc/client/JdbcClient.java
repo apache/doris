@@ -115,8 +115,10 @@ public abstract class JdbcClient {
             // set parent ClassLoader to null, we can achieve class loading isolation.
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = URLClassLoader.newInstance(urls, parent);
-            LOG.debug("parent ClassLoader: {}, old ClassLoader: {}, class Loader: {}.",
-                    parent, oldClassLoader, classLoader);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("parent ClassLoader: {}, old ClassLoader: {}, class Loader: {}.",
+                        parent, oldClassLoader, classLoader);
+            }
             Thread.currentThread().setContextClassLoader(classLoader);
             dataSource = new DruidDataSource();
             dataSource.setDriverClassLoader(classLoader);
@@ -195,7 +197,9 @@ public abstract class JdbcClient {
         try {
             stmt = conn.createStatement();
             int effectedRows = stmt.executeUpdate(origStmt);
-            LOG.debug("finished to execute dml stmt: {}, effected rows: {}", origStmt, effectedRows);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finished to execute dml stmt: {}, effected rows: {}", origStmt, effectedRows);
+            }
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to execute stmt. error: " + e.getMessage(), e);
         } finally {
@@ -448,4 +452,3 @@ public abstract class JdbcClient {
         return ScalarType.createStringType();
     }
 }
-

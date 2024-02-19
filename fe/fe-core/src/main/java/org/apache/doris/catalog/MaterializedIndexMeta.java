@@ -345,8 +345,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
         this.schema.forEach(column -> {
             column.setUniqueId(incAndGetMaxColUniqueId());
-            LOG.debug("indexId: {},  column:{}, uniqueId:{}",
-                    indexId, column, column.getUniqueId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("indexId: {},  column:{}, uniqueId:{}",
+                        indexId, column, column.getUniqueId());
+            }
         });
     }
 

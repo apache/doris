@@ -333,7 +333,6 @@ public class StreamLoadPlanner {
 
         params.setQueryGlobals(queryGlobals);
         params.setTableName(destTable.getName());
-
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
     }
@@ -618,4 +617,3 @@ public class StreamLoadPlanner {
         return descTable;
     }
 }
-

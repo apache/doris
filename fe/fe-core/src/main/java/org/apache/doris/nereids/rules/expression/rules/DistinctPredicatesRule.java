@@ -49,4 +49,3 @@ public class DistinctPredicatesRule extends AbstractExpressionRewriteRule {
         return expr;
     }
 }
-

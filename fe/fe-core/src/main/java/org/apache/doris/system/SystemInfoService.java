@@ -569,7 +569,9 @@ public class SystemInfoService {
         Preconditions.checkArgument(number >= -1);
         List<Backend> candidates = policy.getCandidateBackends(idToBackendRef.values());
         if (candidates.size() < number || candidates.isEmpty()) {
-            LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            }
             return Lists.newArrayList();
         }
 
@@ -604,7 +606,9 @@ public class SystemInfoService {
         }
 
         if (candidates.size() < number) {
-            LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            }
             return Lists.newArrayList();
         }
 
@@ -668,8 +672,10 @@ public class SystemInfoService {
                 return;
             }
             atomicLong.set(newReportVersion);
-            LOG.debug("update backend {} report version: {}, db: {}, table: {}",
-                    backendId, newReportVersion, dbId, tableId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("update backend {} report version: {}, db: {}, table: {}",
+                        backendId, newReportVersion, dbId, tableId);
+            }
         }
     }
 
@@ -753,7 +759,9 @@ public class SystemInfoService {
     }
 
     public void replayDropBackend(Backend backend) {
-        LOG.debug("replayDropBackend: {}", backend);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replayDropBackend: {}", backend);
+        }
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.remove(backend.getId());
@@ -841,7 +849,9 @@ public class SystemInfoService {
      * return Status.OK if not reach the limit
      */
     public Status checkExceedDiskCapacityLimit(Multimap<Long, Long> bePathsMap, boolean floodStage) {
-        LOG.debug("pathBeMap: {}", bePathsMap);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("pathBeMap: {}", bePathsMap);
+        }
         ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDiskInfoRef;
         for (Long beId : bePathsMap.keySet()) {
             for (Long pathHash : bePathsMap.get(beId)) {
@@ -868,7 +878,9 @@ public class SystemInfoService {
         }
         ImmutableMap<Long, DiskInfo> newPathInfos = ImmutableMap.copyOf(copiedPathInfos);
         pathHashToDiskInfoRef = newPathInfos;
-        LOG.debug("update path infos: {}", newPathInfos);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("update path infos: {}", newPathInfos);
+        }
     }
 
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
@@ -945,7 +957,9 @@ public class SystemInfoService {
         memBe.setQueryDisabled(backend.isQueryDisabled());
         memBe.setLoadDisabled(backend.isLoadDisabled());
         memBe.setHost(backend.getHost());
-        LOG.debug("replay modify backend: {}", backend);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replay modify backend: {}", backend);
+        }
     }
 
     // Check if there is enough suitable BE for replica allocation

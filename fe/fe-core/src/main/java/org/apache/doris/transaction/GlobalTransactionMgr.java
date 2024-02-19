@@ -101,13 +101,17 @@ public class GlobalTransactionMgr implements Writable {
     public void addDatabaseTransactionMgr(Long dbId) {
         if (dbIdToDatabaseTransactionMgrs.putIfAbsent(dbId,
                 new DatabaseTransactionMgr(dbId, env, idGenerator)) == null) {
-            LOG.debug("add database transaction manager for db {}", dbId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("add database transaction manager for db {}", dbId);
+            }
         }
     }
 
     public void removeDatabaseTransactionMgr(Long dbId) {
         if (dbIdToDatabaseTransactionMgrs.remove(dbId) != null) {
-            LOG.debug("remove database transaction manager for db {}", dbId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remove database transaction manager for db {}", dbId);
+            }
         }
     }
 
@@ -214,7 +218,9 @@ public class GlobalTransactionMgr implements Writable {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
         }
 
-        LOG.debug("try to pre-commit transaction: {}", transactionId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try to pre-commit transaction: {}", transactionId);
+        }
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.preCommitTransaction2PC(tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
     }
@@ -241,7 +247,9 @@ public class GlobalTransactionMgr implements Writable {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
         }
 
-        LOG.debug("try to commit transaction: {}", transactionId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try to commit transaction: {}", transactionId);
+        }
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.commitTransaction(tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
     }

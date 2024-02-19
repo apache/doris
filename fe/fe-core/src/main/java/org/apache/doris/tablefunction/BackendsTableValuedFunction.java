@@ -110,4 +110,3 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
         return SCHEMA;
     }
 }
-

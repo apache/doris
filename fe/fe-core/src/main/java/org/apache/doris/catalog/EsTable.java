@@ -255,7 +255,9 @@ public class EsTable extends Table {
             }
         }
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of es table {}: {}. signature string: {}", name, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of es table {}: {}. signature string: {}", name, md5, sb.toString());
+        }
         return md5;
     }
 
