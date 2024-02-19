@@ -44,14 +44,15 @@ PROPERTIES ("key"="value", ...)
 
 ## 参数说明
 
-| 参数                      | 必须 | 默认值  | 说明                                                                    |
+| 参数                        | 必须 | 默认值  | 说明                                                                    |
 |---------------------------|-----|---------|-----------------------------------------------------------------------|
 | `user`                    | 是   |         | 对应数据库的用户名                                                             |
 | `password`                | 是   |         | 对应数据库的密码                                                              |
 | `jdbc_url`                | 是   |         | JDBC 连接串                                                              |
 | `driver_url`              | 是   |         | JDBC Driver Jar 包名称                                                   |
 | `driver_class`            | 是   |         | JDBC Driver Class 名称                                                  |
-| `lower_case_table_names`  | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名以及列名                                         |
+| `lower_case_meta_names`   | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名以及列名                                         |
+| `meta_names_mapping`    | 否   | ""      | 当jdbc外部数据源存在名称相同只有大小写不同的情况，例如 DORIS 和 doris，Doris 由于歧义而在查询 Catalog 时报错，此时需要配置 `meta_names_mapping` 参数来解决冲突。 |
 | `only_specified_database` | 否   | "false" | 指定是否只同步指定的 database                                                   |
 | `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。     |
 | `exclude_database_list`   | 否   | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。 |
@@ -66,23 +67,120 @@ PROPERTIES ("key"="value", ...)
 
 3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
 
-### 小写表名同步
+### 小写名称同步
 
-当 `lower_case_table_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，能够查询非小写的数据库和表以及列
+当 `lower_case_meta_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，使查询时能够使用小写去查询外部数据源非小写的数据库和表以及列。
+
+由于 FE 存在 `lower_case_table_names` 的参数，会影响查询时的表名大小写规则，所以规则如下
+
+* 当 FE `lower_case_table_names` config 为 0 时
+
+   lower_case_meta_names = false，大小写和源库一致。
+   lower_case_meta_names = true，小写存储库表列名。
+
+* 当 FE `lower_case_table_names` config 为 1 时
+
+   lower_case_meta_names = false，db 和 column 的大小写和源库一致，但是 table 存储为小写
+   lower_case_meta_names = true，小写存储库表列名。
+
+* 当 FE `lower_case_table_names` config 为 2 时
+
+   lower_case_meta_names = false，大小写和源库一致。
+   lower_case_meta_names = true，小写存储库表列名。
+
+如果创建 Catalog 时的参数配置匹配到了上述规则中的转变小写规则，则 Doris 会将对应的名称转变为小写存储在 Doris 中，查询时需使用 Doris 显示的小写名称去查询。
+
+如果外部数据源存在名称相同只有大小写不同的情况，例如 DORIS 和 doris，Doris 由于歧义而在查询 Catalog 时报错，此时需要配置 `meta_names_mapping` 参数来解决冲突。
+
+`meta_names_mapping` 参数接受一个 Json 格式的字符串，格式如下：
+
+```json
+{
+  "databases": [
+    {
+      "remoteDatabase": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "doris",
+      "mapping": "doris_2"
+    }],
+  "tables": [
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "doris",
+      "mapping": "doris_2"
+    }],
+  "columns": [
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "remoteColumn": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "remoteColumn": "doris",
+      "mapping": "doris_2"
+    }]
+}
+```
+
+在将此配置填写到创建 Catalog 的语句中时，Json 中存在双引号，因此在填写时需要将双引号转义或者直接使用单引号包裹 Json 字符串。
+
+```sql
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = "{\"databases\":[{\"remoteDatabase\":\"DORIS\",\"mapping\":\"doris_1\"},{\"remoteDatabase\":\"doris\",\"mapping\":\"doris_2\"}]}"
+    ...
+);
+```
+
+或者
+```sql
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = '{"databases":[{"remoteDatabase":"DORIS","mapping":"doris_1"},{"remoteDatabase":"doris","mapping":"doris_2"}]}'
+    ...
+);
+
+```
+
+
 
 **注意：**
 
-1. 在 Doris 2.0.3 之前的版本，仅对 Oracle 数据库有效，在查询时，会将所有的库名和表名转换为大写，再去查询 Oracle，例如：
+JDBC Catalog 对于外部表大小写的映射规则存在如下三个阶段：
+
+* Doris 2.0.3 之前的版本
+
+    此配置名为 `lower_case_table_names`，仅对 Oracle 数据库有效，如在其他数据源设置此参数为 `true` 会影响查询，请勿设置。
+    
+    在查询 Oracle 时，会将所有的库名和表名转换为大写，再去查询 Oracle，例如：
 
     Oracle 在 TEST 空间下有 TEST 表，Doris 创建 Catalog 时设置 `lower_case_table_names` 为 `true`，则 Doris 可以通过 `select * from oracle_catalog.test.test` 查询到 TEST 表，Doris 会自动将 test.test 格式化成 TEST.TEST 下发到 Oracle，需要注意的是这是个默认行为，也意味着不能查询 Oracle 中小写的表名。
 
-    对于其他数据库，仍需要在查询时指定真实的库名和表名。
+* Doris 2.0.3 版本：
 
-2. 在 Doris 2.0.3 及之后的版本，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.3 ，需要 `Refresh <catalog_name>` 才能生效。
+    此配置名为 `lower_case_table_names`，对所有的数据库都有效，在查询时，会将所有的库名和表名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.3 ，需要 `Refresh <catalog_name>` 才能生效。
 
     但是，如果库名、表名或列名只有大小写不同，例如 `Doris` 和 `doris`，则 Doris 由于歧义而无法查询它们。
 
-3. 当 FE 参数的 `lower_case_table_names` 设置为 `1` 或 `2` 时，JDBC Catalog 的 `lower_case_table_names` 参数必须设置为 `true`。如果 FE 参数的 `lower_case_table_names` 设置为 `0`，则 JDBC Catalog 的参数可以为 `true` 或 `false`，默认为 `false`。这确保了 Doris 在处理内部和外部表配置时的一致性和可预测性。
+    并且当 FE 参数的 `lower_case_table_names` 设置为 `1` 或 `2` 时，JDBC Catalog 的 `lower_case_table_names` 参数必须设置为 `true`。如果 FE 参数的 `lower_case_table_names` 设置为 `0`，则 JDBC Catalog 的参数可以为 `true` 或 `false`，默认为 `false`。
+
+* Doris 2.1.0 以及之后版本：
+
+    为了避免和 FE conf 的 `lower_case_table_names` 参数混淆，此配置名改为 `lower_case_meta_names`，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.4 ，需要 `Refresh <catalog_name>` 才能生效。
+
+    具体规则参考本小节开始对于 `lower_case_meta_names` 的介绍。
+
+    此前设置过 JDBC Catalog `lower_case_table_names` 参数的用户会在升级到 2.0.4 时，自动将 `lower_case_table_names` 转换为 `lower_case_meta_names`。
 
 ### 指定同步数据库
 
@@ -552,7 +650,7 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | BITMAP     | BITMAP                 | 查询BITMAP需要设置`return_object_data_as_binary=true`  |
 | Other      | UNSUPPORTED            |                                                      |
 
-### Clickhouse
+### ClickHouse
 
 #### 创建示例
 
