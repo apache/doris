@@ -58,6 +58,8 @@ function download_oss_file() {
     OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile-release"}"
     install_ossutil
     if ossutil cp -f \
+        -i "${OSS_accessKeyID}" \
+        -k "${OSS_accessKeySecret}" \
         "${OSS_DIR}/${file_name}" \
         "${file_name}"; then
         echo "INFO: download ${file_name} success" && return 0

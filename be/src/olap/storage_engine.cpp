@@ -148,7 +148,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
-          _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
           _stream_load_recorder(nullptr),
           _create_tablet_idx_lru_cache(
@@ -1069,27 +1068,43 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
+    LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size();
     std::vector<RowsetSharedPtr> unused_rowsets_copy;
     unused_rowsets_copy.reserve(_unused_rowsets.size());
+    auto due_to_use_count = 0;
+    auto due_to_not_delete_file = 0;
+    auto due_to_delayed_expired_ts = 0;
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
             uint64_t now = UnixSeconds();
             auto&& rs = it->second;
-            if (rs.use_count() == 1 && rs->need_delete_file() &&
+            if (now > rs->delayed_expired_timestamp()) {
                 // We delay the GC time of this rowset since it's maybe still needed, see #20732
-                now > rs->delayed_expired_timestamp()) {
                 evict_querying_rowset(it->second->rowset_id());
+            }
+            if (rs.use_count() == 1 && rs->need_delete_file()) {
                 // remote rowset data will be reclaimed by `remove_unused_remote_files`
                 if (rs->is_local()) {
                     unused_rowsets_copy.push_back(std::move(rs));
                 }
                 it = _unused_rowsets.erase(it);
             } else {
+                if (rs.use_count() != 1) {
+                    ++due_to_use_count;
+                } else if (!rs->need_delete_file()) {
+                    ++due_to_not_delete_file;
+                } else {
+                    ++due_to_delayed_expired_ts;
+                }
                 ++it;
             }
         }
     }
+    LOG(INFO) << "collected " << unused_rowsets_copy.size() << " unused rowsets to remove, skipped "
+              << due_to_use_count << " rowsets due to use count > 1, skipped "
+              << due_to_not_delete_file << " rowsets due to don't need to delete file, skipped "
+              << due_to_delayed_expired_ts << " rowsets due to delayed expired timestamp.";
     for (auto&& rs : unused_rowsets_copy) {
         VLOG_NOTICE << "start to remove rowset:" << rs->rowset_id()
                     << ", version:" << rs->version();
@@ -1102,6 +1117,7 @@ void StorageEngine::start_delete_unused_rowset() {
         Status status = rs->remove();
         VLOG_NOTICE << "remove rowset:" << rs->rowset_id() << " finished. status:" << status;
     }
+    LOG(INFO) << "removed all collected unused rowsets";
 }
 
 void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {

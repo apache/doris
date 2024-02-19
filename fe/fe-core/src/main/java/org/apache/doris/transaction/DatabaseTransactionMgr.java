@@ -343,7 +343,9 @@ public class DatabaseTransactionMgr {
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
-        InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
+        if (!coordinator.isFromInternal) {
+            InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
+        }
         checkDatabaseDataQuota();
         Preconditions.checkNotNull(coordinator);
         Preconditions.checkNotNull(label);
@@ -2242,17 +2244,6 @@ public class DatabaseTransactionMgr {
             msgBuilder.append(e.toString()).append("\n");
         }
         return msgBuilder.toString();
-    }
-
-    protected void putTransactionTableNames(long transactionId, List<Long> tableIds) {
-        if (CollectionUtils.isEmpty(tableIds)) {
-            return;
-        }
-        if (multiTableRunningTransactionTableIdMaps.contains(transactionId)) {
-            multiTableRunningTransactionTableIdMaps.get(transactionId).addAll(tableIds);
-            return;
-        }
-        multiTableRunningTransactionTableIdMaps.put(transactionId, tableIds);
     }
 
     /**

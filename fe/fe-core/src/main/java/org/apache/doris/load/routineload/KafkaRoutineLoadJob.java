@@ -31,12 +31,12 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -707,6 +707,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // check if given partitions has more data to consume.
     // 'partitionIdToOffset' to the offset to be consumed.
     public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) throws UserException {
+        boolean needUpdateCache = false;
+        // it is need check all partitions, for some partitions offset may be out of time
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (cachedPartitionWithLatestOffsets.containsKey(entry.getKey())
                     && entry.getValue() < cachedPartitionWithLatestOffsets.get(entry.getKey())) {
@@ -717,8 +719,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 //  query_watermark_offsets() will return 4.)
                 LOG.debug("has more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
                         partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
-                return true;
+            } else {
+                needUpdateCache = true;
+                break;
             }
+        }
+        if (needUpdateCache == false) {
+            return true;
         }
 
         try {

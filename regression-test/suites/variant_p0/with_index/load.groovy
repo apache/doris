@@ -89,12 +89,9 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
     
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
 
-    // alter bitmap index
-    sql "alter table  var_with_index add index btm_idx (inv) using bitmap ;"
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
     sql "select * from var_with_index order by k limit 4"
     wait_for_latest_op_on_table_finish(table_name, timeout)
-    sql "alter table  var_with_index add index btm_idxk (k) using bitmap ;"
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
     sql "select * from var_with_index order by k limit 4"
     wait_for_latest_op_on_table_finish(table_name, timeout)

@@ -221,7 +221,7 @@ under the License.
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>1.0.3</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>1.0.4</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <!--plugin parameters-->
@@ -251,7 +251,7 @@ under the License.
         <commons-io.version>2.7</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
-        <druid.version>1.2.5</druid.version>
+        <druid.version>1.2.20</druid.version>
         <clickhouse.version>0.4.6</clickhouse.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed-core.version>8.5.86</tomcat-embed-core.version>
@@ -302,10 +302,10 @@ under the License.
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
-        <iceberg.version>1.1.0</iceberg.version>
+        <iceberg.version>1.4.3</iceberg.version>
         <maxcompute.version>0.45.2-public</maxcompute.version>
         <avro.version>1.11.3</avro.version>
-        <arrow.version>14.0.2</arrow.version>
+        <arrow.version>15.0.0</arrow.version>
         <!-- hudi -->
         <hudi.version>0.13.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
@@ -1260,6 +1260,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.iceberg</groupId>
                 <artifactId>iceberg-aws</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-aws-bundle</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
             <dependency>

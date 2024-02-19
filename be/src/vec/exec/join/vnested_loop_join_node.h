@@ -97,7 +97,6 @@ public:
 
     std::shared_ptr<Block> get_left_block() { return _left_block; }
 
-    std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
     VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
     RuntimeProfile::Counter* runtime_filter_compute_timer() {
         return _runtime_filter_compute_timer;
@@ -267,7 +266,6 @@ private:
 
     MutableColumns _dst_columns;
 
-    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     VExprContextSPtrs _filter_src_expr_ctxs;
     bool _is_output_left_side_only = false;
     bool _need_more_input_data = true;

@@ -26,7 +26,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -94,6 +93,8 @@ public interface TableIf {
     List<Column> getFullSchema();
 
     List<Column> getBaseSchema();
+
+    List<Column> getSchemaAllIndexes(boolean full);
 
     default List<Column> getBaseSchemaOrEmpty() {
         try {
@@ -226,7 +227,7 @@ public interface TableIf {
     }
 
     // Note this function is not thread safe
-    default void checkConstraintNotExistenceUnsafe(String name, Constraint primaryKeyConstraint,
+    default void checkConstraintNotExistence(String name, Constraint primaryKeyConstraint,
             Map<String, Constraint> constraintMap) {
         if (constraintMap.containsKey(name)) {
             throw new RuntimeException(String.format("Constraint name %s has existed", name));
@@ -239,72 +240,63 @@ public interface TableIf {
         }
     }
 
-    default void addUniqueConstraint(String name, ImmutableList<String> columns, boolean replay) {
+    default Constraint addUniqueConstraint(String name, ImmutableList<String> columns) {
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
             UniqueConstraint uniqueConstraint =  new UniqueConstraint(name, ImmutableSet.copyOf(columns));
-            checkConstraintNotExistenceUnsafe(name, uniqueConstraint, constraintMap);
+            checkConstraintNotExistence(name, uniqueConstraint, constraintMap);
             constraintMap.put(name, uniqueConstraint);
-            if (!replay) {
-                Env.getCurrentEnv().getEditLog().logAddConstraint(
-                        new AlterConstraintLog(uniqueConstraint, this));
-            }
+            return uniqueConstraint;
         } finally {
             writeUnlock();
         }
     }
 
-    default void addPrimaryKeyConstraint(String name, ImmutableList<String> columns, boolean replay) {
+    default Constraint addPrimaryKeyConstraint(String name, ImmutableList<String> columns) {
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
             PrimaryKeyConstraint primaryKeyConstraint = new PrimaryKeyConstraint(name, ImmutableSet.copyOf(columns));
-            checkConstraintNotExistenceUnsafe(name, primaryKeyConstraint, constraintMap);
+            checkConstraintNotExistence(name, primaryKeyConstraint, constraintMap);
             constraintMap.put(name, primaryKeyConstraint);
-            if (!replay) {
-                Env.getCurrentEnv().getEditLog().logAddConstraint(
-                        new AlterConstraintLog(primaryKeyConstraint, this));
-            }
+            return primaryKeyConstraint;
         } finally {
             writeUnlock();
         }
     }
 
-    default PrimaryKeyConstraint tryGetPrimaryKeyForForeignKeyUnsafe(
-            PrimaryKeyConstraint requirePrimaryKey, TableIf referencedTable) {
-        Optional<Constraint> primaryKeyConstraint = referencedTable.getConstraintsMapUnsafe().values().stream()
-                .filter(requirePrimaryKey::equals)
-                .findFirst();
-        if (!primaryKeyConstraint.isPresent()) {
-            throw new AnalysisException(String.format(
-                    "Foreign key constraint requires a primary key constraint %s in %s",
-                    requirePrimaryKey.getPrimaryKeyNames(), referencedTable.getName()));
+    default void updatePrimaryKeyForForeignKey(PrimaryKeyConstraint requirePrimaryKey, TableIf referencedTable) {
+        referencedTable.writeLock();
+        try {
+            Optional<Constraint> primaryKeyConstraint = referencedTable.getConstraintsMapUnsafe().values().stream()
+                    .filter(requirePrimaryKey::equals)
+                    .findFirst();
+            if (!primaryKeyConstraint.isPresent()) {
+                throw new AnalysisException(String.format(
+                        "Foreign key constraint requires a primary key constraint %s in %s",
+                        requirePrimaryKey.getPrimaryKeyNames(), referencedTable.getName()));
+            }
+            ((PrimaryKeyConstraint) (primaryKeyConstraint.get())).addForeignTable(this);
+        } finally {
+            referencedTable.writeUnlock();
         }
-        return ((PrimaryKeyConstraint) (primaryKeyConstraint.get()));
     }
 
-    default void addForeignConstraint(String name, ImmutableList<String> columns,
-            TableIf referencedTable, ImmutableList<String> referencedColumns, boolean replay) {
+    default Constraint addForeignConstraint(String name, ImmutableList<String> columns,
+            TableIf referencedTable, ImmutableList<String> referencedColumns) {
         writeLock();
-        referencedTable.writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
             ForeignKeyConstraint foreignKeyConstraint =
                     new ForeignKeyConstraint(name, columns, referencedTable, referencedColumns);
-            checkConstraintNotExistenceUnsafe(name, foreignKeyConstraint, constraintMap);
-            PrimaryKeyConstraint requirePrimaryKeyName = new PrimaryKeyConstraint(name,
+            checkConstraintNotExistence(name, foreignKeyConstraint, constraintMap);
+            PrimaryKeyConstraint requirePrimaryKey = new PrimaryKeyConstraint(name,
                     foreignKeyConstraint.getReferencedColumnNames());
-            PrimaryKeyConstraint primaryKeyConstraint =
-                    tryGetPrimaryKeyForForeignKeyUnsafe(requirePrimaryKeyName, referencedTable);
-            primaryKeyConstraint.addForeignTable(this);
+            updatePrimaryKeyForForeignKey(requirePrimaryKey, referencedTable);
             constraintMap.put(name, foreignKeyConstraint);
-            if (!replay) {
-                Env.getCurrentEnv().getEditLog().logAddConstraint(
-                        new AlterConstraintLog(foreignKeyConstraint, this));
-            }
+            return foreignKeyConstraint;
         } finally {
-            referencedTable.writeUnlock();
             writeUnlock();
         }
     }
@@ -313,21 +305,22 @@ public interface TableIf {
         if (constraint instanceof UniqueConstraint) {
             UniqueConstraint uniqueConstraint = (UniqueConstraint) constraint;
             this.addUniqueConstraint(constraint.getName(),
-                    ImmutableList.copyOf(uniqueConstraint.getUniqueColumnNames()), true);
+                    ImmutableList.copyOf(uniqueConstraint.getUniqueColumnNames()));
         } else if (constraint instanceof PrimaryKeyConstraint) {
             PrimaryKeyConstraint primaryKeyConstraint = (PrimaryKeyConstraint) constraint;
             this.addPrimaryKeyConstraint(primaryKeyConstraint.getName(),
-                    ImmutableList.copyOf(primaryKeyConstraint.getPrimaryKeyNames()), true);
+                    ImmutableList.copyOf(primaryKeyConstraint.getPrimaryKeyNames()));
         } else if (constraint instanceof ForeignKeyConstraint) {
             ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
             this.addForeignConstraint(foreignKey.getName(),
                     ImmutableList.copyOf(foreignKey.getForeignKeyNames()),
                     foreignKey.getReferencedTable(),
-                    ImmutableList.copyOf(foreignKey.getReferencedColumnNames()), true);
+                    ImmutableList.copyOf(foreignKey.getReferencedColumnNames()));
         }
     }
 
-    default void dropConstraint(String name) {
+    default Constraint dropConstraint(String name) {
+        Constraint dropConstraint;
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
@@ -341,10 +334,11 @@ public interface TableIf {
                 ((PrimaryKeyConstraint) constraint).getForeignTables()
                         .forEach(t -> t.dropFKReferringPK(this, (PrimaryKeyConstraint) constraint));
             }
-            Env.getCurrentEnv().getEditLog().logDropConstraint(new AlterConstraintLog(constraint, this));
+            dropConstraint = constraint;
         } finally {
             writeUnlock();
         }
+        return dropConstraint;
     }
 
     default void dropFKReferringPK(TableIf table, PrimaryKeyConstraint constraint) {

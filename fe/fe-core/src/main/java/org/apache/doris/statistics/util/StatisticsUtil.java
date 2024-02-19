@@ -19,6 +19,7 @@ package org.apache.doris.statistics.util;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -609,7 +610,7 @@ public class StatisticsUtil {
             Table icebergTable = Env.getCurrentEnv()
                     .getExtMetaCacheMgr()
                     .getIcebergMetadataCache()
-                    .getIcebergTable(table);
+                    .getIcebergTable(table.getCatalog(), table.getDbName(), table.getName());
             TableScan tableScan = icebergTable.newScan().includeColumnStats();
             for (FileScanTask task : tableScan.planFiles()) {
                 rowCount += task.file().recordCount();
@@ -719,7 +720,7 @@ public class StatisticsUtil {
         }
         // Get files for all partitions.
         String bindBrokerName = table.getCatalog().bindBrokerName();
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions, true, bindBrokerName);
+        return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName);
     }
 
     /**
@@ -806,6 +807,13 @@ public class StatisticsUtil {
         }
         return str.replace("'", "''")
                 .replace("\\", "\\\\");
+    }
+
+    public static String escapeColumnName(String str) {
+        if (str == null) {
+            return null;
+        }
+        return str.replace("`", "``");
     }
 
     public static boolean isExternalTable(String catalogName, String dbName, String tblName) {
@@ -979,6 +987,18 @@ public class StatisticsUtil {
         } else {
             return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /**
+     * Check if the given column name is a materialized view column.
+     * @param table
+     * @param columnName
+     * @return True for mv column.
+     */
+    public static boolean isMvColumn(TableIf table, String columnName) {
+        return table instanceof OlapTable
+            && columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
+            || columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
     }
 
 }

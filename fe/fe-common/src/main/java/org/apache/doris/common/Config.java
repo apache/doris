@@ -1014,6 +1014,30 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static double balance_load_score_threshold = 0.1; // 10%
 
+    // if disk usage > balance_load_score_threshold + urgent_disk_usage_extra_threshold
+    // then this disk need schedule quickly
+    // this value could less than 0.
+    @ConfField(mutable = true, masterOnly = true)
+    public static double urgent_balance_disk_usage_extra_threshold = 0.05;
+
+    // when run urgent disk balance, shuffle the top large tablets
+    // range: [ 0 ~ 100 ]
+    @ConfField(mutable = true, masterOnly = true)
+    public static int urgent_balance_shuffle_large_tablet_percentage = 1;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static double urgent_balance_pick_large_tablet_num_threshold = 1000;
+
+    // range: 0 ~ 100
+    @ConfField(mutable = true, masterOnly = true)
+    public static int urgent_balance_pick_large_disk_usage_percentage = 80;
+
+    // there's a case, all backend has a high disk, by default, it will not run urgent disk balance.
+    // if set this value to true, urgent disk balance will always run,
+    // the backends will exchange tablets among themselves.
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_urgent_balance_no_low_backend = true;
+
     /**
      * if set to true, TabletScheduler will not do balance.
      */
@@ -1024,13 +1048,18 @@ public class Config extends ConfigBase {
      * when be rebalancer idle, then disk balance will occurs.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int be_rebalancer_idle_seconds = 60;
+    public static int be_rebalancer_idle_seconds = 0;
 
     /**
      * if set to true, TabletScheduler will not do disk balance.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_disk_balance = false;
+
+    // balance order
+    // ATTN: a temporary config, may delete later.
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean balance_be_then_disk = true;
 
     /**
      * if set to false, TabletScheduler will not do disk balance for replica num = 1.
@@ -1587,7 +1616,7 @@ public class Config extends ConfigBase {
     public static boolean enable_quantile_state_type = true;
 
     @ConfField(mutable = true)
-    public static boolean enable_pipeline_load = false;
+    public static boolean enable_pipeline_load = true;
 
     /*---------------------- JOB CONFIG START------------------------*/
     /**
@@ -1664,6 +1693,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
+
+    // used for regression test
+    @ConfField(mutable = true)
+    public static boolean enable_alter_queue_prop_sync = false;
 
     @ConfField(mutable = true)
     public static long query_queue_update_interval_ms = 5000;
@@ -2239,7 +2272,28 @@ public class Config extends ConfigBase {
             "When file cache is enabled, the number of virtual nodes of each node in the consistent hash algorithm. "
                     + "The larger the value, the more uniform the distribution of the hash algorithm, "
                     + "but it will increase the memory overhead."})
-    public static int virtual_node_number = 2048;
+    public static int split_assigner_virtual_node_number = 256;
+
+    @ConfField(mutable = true, description = {
+            "本地节点软亲缘性优化。尽可能地优先选取本地副本节点。",
+            "Local node soft affinity optimization. Prefer local replication node."})
+    public static boolean split_assigner_optimized_local_scheduling = true;
+
+    @ConfField(mutable = true, description = {
+            "随机算法最小的候选数目，会选取相对最空闲的节点。",
+            "The random algorithm has the smallest number of candidates and will select the most idle node."})
+    public static int split_assigner_min_random_candidate_num = 2;
+
+    @ConfField(mutable = true, description = {
+            "一致性哈希算法最小的候选数目，会选取相对最空闲的节点。",
+            "The consistent hash algorithm has the smallest number of candidates and will select the most idle node."})
+    public static int split_assigner_min_consistent_hash_candidate_num = 2;
+
+    @ConfField(mutable = true, description = {
+            "各节点之间最大的 split 数目差异，如果超过这个数目就会重新分布 split。",
+            "The maximum difference in the number of splits between nodes. "
+                    + "If this number is exceeded, the splits will be redistributed."})
+    public static int split_assigner_max_split_num_variance = 1;
 
     @ConfField(description = {
             "控制统计信息的自动触发作业执行记录的持久化行数",
@@ -2500,8 +2554,6 @@ public class Config extends ConfigBase {
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
 
-    @ConfField(mutable = true)
-    public static boolean enable_variant_access_in_original_planner = false;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

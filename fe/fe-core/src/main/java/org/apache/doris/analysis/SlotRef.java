@@ -307,7 +307,7 @@ public class SlotRef extends Expr {
             if (tableType.equals(TableType.JDBC_EXTERNAL_TABLE) || tableType.equals(TableType.JDBC) || tableType
                     .equals(TableType.ODBC)) {
                 if (inputTable instanceof JdbcTable) {
-                    return ((JdbcTable) inputTable).getProperRealColumnName(
+                    return ((JdbcTable) inputTable).getProperRemoteColumnName(
                             ((JdbcTable) inputTable).getJdbcTableType(), col);
                 } else if (inputTable instanceof OdbcTable) {
                     return JdbcTable.databaseProperName(((OdbcTable) inputTable).getOdbcTableType(), col);

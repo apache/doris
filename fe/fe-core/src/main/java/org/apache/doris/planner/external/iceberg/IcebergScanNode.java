@@ -22,7 +22,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.TableIf;
@@ -34,7 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.external.iceberg.util.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.planner.external.TableFormatType;
@@ -128,7 +127,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
-        icebergTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(source);
+        icebergTable = source.getIcebergTable();
         super.doInitialize();
     }
 
@@ -347,17 +346,22 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public TFileType getLocationType(String location) throws UserException {
         final String fLocation = normalizeLocation(location);
-        return Optional.ofNullable(LocationPath.getTFileType(location)).orElseThrow(() ->
+        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
                 new DdlException("Unknown file location " + fLocation + " for iceberg table " + icebergTable.name()));
     }
 
     private String normalizeLocation(String location) {
         Map<String, String> props = source.getCatalog().getProperties();
+        LocationPath locationPath = new LocationPath(location, props);
         String icebergCatalogType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
         if ("hadoop".equalsIgnoreCase(icebergCatalogType)) {
-            if (!location.startsWith(HdfsResource.HDFS_PREFIX)) {
+            // if no scheme info, fill will HADOOP_FS_NAME
+            // if no HADOOP_FS_NAME, then should be local file system
+            if (locationPath.getLocationType() == LocationPath.LocationType.NOSCHEME) {
                 String fsName = props.get(HdfsResource.HADOOP_FS_NAME);
-                location = fsName + location;
+                if (fsName != null) {
+                    location = fsName + location;
+                }
             }
         }
         return location;

@@ -76,6 +76,12 @@ void LoadChannel::_init_profile() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
+    if (config::is_cloud_mode() && params.txn_expiration() <= 0) {
+        return Status::InternalError(
+                "The txn expiration of PTabletWriterOpenRequest is invalid, value={}",
+                params.txn_expiration());
+    }
+
     int64_t index_id = params.index_id();
     std::shared_ptr<BaseTabletsChannel> channel;
     {

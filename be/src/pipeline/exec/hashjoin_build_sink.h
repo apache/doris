@@ -41,7 +41,6 @@ class HashJoinBuildSink final : public StreamingOperator<vectorized::HashJoinNod
 public:
     HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return _node->can_sink_write(); }
-    bool is_pending_finish() const override { return !_node->ready_for_finish(); }
 };
 
 class HashJoinBuildSinkOperatorX;
@@ -71,7 +70,6 @@ public:
     void init_short_circuit_for_probe();
 
     bool build_unique() const;
-    std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const;
     std::shared_ptr<vectorized::Arena> arena() { return _shared_state->arena; }
 
     void add_hash_buckets_info(const std::string& info) const {
@@ -102,7 +100,6 @@ protected:
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
 
-    std::vector<IRuntimeFilter*> _runtime_filters;
     bool _should_build_hash_table = true;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
@@ -120,13 +117,6 @@ protected:
     std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
     std::vector<int> _build_col_ids;
 
-    /*
-     * For null aware anti/semi join with other join conjuncts, we do need to care about the rows in
-     * build side with null keys,
-     * because the other join conjuncts' result may be changed from null to false(null & false == false).
-     */
-    std::shared_ptr<std::vector<uint32_t>> _build_indexes_null;
-
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
     RuntimeProfile::Counter* _build_table_insert_timer = nullptr;
@@ -135,7 +125,6 @@ protected:
 
     RuntimeProfile::Counter* _allocate_resource_timer = nullptr;
 
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage = nullptr;
@@ -199,7 +188,6 @@ private:
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller;
 
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
-    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     const std::vector<TExpr> _partition_exprs;
 
     const bool _use_global_rf;

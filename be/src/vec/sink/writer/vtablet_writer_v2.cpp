@@ -420,7 +420,7 @@ Status VTabletWriterV2::write(Block& input_block) {
 
 Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
                                         const Rows& rows, const Streams& streams) {
-    DeltaWriterV2* delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
+    auto delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
         WriteRequest req {
                 .tablet_id = tablet_id,
                 .txn_id = _txn_id,
@@ -446,7 +446,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                          << " not found in schema, load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
         }
-        return std::make_unique<DeltaWriterV2>(&req, streams, _state);
+        return DeltaWriterV2::create_unique(&req, streams, _state);
     });
     if (delta_writer == nullptr) {
         LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id
@@ -551,15 +551,15 @@ Status VTabletWriterV2::close(Status exec_status) {
 
         {
             SCOPED_TIMER(_close_load_timer);
-            auto remain_ms = _state->execution_timeout() * 1000 -
-                             _timeout_watch.elapsed_time() / 1000 / 1000;
-            if (remain_ms <= 0) {
-                LOG(WARNING) << "load timed out before close waiting, load_id="
-                             << print_id(_load_id);
-                return Status::TimedOut("load timed out before close waiting");
-            }
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : streams->streams()) {
+                    int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
+                                        _timeout_watch.elapsed_time() / 1000 / 1000;
+                    if (remain_ms <= 0) {
+                        LOG(WARNING) << "load timed out before close waiting, load_id="
+                                     << print_id(_load_id);
+                        return Status::TimedOut("load timed out before close waiting");
+                    }
                     RETURN_IF_ERROR(stream->close_wait(remain_ms));
                 }
             }

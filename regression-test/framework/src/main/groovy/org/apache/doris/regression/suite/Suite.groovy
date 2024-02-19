@@ -221,15 +221,19 @@ class Suite implements GroovyInterceptable {
 
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
-            def masterFe = cluster.getMasterFe()
-            for (def i=0; masterFe == null && i<30; i++) {
-                masterFe = cluster.getMasterFe()
+            Frontend fe = null
+            for (def i=0; fe == null && i<30; i++) {
+                if (options.connectToFollower) {
+                    fe = cluster.getOneFollowerFe()
+                } else {
+                    fe = cluster.getMasterFe()
+                }
                 Thread.sleep(1000)
             }
-            assertNotNull(masterFe)
+            assertNotNull(fe)
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
-                    masterFe.host, masterFe.queryPort)
+                    fe.host, fe.queryPort)
             def conn = DriverManager.getConnection(url, user, password)
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
             logger.info("try create database if not exists {}", context.dbName)
@@ -400,11 +404,34 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    long getTableId(String dbName, String tableName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for(List<Object> row : dbInfo) {
+            if (row[1].equals(dbName)) {
+                def tbInfo = sql "show proc '/dbs/${row[0]}' "
+                for (List<Object> tb : tbInfo) {
+                    if (tb[1].equals(tableName)) {
+                        return tb[0].toLong()
+                    }
+                }
+            }
+        }
+    }
+
     long getDbId() {
         def dbInfo = sql "show proc '/dbs'"
         for(List<Object> row : dbInfo) {
             if (row[1].equals(context.dbName)) {
                 println(row[0])
+                return row[0].toLong()
+            }
+        }
+    }
+
+    long getDbId(String dbName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for (List<Object> row : dbInfo) {
+            if (row[1].equals(dbName)) {
                 return row[0].toLong()
             }
         }
@@ -903,6 +930,27 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals("SUCCESS", status)
     }
 
+    void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {
+        Thread.sleep(2000);
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(4)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+        }
+    }
+
     String getJobName(String dbName, String mtmvName) {
         String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
@@ -975,12 +1023,55 @@ class Suite implements GroovyInterceptable {
         def result = [:]
 
         tablets.each { row ->
-            def tablet_id = row[0]
+            def tablet_id
+            if (row.containsKey("TabletId")) {
+                tablet_id = row.TabletId
+            } else {
+                tablet_id = row[0]
+            }
             if (!result.containsKey(tablet_id)) {
                 result[tablet_id] = row
             }
         }
 
         return result.values().toList()
+    }
+
+    def check_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        explain {
+            sql("${query_sql}")
+            contains("${mv_name}(${mv_name})")
+        }
+    }
+
+    def check_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        explain {
+            sql("${query_sql}")
+            notContains("${mv_name}(${mv_name})")
+        }
     }
 }

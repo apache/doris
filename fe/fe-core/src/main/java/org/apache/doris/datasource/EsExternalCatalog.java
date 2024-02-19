@@ -20,8 +20,8 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.external.elasticsearch.DorisEsException;
-import org.apache.doris.external.elasticsearch.EsRestClient;
+import org.apache.doris.datasource.es.DorisEsException;
+import org.apache.doris.datasource.es.EsRestClient;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;

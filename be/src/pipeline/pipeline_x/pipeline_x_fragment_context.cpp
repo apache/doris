@@ -182,8 +182,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     // 1. Set up the global runtime state.
     _runtime_state = RuntimeState::create_unique(request.query_id, request.fragment_id,
                                                  request.query_options, _query_ctx->query_globals,
-                                                 _exec_env);
-    _runtime_state->set_query_ctx(_query_ctx.get());
+                                                 _exec_env, _query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -479,7 +478,6 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         auto init_runtime_state = [&](std::unique_ptr<RuntimeState>& runtime_state) {
             runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
-            runtime_state->set_query_ctx(_query_ctx.get());
             runtime_state->set_task_execution_context(shared_from_this());
             runtime_state->set_be_number(local_params.backend_num);
 
@@ -566,7 +564,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                 _task_runtime_states.push_back(RuntimeState::create_unique(
                         this, local_params.fragment_instance_id, request.query_id,
                         request.fragment_id, request.query_options, _query_ctx->query_globals,
-                        _exec_env));
+                        _exec_env, _query_ctx.get()));
                 auto& task_runtime_state = _task_runtime_states.back();
                 init_runtime_state(task_runtime_state);
                 auto cur_task_id = _total_tasks++;
@@ -1312,8 +1310,7 @@ Status PipelineXFragmentContext::send_report(bool done) {
              TUniqueId(), _backend_num, _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2),
-             nullptr},
+                       std::placeholders::_2)},
             std::dynamic_pointer_cast<PipelineXFragmentContext>(shared_from_this()));
 }
 

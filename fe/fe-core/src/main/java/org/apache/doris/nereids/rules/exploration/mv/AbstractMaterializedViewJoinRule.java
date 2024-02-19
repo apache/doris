@@ -18,19 +18,13 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -40,9 +34,6 @@ import java.util.stream.Collectors;
  * This is responsible for common join rewriting
  */
 public abstract class AbstractMaterializedViewJoinRule extends AbstractMaterializedViewRule {
-
-    protected final String currentClassName = this.getClass().getSimpleName();
-    private final Logger logger = LogManager.getLogger(this.getClass());
 
     @Override
     protected Plan rewriteQueryByView(MatchMode matchMode,
@@ -85,26 +76,14 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
     }
 
     /**
-     * Check join is whether valid or not. Support join's input can not contain aggregate
-     * Only support project, filter, join, logical relation node and
-     * join condition should be slot reference equals currently
+     * Check join is whether valid or not. Support join's input only support project, filter, join,
+     * logical relation, simple aggregate node. Con not have aggregate above on join.
+     * Join condition should be slot reference equals currently.
      */
     @Override
     protected boolean checkPattern(StructInfo structInfo) {
-        HyperGraph hyperGraph = structInfo.getHyperGraph();
-        for (AbstractNode node : hyperGraph.getNodes()) {
-            StructInfoNode structInfoNode = (StructInfoNode) node;
-            if (!structInfoNode.getPlan().accept(StructInfo.JOIN_PATTERN_CHECKER,
-                    SUPPORTED_JOIN_TYPE_SET)) {
-                return false;
-            }
-        }
-        for (JoinEdge edge : hyperGraph.getJoinEdges()) {
-            if (!edge.getJoin().accept(StructInfo.JOIN_PATTERN_CHECKER,
-                    SUPPORTED_JOIN_TYPE_SET)) {
-                return false;
-            }
-        }
-        return true;
+        PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
+        return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
+                && !checkContext.isContainsTopAggregate();
     }
 }

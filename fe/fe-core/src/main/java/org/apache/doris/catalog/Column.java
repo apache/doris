@@ -74,7 +74,7 @@ public class Column implements Writable, GsonPostProcessable {
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
 
-    public static final Column UNSUPPORTED_COLUMN = new Column("unknown", Type.UNSUPPORTED, true, null, true, false,
+    public static final Column UNSUPPORTED_COLUMN = new Column("unknown", Type.UNSUPPORTED, true, null, true, -1,
             null, "invalid", true, null, -1, null);
 
     @SerializedName(value = "name")
@@ -98,6 +98,9 @@ public class Column implements Writable, GsonPostProcessable {
     private boolean isAllowNull;
     @SerializedName(value = "isAutoInc")
     private boolean isAutoInc;
+
+    @SerializedName(value = "autoIncInitValue")
+    private long autoIncInitValue;
     @SerializedName(value = "defaultValue")
     private String defaultValue;
     @SerializedName(value = "comment")
@@ -183,32 +186,32 @@ public class Column implements Writable, GsonPostProcessable {
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment) {
-        this(name, type, isKey, aggregateType, isAllowNull, false, defaultValue, comment, true, null,
+        this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, true, null,
                 COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue, false, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String comment, boolean visible, int colUniqueId) {
-        this(name, type, isKey, aggregateType, isAllowNull, false, null, comment, visible, null, colUniqueId, null,
+        this(name, type, isKey, aggregateType, isAllowNull, -1, null, comment, visible, null, colUniqueId, null,
                 false, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef,
             int colUniqueId, String realDefaultValue) {
-        this(name, type, isKey, aggregateType, isAllowNull, false, defaultValue, comment, visible, defaultValueExprDef,
+        this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, visible, defaultValueExprDef,
                 colUniqueId, realDefaultValue, false, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-            boolean isAutoInc, String defaultValue, String comment, boolean visible,
+            long autoIncInitValue, String defaultValue, String comment, boolean visible,
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue) {
-        this(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue, comment, visible,
+        this(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment, visible,
                 defaultValueExprDef, colUniqueId, realDefaultValue, false, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-            boolean isAutoInc, String defaultValue, String comment, boolean visible,
+            long autoIncInitValue, String defaultValue, String comment, boolean visible,
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue,
             boolean hasOnUpdateDefaultValue, DefaultValueExprDef onUpdateDefaultValueExprDef) {
         this.name = name;
@@ -225,7 +228,8 @@ public class Column implements Writable, GsonPostProcessable {
         this.isAggregationTypeImplicit = false;
         this.isKey = isKey;
         this.isAllowNull = isAllowNull;
-        this.isAutoInc = isAutoInc;
+        this.isAutoInc = autoIncInitValue != -1;
+        this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
         this.realDefaultValue = realDefaultValue;
         this.defaultValueExprDef = defaultValueExprDef;
@@ -251,20 +255,20 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType,
-            boolean isAllowNull, boolean isAutoInc, String defaultValue, String comment,
+            boolean isAllowNull, long autoIncInitValue, String defaultValue, String comment,
             boolean visible, DefaultValueExprDef defaultValueExprDef, int colUniqueId,
             String realDefaultValue, boolean hasOnUpdateDefaultValue,
             DefaultValueExprDef onUpdateDefaultValueExprDef, int clusterKeyId) {
-        this(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue, comment,
+        this(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment,
                 visible, defaultValueExprDef, colUniqueId, realDefaultValue,
                 hasOnUpdateDefaultValue, onUpdateDefaultValueExprDef);
         this.clusterKeyId = clusterKeyId;
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-            boolean isAutoInc, String defaultValue, String comment, boolean visible,
+            long autoIncInitValue, String defaultValue, String comment, boolean visible,
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue, int clusterKeyId) {
-        this(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue, comment, visible,
+        this(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment, visible,
                 defaultValueExprDef, colUniqueId, realDefaultValue);
         this.clusterKeyId = clusterKeyId;
     }
@@ -942,7 +946,7 @@ public class Column implements Writable, GsonPostProcessable {
             sb.append(" NOT NULL");
         }
         if (isAutoInc) {
-            sb.append(" AUTO_INCREMENT");
+            sb.append(" AUTO_INCREMENT(").append(autoIncInitValue).append(")");
         }
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
             if (defaultValueExprDef != null) {
@@ -1115,6 +1119,10 @@ public class Column implements Writable, GsonPostProcessable {
 
     public int getUniqueId() {
         return this.uniqueId;
+    }
+
+    public long getAutoIncInitValue() {
+        return this.autoIncInitValue;
     }
 
     public void setIndexFlag(TColumn tColumn, OlapTable olapTable) {

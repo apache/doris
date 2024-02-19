@@ -799,7 +799,7 @@ bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
     }
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
         if (_not_apply_index_pred.count(pred->column_id()) ||
-            (!_check_apply_by_bitmap_index(pred) && !_check_apply_by_inverted_index(pred, true))) {
+            (!_check_apply_by_inverted_index(pred, true))) {
             return false;
         }
         // all predicates are evaluated by index, then true, else false
@@ -807,14 +807,6 @@ bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
         if (_rowid_result_for_index.count(pred_result_sign) == 0) {
             return false;
         }
-    }
-    return true;
-}
-
-bool SegmentIterator::_check_apply_by_bitmap_index(ColumnPredicate* pred) {
-    if (_bitmap_index_iterators[pred->column_id()] == nullptr) {
-        // no bitmap index for this column
-        return false;
     }
     return true;
 }
@@ -860,13 +852,6 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
     return true;
 }
 
-Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(
-        ColumnPredicate* pred, roaring::Roaring* output_result) {
-    RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[pred->column_id()].get(),
-                                   _segment->num_rows(), output_result));
-    return Status::OK();
-}
-
 Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
         ColumnPredicate* pred, roaring::Roaring* output_result) {
     RETURN_IF_ERROR(pred->evaluate(_storage_name_and_type[pred->column_id()],
@@ -886,13 +871,10 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             continue;
         }
 
-        bool can_apply_by_bitmap_index = _check_apply_by_bitmap_index(pred);
         bool can_apply_by_inverted_index = _check_apply_by_inverted_index(pred, true);
         roaring::Roaring bitmap = _row_bitmap;
         Status res = Status::OK();
-        if (can_apply_by_bitmap_index) {
-            res = _apply_bitmap_index_except_leafnode_of_andnode(pred, &bitmap);
-        } else if (can_apply_by_inverted_index) {
+        if (can_apply_by_inverted_index) {
             res = _apply_inverted_index_except_leafnode_of_andnode(pred, &bitmap);
         } else {
             continue;
@@ -1960,6 +1942,12 @@ void SegmentIterator::_replace_version_col(size_t num_rows) {
 uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                             uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
+    if (_is_need_vec_eval) {
+        _is_need_vec_eval = false;
+        for (const auto& pred : _pre_eval_block_predicate) {
+            _is_need_vec_eval |= (!pred->always_true());
+        }
+    }
     if (!_is_need_vec_eval) {
         for (uint32_t i = 0; i < selected_size; ++i) {
             sel_rowid_idx[i] = i;
@@ -1969,14 +1957,20 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
 
     uint16_t original_size = selected_size;
     bool ret_flags[original_size];
-    DCHECK(_pre_eval_block_predicate.size() > 0);
-    auto column_id = _pre_eval_block_predicate[0]->column_id();
-    auto& column = _current_return_columns[column_id];
-    _pre_eval_block_predicate[0]->evaluate_vec(*column, original_size, ret_flags);
-    for (int i = 1; i < _pre_eval_block_predicate.size(); i++) {
-        auto column_id2 = _pre_eval_block_predicate[i]->column_id();
-        auto& column2 = _current_return_columns[column_id2];
-        _pre_eval_block_predicate[i]->evaluate_and_vec(*column2, original_size, ret_flags);
+    DCHECK(!_pre_eval_block_predicate.empty());
+    bool is_first = true;
+    for (int i = 0; i < _pre_eval_block_predicate.size(); i++) {
+        if (_pre_eval_block_predicate[i]->always_true()) {
+            continue;
+        }
+        auto column_id = _pre_eval_block_predicate[i]->column_id();
+        auto& column = _current_return_columns[column_id];
+        if (is_first) {
+            _pre_eval_block_predicate[i]->evaluate_vec(*column, original_size, ret_flags);
+            is_first = false;
+        } else {
+            _pre_eval_block_predicate[i]->evaluate_and_vec(*column, original_size, ret_flags);
+        }
     }
 
     uint16_t new_size = 0;
@@ -2366,6 +2360,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
     }
 #endif
+    VLOG_DEBUG << "dump block " << block->dump_data(0, block->rows());
 
     // reverse block row order
     if (_opts.read_orderby_key_reverse) {

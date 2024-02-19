@@ -834,6 +834,7 @@ nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
 nonterminal String opt_job_starts;
 nonterminal String opt_job_ends;
+nonterminal String job_at_time;
 nonterminal ColocateGroupName colocate_group_name;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
@@ -914,7 +915,7 @@ nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local, opt_is_auto_inc;
+nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -971,6 +972,7 @@ nonterminal StorageBackend storage_backend;
 
 nonterminal ArrayList<LockTable> opt_lock_tables_list;
 nonterminal LockTable lock_table;
+nonterminal Long opt_auto_inc_init_value;
 
 // workload policy/group
 nonterminal String policy_condition_op, policy_condition_value;
@@ -2596,7 +2598,7 @@ create_job_stmt ::=
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.STREAMING,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
     :}   */ 
-    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE job_at_time:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.ONE_TIME,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
@@ -2610,8 +2612,22 @@ create_job_stmt ::=
      {: 
         RESULT = startTime;    
      :}
+     |KW_STARTS KW_CURRENT_TIMESTAMP
+     {: 
+        RESULT = CreateJobStmt.CURRENT_TIMESTAMP_STRING;
+     :}   
      ;
- 
+     
+ job_at_time ::= 
+     | KW_AT STRING_LITERAL:atTime 
+     {: 
+        RESULT = atTime;    
+     :}
+     |KW_AT KW_CURRENT_TIMESTAMP
+     {: 
+        RESULT = CreateJobStmt.CURRENT_TIMESTAMP_STRING;
+     :}   
+     ;
  opt_job_ends ::= 
      {:
          RESULT = null;
@@ -3489,7 +3505,7 @@ key_value_map ::=
 
 opt_properties ::=
     {:
-    RESULT = null;
+    RESULT = Maps.newHashMap();
     :}
     | properties:properties
     {:
@@ -3628,7 +3644,7 @@ opt_actions ::=
 
 opt_ext_properties ::=
     {:
-    RESULT = null;
+    RESULT = Maps.newHashMap();
     :}
     | KW_BROKER properties:properties
     {:
@@ -3703,21 +3719,21 @@ opt_is_key ::=
     ;
 
 column_definition ::=
-    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
+    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, isAutoInc, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, false, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
         columnDef.setGenericAggregationName(fnName);
         columnDef.setGenericAggregationArguments(list);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, isAutoInc, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
     | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
@@ -3757,15 +3773,23 @@ opt_is_allow_null ::=
     :}
     ;
 
-opt_is_auto_inc ::=
+opt_auto_inc_init_value ::=
     {:
-        RESULT = false;
+        RESULT = Long.valueOf(-1);
     :}
     | KW_AUTO_INCREMENT
     {:
-        RESULT = true;
+        RESULT = Long.valueOf(1);
+    :}
+    | KW_AUTO_INCREMENT LPAREN INTEGER_LITERAL:auto_inc_initial_value RPAREN
+    {:
+        if (auto_inc_initial_value.longValue() < 0) {
+            throw new AnalysisException("AUTO_INCREMENT start value can not be negative.");
+        }
+        RESULT = auto_inc_initial_value.longValue();
     :}
     ;
+
 opt_comment ::=
     /* empty */
     {:
@@ -3783,7 +3807,7 @@ opt_index_type ::=
     :}
     | KW_USING KW_BITMAP
     {:
-        RESULT = IndexDef.IndexType.BITMAP;
+        RESULT = IndexDef.IndexType.INVERTED;
     :}
     | KW_USING KW_NGRAM_BF
     {:

@@ -324,10 +324,6 @@ if (WITH_MYSQL)
     add_definitions(-DDORIS_WITH_MYSQL)
 endif()
 
-if (WITH_LZO)
-    add_definitions(-DDORIS_WITH_LZO)
-endif()
-
 # Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
 # and compaction,and observe the memory of BE through be_ip:http_port/MemTracker.
 # Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
@@ -548,10 +544,6 @@ set(DORIS_DEPENDENCIES
     ${KRB5_LIBS}
 )
 
-if(WITH_LZO)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} lzo)
-endif()
-
 if (WITH_MYSQL)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)
 endif()
@@ -660,7 +652,7 @@ set(BUILD_SHARED_LIBS OFF)
 
 option(ENABLE_CLANG_COVERAGE "coverage option" OFF)
 if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
-    add_compile_options(-fprofile-instr-generate -fcoverage-mapping -DLLVM_PROFILE)
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
     add_link_options(-fprofile-instr-generate)
 endif ()
 

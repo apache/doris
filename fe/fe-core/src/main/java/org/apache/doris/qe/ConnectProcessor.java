@@ -93,6 +93,10 @@ public abstract class ConnectProcessor {
         this.ctx = context;
     }
 
+    public ConnectContext getConnectContext() {
+        return ctx;
+    }
+
     // change current database of this session.
     protected void handleInitDb(String fullDbName) {
         String catalogName = null;
@@ -173,6 +177,14 @@ public abstract class ConnectProcessor {
 
     // only throw an exception when there is a problem interacting with the requesting client
     protected void handleQuery(MysqlCommand mysqlCommand, String originStmt) {
+        try {
+            executeQuery(mysqlCommand, originStmt);
+        } catch (Exception ignored) {
+            // saved use handleQueryException
+        }
+    }
+
+    public void executeQuery(MysqlCommand mysqlCommand, String originStmt) throws Exception {
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         }
@@ -274,11 +286,9 @@ public abstract class ConnectProcessor {
                 handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
                         executor.getQueryStatisticsForAuditLog());
                 // execute failed, skip remaining stmts
-                break;
+                throw throwable;
             }
-
         }
-
     }
 
     private String convertOriginStmt(String originStmt) {
@@ -435,7 +445,11 @@ public abstract class ConnectProcessor {
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
-                packet = executor.getOutputPacket();
+                if (executor.sendProxyQueryResult()) {
+                    packet = getResultPacket();
+                } else {
+                    packet = executor.getOutputPacket();
+                }
             } else {
                 executor.sendResultSet(resultSet);
                 packet = getResultPacket();
@@ -584,8 +598,12 @@ public abstract class ConnectProcessor {
             result.setStatusCode(ctx.getState().getErrorCode().getCode());
             result.setErrMessage(ctx.getState().getErrorMessage());
         }
-        if (executor != null && executor.getProxyResultSet() != null) {
-            result.setResultSet(executor.getProxyResultSet().tothrift());
+        if (executor != null) {
+            if (executor.getProxyShowResultSet() != null) {
+                result.setResultSet(executor.getProxyShowResultSet().tothrift());
+            } else if (!executor.getProxyQueryResultBufList().isEmpty()) {
+                result.setQueryResultBufList(executor.getProxyQueryResultBufList());
+            }
         }
         return result;
     }

@@ -628,7 +628,7 @@ BaseCompaction:546859:
 
 * 类型：bool
 * 描述：在导入时进行 segment compaction 来减少 segment 数量, 以避免出现写入时的 -238 错误
-* 默认值：false
+* 默认值：true
 
 #### `segcompaction_batch_size`
 

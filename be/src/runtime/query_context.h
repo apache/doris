@@ -60,7 +60,6 @@ struct ReportStatusRequest {
     RuntimeState* runtime_state;
     std::function<Status(Status)> update_fn;
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
-    std::shared_ptr<QueryStatistics> query_statistics;
 };
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
@@ -71,7 +70,7 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options);
+                 const TQueryOptions& query_options, TNetworkAddress coord_addr);
 
     ~QueryContext();
 
@@ -151,11 +150,7 @@ public:
 
     vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
 
-    void set_task_group(taskgroup::TaskGroupPtr& tg) { _task_group = tg; }
-
-    taskgroup::TaskGroup* get_task_group() const {
-        return _task_group == nullptr ? nullptr : _task_group.get();
-    }
+    Status set_task_group(taskgroup::TaskGroupPtr& tg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -196,16 +191,6 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
-    void set_task_scheduler(pipeline::TaskScheduler* task_scheduler) {
-        _task_scheduler = task_scheduler;
-    }
-
-    pipeline::TaskScheduler* get_task_scheduler() { return _task_scheduler; }
-
-    void set_scan_task_scheduler(vectorized::SimplifiedScanScheduler* scan_task_scheduler) {
-        _scan_task_scheduler = scan_task_scheduler;
-    }
-
     vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
@@ -220,11 +205,11 @@ public:
 
     std::shared_ptr<QueryStatistics> get_cpu_statistics() { return _cpu_statistics; }
 
-    void set_query_scheduler(uint64_t wg_id);
-
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 
     ThreadPool* get_non_pipe_exec_thread_pool();
+
+    int64_t mem_limit() { return _bytes_limit; }
 
 public:
     DescriptorTbl* desc_tbl = nullptr;
@@ -259,6 +244,7 @@ private:
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
+    int64_t _bytes_limit = 0;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.

@@ -23,8 +23,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.RangeUtils;
@@ -48,6 +50,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -980,30 +983,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     public List<List<String>> getInfo() {
-        List<List<String>> dbInfos = Lists.newArrayList();
-        for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
-            List<String> info = Lists.newArrayList();
-            info.add("Database");
-            RecycleDatabaseInfo dbInfo = entry.getValue();
-            Database db = dbInfo.getDb();
-            info.add(db.getFullName());
-            info.add(String.valueOf(entry.getKey()));
-            info.add("");
-            info.add("");
-            //info.add(String.valueOf(idToRecycleTime.get(entry.getKey())));
-            info.add(TimeUtils.longToTimeString(idToRecycleTime.get(entry.getKey())));
-
-            dbInfos.add(info);
-        }
-        // sort by Name, DropTime
-        dbInfos.sort((x, y) -> {
-            int nameRet = x.get(1).compareTo(y.get(1));
-            if (nameRet == 0) {
-                return x.get(5).compareTo(y.get(5));
-            } else {
-                return nameRet;
-            }
-        });
+        Map<Long, Pair<Long, Long>> dbToDataSize = new HashMap<>();
 
         List<List<String>> tableInfos = Lists.newArrayList();
         for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
@@ -1017,6 +997,22 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             info.add("");
             //info.add(String.valueOf(idToRecycleTime.get(entry.getKey())));
             info.add(TimeUtils.longToTimeString(idToRecycleTime.get(entry.getKey())));
+            // data size
+            long dataSize = table.getDataSize(false);
+            info.add(DebugUtil.printByteWithUnit(dataSize));
+            // remote data size
+            long remoteDataSize = table instanceof OlapTable ? ((OlapTable) table).getRemoteDataSize() : 0L;
+            info.add(DebugUtil.printByteWithUnit(remoteDataSize));
+            // calculate database data size
+            dbToDataSize.compute(tableInfo.getDbId(), (k, v) -> {
+                if (v == null) {
+                    return Pair.of(dataSize, remoteDataSize);
+                } else {
+                    v.first += dataSize;
+                    v.second += remoteDataSize;
+                    return v;
+                }
+            });
 
             tableInfos.add(info);
         }
@@ -1042,6 +1038,22 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             info.add(String.valueOf(entry.getKey()));
             //info.add(String.valueOf(idToRecycleTime.get(entry.getKey())));
             info.add(TimeUtils.longToTimeString(idToRecycleTime.get(entry.getKey())));
+            // data size
+            long dataSize = partition.getDataSize(false);
+            info.add(DebugUtil.printByteWithUnit(dataSize));
+            // remote data size
+            long remoteDataSize = partition.getRemoteDataSize();
+            info.add(DebugUtil.printByteWithUnit(remoteDataSize));
+            // calculate database data size
+            dbToDataSize.compute(partitionInfo.getDbId(), (k, v) -> {
+                if (v == null) {
+                    return Pair.of(dataSize, remoteDataSize);
+                } else {
+                    v.first += dataSize;
+                    v.second += remoteDataSize;
+                    return v;
+                }
+            });
 
             partitionInfos.add(info);
         }
@@ -1055,7 +1067,76 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
         });
 
+        List<List<String>> dbInfos = Lists.newArrayList();
+        for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
+            List<String> info = Lists.newArrayList();
+            info.add("Database");
+            RecycleDatabaseInfo dbInfo = entry.getValue();
+            Database db = dbInfo.getDb();
+            info.add(db.getFullName());
+            info.add(String.valueOf(entry.getKey()));
+            info.add("");
+            info.add("");
+            //info.add(String.valueOf(idToRecycleTime.get(entry.getKey())));
+            info.add(TimeUtils.longToTimeString(idToRecycleTime.get(entry.getKey())));
+            // data size
+            Pair<Long, Long> dataSizePair = dbToDataSize.getOrDefault(entry.getKey(), Pair.of(0L, 0L));
+            info.add(DebugUtil.printByteWithUnit(dataSizePair.first));
+            // remote data size
+            info.add(DebugUtil.printByteWithUnit(dataSizePair.second));
+
+            dbInfos.add(info);
+        }
+        // sort by Name, DropTime
+        dbInfos.sort((x, y) -> {
+            int nameRet = x.get(1).compareTo(y.get(1));
+            if (nameRet == 0) {
+                return x.get(5).compareTo(y.get(5));
+            } else {
+                return nameRet;
+            }
+        });
+
         return Stream.of(dbInfos, tableInfos, partitionInfos).flatMap(Collection::stream).collect(Collectors.toList());
+    }
+
+    public synchronized Map<Long, Pair<Long, Long>> getDbToRecycleSize() {
+        Map<Long, Pair<Long, Long>> dbToRecycleSize = new HashMap<>();
+        for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
+            RecycleTableInfo tableInfo = entry.getValue();
+            Table table = tableInfo.getTable();
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            long dataSize = table.getDataSize(false);
+            long remoteDataSize = ((OlapTable) table).getRemoteDataSize();
+            dbToRecycleSize.compute(tableInfo.getDbId(), (k, v) -> {
+                if (v == null) {
+                    return Pair.of(dataSize, remoteDataSize);
+                } else {
+                    v.first += dataSize;
+                    v.second += remoteDataSize;
+                    return v;
+                }
+            });
+        }
+
+        for (Map.Entry<Long, RecyclePartitionInfo> entry : idToPartition.entrySet()) {
+            RecyclePartitionInfo partitionInfo = entry.getValue();
+            Partition partition = partitionInfo.getPartition();
+            long dataSize = partition.getDataSize(false);
+            long remoteDataSize = partition.getRemoteDataSize();
+            dbToRecycleSize.compute(partitionInfo.getDbId(), (k, v) -> {
+                if (v == null) {
+                    return Pair.of(dataSize, remoteDataSize);
+                } else {
+                    v.first += dataSize;
+                    v.second += remoteDataSize;
+                    return v;
+                }
+            });
+        }
+        return dbToRecycleSize;
     }
 
     // Need to add "synchronized", because when calling /dump api to dump image,

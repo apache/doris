@@ -59,7 +59,7 @@ namespace doris {
 
 class Tablet;
 class CumulativeCompactionPolicy;
-class Compaction;
+class CompactionMixin;
 class SingleReplicaCompaction;
 class RowsetWriter;
 struct RowsetWriterContext;
@@ -149,9 +149,6 @@ public:
     Status modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                           std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
 
-    static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
-            const std::vector<RowsetMetaSharedPtr>& rowset_metas);
-
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
     /// Delete stale rowset by timing. This delete policy uses now() minutes
     /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset
@@ -171,8 +168,9 @@ public:
     void acquire_version_and_rowsets(
             std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
 
-    Status capture_consistent_rowsets(const Version& spec_version,
-                                      std::vector<RowsetSharedPtr>* rowsets) const;
+    Status capture_consistent_rowsets_unlocked(
+            const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
+
     // If skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
@@ -277,12 +275,11 @@ public:
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
 
-    static Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
-                                                           const TabletSharedPtr& tablet,
-                                                           std::shared_ptr<Compaction>& compaction,
-                                                           int64_t& permits);
+    static Status prepare_compaction_and_calculate_permits(
+            CompactionType compaction_type, const TabletSharedPtr& tablet,
+            std::shared_ptr<CompactionMixin>& compaction, int64_t& permits);
 
-    void execute_compaction(Compaction& compaction);
+    void execute_compaction(CompactionMixin& compaction);
     void execute_single_replica_compaction(SingleReplicaCompaction& compaction);
 
     void set_cumulative_compaction_policy(
@@ -473,8 +470,6 @@ private:
     /// Delete stale rowset by version. This method not only delete the version in expired rowset map,
     /// but also delete the version in rowset meta vector.
     void _delete_stale_rowset_by_version(const Version& version);
-    Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
-                                                std::vector<RowsetSharedPtr>* rowsets) const;
 
     uint32_t _calc_cumulative_compaction_score(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
