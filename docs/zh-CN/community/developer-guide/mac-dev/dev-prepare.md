@@ -60,9 +60,10 @@ MacOS:
         `ln -s /usr/local/Cellar/thrift@0.16.0/0.16.0/bin/thrift ./thirdparty/installed/bin/thrift`
 
 注：macOS 执行 `brew install thrift@0.16.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.16.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.16.0`
+    1. `brew tap homebrew/core --force`
+    2. `brew tap-new $USER/local-tap`
+    3. `brew extract --version='0.16.0' thrift $USER/local-tap`
+    4. `brew install thrift@0.16.0`
 参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
 ```
 
