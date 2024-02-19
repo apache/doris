@@ -202,17 +202,44 @@ Status S3FileWriter::close() {
         return _st;
     }
     VLOG_DEBUG << "S3FileWriter::close, path: " << _path.native();
-    // it might be one file less than 5MB, we do upload here
-    if (_pending_buf != nullptr) {
-        if (_upload_id.empty()) {
+
+    if (_upload_id.empty()) {
+        if (_pending_buf != nullptr) {
+            // it might be one file less than 5MB, we do upload here
             auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
             DCHECK(buf != nullptr);
             buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
+        } else {
+            // if there is no pending buffer, we need to create an empty file
+            auto builder = FileBufferBuilder();
+            builder.set_type(BufferType::UPLOAD)
+                    .set_upload_callback([this](UploadFileBuffer& buf) { _put_object(buf); })
+                    .set_sync_after_complete_task([this](Status s) {
+                        bool ret = false;
+                        if (!s.ok()) [[unlikely]] {
+                            VLOG_NOTICE << "failed at key: " << _key
+                                        << ", status: " << s.to_string();
+                            std::unique_lock<std::mutex> _lck {_completed_lock};
+                            _failed = true;
+                            ret = true;
+                            this->_st = std::move(s);
+                        }
+                        // After the signal, there is a scenario where the previous invocation of _wait_until_finish
+                        // returns to the caller, and subsequently, the S3 file writer is destructed.
+                        // This means that accessing _failed afterwards would result in a heap use after free vulnerability.
+                        _countdown_event.signal();
+                        return ret;
+                    })
+                    .set_is_cancelled([this]() { return _failed.load(); });
+            RETURN_IF_ERROR(builder.build(&_pending_buf));
+            auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+            DCHECK(buf != nullptr);
         }
-        _countdown_event.add_count();
-        RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
-        _pending_buf = nullptr;
     }
+    _countdown_event.add_count();
+    RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
+    _pending_buf = nullptr;
+
     DBUG_EXECUTE_IF("s3_file_writer::close", {
         RETURN_IF_ERROR(_complete());
         return Status::InternalError("failed to close s3 file writer");
