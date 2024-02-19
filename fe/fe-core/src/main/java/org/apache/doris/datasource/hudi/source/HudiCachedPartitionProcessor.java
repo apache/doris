@@ -84,7 +84,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
     }
 
     public TablePartitionValues getSnapshotPartitionValues(HMSExternalTable table,
-            HoodieTableMetaClient tableMetaClient, String timestamp) {
+            HoodieTableMetaClient tableMetaClient, String timestamp, boolean useHiveSyncPartition) {
         Preconditions.checkState(catalogId == table.getCatalog().getId());
         Option<String[]> partitionColumns = tableMetaClient.getTableConfig().getPartitionFields();
         if (!partitionColumns.isPresent()) {
@@ -97,7 +97,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         }
         long lastTimestamp = Long.parseLong(lastInstant.get().getTimestamp());
         if (Long.parseLong(timestamp) == lastTimestamp) {
-            return getPartitionValues(table, tableMetaClient);
+            return getPartitionValues(table, tableMetaClient, useHiveSyncPartition);
         }
         List<String> partitionNameAndValues = getPartitionNamesBeforeOrEquals(timeline, timestamp);
         List<String> partitionNames = Arrays.asList(partitionColumns.get());
@@ -108,7 +108,8 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         return partitionValues;
     }
 
-    public TablePartitionValues getPartitionValues(HMSExternalTable table, HoodieTableMetaClient tableMetaClient)
+    public TablePartitionValues getPartitionValues(HMSExternalTable table, HoodieTableMetaClient tableMetaClient,
+                                                   boolean useHiveSyncPartition)
             throws CacheException {
         Preconditions.checkState(catalogId == table.getCatalog().getId());
         Option<String[]> partitionColumns = tableMetaClient.getTableConfig().getPartitionFields();
@@ -142,13 +143,17 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 }
                 HMSExternalCatalog catalog = (HMSExternalCatalog) table.getCatalog();
                 List<String> partitionNames;
-                // When a Hudi table is synchronized to HMS, the partition information is also synchronized,
-                // so even if the metastore is not enabled in the Hudi table
-                //     (for example, if the Metastore is false for a Hudi table created with Flink),
-                // we can still obtain the partition information through the HMS API.
-                partitionNames = catalog.getClient().listPartitionNames(table.getDbName(), table.getName());
-                if (partitionNames.size() == 0) {
-                    LOG.warn("Failed to get partitions from hms api, switch it from hudi api.");
+                if (useHiveSyncPartition) {
+                    // When a Hudi table is synchronized to HMS, the partition information is also synchronized,
+                    // so even if the metastore is not enabled in the Hudi table
+                    //     (for example, if the Metastore is false for a Hudi table created with Flink),
+                    // we can still obtain the partition information through the HMS API.
+                    partitionNames = catalog.getClient().listPartitionNames(table.getDbName(), table.getName());
+                    if (partitionNames.size() == 0) {
+                        LOG.warn("Failed to get partitions from hms api, switch it from hudi api.");
+                        partitionNames = getAllPartitionNames(tableMetaClient);
+                    }
+                } else {
                     partitionNames = getAllPartitionNames(tableMetaClient);
                 }
                 List<String> partitionColumnsList = Arrays.asList(partitionColumns.get());
