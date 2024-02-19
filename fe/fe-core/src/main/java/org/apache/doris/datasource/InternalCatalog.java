@@ -2930,11 +2930,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (chooseBackendsArbitrary) {
                 // This is the first colocate table in the group, or just a normal table,
                 // choose backends
-                Pair<Map<Tag, List<Long>>, TStorageMedium> ret = systemInfoService.selectBackendIdsForReplicaCreation(
+                Pair<Map<Tag, List<Long>>, TStorageMedium> chosenBackendIdsAndMedium
+                        = systemInfoService.selectBackendIdsForReplicaCreation(
                         replicaAlloc, nextIndexs,
                         storageMedium, isStorageMediumSpecified, false);
-                chosenBackendIds = ret.first;
-                storageMedium = ret.second;
+                chosenBackendIds = chosenBackendIdsAndMedium.first;
+                storageMedium = chosenBackendIdsAndMedium.second;
                 for (Map.Entry<Tag, List<Long>> entry : chosenBackendIds.entrySet()) {
                     backendsPerBucketSeq.putIfAbsent(entry.getKey(), Lists.newArrayList());
                     backendsPerBucketSeq.get(entry.getKey()).add(entry.getValue());

@@ -1143,9 +1143,9 @@ public class RestoreJob extends AbstractJob {
 
                 // replicas
                 try {
-                    Pair<Map<Tag, List<Long>>, TStorageMedium> ret = Env.getCurrentSystemInfo()
+                    Pair<Map<Tag, List<Long>>, TStorageMedium> beIdsAndMedium = Env.getCurrentSystemInfo()
                             .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs, null, false, false);
-                    Map<Tag, List<Long>> beIds = ret.first;
+                    Map<Tag, List<Long>> beIds = beIdsAndMedium.first;
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
                             long newReplicaId = env.getNextId();
