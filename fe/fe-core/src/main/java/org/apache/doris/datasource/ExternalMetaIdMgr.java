@@ -27,9 +27,9 @@ import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Map;
 import javax.annotation.Nullable;
 import javax.validation.constraints.NotNull;
-import java.util.Map;
 
 /**
  * <pre>
