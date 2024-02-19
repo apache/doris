@@ -142,7 +142,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
 
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
         logBuffer.append(event.queryId).append("\t");
-        logBuffer.append(TimeUtils.longToTimeString(event.timestamp)).append("\t");
+        logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append("\t");
         logBuffer.append(event.clientIp).append("\t");
         logBuffer.append(event.user).append("\t");
         logBuffer.append(event.ctl).append("\t");
