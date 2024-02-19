@@ -415,7 +415,16 @@ public class DateLiteral extends LiteralExpr {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
             } else {
-                String[] datePart = s.contains(" ") ? s.split(" ")[0].split("-") : s.split("-");
+                // datetime string could have char T as seperator of date and time, eg. 2024-02-06T03:37:07.157000Z
+                String[] datePart;
+                if (s.contains("T")) {
+                    datePart = s.split("T")[0].split("-");
+                } else if (s.contains(" ")){
+                    datePart = s.split(" ")[0].split("-");
+                } else {
+                    datePart = s.split("-");
+                }
+
                 DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
                 if (datePart.length != 3) {
                     throw new AnalysisException("Invalid date value: " + s);
@@ -444,10 +453,22 @@ public class DateLiteral extends LiteralExpr {
                         builder.appendLiteral("-");
                     }
                 }
+
                 if (s.contains(" ")) {
                     builder.appendLiteral(" ");
+                } else if (s.contains("T")) {
+                    builder.appendLiteral("T");
                 }
-                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[] {};
+
+                String[] timePart;
+                if (s.contains("T")) {
+                    timePart = s.split("T")[1].split(":");
+                } else if (s.contains(" ")){
+                    timePart = s.split(" ")[1].split(":");
+                } else {
+                    timePart = new String[] {};
+                }
+                
                 if (timePart.length > 0 && type != null && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
@@ -467,7 +488,7 @@ public class DateLiteral extends LiteralExpr {
                             builder.appendPattern(String.join("", Collections.nCopies(timePart[i].contains(".")
                                     ? timePart[i].split("\\.")[0].length() : timePart[i].length(), "s")));
                             if (timePart[i].contains(".")) {
-                                builder.appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true);
+                                builder.appendFraction(ChronoField.MICRO_OF_SECOND, 0, 9, true);
                             }
                             break;
                         default:

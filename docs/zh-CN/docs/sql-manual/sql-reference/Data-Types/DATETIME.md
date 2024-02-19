@@ -35,13 +35,13 @@ DATETIMEV2
 ### description
 
 DATETIME([P])
-日期时间类型，可选参数P表示时间精度，取值范围是[0, 6]，即最多支持6位小数（微秒）。不设置时为0。
-取值范围是['0000-01-01 00:00:00[.000000]', '9999-12-31 23:59:59[.999999]'].
+日期时间类型，可选参数 P 表示时间精度，取值范围是[0, 9]，即最多支持 9 位小数（微秒）。不设置时为 0。
+取值范围是['0000-01-01 00:00:00[.000000000]', '9999-12-31 23:59:59[.999999999]'].
 打印的形式是'yyyy-MM-dd HH:mm:ss.SSSSSS'
 
 ### note
 
-DATETIME 支持了最多到微秒的时间精度。在使用 BE 端解析导入的 DATETIME 类型数据时（如使用Stream load、Spark load等），或开启[新优化器](../../../query-acceleration/nereids)后在 FE 端解析 DATETIME 类型数据时，将会对超出当前精度的小数进行**四舍五入**。
+DATETIME 支持了最多到微秒的时间精度。在使用 BE 端解析导入的 DATETIME 类型数据时（如使用 Stream load、Spark load 等），或开启[新优化器](../../../query-acceleration/nereids)后在 FE 端解析 DATETIME 类型数据时，将会对超出当前精度的小数进行**四舍五入**。
 
 DATETIME 读入时支持解析时区，格式为原本 DATETIME 字面量后紧贴时区：
 ```sql

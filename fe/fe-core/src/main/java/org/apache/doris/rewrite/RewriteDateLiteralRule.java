@@ -72,7 +72,7 @@ public class RewriteDateLiteralRule implements ExprRewriteRule {
                         return new NullLiteral();
                     } else {
                         throw new AnalysisException("Incorrect datetime value: "
-                                + valueExpr.toSql() + " in expression: " + expr.toSql());
+                                + valueExpr.toSql() + " in expression: " + expr.toSql() + " msg: " + e.getMessage());
                     }
                 }
             }
