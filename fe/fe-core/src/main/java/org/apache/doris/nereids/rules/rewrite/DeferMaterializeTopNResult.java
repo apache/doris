@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeResul
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.qe.ConnectContext;
@@ -54,33 +56,63 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
-                        logicalResultSink(logicalTopN(logicalOlapScan()))
-                                .when(r -> r.child().getLimit() < getTopNOptLimitThreshold())
-                                .whenNot(r -> r.child().getOrderKeys().isEmpty())
-                                .when(r -> r.child().getOrderKeys().stream().map(OrderKey::getExpr)
-                                        .allMatch(Expression::isColumnFromTable))
-                                .when(r -> r.child().child().getTable().getEnableLightSchemaChange())
-                                .when(r -> r.child().child().getTable().isDupKeysOrMergeOnWrite())
-                                .then(r -> deferMaterialize(r, r.child(), Optional.empty(), r.child().child()))
+                        logicalResultSink(
+                                logicalTopN(
+                                        logicalOlapScan()
+                                                .when(s -> s.getTable().getEnableLightSchemaChange())
+                                                .when(s -> s.getTable().isDupKeysOrMergeOnWrite()))
+                                        .when(t -> t.getLimit() < getTopNOptLimitThreshold())
+                                        .whenNot(t -> t.getOrderKeys().isEmpty())
+                                        .when(t -> t.getOrderKeys().stream().map(OrderKey::getExpr)
+                                                .allMatch(Expression::isColumnFromTable)))
+                                .then(r -> deferMaterialize(r, r.child(),
+                                        Optional.empty(), Optional.empty(), r.child().child()))
                 ),
                 RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
-                        logicalResultSink(logicalTopN(logicalFilter(logicalOlapScan())))
-                                .when(r -> r.child().getLimit() < getTopNOptLimitThreshold())
-                                .whenNot(r -> r.child().getOrderKeys().isEmpty())
-                                .when(r -> r.child().getOrderKeys().stream().map(OrderKey::getExpr)
-                                        .allMatch(Expression::isColumnFromTable))
-                                .when(r -> r.child().child().child().getTable().getEnableLightSchemaChange())
-                                .when(r -> r.child().child().child().getTable().isDupKeysOrMergeOnWrite())
+                        logicalResultSink(
+                                logicalTopN(logicalFilter(
+                                        logicalOlapScan()
+                                                .when(s -> s.getTable().getEnableLightSchemaChange())
+                                                .when(s -> s.getTable().isDupKeysOrMergeOnWrite())))
+                                        .when(t -> t.getLimit() < getTopNOptLimitThreshold())
+                                        .whenNot(t -> t.getOrderKeys().isEmpty())
+                                        .when(t -> t.getOrderKeys().stream().map(OrderKey::getExpr)
+                                                .allMatch(Expression::isColumnFromTable)))
                                 .then(r -> {
                                     LogicalFilter<LogicalOlapScan> filter = r.child().child();
-                                    return deferMaterialize(r, r.child(), Optional.of(filter), filter.child());
+                                    return deferMaterialize(r, r.child(),
+                                            Optional.empty(), Optional.of(filter), filter.child());
+                                })
+                ),
+                RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
+                        logicalResultSink(
+                                logicalTopN(
+                                        logicalProject(logicalFilter(
+                                                logicalOlapScan()
+                                                        .when(s -> s.getTable().getEnableLightSchemaChange())
+                                                        .when(s -> s.getTable().isDupKeysOrMergeOnWrite())))
+                                                .when(p -> p.getProjects().stream()
+                                                        .allMatch(e -> e instanceof SlotReference
+                                                                || (e instanceof Alias
+                                                                && e.child(0) instanceof SlotReference))))
+                                        .when(t -> t.getLimit() < getTopNOptLimitThreshold())
+                                        .whenNot(t -> t.getOrderKeys().isEmpty())
+                                        .when(t -> t.getOrderKeys().stream().map(OrderKey::getExpr)
+                                                .allMatch(Expression::isColumnFromTable)))
+                                .then(r -> {
+                                    LogicalProject<? extends Plan> project = r.child().child();
+                                    LogicalFilter<LogicalOlapScan> filter = r.child().child().child();
+                                    return deferMaterialize(r, r.child(),
+                                            Optional.of(project), Optional.of(filter), filter.child());
                                 })
                 )
         );
     }
 
     private Plan deferMaterialize(LogicalResultSink<? extends Plan> logicalResultSink,
-            LogicalTopN<? extends Plan> logicalTopN, Optional<LogicalFilter<? extends Plan>> logicalFilter,
+            LogicalTopN<? extends Plan> logicalTopN,
+            Optional<LogicalProject<? extends Plan>> logicalProject,
+            Optional<LogicalFilter<? extends Plan>> logicalFilter,
             LogicalOlapScan logicalOlapScan) {
         Column rowId = new Column(Column.ROWID_COL, Type.STRING, false, null, false, "", "rowid column");
         SlotReference columnId = SlotReference.fromColumn(logicalOlapScan.getTable(), rowId,
@@ -96,7 +128,10 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                 .forEach(deferredMaterializedExprIds::remove);
         LogicalDeferMaterializeOlapScan deferOlapScan = new LogicalDeferMaterializeOlapScan(
                 logicalOlapScan, deferredMaterializedExprIds, columnId);
-        Plan root = logicalFilter.map(f -> f.withChildren(deferOlapScan)).orElse(deferOlapScan);
+        Plan filter = logicalFilter.map(f -> f.withChildren(deferOlapScan)).orElse(deferOlapScan);
+        Plan root = logicalProject.<Plan>map(p -> p.withProjectsAndChild(
+                ImmutableList.<NamedExpression>builder().addAll(p.getProjects()).add(columnId).build(), filter))
+                .orElse(filter);
         root = new LogicalDeferMaterializeTopN<>((LogicalTopN<? extends Plan>) logicalTopN.withChildren(root),
                 deferredMaterializedExprIds, columnId);
         root = logicalResultSink.withChildren(root);
