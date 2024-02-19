@@ -17,6 +17,9 @@
 
 package org.apache.doris.hudi;
 
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopUGI;
+
 import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -36,35 +39,6 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class Utils {
-    public static class Constants {
-        public static String HADOOP_USER_NAME = "hadoop.username";
-        public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
-        public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
-        public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
-    }
-
-    public static UserGroupInformation getUserGroupInformation(Configuration conf) {
-        String authentication = conf.get(Constants.HADOOP_SECURITY_AUTHENTICATION, null);
-        if ("kerberos".equals(authentication)) {
-            conf.set("hadoop.security.authorization", "true");
-            UserGroupInformation.setConfiguration(conf);
-            String principal = conf.get(Constants.HADOOP_KERBEROS_PRINCIPAL);
-            String keytab = conf.get(Constants.HADOOP_KERBEROS_KEYTAB);
-            try {
-                UserGroupInformation ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
-                UserGroupInformation.setLoginUser(ugi);
-                return ugi;
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        } else {
-            String hadoopUserName = conf.get(Constants.HADOOP_USER_NAME);
-            if (hadoopUserName != null) {
-                return UserGroupInformation.createRemoteUser(hadoopUserName);
-            }
-        }
-        return null;
-    }
 
     public static long getCurrentProcId() {
         try {
@@ -114,7 +88,7 @@ public class Utils {
     }
 
     public static HoodieTableMetaClient getMetaClient(Configuration conf, String basePath) {
-        UserGroupInformation ugi = getUserGroupInformation(conf);
+        UserGroupInformation ugi = HadoopUGI.loginWithUGI(AuthenticationConfig.getKerberosConfig(conf));
         HoodieTableMetaClient metaClient;
         if (ugi != null) {
             try {

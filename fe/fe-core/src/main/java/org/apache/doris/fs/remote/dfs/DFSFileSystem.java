@@ -19,9 +19,9 @@ package org.apache.doris.fs.remote.dfs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
-import org.apache.doris.catalog.AuthType;
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
@@ -82,7 +82,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             conf.set(propEntry.getKey(), propEntry.getValue());
         }
 
-        UserGroupInformation ugi = login(conf);
+        UserGroupInformation ugi = HadoopUGI.loginWithUGI(AuthenticationConfig.getKerberosConfig(conf));
         try {
             dfsFileSystem = ugi.doAs((PrivilegedAction<FileSystem>) () -> {
                 try {
@@ -98,58 +98,6 @@ public class DFSFileSystem extends RemoteFileSystem {
         Preconditions.checkNotNull(dfsFileSystem);
         operations = new HDFSFileOperations(dfsFileSystem);
         return dfsFileSystem;
-    }
-
-    private UserGroupInformation login(Configuration conf) throws UserException {
-        if (AuthType.KERBEROS.getDesc().equals(
-                conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null))) {
-            try {
-                UserGroupInformation ugi = UserGroupInformation.getLoginUser();
-                String principal = conf.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
-                LOG.debug("Current login user: {}", ugi.getUserName());
-                if (ugi.hasKerberosCredentials() && ugi.getUserName().equals(principal)) {
-                    // if the current user is logged by kerberos and is the same user
-                    // just use checkTGTAndReloginFromKeytab because this method will only relogin
-                    // when the TGT is expired or is close to expiry
-                    ugi.checkTGTAndReloginFromKeytab();
-                    return ugi;
-                }
-            } catch (IOException e) {
-                LOG.warn("A SecurityException occurs with kerberos, do login immediately.", e);
-                return doLogin(conf);
-            }
-        }
-
-        return doLogin(conf);
-    }
-
-    private UserGroupInformation doLogin(Configuration conf) throws UserException {
-        if (AuthType.KERBEROS.getDesc().equals(
-                    conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null))) {
-            conf.set(HdfsResource.HADOOP_KERBEROS_AUTHORIZATION, "true");
-            String principal = conf.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
-            String keytab = conf.get(HdfsResource.HADOOP_KERBEROS_KEYTAB);
-
-            UserGroupInformation.setConfiguration(conf);
-            try {
-                UserGroupInformation ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
-                UserGroupInformation.setLoginUser(ugi);
-                LOG.info("Login by kerberos authentication with principal: {}", principal);
-                return ugi;
-            } catch (IOException e) {
-                throw new UserException(e);
-            }
-        } else {
-            String hadoopUserName = conf.get(HdfsResource.HADOOP_USER_NAME);
-            if (hadoopUserName == null) {
-                hadoopUserName = "hadoop";
-                LOG.debug(HdfsResource.HADOOP_USER_NAME + " is unset, use default user: hadoop");
-            }
-            UserGroupInformation ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
-            UserGroupInformation.setLoginUser(ugi);
-            LOG.info("Login by proxy user, hadoop.username: {}", hadoopUserName);
-            return ugi;
-        }
     }
 
     @Override
