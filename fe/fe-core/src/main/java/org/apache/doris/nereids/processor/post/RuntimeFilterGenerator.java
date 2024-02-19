@@ -173,6 +173,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                         rightDeepAncestorsSize = currentAncestorsSize;
                                         rightDeepAncestors = ancestors;
                                         rightDeepRfs.clear();
+                                        rightDeepRfs.add(rf);
                                     }
                                 }
                                 if (currentAncestorsSize < leftTopAncestorsSize) {

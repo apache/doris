@@ -191,19 +191,31 @@ public class RuntimeFilterContext {
     public void removeFilter(ExprId targetId, PhysicalHashJoin builderNode) {
         List<RuntimeFilter> filters = targetExprIdToFilter.get(targetId);
         if (filters != null) {
-            Iterator<RuntimeFilter> iter = filters.iterator();
-            while (iter.hasNext()) {
-                RuntimeFilter rf = iter.next();
+            Iterator<RuntimeFilter> filterIter = filters.iterator();
+            while (filterIter.hasNext()) {
+                RuntimeFilter rf = filterIter.next();
                 if (rf.getBuilderNode().equals(builderNode)) {
-                    builderNode.getRuntimeFilters().remove(rf);
-                    for (int i = 0; i < rf.getTargetSlots().size(); i++) {
-                        Slot targetSlot = rf.getTargetSlots().get(i);
+                    Iterator<Slot> targetSlotIter = rf.getTargetSlots().listIterator();
+                    Iterator<PhysicalRelation> targetScanIter = rf.getTargetScans().iterator();
+                    Iterator<Expression> targetExpressionIter = rf.getTargetExpressions().iterator();
+                    Slot targetSlot;
+                    PhysicalRelation targetScan;
+                    while (targetScanIter.hasNext() && targetSlotIter.hasNext() && targetExpressionIter.hasNext()) {
+                        targetExpressionIter.next();
+                        targetScan = targetScanIter.next();
+                        targetSlot = targetSlotIter.next();
                         if (targetSlot.getExprId().equals(targetId)) {
-                            rf.getTargetScans().get(i).removeAppliedRuntimeFilter(rf);
+                            targetScan.removeAppliedRuntimeFilter(rf);
+                            targetExpressionIter.remove();
+                            targetScanIter.remove();
+                            targetSlotIter.remove();
                         }
                     }
-                    iter.remove();
-                    prunedRF.add(rf);
+                    if (rf.getTargetSlots().isEmpty()) {
+                        builderNode.getRuntimeFilters().remove(rf);
+                        filterIter.remove();
+                        prunedRF.add(rf);
+                    }
                 }
             }
         }
