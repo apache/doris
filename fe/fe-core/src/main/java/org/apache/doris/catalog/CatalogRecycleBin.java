@@ -810,14 +810,17 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             throw new DdlException("Can not recover partition[" + partitionName + "]. Partition item conflict.");
         }
 
-        // recover partition
+        // check if partition name exists
         Partition recoverPartition = recoverPartitionInfo.getPartition();
         Preconditions.checkState(recoverPartition.getName().equalsIgnoreCase(partitionName));
         if (!Strings.isNullOrEmpty(newPartitionName)) {
             if (table.checkPartitionNameExist(newPartitionName)) {
                 throw new DdlException("Partition name[" + newPartitionName + "] is already used");
             }
+            recoverPartition.setName(newPartitionName);
         }
+
+        // recover partition
         table.addPartition(recoverPartition);
         if (!Strings.isNullOrEmpty(newPartitionName)) {
             table.renamePartition(partitionName, newPartitionName);
