@@ -120,6 +120,9 @@ struct ProcessHashTableProbe {
     bool _is_right_semi_anti;
     std::vector<bool>* _left_output_slot_flags = nullptr;
     std::vector<bool>* _right_output_slot_flags = nullptr;
+    // nullable column but not has null except first row
+    std::vector<bool> _build_column_has_null;
+    bool _need_calculate_build_index_has_zero = true;
     bool* _has_null_in_build_side;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;

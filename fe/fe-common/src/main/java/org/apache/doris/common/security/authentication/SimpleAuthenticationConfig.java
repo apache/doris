@@ -15,40 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.common.security.authentication;
 
-#include <stddef.h>
+import lombok.Data;
+import org.apache.commons.lang3.StringUtils;
 
-#include "common/status.h"
-#include "io/fs/file_system.h"
-#include "io/fs/file_writer.h"
-#include "io/fs/hdfs.h"
-#include "io/fs/path.h"
-#include "util/slice.h"
+@Data
+public class SimpleAuthenticationConfig extends AuthenticationConfig {
+    private String username;
 
-namespace doris {
-namespace io {
-
-class HdfsFileSystem;
-
-class HdfsFileWriter : public FileWriter {
-public:
-    HdfsFileWriter(Path file, FileSystemSPtr fs);
-    ~HdfsFileWriter();
-
-    Status open() override;
-    Status close() override;
-    Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
-
-private:
-    Status _open();
-
-private:
-    hdfsFile _hdfs_file = nullptr;
-    // A convenient pointer to _fs
-    HdfsFileSystem* _hdfs_fs = nullptr;
-};
-
-} // namespace io
-} // namespace doris
+    @Override
+    public boolean isValid() {
+        return StringUtils.isNotEmpty(username);
+    }
+}

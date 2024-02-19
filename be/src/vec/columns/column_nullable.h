@@ -121,6 +121,8 @@ public:
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
+    void insert_indices_from_not_has_null(const IColumn& src, const uint32_t* indices_begin,
+                                          const uint32_t* indices_end);
 
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
@@ -211,7 +213,6 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
