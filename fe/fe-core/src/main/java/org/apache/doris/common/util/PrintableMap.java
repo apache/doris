@@ -26,8 +26,6 @@ import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
-import com.aliyun.datalake.metastore.common.DataLakeConfig;
-import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
@@ -61,10 +59,9 @@ public class PrintableMap<K, V> {
                 GCSProperties.SECRET_KEY, CosProperties.SECRET_KEY, GlueProperties.SECRET_KEY, MCProperties.SECRET_KEY,
                 DLFProperties.SECRET_KEY));
         HIDDEN_KEY = Sets.newHashSet();
-        HIDDEN_KEY.add(S3Properties.Env.SECRET_KEY);
-        HIDDEN_KEY.add(AWSGlueConfig.AWS_GLUE_SECRET_KEY);
-        HIDDEN_KEY.add(DataLakeConfig.CATALOG_SECURITY_TOKEN);
-        HIDDEN_KEY.add(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET);
+        HIDDEN_KEY.addAll(S3Properties.Env.FS_KEYS);
+        HIDDEN_KEY.addAll(GlueProperties.META_KEYS);
+        HIDDEN_KEY.addAll(DLFProperties.META_KEYS);
     }
 
     public PrintableMap(Map<K, V> map, String keyValueSeparator,
