@@ -374,7 +374,7 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
 
     auto copy = [](const T* __restrict src, T* __restrict dest, const uint32_t* __restrict begin,
                    const uint32_t* __restrict end) {
-        for (auto it = begin; it != end; ++it) {
+        for (const auto* it = begin; it != end; ++it) {
             *dest = src[*it];
             ++dest;
         }
@@ -539,22 +539,6 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
     }
 
     return res;
-}
-
-template <typename T>
-void ColumnVector<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
-                                IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnVector<T>&>(column);
-    typename Self::Container& res_data = res.get_data();
-    DCHECK(res_data.empty());
-    res_data.resize(target_size);
-    auto* __restrict left = res_data.data();
-    auto* __restrict right = data.data();
-    auto* __restrict idxs = indexs;
-
-    for (size_t i = 0; i < target_size; ++i) {
-        left[i] = right[idxs[i]];
-    }
 }
 
 template <typename T>
