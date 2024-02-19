@@ -240,6 +240,7 @@ public class ExportJob implements Writable {
         this.maxFileSize = stmt.getMaxFileSize();
         this.deleteExistingFiles = stmt.getDeleteExistingFiles();
         this.partitionNames = stmt.getPartitions();
+        this.withBom = stmt.getWithBom();
 
         this.exportTable = db.getTableOrDdlException(stmt.getTblName().getTbl());
         this.columns = stmt.getColumns();
