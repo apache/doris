@@ -145,7 +145,7 @@ public:
     template <typename T>
     void register_metric(const std::string& name, T metric);
 
-    // void deregister_metric(const std::string& name);
+    void deregister_metric(const std::string& name);
 
     const std::string to_prometheus(const std::string& registry_name);
     const std::string to_core_string(const std::string& registry_name);
