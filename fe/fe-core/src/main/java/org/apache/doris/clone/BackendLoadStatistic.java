@@ -326,8 +326,10 @@ public class BackendLoadStatistic {
             }
         }
 
-        LOG.debug("classify path by load. be id: {} storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
-                beId, medium, avgUsedPercent, lowCounter, midCounter, highCounter);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("classify path by load. be id: {} storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
+                    beId, medium, avgUsedPercent, lowCounter, midCounter, highCounter);
+        }
     }
 
     public void calcScore(Map<TStorageMedium, Double> avgClusterUsedCapacityPercentMap,
@@ -344,9 +346,11 @@ public class BackendLoadStatistic {
 
             loadScoreMap.put(medium, loadScore);
 
-            LOG.debug("backend {}, medium: {}, capacity coefficient: {}, replica coefficient: {}, load score: {}",
-                    beId, medium, loadScore.capacityCoefficient, loadScore.getReplicaNumCoefficient(),
-                    loadScore.score);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("backend {}, medium: {}, capacity coefficient: {}, replica coefficient: {}, load score: {}",
+                        beId, medium, loadScore.capacityCoefficient, loadScore.getReplicaNumCoefficient(),
+                        loadScore.score);
+            }
         }
     }
 
@@ -434,8 +438,10 @@ public class BackendLoadStatistic {
             RootPathLoadStatistic pathStatistic = pathStatistics.get(i);
             // if this is a supplement task, ignore the storage medium
             if (!isSupplement && medium != null && pathStatistic.getStorageMedium() != medium) {
-                LOG.debug("backend {} path {}'s storage medium {} is not {} storage medium, actual: {}",
-                        beId, pathStatistic.getPath(), pathStatistic.getStorageMedium(), medium);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("backend {} path {}'s storage medium {} is not {} storage medium, actual: {}",
+                            beId, pathStatistic.getPath(), pathStatistic.getStorageMedium(), medium);
+                }
                 continue;
             }
 
@@ -500,12 +506,14 @@ public class BackendLoadStatistic {
                 + Math.abs(currentDestPathScore - avgUsedPercent);
         double newDiff = Math.abs(newSrcPathScore - avgUsedPercent) + Math.abs(newDestPathScore - avgUsedPercent);
 
-        LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
-                        + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
-                        + " more balanced: {}",
-                tabletId, tabletSize, srcPath, destPath, medium, currentSrcPathScore, newSrcPathScore,
-                currentDestPathScore, newDestPathScore, avgUsedPercent, currentDiff, newDiff,
-                (newDiff < currentDiff));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
+                            + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
+                            + " more balanced: {}",
+                    tabletId, tabletSize, srcPath, destPath, medium, currentSrcPathScore, newSrcPathScore,
+                    currentDestPathScore, newDestPathScore, avgUsedPercent, currentDiff, newDiff,
+                    (newDiff < currentDiff));
+        }
 
         return newDiff < currentDiff;
     }
@@ -541,8 +549,10 @@ public class BackendLoadStatistic {
             }
         }
 
-        LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
-                beId, low.size(), mid.size(), high.size());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
+                    beId, low.size(), mid.size(), high.size());
+        }
     }
 
     public void getPathStatisticByClass(List<RootPathLoadStatistic> low,
@@ -562,8 +572,10 @@ public class BackendLoadStatistic {
             }
         }
 
-        LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
-                beId, low.size(), mid.size(), high.size());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
+                    beId, low.size(), mid.size(), high.size());
+        }
     }
 
     public void incrPathsCopingSize(Map<Long, Long> pathsCopingSize) {

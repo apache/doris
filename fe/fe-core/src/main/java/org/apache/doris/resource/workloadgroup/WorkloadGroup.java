@@ -196,7 +196,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     throw new DdlException(memLimitErr);
                 }
             } catch (NumberFormatException e) {
-                LOG.debug(memLimitErr, e);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(memLimitErr, e);
+                }
                 throw new DdlException(memLimitErr);
             }
         }

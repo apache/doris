@@ -93,7 +93,9 @@ public class KafkaUtil {
             Map<String, String> convertedCustomProperties, List<Pair<Integer, Long>> timestampOffsets)
             throws LoadException {
         TNetworkAddress address = null;
-        LOG.debug("begin to get offsets for times of topic: {}, {}", topic, timestampOffsets);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("begin to get offsets for times of topic: {}, {}", topic, timestampOffsets);
+        }
         try {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
@@ -138,7 +140,9 @@ public class KafkaUtil {
                 for (InternalService.PIntegerPair pair : pairs) {
                     partitionOffsets.add(Pair.of(pair.getKey(), pair.getVal()));
                 }
-                LOG.debug("finish to get offsets for times of topic: {}, {}", topic, partitionOffsets);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("finish to get offsets for times of topic: {}, {}", topic, partitionOffsets);
+                }
                 return partitionOffsets;
             }
         } catch (Exception e) {
@@ -152,8 +156,10 @@ public class KafkaUtil {
                                                              Map<String, String> convertedCustomProperties,
                                                              List<Integer> partitionIds) throws LoadException {
         TNetworkAddress address = null;
-        LOG.debug("begin to get latest offsets for partitions {} in topic: {}, task {}, job {}",
-                partitionIds, topic, taskId, jobId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("begin to get latest offsets for partitions {} in topic: {}, task {}, job {}",
+                    partitionIds, topic, taskId, jobId);
+        }
         try {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
@@ -196,8 +202,10 @@ public class KafkaUtil {
                 for (InternalService.PIntegerPair pair : pairs) {
                     partitionOffsets.add(Pair.of(pair.getKey(), pair.getVal()));
                 }
-                LOG.debug("finish to get latest offsets for partitions {} in topic: {}, task {}, job {}",
-                        partitionOffsets, topic, taskId, jobId);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("finish to get latest offsets for partitions {} in topic: {}, task {}, job {}",
+                            partitionOffsets, topic, taskId, jobId);
+                }
                 return partitionOffsets;
             }
         } catch (Exception e) {

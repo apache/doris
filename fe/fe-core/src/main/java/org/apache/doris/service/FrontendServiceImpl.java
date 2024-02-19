@@ -380,7 +380,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TGetDbsResult getDbNames(TGetDbsParams params) throws TException {
-        LOG.debug("get db request: {}", params);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get db request: {}", params);
+        }
         TGetDbsResult result = new TGetDbsResult();
 
         List<String> dbNames = Lists.newArrayList();
@@ -417,7 +419,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 LOG.warn("failed to get database names for catalog {}", catalog.getName(), e);
                 // Some external catalog may fail to get databases due to wrong connection info.
             }
-            LOG.debug("get db size: {}, in catalog: {}", dbs.size(), catalog.getName());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get db size: {}, in catalog: {}", dbs.size(), catalog.getName());
+            }
             if (dbs.isEmpty() && params.isSetGetNullCatalog() && params.get_null_catalog) {
                 catalogNames.add(catalog.getName());
                 dbNames.add("NULL");
@@ -482,7 +486,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @LogException
     @Override
     public TGetTablesResult getTableNames(TGetTablesParams params) throws TException {
-        LOG.debug("get table name request: {}", params);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get table name request: {}", params);
+        }
         TGetTablesResult result = new TGetTablesResult();
         List<String> tablesResult = Lists.newArrayList();
         result.setTables(tablesResult);
@@ -515,7 +521,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             try {
                 tableNames = db.getTableNamesOrEmptyWithLock();
                 for (String tableName : tableNames) {
-                    LOG.debug("get table: {}, wait to check", tableName);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("get table: {}, wait to check", tableName);
+                    }
                     if (!Env.getCurrentEnv().getAccessManager()
                             .checkTblPriv(currentUser, dbName, tableName, PrivPredicate.SHOW)) {
                         continue;
@@ -534,7 +542,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TListTableStatusResult listTableStatus(TGetTablesParams params) throws TException {
-        LOG.debug("get list table request: {}", params);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get list table request: {}", params);
+        }
         TListTableStatusResult result = new TListTableStatusResult();
         List<TTableStatus> tablesResult = Lists.newArrayList();
         result.setTables(tablesResult);
@@ -616,7 +626,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     public TListTableMetadataNameIdsResult listTableMetadataNameIds(TGetTablesParams params) throws TException {
-        LOG.debug("get list simple table request: {}", params);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get list simple table request: {}", params);
+        }
 
         TListTableMetadataNameIdsResult result = new TListTableMetadataNameIdsResult();
         List<TTableMetadataNameIds> tablesResult = Lists.newArrayList();
@@ -698,7 +710,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TListPrivilegesResult listTablePrivilegeStatus(TGetTablesParams params) throws TException {
-        LOG.debug("get list table privileges request: {}", params);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get list table privileges request: {}", params);
+        }
         TListPrivilegesResult result = new TListPrivilegesResult();
         List<TPrivilegeStatus> tblPrivResult = Lists.newArrayList();
         result.setPrivileges(tblPrivResult);
@@ -715,7 +729,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TListPrivilegesResult listSchemaPrivilegeStatus(TGetTablesParams params) throws TException {
-        LOG.debug("get list schema privileges request: {}", params);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get list schema privileges request: {}", params);
+        }
         TListPrivilegesResult result = new TListPrivilegesResult();
         List<TPrivilegeStatus> tblPrivResult = Lists.newArrayList();
         result.setPrivileges(tblPrivResult);
@@ -732,7 +748,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TListPrivilegesResult listUserPrivilegeStatus(TGetTablesParams params) throws TException {
-        LOG.debug("get list user privileges request: {}", params);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get list user privileges request: {}", params);
+        }
         TListPrivilegesResult result = new TListPrivilegesResult();
         List<TPrivilegeStatus> userPrivResult = Lists.newArrayList();
         result.setPrivileges(userPrivResult);
@@ -756,7 +774,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TDescribeTableResult describeTable(TDescribeTableParams params) throws TException {
-        LOG.debug("get desc table request: {}", params);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get desc table request: {}", params);
+        }
         TDescribeTableResult result = new TDescribeTableResult();
         List<TColumnDef> columns = Lists.newArrayList();
         result.setColumns(columns);
@@ -822,7 +842,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TDescribeTablesResult describeTables(TDescribeTablesParams params) throws TException {
-        LOG.debug("get desc tables request: {}", params);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get desc tables request: {}", params);
+        }
         TDescribeTablesResult result = new TDescribeTablesResult();
         List<TColumnDef> columns = Lists.newArrayList();
         List<Integer> tablesOffset = Lists.newArrayList();
@@ -961,7 +983,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // add this log so that we can track this stmt
-        LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
+        }
         ConnectContext context = new ConnectContext(null, true);
         // Set current connected FE to the client address, so that we can know where this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
@@ -1057,7 +1081,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive txn begin request: {}, backend: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive txn begin request: {}, backend: {}", request, clientAddr);
+        }
 
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -1142,7 +1168,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TBeginTxnResult beginTxn(TBeginTxnRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive txn begin request: {}, client: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive txn begin request: {}, client: {}", request, clientAddr);
+        }
 
         TBeginTxnResult result = new TBeginTxnResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -1247,7 +1275,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnCommitResult loadTxnPreCommit(TLoadTxnCommitRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive txn pre-commit request: {}, backend: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive txn pre-commit request: {}, backend: {}", request, clientAddr);
+        }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -1297,7 +1327,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<Long> multiTableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
             Env.getCurrentGlobalTransactionMgr()
                     .updateMultiTableRunningTransactionTableIds(db.getId(), request.getTxnId(), multiTableIds);
-            LOG.debug("txn {} has multi table {}", request.getTxnId(), request.getTbls());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("txn {} has multi table {}", request.getTxnId(), request.getTbls());
+            }
         }
         return tables;
     }
@@ -1350,7 +1382,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxn2PCResult loadTxn2PC(TLoadTxn2PCRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive txn 2PC request: {}, backend: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive txn 2PC request: {}, backend: {}", request, clientAddr);
+        }
 
         TLoadTxn2PCResult result = new TLoadTxn2PCResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -1408,7 +1442,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
-        LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
+        }
         List<Long> tableIdList = transactionState.getTableIdList();
         List<Table> tableList = new ArrayList<>();
         // if table was dropped, stream load must can abort.
@@ -1440,7 +1476,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         multiTableFragmentInstanceIdIndexMap.remove(request.getTxnId());
         deleteMultiTableStreamLoadJobIndex(request.getTxnId());
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive txn commit request: {}, backend: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive txn commit request: {}, backend: {}", request, clientAddr);
+        }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -1515,7 +1553,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TCommitTxnResult commitTxn(TCommitTxnRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive txn commit request: {}, client: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive txn commit request: {}, client: {}", request, clientAddr);
+        }
 
         TCommitTxnResult result = new TCommitTxnResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -1625,7 +1665,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive txn rollback request: {}, backend: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive txn rollback request: {}, backend: {}", request, clientAddr);
+        }
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
@@ -1704,7 +1746,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TRollbackTxnResult rollbackTxn(TRollbackTxnRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive txn rollback request: {}, client: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive txn rollback request: {}, client: {}", request, clientAddr);
+        }
         TRollbackTxnResult result = new TRollbackTxnResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
@@ -1797,7 +1841,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
+        }
 
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -1950,7 +1996,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
                 multiTableFragmentInstanceIdIndexMap.put(request.getTxnId(), ++index);
             }
-            LOG.debug("receive stream load multi table put request result: {}", result);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("receive stream load multi table put request result: {}", result);
+            }
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
@@ -2324,7 +2372,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TMySqlLoadAcquireTokenResult acquireToken() throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive acquire token request from client: {}", clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive acquire token request from client: {}", clientAddr);
+        }
         TMySqlLoadAcquireTokenResult result = new TMySqlLoadAcquireTokenResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
@@ -2344,7 +2394,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TCheckAuthResult checkAuth(TCheckAuthRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive auth request: {}, backend: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive auth request: {}, backend: {}", request, clientAddr);
+        }
 
         TCheckAuthResult result = new TCheckAuthResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -2577,7 +2629,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TGetTabletReplicaInfosResult getTabletReplicaInfos(TGetTabletReplicaInfosRequest request) {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive get replicas request: {}, backend: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get replicas request: {}, backend: {}", request, clientAddr);
+        }
         TGetTabletReplicaInfosResult result = new TGetTabletReplicaInfosResult();
         List<Long> tabletIds = request.getTabletIds();
         Map<Long, List<TReplicaInfo>> tabletReplicaInfos = Maps.newHashMap();
@@ -2612,7 +2666,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TAutoIncrementRangeResult getAutoIncrementRange(TAutoIncrementRangeRequest request) {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive get auto-increement range request: {}, backend: {}", request, clientAddr);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get auto-increement range request: {}, backend: {}", request, clientAddr);
+        }
 
         TAutoIncrementRangeResult result = new TAutoIncrementRangeResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -2646,7 +2702,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TGetBinlogResult getBinlog(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive get binlog request: {}", request);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get binlog request: {}", request);
+        }
 
         TGetBinlogResult result = new TGetBinlogResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -3051,7 +3109,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TGetMasterTokenResult getMasterToken(TGetMasterTokenRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive get master token request: {}", request);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get master token request: {}", request);
+        }
 
         TGetMasterTokenResult result = new TGetMasterTokenResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -3083,7 +3143,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // getBinlogLag
     public TGetBinlogLagResult getBinlogLag(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive get binlog request: {}", request);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get binlog request: {}", request);
+        }
 
         TGetBinlogLagResult result = new TGetBinlogLagResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -3350,13 +3412,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         result.setNodes(nodeInfos);
         result.setStatus(new TStatus(TStatusCode.OK));
-        LOG.debug("send create partition result: {}", result);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("send create partition result: {}", result);
+        }
         return result;
     }
 
     public TGetMetaResult getMeta(TGetMetaRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive get meta request: {}", request);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get meta request: {}", request);
+        }
 
         TGetMetaResult result = new TGetMetaResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -3500,7 +3566,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TGetBackendMetaResult getBackendMeta(TGetBackendMetaRequest request) {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive get backend meta request: {}", request);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get backend meta request: {}", request);
+        }
 
         TGetBackendMetaResult result = new TGetBackendMetaResult();
         TStatus status = new TStatus(TStatusCode.OK);

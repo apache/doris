@@ -49,4 +49,3 @@ public interface Split {
     void setAlternativeHosts(List<String> alternativeHosts);
 
 }
-

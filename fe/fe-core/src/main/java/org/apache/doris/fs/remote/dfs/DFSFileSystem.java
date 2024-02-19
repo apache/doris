@@ -102,7 +102,9 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     @Override
     public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
-        LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
+        }
         final long start = System.currentTimeMillis();
         HDFSOpParams hdfsOpParams = OpParams.of(remoteFilePath);
         Status st = operations.openReader(hdfsOpParams);
@@ -202,8 +204,10 @@ public class DFSFileSystem extends RemoteFileSystem {
             }
             if (currentStreamOffset != readOffset) {
                 // it's ok, when reading some format like parquet, it is not a sequential read
-                LOG.debug("invalid offset, current read offset is " + currentStreamOffset
-                        + " is not equal to request offset " + readOffset + " seek to it");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("invalid offset, current read offset is " + currentStreamOffset
+                            + " is not equal to request offset " + readOffset + " seek to it");
+                }
                 try {
                     fsDataInputStream.seek(readOffset);
                 } catch (IOException e) {
@@ -301,7 +305,9 @@ public class DFSFileSystem extends RemoteFileSystem {
     @Override
     public Status upload(String localPath, String remotePath) {
         long start = System.currentTimeMillis();
-        LOG.debug("local path {}, remote path {}", localPath, remotePath);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("local path {}, remote path {}", localPath, remotePath);
+        }
         HDFSOpParams hdfsOpParams = OpParams.of(remotePath);
         Status wst = operations.openWriter(hdfsOpParams);
         if (wst != Status.OK) {
@@ -446,4 +452,3 @@ public class DFSFileSystem extends RemoteFileSystem {
         return new Status(Status.ErrCode.COMMON_ERROR, "mkdir is not implemented.");
     }
 }
-

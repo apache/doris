@@ -255,7 +255,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (FileFormatUtils.isCsv(formatString)) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
                     FileFormatConstants.PROP_CSV_SCHEMA, ""));
-            LOG.debug("get csv schema: {}", csvSchema);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get csv schema: {}", csvSchema);
+            }
         }
 
         pathPartitionKeys = Optional.ofNullable(
@@ -513,6 +515,4 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 }
-
-
 

@@ -724,4 +724,3 @@ public class FederationBackendPolicyTest {
         return entries1.containsAll(entries2) && entries2.containsAll(entries1);
     }
 }
-
