@@ -22,7 +22,6 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
@@ -33,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CacheException;
@@ -754,7 +754,7 @@ public class HiveMetaStoreCache {
     public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds,
             boolean isFullAcid, long tableId, String bindBrokerName) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
-        String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
+        String remoteUser = jobConf.get(AuthenticationConfig.HADOOP_USER_NAME);
         try {
             for (HivePartition partition : partitions) {
                 FileCacheValue fileCacheValue = new FileCacheValue();

@@ -33,6 +33,8 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.thrift.TExprOpcode;
@@ -775,36 +777,22 @@ public class HiveMetaStoreClientHelper {
         return hudiSchema;
     }
 
-    public static UserGroupInformation getUserGroupInformation(Configuration conf) {
-        UserGroupInformation ugi = null;
-        String authentication = conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null);
-        if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            conf.set("hadoop.security.authorization", "true");
-            UserGroupInformation.setConfiguration(conf);
-            String principal = conf.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
-            String keytab = conf.get(HdfsResource.HADOOP_KERBEROS_KEYTAB);
-            try {
-                ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
-                UserGroupInformation.setLoginUser(ugi);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        } else {
-            String hadoopUserName = conf.get(HdfsResource.HADOOP_USER_NAME);
-            if (hadoopUserName != null) {
-                ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
-            }
-        }
-        return ugi;
-    }
-
     public static <T> T ugiDoAs(long catalogId, PrivilegedExceptionAction<T> action) {
         return ugiDoAs(((ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId)).getConfiguration(),
                 action);
     }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
-        UserGroupInformation ugi = getUserGroupInformation(conf);
+        AuthenticationConfig krbConfig = AuthenticationConfig.getKerberosConfig(conf,
+                AuthenticationConfig.HIVE_KERBEROS_PRINCIPAL,
+                AuthenticationConfig.HIVE_KERBEROS_KEYTAB);
+        if (!krbConfig.isValid()) {
+            // if hive config is not ready, then use hadoop kerberos to login
+            krbConfig = AuthenticationConfig.getKerberosConfig(conf,
+                    AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                    AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
+        }
+        UserGroupInformation ugi = HadoopUGI.loginWithUGI(krbConfig);
         try {
             if (ugi != null) {
                 ugi.checkTGTAndReloginFromKeytab();
@@ -813,7 +801,7 @@ public class HiveMetaStoreClientHelper {
                 return action.run();
             }
         } catch (Exception e) {
-            throw new RuntimeException(e.getMessage(), e.getCause());
+            throw new RuntimeException(e.getMessage(), e);
         }
     }
 
@@ -821,7 +809,7 @@ public class HiveMetaStoreClientHelper {
         String hudiBasePath = table.getRemoteTable().getSd().getLocation();
 
         Configuration conf = getConfiguration(table);
-        UserGroupInformation ugi = getUserGroupInformation(conf);
+        UserGroupInformation ugi = HadoopUGI.loginWithUGI(AuthenticationConfig.getKerberosConfig(conf));
         HoodieTableMetaClient metaClient;
         if (ugi != null) {
             try {
