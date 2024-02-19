@@ -46,6 +46,13 @@
 namespace doris {
 class WalManager {
     ENABLE_FACTORY_CREATOR(WalManager);
+    struct ScanWalInfo {
+        std::string wal_path;
+        int64_t db_id;
+        int64_t tb_id;
+        int64_t wal_id;
+        int64_t be_id;
+    };
 
 public:
     WalManager(ExecEnv* exec_env, const std::string& wal_dir);
@@ -74,6 +81,13 @@ public:
     void add_wal_queue(int64_t table_id, int64_t wal_id);
     void erase_wal_queue(int64_t table_id, int64_t wal_id);
     size_t get_wal_queue_size(int64_t table_id);
+    // filename format:a_b_c_group_commit_xxx
+    // a:version
+    // b:be id
+    // c:wal id
+    // group_commit_xxx:label
+    static Status parse_wal_path(const std::string& file_name, int64_t& version,
+                                 int64_t& backend_id, int64_t& wal_id, std::string& label);
     // fot ut
     size_t get_wal_table_size(int64_t table_id);
 
@@ -94,9 +108,12 @@ private:
     Status _init_wal_dirs_info();
     Status _update_wal_dir_info_thread();
 
-    // replay wal
-    Status _scan_wals(const std::string& wal_path);
-    Status _replay();
+    // scan all wal files under storage path
+    Status _scan_wals(const std::string& wal_path, std::vector<ScanWalInfo>& res);
+    // use a background thread to do replay task
+    Status _replay_background();
+    // load residual wals
+    Status _load_wals();
     void _stop_relay_wal();
 
 public:
@@ -126,6 +143,9 @@ private:
 
     std::shared_mutex _wal_queue_lock;
     std::unordered_map<int64_t, std::set<int64_t>> _wal_queues;
+
+    int64_t _wal_version = 0;
+    std::atomic<bool> _first_replay;
 
     // for test relay
     // <lock, condition_variable>
