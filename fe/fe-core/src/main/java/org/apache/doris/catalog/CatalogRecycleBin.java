@@ -822,9 +822,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // recover partition
         table.addPartition(recoverPartition);
-        if (!Strings.isNullOrEmpty(newPartitionName)) {
-            table.renamePartition(partitionName, newPartitionName);
-        }
 
         // recover partition info
         long partitionId = recoverPartition.getId();
