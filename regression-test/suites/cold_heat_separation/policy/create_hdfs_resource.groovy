@@ -167,7 +167,7 @@ suite("create_hdfs_policy") {
         );
         """
         // errCode = 2, detailMessage = Missing [fs.defaultFS] in properties.
-        assertEquals(failed_create_2, null)
+        assertEquals(failed_create_2, [[0]])
     }
 
     if (has_created_2.size() == 0) {
