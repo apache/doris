@@ -176,6 +176,8 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             tParams.setQueryOptions(tQueryOptions);
             tParams.setQueryId(context.queryId());
 
+            // TODO: will be delete the debug log after find problem of timeout.
+            LOG.info("fold query {} ", DebugUtil.printId(context.queryId()));
             Future<PConstantExprResult> future =
                     BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
