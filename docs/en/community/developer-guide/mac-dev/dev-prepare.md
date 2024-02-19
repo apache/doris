@@ -60,9 +60,10 @@ MacOS:
         `ln -s /usr/local/Cellar/thrift@0.16.0/0.16.0/bin/thrift ./thirdparty/installed/bin/thrift`
     
 Note：macOS implement `brew install thrift@0.16.0` it may report an error that the version cannot be found. The solution is as follows, execute in the terminal:
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.16.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.16.0`
+    1. `brew tap homebrew/core --force`
+    2. `brew tap-new $USER/local-tap`
+    3. `brew extract --version='0.16.0' thrift $USER/local-tap`
+    4. `brew install thrift@0.16.0`
 reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
 ```
 
