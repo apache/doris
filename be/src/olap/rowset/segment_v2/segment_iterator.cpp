@@ -1526,21 +1526,21 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         std::set<ColumnId> short_cir_pred_col_id_set; // using set for distinct cid
         std::set<ColumnId> vec_pred_col_id_set;
 
-        for (auto predicate : _col_predicates) {
+        for (auto* predicate : _col_predicates) {
             auto cid = predicate->column_id();
             _is_pred_column[cid] = true;
             pred_column_ids.insert(cid);
 
             // check pred using short eval or vec eval
             if (_can_evaluated_by_vectorized(predicate)) {
-                vec_pred_col_id_set.insert(predicate->column_id());
+                vec_pred_col_id_set.insert(cid);
                 _pre_eval_block_predicate.push_back(predicate);
             } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
-                if (predicate->is_filter()) {
-                    _filter_info_id.push_back(predicate);
-                }
+            }
+            if (predicate->is_filter()) {
+                _filter_info_id.push_back(predicate);
             }
         }
 
@@ -1959,17 +1959,17 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     bool ret_flags[original_size];
     DCHECK(!_pre_eval_block_predicate.empty());
     bool is_first = true;
-    for (int i = 0; i < _pre_eval_block_predicate.size(); i++) {
-        if (_pre_eval_block_predicate[i]->always_true()) {
+    for (auto& pred : _pre_eval_block_predicate) {
+        if (pred->always_true()) {
             continue;
         }
-        auto column_id = _pre_eval_block_predicate[i]->column_id();
+        auto column_id = pred->column_id();
         auto& column = _current_return_columns[column_id];
         if (is_first) {
-            _pre_eval_block_predicate[i]->evaluate_vec(*column, original_size, ret_flags);
+            pred->evaluate_vec(*column, original_size, ret_flags);
             is_first = false;
         } else {
-            _pre_eval_block_predicate[i]->evaluate_and_vec(*column, original_size, ret_flags);
+            pred->evaluate_and_vec(*column, original_size, ret_flags);
         }
     }
 
