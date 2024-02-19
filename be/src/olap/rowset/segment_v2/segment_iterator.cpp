@@ -1042,8 +1042,8 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
-    // for safety reason, only support DUP_KEYS
-    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
+    // if there is delete predicate, we always need to read data
+    if (_opts.delete_condition_predicates->num_of_column_predicate() > 0) {
         return true;
     }
     if (_output_columns.count(-1)) {
