@@ -160,7 +160,7 @@ KEY(k1,k2)
 ```
 
 ##### partition
-There are two partition methods for materialized views. If no partition is specified, there is only one partition by default. If a partition field is specified, it will automatically deduce which base table the field comes from and synchronize all partitions of the base table (currently supporting 'OlapTable' and 'hive') (constraint: the current base table can only have one partition field)
+There are two types of partitioning methods for materialized views. If no partitioning is specified, there will be a default single partition. If a partitioning field is specified, the system will automatically deduce the source base table of that field and synchronize all partitions of the base table (currently supporting `OlapTable` and `hive`). (Limitation: the current base table can only have one partitioning field.)
 
 For example, if the base table is a range partition with a partition field of `create_time` and partitioning by day, and `partition by(ct) as select create_time as ct from t1` is specified when creating a materialized view, 
 then the materialized view will also be a range partition with a partition field of 'ct' and partitioning by day
@@ -170,13 +170,13 @@ The materialized view can specify both the properties of the table and the prope
 
 The properties unique to materialized views include:
 
-`grace_period`: The maximum delay time (in seconds) allowed for materialized view data during query rewriting. If the data of partition A and the base table are inconsistent, and the last refresh time of partition A in the materialized view is 1 and the current system time is 2, then the partition will not be transparently overwritten. But if grace_period is greater than or equal to 1, the partition will be used for transparent rewriting
+`grace_period`: When performing query rewrites, there is a maximum allowed delay time (measured in seconds) for the data of the materialized view. If there is a discrepancy between the data of partition A and the base table, and the last refresh time of partition A of the materialized view was 1, while the current system time is 2, then this partition will not undergo transparent rewriting. However, if the grace_period is greater than or equal to 1, this partition will be used for transparent rewriting.
 
 `excluded_trigger_tables`: Table names ignored during data refresh, separated by commas. For example, ` table1, table2`
 
-`refresh_partition_num`: The default number of partitions refreshed in a single insert statement is 1. When the materialized view is refreshed, the list of partitions to be refreshed will be calculated first, and then split into multiple insert statements for sequential execution based on the configuration. When encountering a failed insert statement, the entire task will stop executing. Materialized views ensure the transactional nature of individual insert statements, and failed insert statements do not affect partitions that have already been refreshed successfully.
+`refresh_partition_num`: The number of partitions refreshed by a single insert statement is set to 1 by default. When refreshing a materialized view, the system first calculates the list of partitions to be refreshed and then splits it into multiple insert statements that are executed in sequence according to this configuration. If any insert statement fails, the entire task will stop executing. The materialized view ensures the transactionality of individual insert statements, meaning that failed insert statements will not affect partitions that have already been successfully refreshed.
 
-`workload_group`: The workload_group name used when performing refresh tasks on materialized views. Used to limit the resources used to refresh data in materialized views and avoid affecting the operation of other businesses. Workload_group creation and use of [WORKLOAD-GROUP](../../../../admin-manual/workload-group.md)
+`workload_group`: The name of the workload_group used by the materialized view when performing refresh tasks. This is used to limit the resources used for refreshing data in the materialized view, in order to avoid affecting the operation of other business processes. For details on how to create and use workload_group, refer to [WORKLOAD-GROUP](../../../../admin-manual/workload-group.md)
 
 ##### query
 
