@@ -113,7 +113,7 @@ In business, most users will choose to partition on time, which has the followin
 
 1.3.1.2. List Partitioning
 
-In business,, users can select cities or other enumeration values for partition.
+In business, users can select cities or other enumeration values for partition.
 
 1.3.2. Hash Bucketing
 
