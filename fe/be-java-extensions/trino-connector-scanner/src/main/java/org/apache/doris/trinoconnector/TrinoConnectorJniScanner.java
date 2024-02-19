@@ -23,6 +23,7 @@ import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.trinoconnector.TrinoConnectorCache.TrinoConnectorCacheKey;
 import org.apache.doris.trinoconnector.TrinoConnectorCache.TrinoConnectorCacheValue;
+import org.apache.doris.trinoconnector.shade.TrinoColumnMetadata;
 import org.apache.doris.trinoconnector.shade.TrinoConnectorPluginManager;
 import org.apache.doris.trinoconnector.shade.TrinoConnectorServicesProvider;
 
@@ -52,18 +53,15 @@ import io.trino.spi.Page;
 import io.trino.spi.block.Block;
 import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.ColumnHandle;
-import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.Connector;
 import io.trino.spi.connector.ConnectorPageSource;
 import io.trino.spi.connector.ConnectorPageSourceProvider;
 import io.trino.spi.connector.ConnectorRecordSetProvider;
-import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.DynamicFilter;
 import io.trino.spi.security.Identity;
-import io.trino.spi.transaction.IsolationLevel;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
 import io.trino.split.RecordPageSourceProvider;
@@ -119,7 +117,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
     private ConnectorTransactionHandle connectorTransactionHandle;
     private ConnectorTableHandle connectorTableHandle;
     private List<ColumnHandle> columns;
-    private List<ColumnMetadata> columnMetadataList = Lists.newArrayList();
+    private List<TrinoColumnMetadata> columnMetadataList = Lists.newArrayList();
     private DynamicFilter dynamicFilter = DynamicFilter.EMPTY;
     private List<Type> trinoTypeList;
 
@@ -277,8 +275,9 @@ public class TrinoConnectorJniScanner extends JniScanner {
     private void initTrinoTableMetadata() {
         try {
             // TODO(ftw): This deserialization takes a lot of time
-            connectorTransactionHandle = this.connector.beginTransaction(IsolationLevel.READ_UNCOMMITTED, true, true);
-            // connectorTransactionHandle = TrinoConnectorScannerUtils.decodeStringToObject(connectorTrascationHandleString, ConnectorTransactionHandle.class, this.objectMapperProvider);
+            // connectorTransactionHandle = this.connector.beginTransaction(IsolationLevel.READ_UNCOMMITTED, true, true);
+           connectorTransactionHandle = TrinoConnectorScannerUtils.decodeStringToObject(connectorTrascationHandleString,
+                    ConnectorTransactionHandle.class, this.objectMapperProvider);
 
             connectorSplit = TrinoConnectorScannerUtils.decodeStringToObject(connectorSplitString,
                     ConnectorSplit.class, this.objectMapperProvider);
@@ -289,13 +288,15 @@ public class TrinoConnectorJniScanner extends JniScanner {
             columns = TrinoConnectorScannerUtils.decodeStringToList(connectorColumnHandleString,
                     ColumnHandle.class, this.objectMapperProvider);
 
-            // columnMetadataList = TrinoConnectorScannerUtils.decodeStringToList(connectorColumnMetadataString, ColumnMetadata.class, this.objectMapperProvider);
-            ConnectorSession connectorSession = session.toConnectorSession(catalogHandle);
-            for(ColumnHandle columnHandle : columns) {
-                ColumnMetadata columnMetadata = connector.getMetadata(connectorSession, connectorTransactionHandle)
-                        .getColumnMetadata(connectorSession, connectorTableHandle, columnHandle);
-                columnMetadataList.add(columnMetadata);
-            }
+            columnMetadataList = TrinoConnectorScannerUtils.decodeStringToList(connectorColumnMetadataString,
+                    TrinoColumnMetadata.class, this.objectMapperProvider);
+
+            // ConnectorSession connectorSession = session.toConnectorSession(catalogHandle);
+            // for(ColumnHandle columnHandle : columns) {
+            //     ColumnMetadata columnMetadata = connector.getMetadata(connectorSession, connectorTransactionHandle)
+            //             .getColumnMetadata(connectorSession, connectorTableHandle, columnHandle);
+            //     columnMetadataList.add(columnMetadata);
+            // }
             trinoConnectorAllFieldNames = columnMetadataList.stream().map(columnMetadata -> columnMetadata.getName())
                     .collect(Collectors.toList());
         } catch (Exception e) {

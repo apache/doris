@@ -199,6 +199,10 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         }
         fileDesc.setTrinoConnectorColumnHandles(encodeObjectToString(columnHandles, objectMapperProvider));
         fileDesc.setTrinoConnectorTrascationHandle(encodeObjectToString(source.getConnectorTransactionHandle(), objectMapperProvider));
+        fileDesc.setTrinoConnectorColumnMetadata(encodeObjectToString(columnMetadataList.stream().map(
+                filed->new TrinoColumnMetadata(filed.getName(), filed.getType(), filed.isNullable(), filed.getComment(),
+                        filed.getExtraInfo(), filed.isHidden(), filed.getProperties())).collect(Collectors.toList()),
+                objectMapperProvider));
 
         // set TTableFormatFileDesc
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
