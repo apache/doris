@@ -402,11 +402,6 @@ under the License.
                 <artifactId>nimbus-jose-jwt</artifactId>
                 <version>${nimbusds.version}</version>
             </dependency>
-            <dependency>
-                <groupId>com.amazonaws</groupId>
-                <artifactId>aws-java-sdk-bundle</artifactId>
-                <version>${aws-java-sdk.version}</version>
-            </dependency>
             <!-- opentelemetry-->
             <dependency>
                 <groupId>io.opentelemetry</groupId>
@@ -891,12 +886,17 @@ under the License.
                         <artifactId>logback-classic</artifactId>
                     </exclusion>
                     <exclusion>
-                        <artifactId>elasticsearch-rest-high-level-client</artifactId>
-                        <groupId>org.elasticsearch.client</groupId>
-                    </exclusion>
-                    <exclusion>
                         <groupId>org.apache.hive</groupId>
                         <artifactId>hive-storage-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.elasticsearch.client</groupId>
+                        <artifactId>elasticsearch-rest-high-level-client</artifactId>
+                    </exclusion>
+                    <!--ranger audit only depends on aws logs, which is provided alone-->
+                    <exclusion>
+                        <groupId>com.amazonaws</groupId>
+                        <artifactId>*</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -1397,6 +1397,12 @@ under the License.
             <dependency>
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-dynamodb</artifactId>
+                <version>${aws-java-sdk.version}</version>
+            </dependency>
+            <!--only for apache ranger audit-->
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-logs</artifactId>
                 <version>${aws-java-sdk.version}</version>
             </dependency>
             <dependency>
