@@ -612,10 +612,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
-                                                params.query_options);
+                                                params.query_options, params.coord);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
-        query_ctx->coord_addr = params.coord;
         // set file scan range params
         if (params.__isset.file_scan_params) {
             query_ctx->file_scan_range_params_map = params.file_scan_params;
