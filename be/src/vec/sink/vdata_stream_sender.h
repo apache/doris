@@ -230,6 +230,7 @@ protected:
     BlockSerializer<VDataStreamSender> _serializer;
 
     // for shuffle data by partition and tablet
+    TupleDescriptor* _output_tuple_desc = nullptr;
     std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
     std::unique_ptr<OlapTabletFinder> _tablet_finder = nullptr;
     std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;

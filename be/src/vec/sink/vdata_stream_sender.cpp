@@ -334,6 +334,7 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
            sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::RANDOM ||
            sink.output_partition.type == TPartitionType::RANGE_PARTITIONED ||
+           sink.output_partition.type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED ||
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED);
 
     std::map<int64_t, int64_t> fragment_id_to_channel_index;
@@ -424,6 +425,7 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
         RETURN_IF_ERROR(_vpartition->init());
         auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
         _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
+        _output_tuple_desc = _state->desc_tbl().get_tuple_descriptor(t_stream_sink.output_tuple_id);
     } else {
         // UNPARTITIONED
     }
@@ -641,35 +643,57 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         }
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         auto num_rows = block->rows();
-        //skip the precess of validate_and_convert_block
         _tablet_finder->filter_bitmap().Reset(num_rows);
         //reuse vars for find_tablets
         _partitions.assign(num_rows, nullptr);
         _skip.assign(num_rows, false);
         _tablet_indexes.assign(num_rows, 0);
 
+        std::shared_ptr<vectorized::Block> convert_block =
+                vectorized::Block::create_shared(block->get_columns_with_type_and_name());
+        for (int i = 0; i < _output_tuple_desc->slots().size() && i < convert_block->columns();
+             ++i) {
+            SlotDescriptor* desc = _output_tuple_desc->slots()[i];
+            if (desc->is_nullable() != convert_block->get_by_position(i).type->is_nullable()) {
+                if (desc->is_nullable()) {
+                    convert_block->get_by_position(i).type =
+                            vectorized::make_nullable(convert_block->get_by_position(i).type);
+                    convert_block->get_by_position(i).column =
+                            vectorized::make_nullable(convert_block->get_by_position(i).column);
+                } else {
+                    convert_block->get_by_position(i).type =
+                            assert_cast<const vectorized::DataTypeNullable&>(
+                                    *convert_block->get_by_position(i).type)
+                                    .get_nested_type();
+                    convert_block->get_by_position(i).column =
+                            assert_cast<const vectorized::ColumnNullable&>(
+                                    *convert_block->get_by_position(i).column)
+                                    .get_nested_column_ptr();
+                }
+            }
+        }
         bool stop_processing = false;
-        RETURN_IF_ERROR(_tablet_finder->find_tablets(state, block, num_rows, _partitions,
-                                                     _tablet_indexes, stop_processing, _skip));
+        RETURN_IF_ERROR(_tablet_finder->find_tablets(state, convert_block.get(), num_rows,
+                                                     _partitions, _tablet_indexes, stop_processing,
+                                                     _skip));
 
         auto num_channels = _channels.size();
         std::vector<std::vector<uint32>> channel2rows;
         channel2rows.resize(num_channels);
-        for (int index_idx = 0; index_idx < _schema->indexes().size(); index_idx++) {
-            for (int row_idx = 0; row_idx < block->rows(); row_idx++) {
-                if (_skip[row_idx]) {
-                    continue;
-                }
-                auto& partition = _partitions[row_idx];
-                auto& tablet_index = _tablet_indexes[row_idx];
-                auto& index = partition->indexes[index_idx];
-                auto tablet_id = index.tablets[tablet_index];
-                channel2rows[tablet_id % num_channels].emplace_back(row_idx);
+        for (int row_idx = 0; row_idx < convert_block->rows(); row_idx++) {
+            if (_skip[row_idx]) {
+                continue;
             }
+            auto& partition = _partitions[row_idx];
+            auto& tablet_index = _tablet_indexes[row_idx];
+            auto& index = partition->indexes[0];
+            auto tablet_id = index.tablets[tablet_index];
+            channel2rows[tablet_id % num_channels].emplace_back(row_idx);
         }
-        // need to know _channels or _channel_shared_ptrs num_channels?
+
         RETURN_IF_ERROR(channel_add_rows_with_idx(state, _channels, num_channels, channel2rows,
-                                                  block, _enable_pipeline_exec ? eos : false));
+                                                  convert_block.get(),
+                                                  _enable_pipeline_exec ? eos : false));
     } else {
         // Range partition
         // 1. calculate range
