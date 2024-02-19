@@ -402,10 +402,14 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     RETURN_IF_ERROR(check_correctness(stats));
 
     if (_input_row_num > 0 && stats.rowid_conversion && config::inverted_index_compaction_enable &&
-        !ctx.skip_inverted_index.empty()) {
+        !ctx.skip_inverted_index.empty() &&
+        (!(_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+           !_tablet->enable_unique_key_merge_on_write()))) {
         OlapStopWatch inverted_watch;
 
         // check rowid_conversion correctness
+        // currently, only check the unique key table with merge on write enabled
+        // TODO: check the correctness of rowid_conversion for other cases, such as DUP_KEYS and MOR
         Version version = _tablet->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
         std::set<RowLocation> missed_rows;
