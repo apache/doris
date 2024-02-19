@@ -295,6 +295,8 @@ public class EsUtil {
                 case "ip":
                 case "nested":
                 case "object":
+                case "wildcard":
+                case "constant_keyword":
                     type = ScalarType.createStringType();
                     break;
                 default:
