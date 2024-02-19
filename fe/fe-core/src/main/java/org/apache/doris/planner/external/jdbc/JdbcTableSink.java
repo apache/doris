@@ -48,7 +48,7 @@ public class JdbcTableSink extends DataSink {
     public JdbcTableSink(JdbcTable jdbcTable, List<String> insertCols) {
         this.jdbcTable = jdbcTable;
         jdbcType = jdbcTable.getJdbcTableType();
-        externalTableName = jdbcTable.getProperRealFullTableName(jdbcType);
+        externalTableName = jdbcTable.getProperRemoteFullTableName(jdbcType);
         useTransaction = ConnectContext.get().getSessionVariable().isEnableOdbcTransaction();
         dorisTableName = jdbcTable.getName();
         insertSql = jdbcTable.getInsertSql(insertCols);
