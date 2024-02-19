@@ -342,7 +342,6 @@ relations
 
 relation
     : relationPrimary joinRelation*
-    | LEFT_PAREN relationPrimary joinRelation* RIGHT_PAREN
     ;
 
 joinRelation
