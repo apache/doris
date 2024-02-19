@@ -41,3 +41,12 @@
 3	\N	true
 4	\N	false
 
+-- !mark_join7 --
+1	p	0
+9		1
+\N	\N	2
+\N	\N	3
+3		4
+2	q	5
+0		6
+
