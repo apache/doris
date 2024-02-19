@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.common.security.authentication;
 
 /**
  * Define different auth type for external table such as hive/iceberg
