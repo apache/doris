@@ -278,7 +278,7 @@ under the License.
         <spring.version>2.7.9</spring.version>
         <zookeeper.version>3.4.14</zookeeper.version>
         <ojdbc8.version>12.2.0.1</ojdbc8.version>
-        <doris.shade.version>1.0.2-SNAPSHOT</doris.shade.version>
+        <doris.shade.version>1.0.2</doris.shade.version>
         <doris.shade.hive-shade.version>1.0.3</doris.shade.hive-shade.version>
     </properties>
     <profiles>
@@ -324,8 +324,8 @@ under the License.
                 </repository>
                 <!-- for java-cup -->
                 <repository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/repository/libs-release-local/</url>
                 </repository>
             </repositories>
             <pluginRepositories>
@@ -335,8 +335,8 @@ under the License.
                 </pluginRepository>
                 <!-- for cup-maven-plugin -->
                 <pluginRepository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/repository/libs-release-local/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
