@@ -70,22 +70,23 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 std::to_string(_column_id_count), std::to_string(src_block.columns()),
                 std::to_string(output_block_columns.size()),
                 std::to_string(_tuple_descriptor->slots().size()));
-        for (auto slot_desc : _tuple_descriptor->slots()) {
-            auto pos = _column_pos_map[slot_desc->col_unique_id()];
-            if (pos >= src_block.columns()) {
-                return Status::InternalError("read wal {} fail, pos {}, columns size {}", _wal_path,
-                                             pos, src_block.columns());
-            }
-            vectorized::ColumnPtr column_ptr = src_block.get_by_position(pos).column;
-            if (column_ptr != nullptr && slot_desc->is_nullable()) {
-                column_ptr = make_nullable(column_ptr);
-            }
-            dst_block.insert(index, vectorized::ColumnWithTypeAndName(
-                                            std::move(column_ptr), output_block_columns[index].type,
-                                            output_block_columns[index].name));
-            index++;
+    }
+    for (auto slot_desc : _tuple_descriptor->slots()) {
+        auto pos = _column_pos_map[slot_desc->col_unique_id()];
+        if (pos >= src_block.columns()) {
+            return Status::InternalError("read wal {} fail, pos {}, columns size {}", _wal_path,
+                                         pos, src_block.columns());
         }
-        block->swap(dst_block);
+        vectorized::ColumnPtr column_ptr = src_block.get_by_position(pos).column;
+        if (column_ptr != nullptr && slot_desc->is_nullable()) {
+            column_ptr = make_nullable(column_ptr);
+        }
+        dst_block.insert(index, vectorized::ColumnWithTypeAndName(
+                                        std::move(column_ptr), output_block_columns[index].type,
+                                        output_block_columns[index].name));
+        index++;
+    }
+    block->swap(dst_block);
     *read_rows = block->rows();
     VLOG_DEBUG << "read block rows:" << *read_rows;
     return Status::OK();
