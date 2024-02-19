@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.collect.Range;
@@ -55,8 +54,10 @@ public class RangePartitionItem extends PartitionItem {
     }
 
     @Override
-    public PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException {
-        throw new AnalysisException("not support");
+    public PartitionKeyDesc toPartitionKeyDesc(int pos) {
+        // MTMV do not allow base tables with partition type range to have multiple partition columns,
+        // so pos is ignored here
+        return toPartitionKeyDesc();
     }
 
     @Override
