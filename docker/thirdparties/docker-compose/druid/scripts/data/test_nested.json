@@ -1,0 +1,48 @@
+{
+  "type": "index_parallel",
+  "spec": {
+    "ioConfig": {
+      "type": "index_parallel",
+      "inputSource": {
+        "type": "inline",
+        "data": "{\"time\":\"2022-06-13T10:10:35Z\", \"product\":\"Bike\", \"department\":\"Sports\", \"shipTo\":{\"firstName\": \"Henry\",\"lastName\": \"Wuckert\",\"address\": {\"street\": \"5643 Jan Walk\",\"city\": \"Lake Bridget\",\"state\": \"HI\",\"country\":\"ME\",\"postalCode\": \"70204-2939\"},\"phoneNumbers\": [{\"type\":\"primary\",\"number\":\"593.475.0449 x86733\" },{\"type\":\"secondary\",\"number\":\"638-372-1210\"}]}, \"details\":{\"color\":\"ivory\", \"price\":955.00}}\n{\"time\":\"2022-06-13T21:37:06Z\", \"product\":\"Mouse\", \"department\":\"Computers\", \"shipTo\":{\"firstName\": \"Rickey\",\"lastName\": \"Rempel\",\"address\": {\"street\": \"6232 Green Glens\",\"city\": \"New Fermin\",\"state\": \"HI\",\"country\":\"CW\",\"postalCode\": \"98912-1195\"},\"phoneNumbers\": [{\"type\":\"primary\",\"number\":\"(689) 766-4272 x60778\" },{\"type\":\"secondary\",\"number\":\"375.662.4737 x24707\"}]}, \"details\":{\"color\":\"olive\", \"price\":90.00}}\n{\"time\":\"2022-06-13T07:52:29Z\", \"product\":\"Bike\", \"department\":\"Sports\", \"shipTo\":{\"firstName\": \"Russ\",\"lastName\": \"Cole\",\"address\": {\"street\": \"77173 Rusty Station\",\"city\": \"South Yeseniabury\",\"state\": \"WA\",\"country\":\"BL\",\"postalCode\": \"01893\"},\"phoneNumbers\": [{\"type\":\"primary\",\"number\":\"891-374-6188 x74568\" },{\"type\":\"secondary\",\"number\":\"1-248-998-4426 x33037\"}]}, \"details\":{\"color\":\"sky blue\", \"price\":542.00}}\n{\"time\":\"2022-06-13T13:57:38Z\", \"product\":\"Sausages\", \"department\":\"Grocery\", \"shipTo\":{\"firstName\": \"Forrest\",\"lastName\": \"Brekke\",\"address\": {\"street\": \"41548 Collier Divide\",\"city\": \"Wintheiserborough\",\"state\": \"WA\",\"country\":\"AD\",\"postalCode\": \"27577-6784\"},\"phoneNumbers\": [{\"type\":\"primary\",\"number\":\"(904) 890-0696 x581\" },{\"type\":\"secondary\",\"number\":\"676.895.6759\"}]}, \"details\":{\"price\":8.00}}\n{\"time\":\"2022-6-14T10:32:08Z\", \"product\":\"Keyboard\", \"department\":\"Computers\", \"shipTo\":{\"firstName\": \"Sandra\",\"lastName\": \"Beatty\",\"address\": {\"street\": \"293 Grant Well\",\"city\": \"Loischester\",\"state\": \"FL\",\"country\":\"TV\",\"postalCode\": \"88845-0066\"},\"phoneNumbers\": [{\"type\":\"primary\",\"number\":\"1-788-771-7028 x8627\" },{\"type\":\"secondary\",\"number\":\"1-460-496-4884 x887\"}]}, \"details\":{\"color\":\"plum\", \"price\":40.00}}"
+      },
+      "inputFormat": {
+        "type": "json"
+      }
+    },
+    "dataSchema": {
+      "granularitySpec": {
+        "segmentGranularity": "day",
+        "queryGranularity": "none",
+        "rollup": false
+      },
+      "dataSource": "nested_data_example_copy",
+      "timestampSpec": {
+        "column": "time",
+        "format": "auto"
+      },
+      "dimensionsSpec": {
+        "dimensions": [
+          "product",
+          "department",
+          {
+            "type": "json",
+            "name": "shipTo"
+          },
+          {
+            "type": "json",
+            "name": "details"
+          }
+        ]
+      },
+      "transformSpec": {}
+    },
+    "tuningConfig": {
+      "type": "index_parallel",
+      "partitionsSpec": {
+        "type": "dynamic"
+      }
+    }
+  }
+}

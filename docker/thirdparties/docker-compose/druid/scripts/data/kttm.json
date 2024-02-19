@@ -1,0 +1,74 @@
+{
+  "type": "index_parallel",
+  "spec": {
+    "ioConfig": {
+      "type": "index_parallel",
+      "inputSource": {
+        "type": "inline",
+        "data": "{\"session\":\"S56194838\",\"number\":\"16\",\"event\":\"{\\\"type\\\":\\\"PercentClear\\\",\\\"percentage\\\":55}\",\"agent\":\"{\\\"type\\\":\\\"Browser\\\",\\\"category\\\":\\\"Personal computer\\\",\\\"browser\\\":\\\"Chrome\\\",\\\"browser_version\\\":\\\"76.0.3809.100\\\",\\\"os\\\":\\\"Windows 7\\\",\\\"platform\\\":\\\"Windows\\\"}\",\"client_ip\":\"181.13.41.82\",\"geo_ip\":\"{\\\"continent\\\":\\\"South America\\\",\\\"country\\\":\\\"Argentina\\\",\\\"region\\\":\\\"Santa Fe\\\",\\\"city\\\":\\\"Rosario\\\"}\",\"language\":\"[\\\"es\\\",\\\"es-419\\\"]\",\"adblock_list\":\"NoAdblock\",\"app_version\":\"1.9.6\",\"path\":\"http://www.koalastothemax.com/\",\"loaded_image\":\"http://www.koalastothemax.com/img/koalas2.jpg\",\"referrer\":\"Direct\",\"referrer_host\":\"Direct\",\"server_ip\":\"172.31.57.89\",\"screen\":\"1680x1050\",\"window\":\"1680x939\",\"session_length\":76261,\"timezone\":\"N/A\",\"timezone_offset\":\"180\"}\n{\"session\":\"S46093731\",\"number\":\"24\",\"event\":\"{\\\"type\\\":\\\"PercentClear\\\",\\\"percentage\\\":85}\",\"agent\":\"{\\\"type\\\":\\\"Mobile Browser\\\",\\\"category\\\":\\\"Smartphone\\\",\\\"browser\\\":\\\"Chrome Mobile\\\",\\\"browser_version\\\":\\\"50.0.2661.89\\\",\\\"os\\\":\\\"Android\\\",\\\"platform\\\":\\\"Android\\\"}\",\"client_ip\":\"177.242.100.0\",\"geo_ip\":\"{\\\"continent\\\":\\\"North America\\\",\\\"country\\\":\\\"Mexico\\\",\\\"region\\\":\\\"Chihuahua\\\",\\\"city\\\":\\\"Nuevo Casas Grandes\\\"}\",\"language\":\"[\\\"en\\\",\\\"es\\\",\\\"es-419\\\",\\\"es-MX\\\"]\",\"adblock_list\":\"NoAdblock\",\"app_version\":\"1.9.6\",\"path\":\"https://koalastothemax.com/\",\"loaded_image\":\"https://koalastothemax.com/img/koalas1.jpg\",\"referrer\":\"https://www.google.com/\",\"referrer_host\":\"www.google.com\",\"server_ip\":\"172.31.11.5\",\"screen\":\"320x570\",\"window\":\"540x743\",\"session_length\":252689,\"timezone\":\"CDT\",\"timezone_offset\":\"300\"}\n{\"session\":\"S13352079\",\"number\":\"24\",\"event\":\"{\\\"type\\\":\\\"PercentClear\\\",\\\"percentage\\\":90}\",\"agent\":\"{\\\"type\\\":\\\"Browser\\\",\\\"category\\\":\\\"Personal computer\\\",\\\"browser\\\":\\\"Chrome\\\",\\\"browser_version\\\":\\\"76.0.3809.100\\\",\\\"os\\\":\\\"Windows 7\\\",\\\"platform\\\":\\\"Windows\\\"}\",\"client_ip\":\"181.46.136.44\",\"geo_ip\":\"{\\\"continent\\\":\\\"South America\\\",\\\"country\\\":\\\"Argentina\\\",\\\"region\\\":\\\"Buenos Aires\\\",\\\"city\\\":\\\"Luis Guillon\\\"}\",\"language\":\"[\\\"en\\\",\\\"es\\\",\\\"es-419\\\",\\\"es-US\\\"]\",\"adblock_list\":\"NoAdblock\",\"app_version\":\"1.9.6\",\"path\":\"http://www.koalastothemax.com/\",\"loaded_image\":\"http://www.koalastothemax.com/img/koalas.jpg\",\"referrer\":\"Direct\",\"referrer_host\":\"Direct\",\"server_ip\":\"172.31.11.5\",\"screen\":\"1366x768\",\"window\":\"1366x652\",\"session_length\":1753602,\"timezone\":\"N/A\",\"timezone_offset\":\"180\"}\n{\"session\":\"S28264557\",\"number\":\"15\",\"event\":\"{\\\"type\\\":\\\"PercentClear\\\",\\\"percentage\\\":55}\",\"agent\":\"{\\\"type\\\":\\\"Browser\\\",\\\"category\\\":\\\"Personal computer\\\",\\\"browser\\\":\\\"Opera\\\",\\\"browser_version\\\":\\\"62.0.3331.116\\\",\\\"os\\\":\\\"Windows\\\",\\\"platform\\\":\\\"Windows\\\"}\",\"client_ip\":\"71.82.190.9\",\"geo_ip\":\"{\\\"continent\\\":\\\"North America\\\",\\\"country\\\":\\\"United States\\\",\\\"region\\\":\\\"Michigan\\\",\\\"city\\\":\\\"Allegan\\\"}\",\"language\":\"[\\\"en\\\",\\\"en-US\\\"]\",\"adblock_list\":\"NoAdblock\",\"app_version\":\"1.9.6\",\"path\":\"http://koalastothemax.com/\",\"loaded_image\":\"http://koalastothemax.com/img/koalas3.jpg\",\"referrer\":\"Direct\",\"referrer_host\":\"Direct\",\"server_ip\":\"172.31.57.89\",\"screen\":\"1920x1080\",\"window\":\"1880x976\",\"session_length\":62093,\"timezone\":\"N/A\",\"timezone_offset\":\"240\"}\n{\"session\":\"S81338885\",\"number\":\"18\",\"event\":\"{\\\"type\\\":\\\"PercentClear\\\",\\\"percentage\\\":60}\",\"agent\":\"{\\\"type\\\":\\\"Mobile Browser\\\",\\\"category\\\":\\\"Smartphone\\\",\\\"browser\\\":\\\"Mobile Safari\\\",\\\"browser_version\\\":\\\"12.0\\\",\\\"os\\\":\\\"iOS\\\",\\\"platform\\\":\\\"iOS\\\"}\",\"client_ip\":\"100.0.162.244\",\"geo_ip\":\"{\\\"continent\\\":\\\"North America\\\",\\\"country\\\":\\\"United States\\\",\\\"region\\\":\\\"Rhode Island\\\",\\\"city\\\":\\\"Woonsocket\\\"}\",\"language\":\"en-us\",\"adblock_list\":\"NoAdblock\",\"app_version\":\"1.9.6\",\"path\":\"http://koalastothemax.com/\",\"loaded_image\":\"http://koalastothemax.com/img/koalas2.jpg\",\"referrer\":\"Direct\",\"referrer_host\":\"Direct\",\"server_ip\":\"172.31.11.5\",\"screen\":\"375x667\",\"window\":\"540x796\",\"session_length\":79764,\"timezone\":\"EDT\",\"timezone_offset\":\"240\"}\n{\"session\":\"S18516388\",\"number\":\"4\",\"event\":\"{\\\"type\\\":\\\"LayerClear\\\",\\\"layer\\\":4}\",\"agent\":\"{\\\"type\\\":\\\"Browser\\\",\\\"category\\\":\\\"Personal computer\\\",\\\"browser\\\":\\\"Chrome\\\",\\\"browser_version\\\":\\\"76.0.3809.100\\\",\\\"os\\\":\\\"Windows\\\",\\\"platform\\\":\\\"Windows\\\"}\",\"client_ip\":\"86.124.118.86\",\"geo_ip\":\"{\\\"continent\\\":\\\"Europe\\\",\\\"country\\\":\\\"Romania\\\",\\\"region\\\":\\\"Judetul Braila\\\",\\\"city\\\":\\\"Braila\\\"}\",\"language\":\"[\\\"en\\\",\\\"en-US\\\",\\\"ro\\\",\\\"ro-RO\\\"]\",\"adblock_list\":\"EasyList\",\"app_version\":\"1.9.6\",\"path\":\"https://koalastothemax.com/\",\"loaded_image\":\"https://koalastothemax.com/img/koalas2.jpg\",\"referrer\":\"https://www.google.com/\",\"referrer_host\":\"www.google.com\",\"server_ip\":\"172.31.57.89\",\"screen\":\"1366x768\",\"window\":\"1366x657\",\"session_length\":6264,\"timezone\":\"N/A\",\"timezone_offset\":\"-180\"}\n{\"session\":\"S93504612\",\"number\":\"1\",\"event\":\"{\\\"type\\\":\\\"LayerClear\\\",\\\"layer\\\":6}\",\"agent\":\"{\\\"type\\\":\\\"Browser\\\",\\\"category\\\":\\\"Personal computer\\\",\\\"browser\\\":\\\"Chrome\\\",\\\"browser_version\\\":\\\"76.0.3809.100\\\",\\\"os\\\":\\\"Windows\\\",\\\"platform\\\":\\\"Windows\\\"}\",\"client_ip\":\"68.82.4.9\",\"geo_ip\":\"{\\\"continent\\\":\\\"North America\\\",\\\"country\\\":\\\"United States\\\",\\\"region\\\":\\\"Pennsylvania\\\",\\\"city\\\":\\\"Philadelphia\\\"}\",\"language\":\"[\\\"en\\\",\\\"en-US\\\"]\",\"adblock_list\":\"EasyList\",\"app_version\":\"1.9.6\",\"path\":\"https://koalastothemax.com/\",\"loaded_image\":\"https://koalastothemax.com/img/koalas3.jpg\",\"referrer\":\"https://www.google.com/\",\"referrer_host\":\"www.google.com\",\"server_ip\":\"172.31.11.5\",\"screen\":\"1366x768\",\"window\":\"1366x657\",\"session_length\":8070,\"timezone\":\"N/A\",\"timezone_offset\":\"240\"}\n{\"session\":\"S93504612\",\"number\":\"2\",\"event\":\"{\\\"type\\\":\\\"PercentClear\\\",\\\"percentage\\\":0}\",\"agent\":\"{\\\"type\\\":\\\"Browser\\\",\\\"category\\\":\\\"Personal computer\\\",\\\"browser\\\":\\\"Chrome\\\",\\\"browser_version\\\":\\\"76.0.3809.100\\\",\\\"os\\\":\\\"Windows\\\",\\\"platform\\\":\\\"Windows\\\"}\",\"client_ip\":\"68.82.4.9\",\"geo_ip\":\"{\\\"continent\\\":\\\"North America\\\",\\\"country\\\":\\\"United States\\\",\\\"region\\\":\\\"Pennsylvania\\\",\\\"city\\\":\\\"Philadelphia\\\"}\",\"language\":\"[\\\"en\\\",\\\"en-US\\\"]\",\"adblock_list\":\"EasyList\",\"app_version\":\"1.9.6\",\"path\":\"https://koalastothemax.com/\",\"loaded_image\":\"https://koalastothemax.com/img/koalas3.jpg\",\"referrer\":\"https://www.google.com/\",\"referrer_host\":\"www.google.com\",\"server_ip\":\"172.31.11.5\",\"screen\":\"1366x768\",\"window\":\"1366x657\",\"session_length\":8078,\"timezone\":\"N/A\",\"timezone_offset\":\"240\"}\n{\"session\":\"S10902483\",\"number\":\"6\",\"event\":\"{\\\"type\\\":\\\"PercentClear\\\",\\\"percentage\\\":10}\",\"agent\":\"{\\\"type\\\":\\\"Mobile Browser\\\",\\\"category\\\":\\\"Smartphone\\\",\\\"browser\\\":\\\"Mobile Safari\\\",\\\"browser_version\\\":\\\"12.1.2\\\",\\\"os\\\":\\\"iOS\\\",\\\"platform\\\":\\\"iOS\\\"}\",\"client_ip\":\"72.93.52.73\",\"geo_ip\":\"{\\\"continent\\\":\\\"North America\\\",\\\"country\\\":\\\"United States\\\",\\\"region\\\":\\\"Massachusetts\\\",\\\"city\\\":\\\"Worcester\\\"}\",\"language\":\"en-us\",\"adblock_list\":\"NoAdblock\",\"app_version\":\"1.9.6\",\"path\":\"https://koalastothemax.com/\",\"loaded_image\":\"https://koalastothemax.com/img/koalas2.jpg\",\"referrer\":\"https://www.google.com/\",\"referrer_host\":\"www.google.com\",\"server_ip\":\"172.31.57.89\",\"screen\":\"414x736\",\"window\":\"540x811\",\"session_length\":49275,\"timezone\":\"EDT\",\"timezone_offset\":\"240\"}\n{\"session\":\"S81338885\",\"number\":\"19\",\"event\":\"{\\\"type\\\":\\\"PercentClear\\\",\\\"percentage\\\":65}\",\"agent\":\"{\\\"type\\\":\\\"Mobile Browser\\\",\\\"category\\\":\\\"Smartphone\\\",\\\"browser\\\":\\\"Mobile Safari\\\",\\\"browser_version\\\":\\\"12.0\\\",\\\"os\\\":\\\"iOS\\\",\\\"platform\\\":\\\"iOS\\\"}\",\"client_ip\":\"100.0.162.244\",\"geo_ip\":\"{\\\"continent\\\":\\\"North America\\\",\\\"country\\\":\\\"United States\\\",\\\"region\\\":\\\"Rhode Island\\\",\\\"city\\\":\\\"Woonsocket\\\"}\",\"language\":\"en-us\",\"adblock_list\":\"NoAdblock\",\"app_version\":\"1.9.6\",\"path\":\"http://koalastothemax.com/\",\"loaded_image\":\"http://koalastothemax.com/img/koalas2.jpg\",\"referrer\":\"Direct\",\"referrer_host\":\"Direct\",\"server_ip\":\"172.31.11.5\",\"screen\":\"375x667\",\"window\":\"540x796\",\"session_length\":82064,\"timezone\":\"EDT\",\"timezone_offset\":\"240\"}"
+      },
+      "inputFormat": {
+        "type": "json"
+      }
+    },
+    "tuningConfig": {
+      "type": "index_parallel",
+      "partitionsSpec": {
+        "type": "dynamic"
+      }
+    },
+    "dataSchema": {
+      "dataSource": "kttm_druid",
+      "timestampSpec": {
+        "column": "timestamp",
+        "format": "iso"
+      },
+      "dimensionsSpec": {
+        "dimensions": [
+          "session",
+          {
+            "name": "number",
+            "type": "float"
+          },
+          {
+            "name": "event",
+            "type": "json"
+          },
+          {
+            "name": "agent",
+            "type": "json"
+          },
+          "client_ip",
+          {
+            "name": "geo_ip",
+            "type": "json"
+          },
+          "language",
+          "adblock_list",
+          "app_version",
+          "path",
+          "loaded_image",
+          "referrer",
+          "referrer_host",
+          "server_ip",
+          "screen",
+          "window",
+          {
+            "type": "long",
+            "name": "session_length"
+          },
+          "timezone",
+          {
+            "name": "timezone_offset",
+            "type": "double"
+          }
+        ]
+      },
+      "granularitySpec": {
+        "queryGranularity": "none",
+        "rollup": false,
+        "segmentGranularity": "day"
+      }
+    }
+  }
+}
