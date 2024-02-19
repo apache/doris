@@ -19,7 +19,6 @@ package org.apache.doris.datasource.es;
 
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.InitDatabaseLog;
 
 /**
  * Elasticsearch metastore external database.
@@ -34,7 +33,7 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
      * @param name database name.
      */
     public EsExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
-        super(extCatalog, id, name, InitDatabaseLog.Type.ES);
+        super(extCatalog, id, name, ExternalCatalog.Type.ES);
     }
 
     @Override

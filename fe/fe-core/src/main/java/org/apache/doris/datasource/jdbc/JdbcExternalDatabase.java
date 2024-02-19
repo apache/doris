@@ -19,7 +19,6 @@ package org.apache.doris.datasource.jdbc;
 
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.InitDatabaseLog;
 
 public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> {
 
@@ -31,7 +30,7 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> {
      * @param name database name.
      */
     public JdbcExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
-        super(extCatalog, id, name, InitDatabaseLog.Type.JDBC);
+        super(extCatalog, id, name, ExternalCatalog.Type.JDBC);
     }
 
     @Override

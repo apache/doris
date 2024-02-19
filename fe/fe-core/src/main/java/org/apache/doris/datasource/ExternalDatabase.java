@@ -62,7 +62,7 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
     protected volatile boolean initialized = false;
 
     protected volatile long lastUpdateTime;
-    protected final ExternalCatalog.Type ctlType;
+    protected final ExternalCatalog.Type dbType;
 
     protected ExternalCatalog extCatalog;
 
@@ -82,7 +82,7 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
         this.extCatalog = extCatalog;
         this.id = id;
         this.name = name;
-        this.ctlType = type;
+        this.dbType = type;
     }
 
     public void setUnInitialized(boolean invalidCache) {

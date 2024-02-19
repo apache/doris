@@ -19,12 +19,11 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.InitDatabaseLog;
 
 public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable> {
 
     public PaimonExternalDatabase(ExternalCatalog extCatalog, Long id, String name) {
-        super(extCatalog, id, name, InitDatabaseLog.Type.PAIMON);
+        super(extCatalog, id, name, ExternalCatalog.Type.PAIMON);
     }
 
     @Override
