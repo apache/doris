@@ -41,13 +41,17 @@ public abstract class RangerAccessController implements CatalogAccessController 
         }
 
         if (result.getIsAllowed()) {
-            LOG.debug("request {} match policy {}", request, result.getPolicyId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("request {} match policy {}", request, result.getPolicyId());
+            }
             return true;
         } else {
-            LOG.debug(String.format(
-                    "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
-                    result.getAccessRequest().getUser(), name,
-                    result.getAccessRequest().getResource().getAsString()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format(
+                        "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
+                        result.getAccessRequest().getUser(), name,
+                        result.getAccessRequest().getResource().getAsString()));
+            }
             return false;
         }
     }
@@ -56,9 +60,13 @@ public abstract class RangerAccessController implements CatalogAccessController 
     public static void checkRequestResults(Collection<RangerAccessResult> results, String name)
             throws AuthorizationException {
         for (RangerAccessResult result : results) {
-            LOG.debug("request {} match policy {}", result.getAccessRequest(), result.getPolicyId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("request {} match policy {}", result.getAccessRequest(), result.getPolicyId());
+            }
             if (!result.getIsAllowed()) {
-                LOG.debug(result.getReason());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(result.getReason());
+                }
                 throw new AuthorizationException(String.format(
                         "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
                         result.getAccessRequest().getUser(), name,

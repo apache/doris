@@ -535,8 +535,10 @@ public class Coordinator implements CoordInterface {
                             .append(backend.getBePort()).append("-")
                             .append(backend.getProcessEpoch());
             }
-            LOG.debug("query {}, backend size: {}, {}",
-                    DebugUtil.printId(queryId), backendNum, backendInfos.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("query {}, backend size: {}, {}",
+                        DebugUtil.printId(queryId), backendNum, backendInfos.toString());
+            }
         }
     }
 
@@ -563,7 +565,9 @@ public class Coordinator implements CoordInterface {
                 entry.getValue().appendTo(sb);
             }
             sb.append("]");
-            LOG.debug(sb.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(sb.toString());
+            }
         }
     }
 
@@ -977,8 +981,10 @@ public class Coordinator implements CoordInterface {
                     for (PipelineExecContext pec : ctxs.ctxs) {
                         infos += pec.fragmentId + " ";
                     }
-                    LOG.debug("query {}, sending pipeline fragments: {} to be {} bprc address {}",
-                            DebugUtil.printId(queryId), infos, ctxs.beId, ctxs.brpcAddr.toString());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("query {}, sending pipeline fragments: {} to be {} bprc address {}",
+                                DebugUtil.printId(queryId), infos, ctxs.beId, ctxs.brpcAddr.toString());
+                    }
                 }
 
                 ctxs.unsetFields();
@@ -1366,7 +1372,9 @@ public class Coordinator implements CoordInterface {
             Long numLimitRows = fragments.get(0).getPlanRoot().getLimit();
             boolean hasLimit = numLimitRows > 0;
             if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
-                LOG.debug("no block query, return num >= limit rows, need cancel");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("no block query, return num >= limit rows, need cancel");
+                }
                 cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH);
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
@@ -2085,7 +2093,9 @@ public class Coordinator implements CoordInterface {
                             sharedScan = false;
                         }
 
-                        LOG.debug("scan range number per instance is: {}", perInstanceScanRanges.size());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("scan range number per instance is: {}", perInstanceScanRanges.size());
+                        }
 
                         for (int j = 0; j < perInstanceScanRanges.size(); j++) {
                             List<TScanRangeParams> scanRangeParams = perInstanceScanRanges.get(j);
@@ -2520,10 +2530,12 @@ public class Coordinator implements CoordInterface {
             if (LOG.isDebugEnabled()) {
                 StringBuilder builder = new StringBuilder();
                 ctx.printProfile(builder);
-                LOG.debug("profile for query_id={} fragment_id={}\n{}",
-                        DebugUtil.printId(queryId),
-                        params.getFragmentId(),
-                        builder.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("profile for query_id={} fragment_id={}\n{}",
+                            DebugUtil.printId(queryId),
+                            params.getFragmentId(),
+                            builder.toString());
+                }
             }
 
             Status status = new Status(params.status);
@@ -2557,8 +2569,10 @@ public class Coordinator implements CoordInterface {
 
             Preconditions.checkArgument(params.isSetDetailedReport());
             if (ctx.done) {
-                LOG.debug("Query {} fragment {} is marked done",
-                        DebugUtil.printId(queryId), ctx.profileFragmentId);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Query {} fragment {} is marked done",
+                            DebugUtil.printId(queryId), ctx.profileFragmentId);
+                }
                 executionProfile.markOneFragmentDone(ctx.profileFragmentId);
             }
         } else if (enablePipelineEngine) {
@@ -2571,10 +2585,12 @@ public class Coordinator implements CoordInterface {
             if (LOG.isDebugEnabled()) {
                 StringBuilder builder = new StringBuilder();
                 ctx.printProfile(builder);
-                LOG.debug("profile for query_id={} instance_id={}\n{}",
-                        DebugUtil.printId(queryId),
-                        DebugUtil.printId(params.getFragmentInstanceId()),
-                        builder.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("profile for query_id={} instance_id={}\n{}",
+                            DebugUtil.printId(queryId),
+                            DebugUtil.printId(params.getFragmentInstanceId()),
+                            builder.toString());
+                }
             }
 
             Status status = new Status(params.status);
@@ -2615,12 +2631,16 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
-                LOG.debug("Query {} instance {} is marked done",
-                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Query {} instance {} is marked done",
+                            DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
+                }
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             } else {
-                LOG.debug("Query {} instance {} is not marked done",
-                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Query {} instance {} is not marked done",
+                            DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
+                }
             }
         } else {
             if (params.backend_num >= backendExecStates.size()) {
@@ -2638,10 +2658,12 @@ public class Coordinator implements CoordInterface {
             if (LOG.isDebugEnabled()) {
                 StringBuilder builder = new StringBuilder();
                 execState.printProfile(builder);
-                LOG.debug("profile for query_id={} instance_id={}\n{}",
-                        DebugUtil.printId(queryId),
-                        DebugUtil.printId(params.getFragmentInstanceId()),
-                        builder.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("profile for query_id={} instance_id={}\n{}",
+                            DebugUtil.printId(queryId),
+                            DebugUtil.printId(params.getFragmentInstanceId()),
+                            builder.toString());
+                }
             }
 
             Status status = new Status(params.status);
@@ -4080,6 +4102,4 @@ public class Coordinator implements CoordInterface {
         }
     }
 }
-
-
 

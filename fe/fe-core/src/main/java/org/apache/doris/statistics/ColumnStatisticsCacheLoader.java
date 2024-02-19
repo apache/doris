@@ -54,13 +54,18 @@ public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<
                 TableIf table = StatisticsUtil.findTable(key.catalogId, key.dbId, key.tableId);
                 columnStatistic = table.getColumnStatistic(key.colName);
             } catch (Exception e) {
-                LOG.debug(String.format("Exception to get column statistics by metadata. [Catalog:{}, DB:{}, Table:{}]",
-                        key.catalogId, key.dbId, key.tableId), e);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(String.format("Exception to get column statistics by metadata."
+                                    + "[Catalog:{}, DB:{}, Table:{}]",
+                            key.catalogId, key.dbId, key.tableId), e);
+                }
             }
         } catch (Throwable t) {
             LOG.warn("Failed to load stats for column [Catalog:{}, DB:{}, Table:{}, Column:{}], Reason: {}",
                     key.catalogId, key.dbId, key.tableId, key.colName, t.getMessage());
-            LOG.debug(t);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(t);
+            }
         }
         return columnStatistic;
     }

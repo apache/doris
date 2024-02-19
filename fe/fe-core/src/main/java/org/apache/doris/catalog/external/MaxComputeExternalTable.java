@@ -286,4 +286,3 @@ public class MaxComputeExternalTable extends ExternalTable {
         return odpsTable;
     }
 }
-

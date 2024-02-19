@@ -527,7 +527,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     counter.unhealthyTabletNum++;
                                     unstableReason = String.format("get unhealthy tablet %d in colocate table."
                                             + " status: %s", tablet.getId(), st);
-                                    LOG.debug(unstableReason);
+                                    if (LOG.isDebugEnabled()) {
+                                        LOG.debug(unstableReason);
+                                    }
 
                                     if (!tablet.readyToBeRepaired(infoService, Priority.NORMAL)) {
                                         counter.tabletNotReady++;
@@ -868,8 +870,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     resultPaths.clear();
                     BalanceStatus st = beStat.isFit(bucketDataSize, null, resultPaths, false);
                     if (!st.ok()) {
-                        LOG.debug("backend {} is unable to fit in group {}, tablet order idx {}, data size {}",
-                                destBeId, groupId, bucketIndex, bucketDataSize);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("backend {} is unable to fit in group {}, tablet order idx {}, data size {}",
+                                    destBeId, groupId, bucketIndex, bucketDataSize);
+                        }
                         continue;
                     }
 
@@ -896,9 +900,11 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 long oldDestThisGroup = lowBackend.getValue();
                 int oldSrcBucketNum = globalColocateStatistic.getBackendTotalBucketNum(srcBeId);
                 int oldDestBucketNum = globalColocateStatistic.getBackendTotalBucketNum(destBeId);
-                LOG.debug("OneMove: group {}, src {}, this group {}, all group {}, dest {}, this group {}, "
-                        + "all group {}", groupId, srcBeId, oldSrcThisGroup, oldSrcBucketNum, destBeId,
-                        oldDestThisGroup, oldDestBucketNum);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("OneMove: group {}, src {}, this group {}, all group {}, dest {}, this group {}, "
+                            + "all group {}", groupId, srcBeId, oldSrcThisGroup, oldSrcBucketNum, destBeId,
+                            oldDestThisGroup, oldDestBucketNum);
+                }
                 Preconditions.checkState(
                         globalColocateStatistic.moveTablet(groupId, tabletOrderIdx, srcBeId, destBeId));
                 Preconditions.checkState(oldSrcBucketNum - 1

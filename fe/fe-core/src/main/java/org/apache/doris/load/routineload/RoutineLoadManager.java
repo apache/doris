@@ -689,7 +689,9 @@ public class RoutineLoadManager implements Writable {
     // This function is called periodically.
     // Cancelled and stopped job will be removed after Configure.label_keep_max_second seconds
     public void cleanOldRoutineLoadJobs() {
-        LOG.debug("begin to clean old routine load jobs ");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("begin to clean old routine load jobs ");
+        }
         clearRoutineLoadJobIf(RoutineLoadJob::isExpired);
     }
 
@@ -705,7 +707,9 @@ public class RoutineLoadManager implements Writable {
         }
         writeLock();
         try {
-            LOG.debug("begin to clean routine load jobs");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("begin to clean routine load jobs");
+            }
             Deque<RoutineLoadJob> finishedJobs = idToRoutineLoadJob
                     .values()
                     .stream()

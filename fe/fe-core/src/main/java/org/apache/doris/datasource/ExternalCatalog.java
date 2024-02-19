@@ -642,4 +642,3 @@ public abstract class ExternalCatalog
         return new ConcurrentHashMap<>(idToDb);
     }
 }
-

@@ -79,4 +79,3 @@ public class CloudTablet extends Tablet {
     }
 
 }
-

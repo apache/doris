@@ -128,4 +128,3 @@ public class ConsistentHash<K, N> {
         return ImmutableList.copyOf(uniqueNodes);
     }
 }
-

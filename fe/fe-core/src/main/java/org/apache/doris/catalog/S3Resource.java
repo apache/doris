@@ -91,7 +91,9 @@ public class S3Resource extends Resource {
         S3Properties.requiredS3PingProperties(properties);
         // default need check resource conf valid, so need fix ut and regression case
         boolean needCheck = isNeedCheck(properties);
-        LOG.debug("s3 info need check validity : {}", needCheck);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("s3 info need check validity : {}", needCheck);
+        }
 
         // the endpoint for ping need add uri scheme.
         String pingEndpoint = properties.get(S3Properties.ENDPOINT);
@@ -169,7 +171,9 @@ public class S3Resource extends Resource {
         // compatible with old version, Need convert if modified properties map uses old properties.
         S3Properties.convertToStdProperties(properties);
         boolean needCheck = isNeedCheck(properties);
-        LOG.debug("s3 info need check validity : {}", needCheck);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("s3 info need check validity : {}", needCheck);
+        }
         if (needCheck) {
             S3Properties.requiredS3PingProperties(this.properties);
             Map<String, String> changedProperties = new HashMap<>(this.properties);
