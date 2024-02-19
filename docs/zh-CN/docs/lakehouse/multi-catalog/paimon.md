@@ -80,6 +80,23 @@ CREATE CATALOG `paimon_s3` PROPERTIES (
 );
 
 ```
+#### OBS
+
+> 注意：
+>
+> 用户需要手动下载[paimon-s3-0.6.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.6.0-incubating/paimon-s3-0.6.0-incubating.jar)
+> 放在 `${DORIS_HOME}/be/lib/java_extensions/preload-extensions` 目录下并重启be。
+>
+> 从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
+```sql
+CREATE CATALOG `paimon_obs` PROPERTIES (
+    "type" = "paimon",
+    "warehouse" = "obs://bucket_name/paimon",
+    "obs.endpoint"="obs.cn-north-4.myhuaweicloud.com",
+    "obs.access_key"="ak",
+    "obs.secret_key"="sk"
+);
+```
 
 #### COS
 
