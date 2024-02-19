@@ -522,10 +522,12 @@ public class HiveMetaStoreCache {
                     e, catalog.getName());
         }
 
-        LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
-                fileLists.stream().mapToInt(l -> l.getFiles() == null
-                        ? (l.getSplits() == null ? 0 : l.getSplits().size()) : l.getFiles().size()).sum(),
-                partitions.size(), catalog.getName(), (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
+                    fileLists.stream().mapToInt(l -> l.getFiles() == null
+                            ? (l.getSplits() == null ? 0 : l.getSplits().size()) : l.getFiles().size()).sum(),
+                    partitions.size(), catalog.getName(), (System.currentTimeMillis() - start));
+        }
         return fileLists;
     }
 
@@ -558,8 +560,10 @@ public class HiveMetaStoreCache {
             throw new CacheException("failed to get partition in catalog %s", e, catalog.getName());
         }
 
-        LOG.debug("get #{} partitions in catalog {} cost: {} ms", partitions.size(), catalog.getName(),
-                (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get #{} partitions in catalog {} cost: {} ms", partitions.size(), catalog.getName(),
+                    (System.currentTimeMillis() - start));
+        }
         return partitions;
     }
 
@@ -578,9 +582,11 @@ public class HiveMetaStoreCache {
                 }
             }
             partitionValuesCache.invalidate(key);
-            LOG.debug("invalid table cache for {}.{} in catalog {}, cache num: {}, cost: {} ms",
-                    dbName, tblName, catalog.getName(), partitionValues.partitionValuesMap.size(),
-                    (System.currentTimeMillis() - start));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("invalid table cache for {}.{} in catalog {}, cache num: {}, cost: {} ms",
+                        dbName, tblName, catalog.getName(), partitionValues.partitionValuesMap.size(),
+                        (System.currentTimeMillis() - start));
+            }
         } else {
             /**
              * A file cache entry can be created reference to
@@ -620,15 +626,19 @@ public class HiveMetaStoreCache {
                 invalidateTableCache(dbName, key.tblName);
             }
         }
-        LOG.debug("invalid db cache for {} in catalog {}, cache num: {}, cost: {} ms", dbName, catalog.getName(),
-                keys.size(), (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid db cache for {} in catalog {}, cache num: {}, cost: {} ms", dbName, catalog.getName(),
+                    keys.size(), (System.currentTimeMillis() - start));
+        }
     }
 
     public void invalidateAll() {
         partitionValuesCache.invalidateAll();
         partitionCache.invalidateAll();
         fileCacheRef.get().invalidateAll();
-        LOG.debug("invalid all meta cache in catalog {}", catalog.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid all meta cache in catalog {}", catalog.getName());
+        }
     }
 
     // partition name format: nation=cn/city=beijing
@@ -1120,4 +1130,3 @@ public class HiveMetaStoreCache {
         }
     }
 }
-

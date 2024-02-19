@@ -208,7 +208,9 @@ public class MysqlChannel {
             }
             decryptData(dstBuf, isHeader);
         } catch (IOException e) {
-            LOG.debug("Read channel exception, ignore.", e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Read channel exception, ignore.", e);
+            }
             return 0;
         }
         return readLen;
@@ -256,7 +258,9 @@ public class MysqlChannel {
                 readLen = readAll(sslHeaderByteBuffer, true);
                 if (readLen != SSL_PACKET_HEADER_LEN) {
                     // remote has close this channel
-                    LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                    }
                     return null;
                 }
                 // when handshaking and ssl mode, sslengine unwrap need a packet with header.
@@ -267,7 +271,9 @@ public class MysqlChannel {
                 readLen = readAll(headerByteBuffer, true);
                 if (readLen != PACKET_HEADER_LEN) {
                     // remote has close this channel
-                    LOG.debug("Receive packet header failed, remote may close the channel.");
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Receive packet header failed, remote may close the channel.");
+                    }
                     return null;
                 }
                 if (packetId() != sequenceId) {
@@ -300,7 +306,9 @@ public class MysqlChannel {
                     readLen = readAll(sslHeaderByteBuffer, true);
                     if (readLen != SSL_PACKET_HEADER_LEN) {
                         // remote has close this channel
-                        LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                        }
                         return null;
                     }
                     tempBuffer.clear();

@@ -144,7 +144,9 @@ public class AnalysisJob {
         if (killed) {
             return;
         }
-        LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
+        }
         try {
             stmtExecutor.execute();
             QueryState queryState = stmtExecutor.getContext().getState();

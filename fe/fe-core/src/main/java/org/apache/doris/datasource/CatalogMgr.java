@@ -110,7 +110,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public static CatalogMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        LOG.debug("debug: read json: {}", json);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("debug: read json: {}", json);
+        }
         return GsonUtils.GSON.fromJson(json, CatalogMgr.class);
     }
 
@@ -1015,4 +1017,3 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return new HashSet<>(idToCatalog.values());
     }
 }
-

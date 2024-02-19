@@ -484,7 +484,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         Cloud.CreateTabletsRequest createTabletsReq = requestBuilder.build();
 
-        LOG.debug("send create tablets rpc, createTabletsReq: {}", createTabletsReq);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("send create tablets rpc, createTabletsReq: {}", createTabletsReq);
+        }
         Cloud.CreateTabletsResponse response;
         try {
             response = MetaServiceProxy.getInstance().createTablets(createTabletsReq);
@@ -664,7 +666,9 @@ public class CloudInternalCatalog extends InternalCatalog {
     private void sleepSeveralMs() {
         // sleep random millis [20, 200] ms, avoid txn conflict
         int randomMillis = 20 + (int) (Math.random() * (200 - 20));
-        LOG.debug("randomMillis:{}", randomMillis);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("randomMillis:{}", randomMillis);
+        }
         try {
             Thread.sleep(randomMillis);
         } catch (InterruptedException e) {
@@ -673,4 +677,3 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
 }
-

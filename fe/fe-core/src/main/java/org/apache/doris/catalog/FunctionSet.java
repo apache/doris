@@ -349,8 +349,10 @@ public class FunctionSet<T> {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("templateFunction signature: {}, return type: {}",
                             templateFunction.signatureString(), templateFunction.getReturnType());
-                LOG.debug("requestFunction signature: {}, return type: {}",
-                            requestFunction.signatureString(), requestFunction.getReturnType());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("requestFunction signature: {}, return type: {}",
+                                requestFunction.signatureString(), requestFunction.getReturnType());
+                }
             }
             List<Type> newArgTypes = Lists.newArrayList();
             List<Type> newRetType = Lists.newArrayList();

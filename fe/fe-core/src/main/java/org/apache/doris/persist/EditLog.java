@@ -164,7 +164,9 @@ public class EditLog {
     public static void loadJournal(Env env, Long logId, JournalEntity journal) {
         short opCode = journal.getOpCode();
         if (opCode != OperationType.OP_SAVE_NEXTID && opCode != OperationType.OP_TIMESTAMP) {
-            LOG.debug("replay journal op code: {}", opCode);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("replay journal op code: {}", opCode);
+            }
         }
         try {
             switch (opCode) {
@@ -534,7 +536,9 @@ public class EditLog {
                 case OperationType.OP_UPSERT_TRANSACTION_STATE: {
                     final TransactionState state = (TransactionState) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
-                    LOG.debug("logid: {}, opcode: {}, tid: {}", logId, opCode, state.getTransactionId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("logid: {}, opcode: {}, tid: {}", logId, opCode, state.getTransactionId());
+                    }
 
                     // state.loadedTableIndexIds is updated after replay
                     if (state.getTransactionStatus() == TransactionStatus.VISIBLE) {
@@ -546,7 +550,9 @@ public class EditLog {
                 case OperationType.OP_DELETE_TRANSACTION_STATE: {
                     final TransactionState state = (TransactionState) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayDeleteTransactionState(state);
-                    LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
+                    }
                     break;
                 }
                 case OperationType.OP_BATCH_REMOVE_TXNS: {

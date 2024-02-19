@@ -90,4 +90,3 @@ class PushDownFilterThroughWindowTest implements MemoPatternMatchSupported {
                 );
     }
 }
-

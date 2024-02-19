@@ -56,7 +56,7 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
 
     // prepare catalog
     String hms_port = context.config.otherConfigs.get("hms_port")
-    String catalog_name = "hive_test_mtmv"
+    String catalog_name = "hive_refresh_mtmv_test_catalog"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
     sql """drop catalog if exists ${catalog_name}"""

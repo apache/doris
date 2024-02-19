@@ -250,7 +250,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             // NotSupportedException is required by some operation.
             throw new NotSupportedException("Unsupported hive input format: " + inputFileFormat);
         }
-        LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
+        }
         return true;
     }
 
@@ -326,7 +328,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         makeSureInitialized();
         long rowCount = getRowCountFromExternalSource(false);
         if (rowCount == -1) {
-            LOG.debug("Will estimate row count from file list.");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Will estimate row count from file list.");
+            }
             rowCount = StatisticsUtil.getRowCountFromFileList(this);
         }
         return rowCount;
@@ -342,7 +346,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 rowCount = StatisticsUtil.getIcebergRowCount(this);
                 break;
             default:
-                LOG.debug("getRowCount for dlaType {} is not supported.", dlaType);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("getRowCount for dlaType {} is not supported.", dlaType);
+                }
                 rowCount = -1;
         }
         return rowCount;
@@ -395,14 +401,18 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public String getViewExpandedText() {
-        LOG.debug("View expanded text of hms table [{}.{}.{}] : {}",
-                this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewExpandedText());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("View expanded text of hms table [{}.{}.{}] : {}",
+                    this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewExpandedText());
+        }
         return remoteTable.getViewExpandedText();
     }
 
     public String getViewOriginalText() {
-        LOG.debug("View original text of hms table [{}.{}.{}] : {}",
-                this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewOriginalText());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("View original text of hms table [{}.{}.{}] : {}",
+                    this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewOriginalText());
+        }
         return remoteTable.getViewOriginalText();
     }
 
@@ -513,7 +523,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
         if (tableStats != null) {
             long rowCount = tableStats.rowCount;
-            LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
+            }
             return rowCount;
         }
 
@@ -530,7 +542,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
             if (tableStats != null) {
                 long rowCount = tableStats.rowCount;
-                LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
+                }
                 return rowCount;
             }
 
@@ -567,7 +581,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 }
             }
         }
-        LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
+        }
     }
 
     public boolean hasColumnStatistics(String colName) {
@@ -615,8 +631,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private Optional<ColumnStatistic> getHiveColumnStats(String colName) {
         List<ColumnStatisticsObj> tableStats = getHiveTableColumnStats(Lists.newArrayList(colName));
         if (tableStats == null || tableStats.isEmpty()) {
-            LOG.debug(String.format("No table stats found in Hive metastore for column %s in table %s.",
-                    colName, name));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("No table stats found in Hive metastore for column %s in table %s.",
+                        colName, name));
+            }
             return Optional.empty();
         }
 
@@ -638,7 +656,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             try {
                 setStatData(column, data, columnStatisticBuilder, count);
             } catch (AnalysisException e) {
-                LOG.debug(e);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(e);
+                }
                 return Optional.empty();
             }
         }
@@ -713,7 +733,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 }
             }
         } else {
-            LOG.debug(String.format("Not suitable data type for column %s", col.getName()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("Not suitable data type for column %s", col.getName()));
+            }
             throw new RuntimeException("Not supported data type.");
         }
         builder.setNdv(ndv);
@@ -896,5 +918,3 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return true;
     }
 }
-
-
