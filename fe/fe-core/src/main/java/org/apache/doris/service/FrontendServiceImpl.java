@@ -1084,7 +1084,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
             result.setJobStatus(e.getJobStatus());
         } catch (MetaNotFoundException e) {
-            LOG.warn("failed to begin: {}", e.getMessage());
+            LOG.warn("failed to begin", e);
             status.setStatusCode(TStatusCode.NOT_FOUND);
             status.addToErrorMsgs(e.getMessage());
         } catch (UserException e) {
@@ -1643,7 +1643,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             loadTxnRollbackImpl(request);
         } catch (MetaNotFoundException e) {
-            LOG.warn("failed to rollback txn {}: {}", request.getTxnId(), e.getMessage());
+            String msg = "failed to rollback txn" + request.getTxnId();
+            LOG.warn(msg, e);
             status.setStatusCode(TStatusCode.NOT_FOUND);
             status.addToErrorMsgs(e.getMessage());
         } catch (UserException e) {
