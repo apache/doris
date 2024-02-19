@@ -260,11 +260,12 @@ Status WalManager::parse_wal_path(const std::string& file_name, int64_t& version
 Status WalManager::_load_wals() {
     std::vector<ScanWalInfo> wals;
     for (auto wal_dir : _wal_dirs) {
-        RETURN_IF_ERROR(_scan_wals(wal_dir, wals));
+        WARN_IF_ERROR(_scan_wals(wal_dir, wals), fmt::format("fail to scan wal dir={}", wal_dir));
     }
     for (const auto& wal : wals) {
         bool exists = false;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(wal.wal_path, &exists));
+        WARN_IF_ERROR(io::global_local_filesystem()->exists(wal.wal_path, &exists),
+                      fmt::format("fail to check exist on wal file={}", wal.wal_path));
         if (!exists) {
             continue;
         }
@@ -288,7 +289,8 @@ Status WalManager::_load_wals() {
                 continue;
             }
         }
-        RETURN_IF_ERROR(add_recover_wal(wal.db_id, wal.tb_id, wal.wal_id, wal.wal_path));
+        WARN_IF_ERROR(add_recover_wal(wal.db_id, wal.tb_id, wal.wal_id, wal.wal_path),
+                      fmt::format("Failed to add recover wal={}", wal.wal_path));
     }
     return Status::OK();
 }
@@ -328,19 +330,24 @@ Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalIn
             if (wals.empty()) {
                 continue;
             }
+            int64_t db_id = -1;
+            int64_t tb_id = -1;
+            try {
+                db_id = std::strtoll(database_id.file_name.c_str(), NULL, 10);
+                tb_id = std::strtoll(table_id.file_name.c_str(), NULL, 10);
+            } catch (const std::invalid_argument& e) {
+                return Status::InvalidArgument("Invalid format, {}", e.what());
+            }
             for (const auto& wal : wals) {
                 int64_t version = -1;
                 int64_t backend_id = -1;
                 int64_t wal_id = -1;
-                int64_t db_id = -1;
-                int64_t tb_id = -1;
                 std::string label = "";
-                RETURN_IF_ERROR(parse_wal_path(wal.file_name, version, backend_id, wal_id, label));
-                try {
-                    db_id = std::strtoll(database_id.file_name.c_str(), NULL, 10);
-                    tb_id = std::strtoll(table_id.file_name.c_str(), NULL, 10);
-                } catch (const std::invalid_argument& e) {
-                    return Status::InvalidArgument("Invalid format, {}", e.what());
+                auto parse_st = parse_wal_path(wal.file_name, version, backend_id, wal_id, label);
+                if (!parse_st.ok()) {
+                    LOG(WARNING) << "fail to parse file=" << wal.file_name
+                                 << ",st=" << parse_st.to_string();
+                    continue;
                 }
                 auto wal_file = table_path + "/" + wal.file_name;
                 struct ScanWalInfo scan_wal_info;
