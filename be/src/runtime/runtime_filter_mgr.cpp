@@ -74,7 +74,7 @@ Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
 Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc,
                                                   const TQueryOptions& options, int node_id,
                                                   IRuntimeFilter** consumer_filter,
-                                                  bool build_bf_exactly, bool is_global) {
+                                                  bool build_bf_exactly, bool need_local_merge) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
     bool has_exist = false;
@@ -89,17 +89,14 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
         }
     }
 
-    // TODO: union the remote opt and global two case as one case to one judge
-    bool remote_opt_or_global = (desc.__isset.opt_remote_rf && desc.opt_remote_rf) || is_global;
-
     if (!has_exist) {
         IRuntimeFilter* filter;
-        RETURN_IF_ERROR(IRuntimeFilter::create(
-                _state, remote_opt_or_global ? _state->obj_pool() : &_pool, &desc, &options,
-                RuntimeFilterRole::CONSUMER, node_id, &filter, build_bf_exactly, is_global));
+        RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options,
+                                               RuntimeFilterRole::CONSUMER, node_id, &filter,
+                                               build_bf_exactly, need_local_merge));
         _consumer_map[key].emplace_back(node_id, filter);
         *consumer_filter = filter;
-    } else if (!remote_opt_or_global) {
+    } else if (!need_local_merge) {
         return Status::InvalidArgument("filter has registered");
     }
 
@@ -108,8 +105,7 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
 
 Status RuntimeFilterMgr::register_local_merge_producer_filter(
         const doris::TRuntimeFilterDesc& desc, const doris::TQueryOptions& options,
-        doris::IRuntimeFilter** producer_filter, bool build_bf_exactly, bool is_global,
-        int parallel_tasks) {
+        doris::IRuntimeFilter** producer_filter, bool build_bf_exactly) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
@@ -126,14 +122,14 @@ Status RuntimeFilterMgr::register_local_merge_producer_filter(
     DCHECK(_state != nullptr);
     RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options,
                                            RuntimeFilterRole::PRODUCER, -1, producer_filter,
-                                           build_bf_exactly, is_global, parallel_tasks));
+                                           build_bf_exactly, true));
     {
         std::lock_guard<std::mutex> l(*iter->second.lock);
         if (iter->second.filters.empty()) {
             IRuntimeFilter* merge_filter = nullptr;
             RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options,
                                                    RuntimeFilterRole::PRODUCER, -1, &merge_filter,
-                                                   build_bf_exactly, is_global, parallel_tasks));
+                                                   build_bf_exactly, true));
             iter->second.filters.emplace_back(merge_filter);
         }
         iter->second.merge_time++;
@@ -158,8 +154,7 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(
 Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc,
                                                   const TQueryOptions& options,
                                                   IRuntimeFilter** producer_filter,
-                                                  bool build_bf_exactly, bool is_global,
-                                                  int parallel_tasks) {
+                                                  bool build_bf_exactly) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
     std::lock_guard<std::mutex> l(_lock);
@@ -171,7 +166,7 @@ Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc
     }
     RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options,
                                            RuntimeFilterRole::PRODUCER, -1, producer_filter,
-                                           build_bf_exactly, is_global, parallel_tasks));
+                                           build_bf_exactly));
     _producer_map.emplace(key, *producer_filter);
     return Status::OK();
 }
@@ -531,8 +526,6 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(QueryContext* que
 
     params->be_exec_version = query_ctx->be_exec_version();
     params->query_ctx = query_ctx;
-    params->_obj_pool = &query_ctx->obj_pool;
-    params->_is_global = true;
     return params;
 }
 

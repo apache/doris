@@ -82,19 +82,18 @@ public:
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     int node_id, IRuntimeFilter** consumer_filter,
-                                    bool build_bf_exactly = false, bool is_global = false);
+                                    bool build_bf_exactly = false, bool need_local_merge = false);
 
     Status register_local_merge_producer_filter(const TRuntimeFilterDesc& desc,
                                                 const TQueryOptions& options,
                                                 IRuntimeFilter** producer_filter,
-                                                bool build_bf_exactly = false,
-                                                bool is_global = false, int parallel_tasks = 0);
+                                                bool build_bf_exactly = false);
 
     Status get_local_merge_producer_filters(int filter_id, LocalMergeFilters** local_merge_filters);
 
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    IRuntimeFilter** producer_filter, bool build_bf_exactly = false,
-                                    bool is_global = false, int parallel_tasks = 0);
+                                    IRuntimeFilter** producer_filter,
+                                    bool build_bf_exactly = false);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request,
@@ -273,9 +272,6 @@ struct RuntimeFilterParamsContext {
     int be_exec_version;
     QueryContext* query_ctx;
     QueryContext* get_query_ctx() const { return query_ctx; }
-    ObjectPool* _obj_pool;
-    bool _is_global = false;
     PUniqueId fragment_instance_id() const { return _fragment_instance_id; }
-    ObjectPool* obj_pool() const { return _obj_pool; }
 };
 } // namespace doris

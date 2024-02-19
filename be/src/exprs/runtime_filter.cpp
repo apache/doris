@@ -938,11 +938,11 @@ private:
 Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, ObjectPool* pool,
                               const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                               const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
-                              bool build_bf_exactly, bool is_global, int parallel_tasks) {
-    *res = pool->add(new IRuntimeFilter(state, pool, desc, is_global, parallel_tasks));
+                              bool build_bf_exactly, bool need_local_merge) {
+    *res = pool->add(new IRuntimeFilter(state, pool, desc, need_local_merge));
     (*res)->set_role(role);
     return (*res)->init_with_desc(desc, query_options, node_id,
-                                  is_global ? false : build_bf_exactly);
+                                  need_local_merge ? false : build_bf_exactly);
 }
 
 vectorized::SharedRuntimeFilterContext& IRuntimeFilter::get_shared_context_ref() {
@@ -954,61 +954,51 @@ void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t sta
     _wrapper->insert_batch(column, start);
 }
 
-Status IRuntimeFilter::merge_local_filter(RuntimePredicateWrapper* wrapper, int* merged_num) {
-    SCOPED_TIMER(_merge_local_rf_timer);
-    std::unique_lock lock(_local_merge_mutex);
-    if (_merged_rf_num == 0) {
-        _wrapper = wrapper;
-    } else {
-        RETURN_IF_ERROR(merge_from(wrapper));
-    }
-    *merged_num = ++_merged_rf_num;
-    return Status::OK();
-}
-
 Status IRuntimeFilter::publish(bool publish_local) {
     DCHECK(is_producer());
-    if (_is_global && _has_local_target) {
-        std::vector<IRuntimeFilter*> filters;
-        RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filters(
-                _filter_id, filters));
-        // push down
-        for (auto filter : filters) {
-            int merged_num = 0;
-            RETURN_IF_ERROR(filter->merge_local_filter(_wrapper, &merged_num));
-            if (merged_num == _parallel_build_tasks) {
-                filter->update_runtime_filter_type_to_profile();
-                filter->signal();
-            }
-        }
-    } else if (_has_local_target) {
+    auto send_to_remote = [&](IRuntimeFilter* filter) {
+        TNetworkAddress addr;
+        DCHECK(_state != nullptr);
+        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
+        return filter->push_to_remote(&addr, _opt_remote_rf);
+    };
+    auto send_to_local = [&](RuntimePredicateWrapper* wrapper) {
         std::vector<IRuntimeFilter*> filters;
         RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
         // push down
         for (auto filter : filters) {
-            filter->_wrapper = _wrapper;
+            filter->_wrapper = wrapper;
             filter->update_runtime_filter_type_to_profile();
             filter->signal();
         }
+        return Status::OK();
+    };
+    auto do_local_merge = [&]() {
+        LocalMergeFilters* local_merge_filters = nullptr;
+        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_local_merge_producer_filters(
+                _filter_id, &local_merge_filters));
+        std::lock_guard l(*local_merge_filters->lock);
+        RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper));
+        local_merge_filters->merge_time--;
+        if (local_merge_filters->merge_time == 0) {
+            if (_has_local_target) {
+                RETURN_IF_ERROR(send_to_local(local_merge_filters->filters[0]->_wrapper));
+            } else {
+                RETURN_IF_ERROR(send_to_remote(local_merge_filters->filters[0]));
+            }
+        }
+        return Status::OK();
+    };
+
+    if (_need_local_merge && _has_local_target) {
+        RETURN_IF_ERROR(do_local_merge());
+    } else if (_has_local_target) {
+        RETURN_IF_ERROR(send_to_local(_wrapper));
     } else if (!publish_local) {
         if (_is_broadcast_join) {
-            TNetworkAddress addr;
-            DCHECK(_state != nullptr);
-            RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
-            return push_to_remote(&addr, _opt_remote_rf);
+            RETURN_IF_ERROR(send_to_remote(this));
         } else {
-            LocalMergeFilters* local_merge_filters = nullptr;
-            RETURN_IF_ERROR(_state->runtime_filter_mgr->get_local_merge_producer_filters(
-                    _filter_id, &local_merge_filters));
-            std::lock_guard l(*local_merge_filters->lock);
-            RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper));
-            local_merge_filters->merge_time--;
-            if (local_merge_filters->merge_time == 0) {
-                TNetworkAddress addr;
-                DCHECK(_state != nullptr);
-                RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
-                return local_merge_filters->filters[0]->push_to_remote(&addr, _opt_remote_rf);
-            }
+            RETURN_IF_ERROR(do_local_merge());
         }
     } else {
         // remote broadcast join only push onetime in build shared hash table
@@ -1381,9 +1371,6 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     _profile_init = true;
     parent_profile->add_child(_profile.get(), true, nullptr);
     _profile->add_info_string("Info", _format_status());
-    if (_is_global) {
-        _merge_local_rf_timer = ADD_TIMER(_profile.get(), "MergeLocalRuntimeFilterTime");
-    }
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         update_runtime_filter_type_to_profile();
     }
