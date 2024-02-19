@@ -24,5 +24,5 @@ suite("test_decimalv3_string") {
     sql "insert into replicationtesttable (k1,k2,v4) select 'aaa',10,22500000900.000000000000000000000000000000"
     sql "insert into replicationtesttable (k1,k2,v4) select 'bbb',20,'22500000900.000000000000000000000000000000'"
 
-    qt_decimalv3_string "select * from replicationtesttable"
+    qt_decimalv3_string "select * from replicationtesttable order by 1"
 }
