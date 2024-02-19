@@ -89,6 +89,8 @@ public class HMSExternalTable extends ExternalTable {
 
     private static final String NUM_ROWS = "numRows";
 
+    private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
+
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
@@ -192,6 +194,14 @@ public class HMSExternalTable extends ExternalTable {
         }
         String inputFormatName = remoteTable.getSd().getInputFormat();
         return inputFormatName != null && SUPPORTED_HUDI_FILE_FORMATS.contains(inputFormatName);
+    }
+
+    /**
+     * Some data lakes (such as Hudi) will synchronize their partition information to HMS,
+     * then we can quickly obtain the partition information of the table from HMS.
+     */
+    public boolean useHiveSyncPartition() {
+        return Boolean.parseBoolean(catalog.getProperties().getOrDefault(USE_HIVE_SYNC_PARTITION, "false"));
     }
 
     public boolean isHoodieCowTable() {

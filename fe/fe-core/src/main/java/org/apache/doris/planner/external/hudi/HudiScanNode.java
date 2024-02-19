@@ -82,6 +82,8 @@ public class HudiScanNode extends HiveScanNode {
 
     private final AtomicLong noLogsSplitNum = new AtomicLong(0);
 
+    private final boolean useHiveSyncPartition;
+
     /**
      * External file scan node for Query Hudi table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
@@ -97,6 +99,7 @@ public class HudiScanNode extends HiveScanNode {
         } else {
             LOG.debug("Hudi table {} is a mor table, and will use JNI to read data in BE", hmsTable.getName());
         }
+        useHiveSyncPartition = hmsTable.useHiveSyncPartition();
     }
 
     @Override
@@ -166,9 +169,10 @@ public class HudiScanNode extends HiveScanNode {
                     .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog());
             TablePartitionValues partitionValues;
             if (snapshotTimestamp.isPresent()) {
-                partitionValues = processor.getSnapshotPartitionValues(hmsTable, metaClient, snapshotTimestamp.get());
+                partitionValues = processor.getSnapshotPartitionValues(
+                    hmsTable, metaClient, snapshotTimestamp.get(), useHiveSyncPartition);
             } else {
-                partitionValues = processor.getPartitionValues(hmsTable, metaClient);
+                partitionValues = processor.getPartitionValues(hmsTable, metaClient, useHiveSyncPartition);
             }
             if (partitionValues != null) {
                 // 2. prune partitions by expr
