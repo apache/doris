@@ -799,10 +799,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         PartitionInfo partitionInfo = table.getPartitionInfo();
-        Range<PartitionKey> recoverRange = recoverPartitionInfo.getRange();
         PartitionItem recoverItem = null;
         if (partitionInfo.getType() == PartitionType.RANGE) {
-            recoverItem = new RangePartitionItem(recoverRange);
+            recoverItem = new RangePartitionItem(recoverPartitionInfo.getRange());
         } else if (partitionInfo.getType() == PartitionType.LIST) {
             recoverItem = recoverPartitionInfo.getListPartitionItem();
         }
