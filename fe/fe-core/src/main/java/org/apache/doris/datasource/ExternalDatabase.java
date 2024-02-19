@@ -17,6 +17,11 @@
 
 package org.apache.doris.datasource;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.Env;
@@ -24,29 +29,13 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
-import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
-import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import com.google.gson.annotations.SerializedName;
-import com.google.gson.internal.LinkedTreeMap;
-import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,29 +48,27 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *
  * @param <T> External table type is ExternalTable or its subclass.
  */
-public abstract class ExternalDatabase<T extends ExternalTable>
-            implements DatabaseIf<T>, Writable, GsonPostProcessable {
+public abstract class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> {
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
-    @SerializedName(value = "id")
     protected long id;
-    @SerializedName(value = "name")
+
     protected String name;
-    @SerializedName(value = "dbProperties")
     protected DatabaseProperty dbProperties = new DatabaseProperty();
-    @SerializedName(value = "initialized")
-    protected boolean initialized = false;
-    // Cache of table name to table id.
-    protected Map<String, Long> tableNameToId = Maps.newConcurrentMap();
-    @SerializedName(value = "idToTbl")
-    protected Map<Long, T> idToTbl = Maps.newConcurrentMap();
-    @SerializedName(value = "lastUpdateTime")
-    protected long lastUpdateTime;
-    protected final InitDatabaseLog.Type dbLogType;
+
+    protected volatile boolean initialized = false;
+
+    protected volatile long lastUpdateTime;
+    protected final ExternalCatalog.Type ctlType;
+
     protected ExternalCatalog extCatalog;
+
     protected boolean invalidCacheInInit = true;
+
+    protected Map<Long, T> idToTbl = Maps.newConcurrentMap();
+    protected Map<String, Long> tableNameToId = Maps.newConcurrentMap();
 
     /**
      * Create external database.
@@ -90,21 +77,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
      * @param id Database id.
      * @param name Database name.
      */
-    public ExternalDatabase(ExternalCatalog extCatalog, long id, String name, InitDatabaseLog.Type dbLogType) {
+    public ExternalDatabase(ExternalCatalog extCatalog, long id, String name, ExternalCatalog.Type type) {
         this.extCatalog = extCatalog;
         this.id = id;
         this.name = name;
-        this.dbLogType = dbLogType;
-    }
-
-    public void setExtCatalog(ExternalCatalog extCatalog) {
-        this.extCatalog = extCatalog;
-    }
-
-    public void setTableExtCatalog(ExternalCatalog extCatalog) {
-        for (T table : idToTbl.values()) {
-            table.setCatalog(extCatalog);
-        }
+        this.ctlType = type;
     }
 
     public void setUnInitialized(boolean invalidCache) {
@@ -134,75 +111,52 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 }
                 return;
             }
-            init();
+            initForMaster();
         }
     }
 
-    public void replayInitDb(InitDatabaseLog log, ExternalCatalog catalog) {
-        Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
-        Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
-        for (int i = 0; i < log.getRefreshCount(); i++) {
-            T table = getTableForReplay(log.getRefreshTableIds().get(i));
-            // When upgrade cluster with this pr: https://github.com/apache/doris/pull/27666
-            // Maybe there are some create table events will be skipped
-            // if the cluster has any hms catalog(s) with hms event listener enabled.
-            // So we need add a validation here to avoid table(s) not found, this is just a temporary solution
-            // because later we will remove all the logics about InitCatalogLog/InitDatabaseLog.
-            if (table != null) {
-                tmpTableNameToId.put(table.getName(), table.getId());
-                tmpIdToTbl.put(table.getId(), table);
-            }
-        }
-        for (int i = 0; i < log.getCreateCount(); i++) {
-            T table = newExternalTable(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
-            tmpTableNameToId.put(table.getName(), table.getId());
-            tmpIdToTbl.put(table.getId(), table);
-        }
-        tableNameToId = tmpTableNameToId;
-        idToTbl = tmpIdToTbl;
-        lastUpdateTime = log.getLastUpdateTime();
-        initialized = true;
-    }
-
-    protected void init() {
-        InitDatabaseLog initDatabaseLog = new InitDatabaseLog();
-        initDatabaseLog.setType(dbLogType);
-        initDatabaseLog.setCatalogId(extCatalog.getId());
-        initDatabaseLog.setDbId(id);
+    // only master should invoke this method.
+    protected void initForMaster() {
         List<String> tableNames;
         if (name.equals(InfoSchemaDb.DATABASE_NAME)) {
             tableNames = ExternalInfoSchemaDatabase.listTableNames();
         } else {
             tableNames = extCatalog.listTableNames(null, name);
         }
-        if (tableNames != null) {
-            Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
-            Map<Long, T> tmpIdToTbl = Maps.newHashMap();
-            for (String tableName : tableNames) {
-                long tblId;
-                if (tableNameToId != null && tableNameToId.containsKey(tableName)) {
-                    tblId = tableNameToId.get(tableName);
-                    tmpTableNameToId.put(tableName, tblId);
-                    T table = idToTbl.get(tblId);
-                    table.unsetObjectCreated();
-                    tmpIdToTbl.put(tblId, table);
-                    initDatabaseLog.addRefreshTable(tblId);
-                } else {
-                    tblId = Env.getCurrentEnv().getNextId();
-                    tmpTableNameToId.put(tableName, tblId);
-                    T table = newExternalTable(tableName, tblId, extCatalog);
-                    tmpIdToTbl.put(tblId, table);
-                    initDatabaseLog.addCreateTable(tblId, tableName);
-                }
-            }
-            tableNameToId = tmpTableNameToId;
-            idToTbl = tmpIdToTbl;
-        }
 
-        lastUpdateTime = System.currentTimeMillis();
-        initDatabaseLog.setLastUpdateTime(lastUpdateTime);
-        initialized = true;
-        Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
+        MetaIdMappingsLog log = new MetaIdMappingsLog();
+        log.setCatalogId(extCatalog.getId());
+        log.setFromInitDb(true);
+        log.setLastUpdateTime(System.currentTimeMillis());
+        if (CollectionUtils.isNotEmpty(tableNames)) {
+            for (String tableName : tableNames) {
+                MetaIdMappingsLog.MetaIdMapping metaIdMapping = new MetaIdMappingsLog.MetaIdMapping(
+                        MetaIdMappingsLog.OPERATION_TYPE_ADD,
+                        MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,
+                        name, tableName, ExternalMetaIdMgr.nextMetaId());
+                log.addMetaIdMapping(metaIdMapping);
+            }
+        }
+        Env.getCurrentEnv().getExternalMetaIdMgr().replayMetaIdMappingsLog(log);
+        Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
+    }
+
+    public void initForAllNodes(long lastUpdateTime) {
+        ExternalMetaIdMgr metaIdMgr = Env.getCurrentEnv().getExternalMetaIdMgr();
+        ExternalMetaIdMgr.DbMetaIdMgr dbMetaIdMgr = metaIdMgr.getDbMetaIdMgr(extCatalog.getId(), name);
+        if (dbMetaIdMgr != null) {
+            Map<String, ExternalMetaIdMgr.TblMetaIdMgr> tblNameToMgr = dbMetaIdMgr.getTblNameToMgr();
+            for (String tableName : tblNameToMgr.keySet()) {
+                T table = idToTbl.getOrDefault(tableNameToId.getOrDefault(tableName, -1L), null);
+                if (table == null) {
+                    table = newExternalTable(tableName, tblNameToMgr.get(tableName).getTblId(), extCatalog);
+                }
+                idToTbl.put(table.getId(), table);
+                tableNameToId.put(tableName, table.getId());
+            }
+        }
+        this.lastUpdateTime = lastUpdateTime;
+        this.initialized = true;
     }
 
     protected abstract T newExternalTable(String tableName, long tblId, ExternalCatalog catalog);
@@ -306,7 +260,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public Set<String> getTableNamesWithLock() {
         makeSureInitialized();
-        return Sets.newHashSet(tableNameToId.keySet());
+        return Sets.newHashSet();
     }
 
     @Override
@@ -330,37 +284,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     public void setLastUpdateTime(long lastUpdateTime) {
         this.lastUpdateTime = lastUpdateTime;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @SuppressWarnings("rawtypes")
-    public static ExternalDatabase read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ExternalDatabase.class);
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        tableNameToId = Maps.newConcurrentMap();
-        Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
-        for (Object obj : idToTbl.values()) {
-            if (obj instanceof LinkedTreeMap) {
-                ExternalInfoSchemaTable table = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
-                        ExternalInfoSchemaTable.class);
-                tmpIdToTbl.put(table.getId(), (T) table);
-                tableNameToId.put(table.getName(), table.getId());
-            } else {
-                Preconditions.checkState(obj instanceof ExternalTable);
-                tmpIdToTbl.put(((ExternalTable) obj).getId(), (T) obj);
-                tableNameToId.put(((ExternalTable) obj).getName(), ((ExternalTable) obj).getId());
-            }
-        }
-        idToTbl = tmpIdToTbl;
-        rwLock = new ReentrantReadWriteLock(true);
     }
 
     @Override

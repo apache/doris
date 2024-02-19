@@ -48,8 +48,20 @@ public class MetaIdMappingsLog implements Writable {
     @SerializedName(value = "ctlId")
     private long catalogId = -1L;
 
+    @SerializedName(value = "dbId")
+    private long dbId = -1L;
+
     @SerializedName(value = "fromEvent")
     private boolean fromHmsEvent = false;
+
+    @SerializedName(value = "fromInitCtl")
+    private boolean fromInitCtl = false;
+
+    @SerializedName(value = "fromInitDb")
+    private boolean fromInitDb = false;
+
+    @SerializedName(value = "lastUpdateTime")
+    private long lastUpdateTime = -1L;
 
     // The synced event id of master
     @SerializedName(value = "lastEventId")

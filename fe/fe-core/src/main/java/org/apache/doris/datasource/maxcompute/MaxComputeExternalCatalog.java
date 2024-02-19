@@ -65,7 +65,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
 
     public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                                      String comment) {
-        super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE, comment);
+        super(catalogId, name, Type.MAX_COMPUTE, comment);
         catalogProperty = new CatalogProperty(resource, props);
         odpsUrl = props.getOrDefault(MCProperties.ODPS_ENDPOINT, "");
         tunnelUrl = props.getOrDefault(MCProperties.TUNNEL_SDK_ENDPOINT, "");

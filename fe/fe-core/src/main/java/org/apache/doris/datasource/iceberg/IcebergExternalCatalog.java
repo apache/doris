@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 
@@ -38,12 +37,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected Catalog catalog;
 
     public IcebergExternalCatalog(long catalogId, String name, String comment) {
-        super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
-    }
-
-    @Override
-    protected void init() {
-        super.init();
+        super(catalogId, name, Type.ICEBERG, comment);
     }
 
     // Create catalog based on catalog type

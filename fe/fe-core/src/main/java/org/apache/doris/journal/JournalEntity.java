@@ -743,16 +743,8 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_INIT_CATALOG: {
-                data = InitCatalogLog.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_INIT_EXTERNAL_DB: {
-                data = InitDatabaseLog.read(in);
-                isRead = true;
-                break;
-            }
+            case OperationType.OP_INIT_CATALOG:
+            case OperationType.OP_INIT_EXTERNAL_DB:
             case OperationType.OP_INIT_EXTERNAL_TABLE:
             case OperationType.OP_DROP_EXTERNAL_TABLE:
             case OperationType.OP_CREATE_EXTERNAL_TABLE:

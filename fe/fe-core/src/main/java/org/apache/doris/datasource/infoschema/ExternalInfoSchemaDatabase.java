@@ -22,7 +22,6 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.InitDatabaseLog.Type;
 
 import com.google.common.collect.Lists;
 
@@ -36,7 +35,7 @@ public class ExternalInfoSchemaDatabase extends ExternalDatabase {
      * @param dbId The id of this database.
      */
     public ExternalInfoSchemaDatabase(ExternalCatalog extCatalog, long dbId) {
-        super(extCatalog, dbId, InfoSchemaDb.DATABASE_NAME, Type.INFO_SCHEMA_DB);
+        super(extCatalog, dbId, InfoSchemaDb.DATABASE_NAME, ExternalCatalog.Type.INFO_SCHEMA_DB);
     }
 
     public static List<String> listTableNames() {

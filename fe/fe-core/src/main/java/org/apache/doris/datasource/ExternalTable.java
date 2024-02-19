@@ -25,9 +25,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -37,7 +35,6 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Sets;
-import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
@@ -58,27 +55,21 @@ import java.util.stream.Collectors;
  * Such as tables from hive, iceberg, es, etc.
  */
 @Getter
-public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
+public class ExternalTable implements TableIf {
     private static final Logger LOG = LogManager.getLogger(ExternalTable.class);
 
-    @SerializedName(value = "id")
     protected long id;
-    @SerializedName(value = "name")
     protected String name;
-    @SerializedName(value = "type")
     protected TableType type = null;
-    @SerializedName(value = "timestamp")
     protected long timestamp;
-    @SerializedName(value = "dbName")
     protected String dbName;
-    @SerializedName(value = "ta")
     private final TableAttributes tableAttributes = new TableAttributes();
 
     // this field will be refreshed after reloading schema
     protected volatile long schemaUpdateTime;
 
     protected long dbId;
-    protected boolean objectCreated;
+    protected boolean objectCreated = false;
     protected ExternalCatalog catalog;
 
     /**
@@ -104,10 +95,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         this.dbName = dbName;
         this.type = type;
         this.objectCreated = false;
-    }
-
-    public void setCatalog(ExternalCatalog catalog) {
-        this.catalog = catalog;
     }
 
     public boolean isView() {
@@ -310,11 +297,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     public static ExternalTable read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ExternalTable.class);
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        objectCreated = false;
     }
 
     @Override

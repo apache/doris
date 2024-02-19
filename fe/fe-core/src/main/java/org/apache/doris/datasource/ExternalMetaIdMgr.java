@@ -23,20 +23,18 @@ import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Map;
 import javax.annotation.Nullable;
 import javax.validation.constraints.NotNull;
+import java.util.Map;
 
 /**
  * <pre>
  * ExternalMetaIdMgr is responsible for managing external meta ids.
- * Now it just manages the external meta ids of hms events,
- * but it will be extended to manage other external meta ids in the future.
  * </pre>
- * TODO: remove InitCatalogLog and InitDatabaseLog, manage external meta ids at ExternalMetaIdMgr
  */
 public class ExternalMetaIdMgr {
 
@@ -82,7 +80,11 @@ public class ExternalMetaIdMgr {
         return partitionMetaIdMgr.partitionId;
     }
 
-    private @Nullable DbMetaIdMgr getDbMetaIdMgr(long catalogId, String dbName) {
+    public @Nullable CtlMetaIdMgr getCtlMetaIdMgr(long catalogId) {
+        return idToCtlMgr.get(catalogId);
+    }
+
+    public @Nullable DbMetaIdMgr getDbMetaIdMgr(long catalogId, String dbName) {
         CtlMetaIdMgr ctlMetaIdMgr = idToCtlMgr.get(catalogId);
         if (ctlMetaIdMgr == null) {
             return null;
@@ -114,13 +116,24 @@ public class ExternalMetaIdMgr {
         for (MetaIdMappingsLog.MetaIdMapping mapping : log.getMetaIdMappings()) {
             handleMetaIdMapping(mapping, ctlMetaIdMgr);
         }
-        if (log.isFromHmsEvent()) {
-            CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
-            if (catalogIf != null) {
-                MetastoreEventsProcessor metastoreEventsProcessor = Env.getCurrentEnv().getMetastoreEventsProcessor();
-                metastoreEventsProcessor.updateMasterLastSyncedEventId(
-                            (HMSExternalCatalog) catalogIf, log.getLastSyncedEventId());
+
+        CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
+        if (catalogIf == null) {
+            return;
+        }
+
+        if (log.isFromInitCtl()) {
+            ((ExternalCatalog) catalogIf).initForAllNodes(log.getLastUpdateTime());
+        } else if (log.isFromInitDb()) {
+            @SuppressWarnings("rawtypes")
+            ExternalDatabase db = (ExternalDatabase) catalogIf.getDbNullable(log.getDbId());
+            if (db != null) {
+                db.initForAllNodes(log.getLastUpdateTime());
             }
+        } else if (log.isFromHmsEvent()) {
+            MetastoreEventsProcessor metastoreEventsProcessor = Env.getCurrentEnv().getMetastoreEventsProcessor();
+            metastoreEventsProcessor.updateMasterLastSyncedEventId(
+                    (HMSExternalCatalog) catalogIf, log.getLastSyncedEventId());
         }
     }
 
@@ -206,6 +219,7 @@ public class ExternalMetaIdMgr {
         }
     }
 
+    @Data
     public static class CtlMetaIdMgr {
         protected final long catalogId;
 
@@ -216,6 +230,7 @@ public class ExternalMetaIdMgr {
         protected Map<String, DbMetaIdMgr> dbNameToMgr = Maps.newConcurrentMap();
     }
 
+    @Data
     public static class DbMetaIdMgr {
         protected volatile long dbId = META_ID_FOR_NOT_EXISTS;
         protected final String dbName;
@@ -232,6 +247,7 @@ public class ExternalMetaIdMgr {
         protected Map<String, TblMetaIdMgr> tblNameToMgr = Maps.newConcurrentMap();
     }
 
+    @Data
     public static class TblMetaIdMgr {
         protected volatile long tblId = META_ID_FOR_NOT_EXISTS;
         protected final String tblName;

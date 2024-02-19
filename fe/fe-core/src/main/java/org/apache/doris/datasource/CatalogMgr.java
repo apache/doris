@@ -618,30 +618,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    // init catalog and init db can happen at any time,
-    // even after catalog or db is dropped.
-    // Because it may already hold the catalog or db object before they are being dropped.
-    // So just skip the edit log if object does not exist.
-    public void replayInitCatalog(InitCatalogLog log) {
-        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-        if (catalog == null) {
-            return;
-        }
-        catalog.replayInitCatalog(log);
-    }
-
-    public void replayInitExternalDb(InitDatabaseLog log) {
-        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-        if (catalog == null) {
-            return;
-        }
-        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-        if (db == null) {
-            return;
-        }
-        db.replayInitDb(log, catalog);
-    }
-
     public void replayRefreshExternalDb(ExternalObjectLog log) {
         writeLock();
         try {

@@ -21,7 +21,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 
@@ -56,7 +55,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     );
 
     public PaimonExternalCatalog(long catalogId, String name, String comment) {
-        super(catalogId, name, InitCatalogLog.Type.PAIMON, comment);
+        super(catalogId, name, Type.PAIMON, comment);
     }
 
     @Override
@@ -74,6 +73,11 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
                     AuthenticationConfig.HIVE_KERBEROS_PRINCIPAL,
                     AuthenticationConfig.HIVE_KERBEROS_KEYTAB);
         }
+    }
+
+    public Catalog getCatalog() {
+        makeSureInitialized();
+        return catalog;
     }
 
     public String getCatalogType() {

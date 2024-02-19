@@ -715,11 +715,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public void gsonPostProcess() throws IOException {
-        super.gsonPostProcess();
-    }
-
-    @Override
     public List<Long> getChunkSizes() {
         HiveMetaStoreCache.HivePartitionValues partitionValues = StatisticsUtil.getPartitionValuesForTable(this);
         List<HiveMetaStoreCache.FileCacheValue> filesByPartitions

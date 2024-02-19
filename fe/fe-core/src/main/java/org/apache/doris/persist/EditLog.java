@@ -1002,19 +1002,9 @@ public class EditLog {
                     env.getAuth().replayAlterUser(log);
                     break;
                 }
-                case OperationType.OP_INIT_CATALOG: {
-                    final InitCatalogLog log = (InitCatalogLog) journal.getData();
-                    env.getCatalogMgr().replayInitCatalog(log);
-                    break;
-                }
                 case OperationType.OP_REFRESH_EXTERNAL_DB: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
                     env.getCatalogMgr().replayRefreshExternalDb(log);
-                    break;
-                }
-                case OperationType.OP_INIT_EXTERNAL_DB: {
-                    final InitDatabaseLog log = (InitDatabaseLog) journal.getData();
-                    env.getCatalogMgr().replayInitExternalDb(log);
                     break;
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
@@ -1022,24 +1012,15 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshExternalTable(log);
                     break;
                 }
-                case OperationType.OP_DROP_EXTERNAL_TABLE: {
-                    break;
-                }
-                case OperationType.OP_CREATE_EXTERNAL_TABLE: {
-                    break;
-                }
-                case OperationType.OP_DROP_EXTERNAL_DB: {
-                    break;
-                }
-                case OperationType.OP_CREATE_EXTERNAL_DB: {
-                    break;
-                }
-                case OperationType.OP_ADD_EXTERNAL_PARTITIONS: {
-                    break;
-                }
-                case OperationType.OP_DROP_EXTERNAL_PARTITIONS: {
-                    break;
-                }
+                case OperationType.OP_INIT_CATALOG:
+                case OperationType.OP_INIT_EXTERNAL_DB:
+                case OperationType.OP_INIT_EXTERNAL_TABLE:
+                case OperationType.OP_DROP_EXTERNAL_TABLE:
+                case OperationType.OP_CREATE_EXTERNAL_TABLE:
+                case OperationType.OP_DROP_EXTERNAL_DB:
+                case OperationType.OP_CREATE_EXTERNAL_DB:
+                case OperationType.OP_ADD_EXTERNAL_PARTITIONS:
+                case OperationType.OP_DROP_EXTERNAL_PARTITIONS:
                 case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS: {
                     break;
                 }
@@ -1073,10 +1054,6 @@ public class EditLog {
                     final DropWorkloadSchedPolicyOperatorLog dropLog
                             = (DropWorkloadSchedPolicyOperatorLog) journal.getData();
                     env.getWorkloadSchedPolicyMgr().replayDropWorkloadSchedPolicy(dropLog.getId());
-                    break;
-                }
-                case OperationType.OP_INIT_EXTERNAL_TABLE: {
-                    // Do nothing.
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_JOB: {
@@ -1910,16 +1887,16 @@ public class EditLog {
         logEdit(id, log);
     }
 
+    @Deprecated
     public void logInitCatalog(InitCatalogLog log) {
-        logEdit(OperationType.OP_INIT_CATALOG, log);
     }
 
     public void logRefreshExternalDb(ExternalObjectLog log) {
         logEdit(OperationType.OP_REFRESH_EXTERNAL_DB, log);
     }
 
+    @Deprecated
     public void logInitExternalDb(InitDatabaseLog log) {
-        logEdit(OperationType.OP_INIT_EXTERNAL_DB, log);
     }
 
     public void logRefreshExternalTable(ExternalObjectLog log) {

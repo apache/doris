@@ -20,7 +20,6 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.InitDatabaseLog;
 
 /**
  * Hive metastore external database.
@@ -34,7 +33,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
      * @param name database name.
      */
     public HMSExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
-        super(extCatalog, id, name, InitDatabaseLog.Type.HMS);
+        super(extCatalog, id, name, ExternalCatalog.Type.HMS);
     }
 
     @Override

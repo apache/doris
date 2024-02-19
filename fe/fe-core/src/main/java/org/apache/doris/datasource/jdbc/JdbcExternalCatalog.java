@@ -21,7 +21,6 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
@@ -55,7 +54,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment, boolean isReplay)
             throws DdlException {
-        super(catalogId, name, InitCatalogLog.Type.JDBC, comment);
+        super(catalogId, name, Type.JDBC, comment);
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props, isReplay));
     }
 

@@ -30,6 +30,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
+@Deprecated
 @Data
 public class InitCatalogLog implements Writable {
     public enum Type {

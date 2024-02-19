@@ -71,7 +71,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
      */
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) {
-        super(catalogId, name, InitCatalogLog.Type.HMS, comment);
+        super(catalogId, name, Type.HMS, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
@@ -200,7 +200,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             LOG.debug("create database [{}]", dbName);
         }
         dbNameToId.put(dbName, dbId);
-        ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);
+        ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, type);
         idToDb.put(dbId, db);
     }
 
