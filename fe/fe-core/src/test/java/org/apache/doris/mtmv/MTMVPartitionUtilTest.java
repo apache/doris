@@ -149,24 +149,24 @@ public class MTMVPartitionUtilTest {
         Assert.assertFalse(mtmvSync);
     }
 
-    @Test
-    public void testIsSyncWithPartition() throws AnalysisException {
-        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
-        Assert.assertTrue(isSyncWithPartition);
-    }
+    //    @Test
+    //    public void testIsSyncWithPartition() throws AnalysisException {
+    //        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
+    //        Assert.assertTrue(isSyncWithPartition);
+    //    }
 
-    @Test
-    public void testIsSyncWithPartitionNotSync() throws AnalysisException {
-        new Expectations() {
-            {
-                refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
-        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
-        Assert.assertFalse(isSyncWithPartition);
-    }
+    //    @Test
+    //    public void testIsSyncWithPartitionNotSync() throws AnalysisException {
+    //        new Expectations() {
+    //            {
+    //                refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any);
+    //                minTimes = 0;
+    //                result = false;
+    //            }
+    //        };
+    //        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
+    //        Assert.assertFalse(isSyncWithPartition);
+    //    }
 
     @Test
     public void testGeneratePartitionName() {

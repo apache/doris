@@ -304,8 +304,8 @@ public class CreateMTMVInfo {
                 if (!partitionColumnNames.contains(relatedTableInfo.get().getColumn())) {
                     throw new AnalysisException("error related column: " + relatedTableInfo.get().getColumn());
                 }
-                if (partitionColumnNames.size() != 1) {
-                    throw new AnalysisException("base table for partitioning only support single column.");
+                if (mtmvBaseRealtedTable.getPartitionType() != PartitionType.LIST && partitionColumnNames.size() != 1) {
+                    throw new AnalysisException("only list partition support multi column.");
                 }
                 mvPartitionInfo.setRelatedTable(relatedTableInfo.get().getTableInfo());
                 mvPartitionInfo.setRelatedCol(relatedTableInfo.get().getColumn());
