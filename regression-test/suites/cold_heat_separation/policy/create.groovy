@@ -221,7 +221,7 @@ suite("create_policy") {
         );
         """
         // can read AWS_ACCESS_KEY from environment variable
-        assertEquals(failed_create_2, null)
+        assertEquals(failed_create_2, [[0]])
     }
 
     if (has_created_2.size() == 0) {
