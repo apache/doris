@@ -510,6 +510,14 @@ public class ReportHandler extends Daemon {
         LOG.info("finished to handle tablet report from backend[{}] cost: {} ms", backendId, (end - start));
     }
 
+    private static void updateControlPublishVersion(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
+        if (!runningTasks.containsKey(TTaskType.PUBLISH_VERSION)) {
+            return;
+        }
+        Env.getCurrentSystemInfo().getBackend(backendId)
+                .setPublishTaskLastTimeAccumulated((long) runningTasks.get(TTaskType.PUBLISH_VERSION).size());
+    }
+
     private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
         LOG.debug("begin to handle task report from backend {}", backendId);
         long start = System.currentTimeMillis();
@@ -523,7 +531,7 @@ public class ReportHandler extends Daemon {
                 }
             }
         }
-
+        updateControlPublishVersion(backendId, runningTasks);
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
 
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -547,12 +555,19 @@ public class ReportHandler extends Daemon {
 
         }
 
-        LOG.debug("get {} diff task(s) to resend", batchTask.getTaskNum());
         if (batchTask.getTaskNum() > 0) {
             AgentTaskExecutor.submit(batchTask);
         }
-        LOG.info("finished to handle task report from backend {}, diff task num: {}. cost: {} ms",
-                backendId, batchTask.getTaskNum(), (System.currentTimeMillis() - start));
+
+        int publishTaskSize = runningTasks.get(TTaskType.PUBLISH_VERSION) != null
+                ? runningTasks.get(TTaskType.PUBLISH_VERSION).size() : 0;
+        LOG.info("finished to handle task report from backend {}-{}, "
+                + "diff task num: {}, runningTasks: {}, publishSize: {}, cost: {} ms.",
+                backendId, Env.getCurrentSystemInfo().getBackend(backendId).getHost(),
+                batchTask.getTaskNum(), runningTasks.entrySet().stream()
+                .filter(entry -> entry.getValue().size() > 0)
+                .map(entry -> entry.getKey() + "=" + entry.getValue().size()).collect(Collectors.toList()),
+                publishTaskSize, (System.currentTimeMillis() - start));
     }
 
     private static void diskReport(long backendId, Map<String, TDisk> backendDisks) {
