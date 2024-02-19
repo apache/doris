@@ -351,4 +351,3 @@ public class FileLoadScanNode extends FileScanNode {
         }
     }
 }
-

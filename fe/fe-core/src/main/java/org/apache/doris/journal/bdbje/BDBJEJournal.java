@@ -146,7 +146,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                     currentJournalDB.put(txn, theKey, theData);  // Put with overwrite, it always success
                     dataSize += theData.getSize();
                     if (i == 0) {
-                        LOG.debug("opCode = {}, journal size = {}", entity.getOpCode(), theData.getSize());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("opCode = {}, journal size = {}", entity.getOpCode(), theData.getSize());
+                        }
                     }
                 }
 
@@ -239,7 +241,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
             MetricRepo.COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
         }
-        LOG.debug("opCode = {}, journal size = {}", op, theData.getSize());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("opCode = {}, journal size = {}", op, theData.getSize());
+        }
         // Write the key value pair to bdb.
         boolean writeSucceed = false;
         for (int i = 0; i < RETRY_TIME; i++) {

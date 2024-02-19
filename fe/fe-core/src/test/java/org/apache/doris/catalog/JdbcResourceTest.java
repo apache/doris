@@ -202,4 +202,3 @@ public class JdbcResourceTest {
         Assert.assertTrue(resultUrl.contains(";"));
     }
 }
-

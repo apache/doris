@@ -109,4 +109,3 @@ class PushDowFilterThroughProjectTest implements MemoPatternMatchSupported {
                         f.getPredicate().toSql().equals("id IS NULL"))));
     }
 }
-

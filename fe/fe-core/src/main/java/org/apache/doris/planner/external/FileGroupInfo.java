@@ -333,5 +333,3 @@ public class FileGroupInfo {
         return rangeDesc;
     }
 }
-
-

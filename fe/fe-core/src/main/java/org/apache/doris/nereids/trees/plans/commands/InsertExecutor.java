@@ -205,7 +205,9 @@ public class InsertExecutor {
             QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), coordinator);
             coordinator.exec();
             int execTimeout = ctx.getExecTimeout();
-            LOG.debug("insert [{}] with query id {} execution timeout is {}", labelName, queryId, execTimeout);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("insert [{}] with query id {} execution timeout is {}", labelName, queryId, execTimeout);
+            }
             boolean notTimeout = coordinator.join(execTimeout);
             if (!coordinator.isDone()) {
                 coordinator.cancel();
@@ -222,8 +224,10 @@ public class InsertExecutor {
                 LOG.warn("insert [{}] with query id {} failed, {}", labelName, queryId, errMsg);
                 ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
             }
-            LOG.debug("insert [{}] with query id {} delta files is {}",
-                    labelName, queryId, coordinator.getDeltaUrls());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("insert [{}] with query id {} delta files is {}",
+                        labelName, queryId, coordinator.getDeltaUrls());
+            }
             if (coordinator.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
                 loadedRows = Long.parseLong(coordinator.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
             }

@@ -82,4 +82,3 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         throw new AnalysisException("Not support create policy command in Nereids now");
     }
 }
-

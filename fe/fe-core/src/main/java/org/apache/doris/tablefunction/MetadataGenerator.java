@@ -275,8 +275,10 @@ public class MetadataGenerator {
         }
 
         // backends proc node get result too slow, add log to observer.
-        LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
-                watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
+                    watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+        }
 
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
@@ -707,4 +709,3 @@ public class MetadataGenerator {
         return result;
     }
 }
-

@@ -43,5 +43,3 @@ public class HudiSplit extends FileSplit {
 }
 
 
-
-
