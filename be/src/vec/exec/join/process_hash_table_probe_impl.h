@@ -17,12 +17,15 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include "common/status.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "process_hash_table_probe.h"
 #include "runtime/thread_context.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
 #include "vec/columns/column_filter_helper.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vhash_join_node.h"
 
@@ -73,26 +76,55 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
     constexpr auto probe_all =
             JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
 
-    if ((!is_semi_anti_join || have_other_join_conjunct ||
-         (is_mark_join && !_parent->_mark_join_conjuncts.empty())) &&
-        size) {
-        for (int i = 0; i < _right_col_len; i++) {
-            const auto& column = *_build_block->safe_get_by_position(i).column;
-            if (output_slot_flags[i]) {
-                mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
-                                                              _build_indexs.data() + size);
-            } else {
-                mcol[i + _right_col_idx]->insert_many_defaults(size);
-            }
-        }
-    }
-
+    // indicates whether build_indexs contain 0
+    bool build_index_has_zero =
+            (JoinOpType != TJoinOp::INNER_JOIN && JoinOpType != TJoinOp::RIGHT_OUTER_JOIN) ||
+            have_other_join_conjunct || is_mark_join;
+    bool need_output = (!is_semi_anti_join || have_other_join_conjunct ||
+                        (is_mark_join && !_parent->_mark_join_conjuncts.empty())) &&
+                       size;
     // Dispose right tuple is null flags columns
     if (probe_all && !have_other_join_conjunct) {
         _tuple_is_null_right_flags->resize(size);
         auto* __restrict null_data = _tuple_is_null_right_flags->data();
         for (int i = 0; i < size; ++i) {
             null_data[i] = _build_indexs[i] == 0;
+        }
+        if (need_output && _need_calculate_build_index_has_zero) {
+            build_index_has_zero = simd::contain_byte(null_data, size, 1);
+        }
+    }
+
+    if (need_output) {
+        if (!build_index_has_zero && _build_column_has_null.empty()) {
+            _need_calculate_build_index_has_zero = false;
+            _build_column_has_null.resize(output_slot_flags.size());
+            for (int i = 0; i < _right_col_len; i++) {
+                const auto& column = *_build_block->safe_get_by_position(i).column;
+                _build_column_has_null[i] = false;
+                if (output_slot_flags[i] && column.is_nullable()) {
+                    const auto& nullable = assert_cast<const ColumnNullable&>(column);
+                    _build_column_has_null[i] = !simd::contain_byte(
+                            nullable.get_null_map_data().data() + 1, nullable.size() - 1, 1);
+                    _need_calculate_build_index_has_zero |= _build_column_has_null[i];
+                }
+            }
+        }
+
+        for (int i = 0; i < _right_col_len; i++) {
+            const auto& column = *_build_block->safe_get_by_position(i).column;
+            if (output_slot_flags[i]) {
+                if (!build_index_has_zero && _build_column_has_null[i]) {
+                    assert_cast<ColumnNullable*>(mcol[i + _right_col_idx].get())
+                            ->insert_indices_from_not_has_null(column, _build_indexs.data(),
+                                                               _build_indexs.data() + size);
+                } else {
+                    mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
+                                                                  _build_indexs.data() + size);
+                }
+            } else {
+                mcol[i + _right_col_idx]->insert_many_defaults(size);
+            }
         }
     }
 }
@@ -109,7 +141,8 @@ void ProcessHashTableProbe<JoinOpType, Parent>::probe_side_output_column(
             if (all_match_one) {
                 mcol[i]->insert_range_from(*column, last_probe_index, size);
             } else {
-                column->replicate(_probe_indexs.data(), size, *mcol[i]);
+                mcol[i]->insert_indices_from(*column, _probe_indexs.data(),
+                                             _probe_indexs.data() + size);
             }
         } else {
             mcol[i]->insert_many_defaults(size);
@@ -147,6 +180,7 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
         COUNTER_SET(_parent->_probe_arena_memory_usage,
                     (int64_t)hash_table_ctx.serialized_keys_size(false));
     }
+
     return typename HashTableType::State(_parent->_probe_columns);
 }
 
@@ -237,9 +271,11 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
                                            JoinOpType != TJoinOp::RIGHT_ANTI_JOIN)) {
         auto check_all_match_one = [](const std::vector<uint32_t>& vecs, uint32_t probe_idx,
                                       int size) {
-            if (size < 1 || vecs[0] != probe_idx) return false;
+            if (!size || vecs[0] != probe_idx || vecs[size - 1] != probe_idx + size - 1) {
+                return false;
+            }
             for (int i = 1; i < size; i++) {
-                if (vecs[i] - vecs[i - 1] != 1) {
+                if (vecs[i] == vecs[i - 1]) {
                     return false;
                 }
             }

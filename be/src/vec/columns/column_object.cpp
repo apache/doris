@@ -1267,18 +1267,6 @@ void ColumnObject::strip_outer_array() {
     std::swap(subcolumns, new_subcolumns);
 }
 
-void ColumnObject::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
-    if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
-    }
-    auto& var = assert_cast<ColumnObject&>(column);
-    for (auto& entry : subcolumns) {
-        auto replica = entry->data.get_finalized_column().clone_empty();
-        entry->data.get_finalized_column().replicate(indexs, target_size, *replica);
-        var.add_sub_column(entry->path, std::move(replica), entry->data.get_least_common_type());
-    }
-}
-
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize();

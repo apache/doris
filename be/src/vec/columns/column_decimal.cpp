@@ -438,18 +438,6 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
-                                 IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnDecimal<T>&>(column);
-    typename Self::Container& res_data = res.get_data();
-    res_data.resize(target_size);
-
-    for (size_t i = 0; i < target_size; ++i) {
-        res_data[i] = data[indexs[i]];
-    }
-}
-
-template <typename T>
 void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                    IColumn::Permutation& perms, EqualRange& range,
                                    bool last_column) const {
