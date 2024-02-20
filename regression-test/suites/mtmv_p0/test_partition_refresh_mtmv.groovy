@@ -104,7 +104,7 @@ suite("test_partition_refresh_mtmv") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
-        PARTITION BY RANGE(`date`,`num`)
+        PARTITION BY LIST(`date`,`num`)
         (
         PARTITION p201701_1000 VALUES IN (('2017-01-01',1), ('2017-01-01',2)),
         PARTITION p201702_2000 VALUES IN (('2017-02-01',3), ('2017-02-01',4))
