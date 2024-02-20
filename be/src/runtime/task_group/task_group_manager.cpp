@@ -96,6 +96,7 @@ Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_i
     int cpu_hard_limit = tg_info->cpu_hard_limit;
     uint64_t cpu_shares = tg_info->cpu_share;
     bool enable_cpu_hard_limit = tg_info->enable_cpu_hard_limit;
+    int scan_thread_num = tg_info->scan_thread_num;
 
     std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
     // step 1: init cgroup cpu controller
@@ -141,6 +142,9 @@ Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_i
         } else {
             return Status::InternalError<false>("scan scheduler start failed, gid={}", tg_id);
         }
+    }
+    if (scan_thread_num > 0 && _tg_scan_sche_map.find(tg_id) != _tg_scan_sche_map.end()) {
+        _tg_scan_sche_map.at(tg_id)->reset_thread_num(scan_thread_num);
     }
 
     // step 4: init non-pipe scheduler
