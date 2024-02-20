@@ -92,9 +92,6 @@ suite("test_base_multi_partition_cols_mtmv") {
     order_qt_task_other "select NeedRefreshPartitions from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
     order_qt_select_other "SELECT * FROM ${mvName}"
 
-    sql """drop table if exists `${tableName}`"""
-    sql """drop materialized view if exists ${mvName};"""
-
     // partition change
     //add partition k3
     sql """
@@ -120,4 +117,7 @@ suite("test_base_multi_partition_cols_mtmv") {
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(showPartitionsResult.size(),4)
     assertTrue(showPartitionsResult.toString().contains("p_4"))
+
+    // sql """drop table if exists `${tableName}`"""
+    // sql """drop materialized view if exists ${mvName};"""
 }
