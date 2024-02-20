@@ -43,6 +43,7 @@
 #include "runtime/types.h"
 #include "util/proto_util.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/sip_hash.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/runtime/vdata_stream_mgr.h"
@@ -650,11 +651,35 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         _skip.assign(num_rows, false);
         _tablet_indexes.assign(num_rows, 0);
 
+        auto validate_column_nullable_function = [&](const ColumnUInt8& null_map,
+                                                     SlotDescriptor* desc, bool* stop_processing) {
+            for (int row = 0; row < num_rows; ++row) {
+                if (null_map.get_data()[row]) {
+                    fmt::memory_buffer error_msg;
+                    fmt::format_to(error_msg,
+                                   "column_name[{}], null value for not null column, type={}",
+                                   desc->col_name(), desc->type().debug_string());
+                    auto st = _state->append_error_msg_to_file(
+                            []() -> std::string { return ""; },
+                            [&error_msg]() -> std::string { return fmt::to_string(error_msg); },
+                            stop_processing);
+                    return Status::DataQualityError(
+                            "Encountered unqualified data, stop processing");
+                }
+            }
+            return Status::OK();
+        };
+
+        //TODO: maybe could do validate_and_convert_block only at here
+        bool stop_processing = false;
         std::shared_ptr<vectorized::Block> convert_block =
                 vectorized::Block::create_shared(block->get_columns_with_type_and_name());
         for (int i = 0;
              i < _intermediate_tuple_desc->slots().size() && i < convert_block->columns(); ++i) {
             SlotDescriptor* desc = _intermediate_tuple_desc->slots()[i];
+            convert_block->get_by_position(i).column =
+                    convert_block->get_by_position(i).column->convert_to_full_column_if_const();
+
             if (desc->is_nullable() != convert_block->get_by_position(i).type->is_nullable()) {
                 if (desc->is_nullable()) {
                     convert_block->get_by_position(i).type =
@@ -662,6 +687,11 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                     convert_block->get_by_position(i).column =
                             vectorized::make_nullable(convert_block->get_by_position(i).column);
                 } else {
+                    const auto& null_map_data = assert_cast<const vectorized::ColumnNullable&>(
+                                                        *convert_block->get_by_position(i).column)
+                                                        .get_null_map_column();
+                    RETURN_IF_ERROR(validate_column_nullable_function(null_map_data, desc,
+                                                                      &stop_processing));
                     convert_block->get_by_position(i).type =
                             assert_cast<const vectorized::DataTypeNullable&>(
                                     *convert_block->get_by_position(i).type)
@@ -673,7 +703,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 }
             }
         }
-        bool stop_processing = false;
+
         RETURN_IF_ERROR(_tablet_finder->find_tablets(state, convert_block.get(), num_rows,
                                                      _partitions, _tablet_indexes, stop_processing,
                                                      _skip));
