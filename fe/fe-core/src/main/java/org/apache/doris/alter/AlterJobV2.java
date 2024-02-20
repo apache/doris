@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.task.AgentTask;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -292,6 +293,8 @@ public abstract class AlterJobV2 implements Writable {
     protected abstract boolean cancelImpl(String errMsg);
 
     protected abstract void getInfo(List<List<Comparable>> infos);
+
+    protected void ensureCloudClusterExist(List<AgentTask> tasks) throws AlterCancelException {}
 
     public abstract void replay(AlterJobV2 replayedJob);
 

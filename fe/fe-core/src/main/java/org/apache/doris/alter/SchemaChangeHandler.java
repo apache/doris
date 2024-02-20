@@ -2750,7 +2750,8 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    public void replayModifyTableLightSchemaChange(TableAddOrDropColumnsInfo info) throws MetaNotFoundException {
+    public void replayModifyTableLightSchemaChange(TableAddOrDropColumnsInfo info)
+            throws MetaNotFoundException, AnalysisException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("info:{}", info);
         }

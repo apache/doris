@@ -80,7 +80,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
     }
 
     @Override
-    protected void commitRollupIndex() throws AlterCancelException {
+    protected void onCreateRollupReplicaDone() throws AlterCancelException {
         List<Long> rollupIndexList = new ArrayList<Long>();
         rollupIndexList.add(rollupIndexId);
         try {
@@ -91,12 +91,12 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             throw new AlterCancelException(e.getMessage());
         }
 
-        LOG.info("commitRollupIndex finished, dbId:{}, tableId:{}, jobId:{}, rollupIndexList:{}",
+        LOG.info("onCreateRollupReplicaDone finished, dbId:{}, tableId:{}, jobId:{}, rollupIndexList:{}",
                 dbId, tableId, jobId, rollupIndexList);
     }
 
     @Override
-    protected void postProcessRollupIndex() {
+    protected void onCancel() {
         List<Long> rollupIndexList = new ArrayList<Long>();
         rollupIndexList.add(rollupIndexId);
         long tryTimes = 1;
@@ -106,13 +106,13 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                     .dropMaterializedIndex(tableId, rollupIndexList);
                 break;
             } catch (Exception e) {
-                LOG.warn("tryTimes:{}, postProcessRollupIndex exception:", tryTimes, e);
+                LOG.warn("tryTimes:{}, onCancel exception:", tryTimes, e);
             }
             sleepSeveralSeconds();
             tryTimes++;
         }
 
-        LOG.info("postProcessRollupIndex finished, dbId:{}, tableId:{}, jobId:{}, rollupIndexList:{}",
+        LOG.info("onCancel finished, dbId:{}, tableId:{}, jobId:{}, rollupIndexList:{}",
                 dbId, tableId, jobId, rollupIndexList);
     }
 
@@ -138,33 +138,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                 rollupIndexList.add(rollupIndexId);
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .prepareMaterializedIndex(tbl.getId(), rollupIndexList, expiration);
-                for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
-                    long partitionId = entry.getKey();
-                    Partition partition = tbl.getPartition(partitionId);
-                    if (partition == null) {
-                        continue;
-                    }
-                    TTabletType tabletType = tbl.getPartitionInfo().getTabletType(partitionId);
-                    MaterializedIndex rollupIndex = entry.getValue();
-                    Cloud.CreateTabletsRequest.Builder requestBuilder =
-                            Cloud.CreateTabletsRequest.newBuilder();
-                    for (Tablet rollupTablet : rollupIndex.getTablets()) {
-                        OlapFile.TabletMetaCloudPB.Builder builder =
-                                ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                                    .createTabletMetaBuilder(tableId, rollupIndexId,
-                                    partitionId, rollupTablet, tabletType, rollupSchemaHash,
-                                    rollupKeysType, rollupShortKeyColumnCount, tbl.getCopiedBfColumns(),
-                                    tbl.getBfFpp(), null, rollupSchema,
-                                    tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStoragePolicy(),
-                                    tbl.isInMemory(), true,
-                                    tbl.getName(), tbl.getTTLSeconds(),
-                                    tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                                    tbl.getBaseSchemaVersion());
-                        requestBuilder.addTabletMetas(builder);
-                    } // end for rollupTablets
-                    ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                            .sendCreateTabletsRpc(requestBuilder);
-                }
+                createRollupReplicaForPartition(tbl);
             } catch (Exception e) {
                 LOG.warn("createCloudShadowIndexReplica Exception:{}", e);
                 throw new AlterCancelException(e.getMessage());
@@ -184,8 +158,38 @@ public class CloudRollupJobV2 extends RollupJobV2 {
         }
     }
 
+    private void createRollupReplicaForPartition(OlapTable tbl) throws Exception {
+        for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
+            long partitionId = entry.getKey();
+            Partition partition = tbl.getPartition(partitionId);
+            if (partition == null) {
+                continue;
+            }
+            TTabletType tabletType = tbl.getPartitionInfo().getTabletType(partitionId);
+            MaterializedIndex rollupIndex = entry.getValue();
+            Cloud.CreateTabletsRequest.Builder requestBuilder =
+                    Cloud.CreateTabletsRequest.newBuilder();
+            for (Tablet rollupTablet : rollupIndex.getTablets()) {
+                OlapFile.TabletMetaCloudPB.Builder builder =
+                        ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                            .createTabletMetaBuilder(tableId, rollupIndexId,
+                            partitionId, rollupTablet, tabletType, rollupSchemaHash,
+                            rollupKeysType, rollupShortKeyColumnCount, tbl.getCopiedBfColumns(),
+                            tbl.getBfFpp(), null, rollupSchema,
+                            tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStoragePolicy(),
+                            tbl.isInMemory(), true,
+                            tbl.getName(), tbl.getTTLSeconds(),
+                            tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
+                            tbl.getBaseSchemaVersion());
+                requestBuilder.addTabletMetas(builder);
+            } // end for rollupTablets
+            ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                    .sendCreateTabletsRpc(requestBuilder);
+        }
+    }
+
     @Override
-    protected void checkCloudClusterName(List<AgentTask> tasks) throws AlterCancelException {
+    protected void ensureCloudClusterExist(List<AgentTask> tasks) throws AlterCancelException {
         if (((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getCloudClusterIdByName(cloudClusterName) == null) {
             for (AgentTask task : tasks) {

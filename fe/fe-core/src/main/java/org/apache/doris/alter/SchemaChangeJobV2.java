@@ -534,7 +534,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (!schemaChangeBatchTask.isFinished()) {
             LOG.info("schema change tasks not finished. job: {}", jobId);
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
-            checkCloudClusterName(tasks);
+            ensureCloudClusterExist(tasks);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
@@ -971,8 +971,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected void postProcessShadowIndex() {}
 
     protected void postProcessOriginIndex() {}
-
-    protected void checkCloudClusterName(List<AgentTask> tasks) throws AlterCancelException {}
 
     @Override
     public void write(DataOutput out) throws IOException {

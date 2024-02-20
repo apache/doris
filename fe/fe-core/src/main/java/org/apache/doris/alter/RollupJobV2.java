@@ -526,7 +526,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         if (!rollupBatchTask.isFinished()) {
             LOG.info("rollup tasks not finished. job: {}", jobId);
             List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(2000);
-            checkCloudClusterName(tasks);
+            ensureCloudClusterExist(tasks);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
@@ -591,7 +591,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     }
                 } // end for tablets
             } // end for partitions
-            commitRollupIndex();
+            onCreateRollupReplicaDone();
             onFinished(tbl);
         } finally {
             tbl.writeUnlock();
@@ -649,7 +649,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.finishedTimeMs = System.currentTimeMillis();
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
         // try best to drop roll index, when job is cancelled
-        postProcessRollupIndex();
+        onCancel();
 
         LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         return true;
@@ -781,7 +781,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     private void replayCancelled(RollupJobV2 replayedJob) {
         cancelInternal();
         // try best to drop roll index, when job is cancelled
-        postProcessRollupIndex();
+        onCancel();
         this.jobState = JobState.CANCELLED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         this.errMsg = replayedJob.errMsg;
@@ -903,11 +903,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         setColumnsDefineExpr(stmt.getMVColumnItemList());
     }
 
-    protected void commitRollupIndex() throws AlterCancelException {}
+    protected void onCreateRollupReplicaDone() throws AlterCancelException {}
 
-    protected void postProcessRollupIndex() {}
-
-    protected void checkCloudClusterName(List<AgentTask> tasks) throws AlterCancelException {}
+    protected void onCancel() {}
 
     @Override
     public String toJson() {

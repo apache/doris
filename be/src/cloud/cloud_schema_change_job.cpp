@@ -90,7 +90,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     int64_t base_max_version = _base_tablet->max_version_unlocked();
     if (request.alter_version > 1) {
         // [0-1] is a placeholder rowset, no need to convert
-        RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, base_max_version}, &rs_splits));
+        RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, base_max_version}, &rs_splits, false));
     }
     // FIXME(cyx): Should trigger compaction on base_tablet if there are too many rowsets to convert.
 

@@ -134,43 +134,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                         .prepareMaterializedIndex(tableId, shadowIdxList,
                         expiration);
-
-                for (long partitionId : partitionIndexMap.rowKeySet()) {
-                    Partition partition = tbl.getPartition(partitionId);
-                    if (partition == null) {
-                        continue;
-                    }
-                    Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
-                    for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
-                        long shadowIdxId = entry.getKey();
-                        MaterializedIndex shadowIdx = entry.getValue();
-
-                        short shadowShortKeyColumnCount = indexShortKeyMap.get(shadowIdxId);
-                        List<Column> shadowSchema = indexSchemaMap.get(shadowIdxId);
-                        int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
-                        int shadowSchemaVersion = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion;
-                        long originIndexId = indexIdMap.get(shadowIdxId);
-                        KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
-
-                        Cloud.CreateTabletsRequest.Builder requestBuilder =
-                                Cloud.CreateTabletsRequest.newBuilder();
-                        for (Tablet shadowTablet : shadowIdx.getTablets()) {
-                            OlapFile.TabletMetaCloudPB.Builder builder =
-                                    ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                                        .createTabletMetaBuilder(tableId, shadowIdxId,
-                                        partitionId, shadowTablet, tbl.getPartitionInfo().getTabletType(partitionId),
-                                        shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
-                                        bfFpp, indexes, shadowSchema, tbl.getDataSortInfo(), tbl.getCompressionType(),
-                                        tbl.getStoragePolicy(), tbl.isInMemory(), true,
-                                        tbl.getName(), tbl.getTTLSeconds(),
-                                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                                        shadowSchemaVersion);
-                            requestBuilder.addTabletMetas(builder);
-                        } // end for rollupTablets
-                        ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                                .sendCreateTabletsRpc(requestBuilder);
-                    }
-                }
+                createShadowIndexReplicaForPartition(tbl);
             } catch (Exception e) {
                 LOG.warn("createCloudShadowIndexReplica Exception:", e);
                 throw new AlterCancelException(e.getMessage());
@@ -191,8 +155,47 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         }
     }
 
+    private void createShadowIndexReplicaForPartition(OlapTable tbl) throws Exception {
+        for (long partitionId : partitionIndexMap.rowKeySet()) {
+            Partition partition = tbl.getPartition(partitionId);
+            if (partition == null) {
+                continue;
+            }
+            Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
+            for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
+                long shadowIdxId = entry.getKey();
+                MaterializedIndex shadowIdx = entry.getValue();
+
+                short shadowShortKeyColumnCount = indexShortKeyMap.get(shadowIdxId);
+                List<Column> shadowSchema = indexSchemaMap.get(shadowIdxId);
+                int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
+                int shadowSchemaVersion = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion;
+                long originIndexId = indexIdMap.get(shadowIdxId);
+                KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
+
+                Cloud.CreateTabletsRequest.Builder requestBuilder =
+                        Cloud.CreateTabletsRequest.newBuilder();
+                for (Tablet shadowTablet : shadowIdx.getTablets()) {
+                    OlapFile.TabletMetaCloudPB.Builder builder =
+                            ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                                .createTabletMetaBuilder(tableId, shadowIdxId,
+                                partitionId, shadowTablet, tbl.getPartitionInfo().getTabletType(partitionId),
+                                shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
+                                bfFpp, indexes, shadowSchema, tbl.getDataSortInfo(), tbl.getCompressionType(),
+                                tbl.getStoragePolicy(), tbl.isInMemory(), true,
+                                tbl.getName(), tbl.getTTLSeconds(),
+                                tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
+                                shadowSchemaVersion);
+                    requestBuilder.addTabletMetas(builder);
+                } // end for rollupTablets
+                ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                        .sendCreateTabletsRpc(requestBuilder);
+            }
+        }
+    }
+
     @Override
-    protected void checkCloudClusterName(List<AgentTask> tasks) throws AlterCancelException {
+    protected void ensureCloudClusterExist(List<AgentTask> tasks) throws AlterCancelException {
         if (((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getCloudClusterIdByName(cloudClusterName) == null) {
             for (AgentTask task : tasks) {
