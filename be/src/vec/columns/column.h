@@ -46,19 +46,6 @@
 
 class SipHash;
 
-#define SIP_HASHES_FUNCTION_COLUMN_IMPL()                                \
-    auto s = hashes.size();                                              \
-    DCHECK(s == size());                                                 \
-    if (null_data == nullptr) {                                          \
-        for (size_t i = 0; i < s; i++) {                                 \
-            update_hash_with_value(i, hashes[i]);                        \
-        }                                                                \
-    } else {                                                             \
-        for (size_t i = 0; i < s; i++) {                                 \
-            if (null_data[i] == 0) update_hash_with_value(i, hashes[i]); \
-        }                                                                \
-    }
-
 #define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
     if (null_data == nullptr) {                                                      \
         for (size_t i = 0; i < s; i++) {                                             \
