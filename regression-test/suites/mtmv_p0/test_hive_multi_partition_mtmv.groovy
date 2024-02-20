@@ -86,7 +86,7 @@ suite("test_hive_multi_partition_mtmv", "p0,external,hive,external_docker,extern
         'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
     );"""
 
-    order_qt_test "SELECT * FROM ${catalog_name}.${hive_database}.${hive_table}"
+    order_qt_select_base_table "SELECT * FROM ${catalog_name}.${hive_database}.${hive_table}"
 
 
     // prepare mtmv
