@@ -78,7 +78,8 @@ public enum Privilege {
             ALTER_PRIV,
             CREATE_PRIV,
             DROP_PRIV,
-            SHOW_VIEW_PRIV
+            SHOW_VIEW_PRIV,
+            SHOW_VIEW_PRIV_COMPATIBLE
     };
 
     // only GRANT_PRIV and USAGE_PRIV can grant on workloadGroup
@@ -90,7 +91,8 @@ public enum Privilege {
             ALTER_PRIV,
             CREATE_PRIV,
             DROP_PRIV,
-            SHOW_VIEW_PRIV
+            SHOW_VIEW_PRIV,
+            SHOW_VIEW_PRIV_COMPATIBLE
     };
 
     public static final Map<Privilege, String> privInDorisToMysql =
@@ -103,6 +105,7 @@ public enum Privilege {
                     .put(USAGE_PRIV, "USAGE")
                     .put(CLUSTER_USAGE_PRIV_COMPATIBLE, "USAGE")
                     .put(SHOW_VIEW_PRIV, "SHOW VIEW")
+                    .put(SHOW_VIEW_PRIV_COMPATIBLE, "SHOW VIEW")
                     .build();
 
     private String name;

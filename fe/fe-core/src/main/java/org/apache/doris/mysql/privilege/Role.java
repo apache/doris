@@ -25,7 +25,6 @@ import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcherException;
@@ -952,41 +951,6 @@ public class Role implements Writable, GsonPostProcessable {
         } else {
             String json = Text.readString(in);
             Role r = GsonUtils.GSON.fromJson(json, Role.class);
-            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_130) {
-                if (Config.isNotCloudMode()) {
-                    // not cloud mode,
-                    // SHOW_VIEW_PRIV -> SHOW_VIEW_PRIV_COMPATIBLE (9 -> 14)
-                    r.tblPatternToPrivs.values().forEach(privBitSet -> {
-                        if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV)) {
-                            // remove SHOW_VIEW_PRIV
-                            privBitSet.unset(Privilege.SHOW_VIEW_PRIV.getIdx());
-                            // add SHOW_VIEW_PRIV_COMPATIBLE
-                            privBitSet.unset(Privilege.SHOW_VIEW_PRIV_COMPATIBLE.getIdx());
-                        }
-                    });
-                } else {
-                    // cloud mode
-                    // CLUSTER_USAGE_PRIV -> CLUSTER_USAGE_PRIV_COMPATIBLE (9 -> 12)
-                    r.clusterPatternToPrivs.values().forEach(privBitSet -> {
-                        if (privBitSet.containsPrivs(Privilege.CLUSTER_USAGE_PRIV)) {
-                            // remove SHOW_VIEW_PRIV
-                            privBitSet.unset(Privilege.CLUSTER_USAGE_PRIV.getIdx());
-                            // add SHOW_VIEW_PRIV_COMPATIBLE
-                            privBitSet.unset(Privilege.CLUSTER_USAGE_PRIV_COMPATIBLE.getIdx());
-                        }
-                    });
-                    // STAGE_USAGE_PRIV -> STAGE_USAGE_PRIV_COMPATIBLE (10 -> 13)
-                    // SHOW_VIEW_PRIV -> SHOW_VIEW_PRIV_COMPATIBLE (11 -> 14)
-                    r.tblPatternToPrivs.values().forEach(privBitSet -> {
-                        if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV)) {
-                            // remove SHOW_VIEW_PRIV
-                            privBitSet.unset(Privilege.SHOW_VIEW_PRIV.getIdx());
-                            // add SHOW_VIEW_PRIV_COMPATIBLE
-                            privBitSet.unset(Privilege.SHOW_VIEW_PRIV_COMPATIBLE.getIdx());
-                        }
-                    });
-                }
-            }
             return r;
         }
     }

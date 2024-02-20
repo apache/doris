@@ -26,6 +26,7 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -278,6 +279,43 @@ public class RoleManager implements Writable, GsonPostProcessable {
         } else {
             String json = Text.readString(in);
             RoleManager rm = GsonUtils.GSON.fromJson(json, RoleManager.class);
+            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_130) {
+                rm.roles.forEach((name, r) -> {
+                    if (Config.isNotCloudMode()) {
+                        // not cloud mode,
+                        // SHOW_VIEW_PRIV -> SHOW_VIEW_PRIV_COMPATIBLE (9 -> 14)
+                        r.getTblPatternToPrivs().values().forEach(privBitSet -> {
+                            if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV)) {
+                                // remove SHOW_VIEW_PRIV
+                                privBitSet.unset(Privilege.SHOW_VIEW_PRIV.getIdx());
+                                // add SHOW_VIEW_PRIV_COMPATIBLE
+                                privBitSet.set(Privilege.SHOW_VIEW_PRIV_COMPATIBLE.getIdx());
+                            }
+                        });
+                    } else {
+                        // cloud mode
+                        // CLUSTER_USAGE_PRIV -> CLUSTER_USAGE_PRIV_COMPATIBLE (9 -> 12)
+                        r.getClusterPatternToPrivs().values().forEach(privBitSet -> {
+                            if (privBitSet.containsPrivs(Privilege.CLUSTER_USAGE_PRIV)) {
+                                // remove SHOW_VIEW_PRIV
+                                privBitSet.unset(Privilege.CLUSTER_USAGE_PRIV.getIdx());
+                                // add SHOW_VIEW_PRIV_COMPATIBLE
+                                privBitSet.set(Privilege.CLUSTER_USAGE_PRIV_COMPATIBLE.getIdx());
+                            }
+                        });
+                        // STAGE_USAGE_PRIV -> STAGE_USAGE_PRIV_COMPATIBLE (10 -> 13)
+                        // SHOW_VIEW_PRIV -> SHOW_VIEW_PRIV_COMPATIBLE (11 -> 14)
+                        r.getTblPatternToPrivs().values().forEach(privBitSet -> {
+                            if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV)) {
+                                // remove SHOW_VIEW_PRIV
+                                privBitSet.unset(Privilege.SHOW_VIEW_PRIV.getIdx());
+                                // add SHOW_VIEW_PRIV_COMPATIBLE
+                                privBitSet.set(Privilege.SHOW_VIEW_PRIV_COMPATIBLE.getIdx());
+                            }
+                        });
+                    }
+                });
+            }
             return rm;
         }
     }
