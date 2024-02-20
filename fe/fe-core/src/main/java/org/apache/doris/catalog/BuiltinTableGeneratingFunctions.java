@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMapOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbers;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbersOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplitOuter;
 
@@ -48,7 +49,7 @@ import java.util.List;
 public class BuiltinTableGeneratingFunctions implements FunctionHelper {
     public final List<TableGeneratingFunc> tableGeneratingFunctions = ImmutableList.of(
             tableGenerating(Explode.class, "explode"),
-            tableGenerating(Explode.class, "explode_outer"),
+            tableGenerating(ExplodeOuter.class, "explode_outer"),
             tableGenerating(ExplodeMap.class, "explode_map"),
             tableGenerating(ExplodeMapOuter.class, "explode_map_outer"),
             tableGenerating(ExplodeNumbers.class, "explode_numbers"),
