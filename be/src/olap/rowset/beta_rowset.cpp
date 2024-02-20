@@ -275,6 +275,10 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
             return status;
         }
         linked_success_files.push_back(dst_path);
+        DBUG_EXECUTE_IF("fault_inject::BetaRowset::link_files_to::_link_inverted_index_file", {
+            status = Status::Error<OS_ERROR>("fault_inject link_file error");
+            return status;
+        });
         if (_schema->get_inverted_index_storage_format() != InvertedIndexStorageFormatPB::V1) {
             if (_schema->has_inverted_index() &&
                 (without_index_uids == nullptr || without_index_uids->empty())) {
