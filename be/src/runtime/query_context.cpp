@@ -17,6 +17,7 @@
 
 #include "runtime/query_context.h"
 
+#include <exception>
 #include <memory>
 
 #include "pipeline/pipeline_fragment_context.h"
@@ -97,7 +98,9 @@ QueryContext::~QueryContext() {
                 MemTracker::print_bytes(query_mem_tracker->consumption()),
                 MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
     }
+    uint64_t group_id = 0;
     if (_task_group) {
+        group_id = _task_group->id(); // before remove
         _task_group->remove_mem_tracker_limiter(query_mem_tracker);
         _task_group->remove_query(_query_id);
     }
@@ -113,7 +116,12 @@ QueryContext::~QueryContext() {
                 std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
     }
 
-    ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, _task_group->id());
+    //TODO: check if pipeline and tracing both enabled
+    try {
+        ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
+    } catch (std::exception& e) {
+        LOG(WARNING) << "Dump trace log failed bacause " << e.what();
+    }
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {

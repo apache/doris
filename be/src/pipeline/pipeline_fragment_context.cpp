@@ -777,24 +777,6 @@ void PipelineFragmentContext::close_if_prepare_failed() {
     }
 }
 
-static bool _has_inverted_index_or_partial_update(TOlapTableSink sink) {
-    OlapTableSchemaParam schema;
-    if (!schema.init(sink.schema).ok()) {
-        return false;
-    }
-    if (schema.is_partial_update()) {
-        return true;
-    }
-    for (const auto& index_schema : schema.indexes()) {
-        for (const auto& index : index_schema->indexes) {
-            if (index->index_type() == INVERTED) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 // construct sink operator
 Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thrift_sink,
                                              RuntimeState* state) {

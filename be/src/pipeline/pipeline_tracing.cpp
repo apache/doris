@@ -23,7 +23,6 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <chrono>
 #include <mutex>
-#include <sstream>
 #include <string>
 
 #include "common/config.h"
@@ -94,7 +93,7 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
 
     std::unique_lock<std::mutex> l(_data_lock); // can't rehash
     if (_dump_type == RecordType::PerQuery) {
-        auto path = _dir / fmt::format("query-{}", (std::stringstream {} << query_id).str());
+        auto path = _dir / fmt::format("query{}", to_string(query_id));
         int fd = ::open(path.c_str(), O_CREAT | O_WRONLY | O_TRUNC);
         if (fd < 0) [[unlikely]] {
             throw Exception(Status::Error<ErrorCode::CREATE_FILE_ERROR>(
@@ -104,14 +103,15 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
 
         ScheduleRecord record;
         while (_datas[query_id].try_dequeue(record)) {
-            auto text = Slice {record.to_string(_id_to_taskgroup[query_id])};
-            THROW_IF_ERROR(writer.appendv(&text, text.get_size()));
+            auto tmp_str = record.to_string(_id_to_taskgroup[query_id]);
+            auto text = Slice {tmp_str};
+            THROW_IF_ERROR(writer.appendv(&text, 1));
         }
 
         THROW_IF_ERROR(writer.finalize());
         THROW_IF_ERROR(writer.close());
     } else if (_dump_type == RecordType::Periodic) {
-        auto path = _dir / fmt::format("until-{}",
+        auto path = _dir / fmt::format("until{}",
                                        std::chrono::steady_clock::now().time_since_epoch().count());
         int fd = ::open(path.c_str(), O_CREAT | O_WRONLY | O_TRUNC);
         if (fd < 0) [[unlikely]] {
@@ -123,8 +123,9 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
         for (auto& [id, trace] : _datas) {
             ScheduleRecord record;
             while (trace.try_dequeue(record)) {
-                auto text = Slice {record.to_string(_id_to_taskgroup[query_id])};
-                THROW_IF_ERROR(writer.appendv(&text, text.get_size()));
+                auto tmp_str = record.to_string(_id_to_taskgroup[query_id]);
+                auto text = Slice {tmp_str};
+                THROW_IF_ERROR(writer.appendv(&text, 1));
             }
         }
         THROW_IF_ERROR(writer.finalize());

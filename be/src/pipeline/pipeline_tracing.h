@@ -24,8 +24,10 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <sstream>
 
+#include "common/config.h"
+#include "util/hash_util.hpp" // IWYU pragma: keep
+#include "util/thrift_util.h"
 #include "util/time.h"
 
 namespace doris::pipeline {
@@ -41,9 +43,8 @@ struct ScheduleRecord {
 
     bool operator<(const ScheduleRecord& rhs) const { return start_time < rhs.start_time; }
     std::string to_string(uint64_t append_value) const {
-        return fmt::format("{}|{}|{}|{}|{}|{}|{}|{}\n", (std::stringstream {} << query_id).str(),
-                           task_id, core_id, thread_id, start_time, end_time, state_name,
-                           append_value);
+        return fmt::format("{}|{}|{}|{}|{}|{}|{}|{}\n", doris::to_string(query_id), task_id,
+                           core_id, thread_id, start_time, end_time, state_name, append_value);
     }
 };
 

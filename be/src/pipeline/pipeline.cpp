@@ -41,11 +41,12 @@ Status Pipeline::build_operators() {
             static_cast<void>(o->set_child(pre));
         }
         _operators.emplace_back(o);
-        pre = std::move(o);
 
         _name.push_back('-');
         _name.append(std::to_string(operator_t->id()));
         _name.append(o->get_name());
+
+        pre = std::move(o);
     }
     return Status::OK();
 }

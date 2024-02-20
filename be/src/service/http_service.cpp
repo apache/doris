@@ -132,6 +132,8 @@ Status HttpService::start() {
 
     AdjustLogLevelAction* adjust_log_level_action = _pool.add(new AdjustLogLevelAction());
     _ev_http_server->register_handler(HttpMethod::POST, "api/glog/adjust", adjust_log_level_action);
+
+    //TODO: add query GET interface
     auto* adjust_tracing_dump = _pool.add(new AdjustTracingDump());
     _ev_http_server->register_handler(HttpMethod::POST, "api/pipeline/tracing",
                                       adjust_tracing_dump);

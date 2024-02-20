@@ -28,9 +28,9 @@ void AdjustTracingDump::handle(HttpRequest* req) {
     auto* ctx = ExecEnv::GetInstance()->pipeline_tracer_context();
     auto* params = req->params();
     if (auto status = ctx->change_record_params(*params); status.ok()) {
-        HttpChannel::send_reply(req, "change record type succeed!"); // ok
-    } else {                                                         // not ok
-        LOG(WARNING) << "adjust pipeline tracing dump method failed:" << status.msg();
+        HttpChannel::send_reply(req, "change record type succeed!\n"); // ok
+    } else {                                                           // not ok
+        LOG(WARNING) << "adjust pipeline tracing dump method failed:" << status.msg() << '\n';
         HttpChannel::send_reply(req, HttpStatus::NOT_FOUND, status.msg().data());
     }
 }
