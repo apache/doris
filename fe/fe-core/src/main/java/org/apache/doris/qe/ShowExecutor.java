@@ -921,15 +921,13 @@ public class ShowExecutor {
             }
             if (showTableStmt.isVerbose()) {
                 String storageFormat = "NONE";
+                String invertedIndexStorageFormat = "NONE";
                 if (tbl instanceof OlapTable) {
                     storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
+                    invertedIndexStorageFormat = ((OlapTable) tbl).getInvertedIndexStorageFormat().toString();
                 }
-                rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat));
-
-                String invertedIndexStorageFormat = (tbl instanceof OlapTable)
-                        ? ((OlapTable) tbl).getInvertedIndexStorageFormat().toString()
-                        : "NONE";
-                rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), invertedIndexStorageFormat));
+                rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
+                        invertedIndexStorageFormat));
             } else {
                 rows.add(Lists.newArrayList(tbl.getName()));
             }
