@@ -1284,8 +1284,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .forEach(s -> rightChildOutputMap.put(s.getExprId(), s));
 
         // translate runtime filter
-        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> runtimeFilterTranslator
-                .getRuntimeFilterOfHashJoinNode(physicalHashJoin)
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> physicalHashJoin.getRuntimeFilters()
                 .forEach(filter -> runtimeFilterTranslator.createLegacyRuntimeFilter(filter, hashJoinNode, context)));
 
         // make intermediate tuple
@@ -1484,8 +1483,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             // translate runtime filter
             context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
-                Set<RuntimeFilter> filters = runtimeFilterTranslator
-                        .getRuntimeFilterOfHashJoinNode(nestedLoopJoin);
+                List<RuntimeFilter> filters = nestedLoopJoin.getRuntimeFilters();
                 filters.forEach(filter -> runtimeFilterTranslator
                         .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
                 if (filters.stream().anyMatch(filter -> filter.getType() == TRuntimeFilterType.BITMAP)) {

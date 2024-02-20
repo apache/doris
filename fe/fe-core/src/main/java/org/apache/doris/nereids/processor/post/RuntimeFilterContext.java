@@ -110,8 +110,6 @@ public class RuntimeFilterContext {
     // exprId to olap scan node slotRef because the slotRef will be changed when translating.
     private final Map<ExprId, SlotRef> exprIdToOlapScanNodeSlotRef = Maps.newHashMap();
 
-    private final Map<AbstractPhysicalJoin, Set<RuntimeFilter>> runtimeFilterOnHashJoinNode = Maps.newHashMap();
-
     // alias -> alias's child, if there's a key that is alias's child, the key-value will change by this way
     // Alias(A) = B, now B -> A in map, and encounter Alias(B) -> C, the kv will be C -> A.
     // you can see disjoint set data structure to learn the processing detailed.
@@ -265,15 +263,6 @@ public class RuntimeFilterContext {
 
     public Map<Slot, ScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {
         return scanNodeOfLegacyRuntimeFilterTarget;
-    }
-
-    public Set<RuntimeFilter> getRuntimeFilterOnHashJoinNode(AbstractPhysicalJoin join) {
-        return runtimeFilterOnHashJoinNode.getOrDefault(join, Collections.emptySet());
-    }
-
-    public void generatePhysicalHashJoinToRuntimeFilter() {
-        targetExprIdToFilter.values().forEach(filters -> filters.forEach(filter -> runtimeFilterOnHashJoinNode
-                .computeIfAbsent(filter.getBuilderNode(), k -> Sets.newHashSet()).add(filter)));
     }
 
     public Map<ExprId, List<RuntimeFilter>> getTargetExprIdToFilter() {
