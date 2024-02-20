@@ -275,13 +275,21 @@ struct SchemaChangeParams {
     int32_t be_exec_version;
 };
 
+Status execute_schema_change_job(const TAlterTabletReqV2& request);
+
 class SchemaChangeJob {
 public:
-    static Status execute_schema_change_job(const TAlterTabletReqV2& request);
     SchemaChangeJob(StorageEngine& local_storage_engine, const TAlterTabletReqV2& request);
     Status process_alter_tablet(const TAlterTabletReqV2& request);
 
-    std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer, bool sc_sorting,
+    bool tablet_in_converting(int64_t tablet_id);
+
+    static Status parse_request(const SchemaChangeParams& sc_params,
+                                TabletSchema* base_tablet_schema, TabletSchema* new_tablet_schema,
+                                BlockChanger* changer, bool* sc_sorting, bool* sc_directly);
+
+private:
+    std::unique_ptr<SchemaChange> _get_sc_procedure(const BlockChanger& changer, bool sc_sorting,
                                                    bool sc_directly) {
         if (sc_sorting) {
             return std::make_unique<VLocalSchemaChangeWithSorting>(
@@ -296,13 +304,6 @@ public:
         return std::make_unique<LinkedSchemaChange>();
     }
 
-    bool tablet_in_converting(int64_t tablet_id);
-
-    static Status parse_request(const SchemaChangeParams& sc_params,
-                                TabletSchema* base_tablet_schema, TabletSchema* new_tablet_schema,
-                                BlockChanger* changer, bool* sc_sorting, bool* sc_directly);
-
-private:
     Status _get_versions_to_be_changed(std::vector<Version>* versions_to_be_changed,
                                        RowsetSharedPtr* max_rowset);
 
