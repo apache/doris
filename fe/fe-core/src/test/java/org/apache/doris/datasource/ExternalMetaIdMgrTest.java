@@ -27,7 +27,7 @@ public class ExternalMetaIdMgrTest {
         ExternalMetaIdMgr mgr = new ExternalMetaIdMgr();
         MetaIdMappingsLog log1 = new MetaIdMappingsLog();
         log1.setCatalogId(1L);
-        log1.setFromHmsEvent(false);
+        log1.setType(MetaIdMappingsLog.TYPE_FROM_HMS_EVENT);
         log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_ADD,
                     MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
@@ -37,7 +37,7 @@ public class ExternalMetaIdMgrTest {
 
         MetaIdMappingsLog log2 = new MetaIdMappingsLog();
         log2.setCatalogId(1L);
-        log2.setFromHmsEvent(false);
+        log2.setType(MetaIdMappingsLog.TYPE_FROM_HMS_EVENT);
         log2.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                     MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
@@ -47,7 +47,7 @@ public class ExternalMetaIdMgrTest {
 
         MetaIdMappingsLog log3 = new MetaIdMappingsLog();
         log3.setCatalogId(1L);
-        log3.setFromHmsEvent(false);
+        log3.setType(MetaIdMappingsLog.TYPE_FROM_HMS_EVENT);
         log3.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_ADD,
                     MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,
@@ -58,7 +58,7 @@ public class ExternalMetaIdMgrTest {
 
         MetaIdMappingsLog log4 = new MetaIdMappingsLog();
         log4.setCatalogId(1L);
-        log4.setFromHmsEvent(false);
+        log4.setType(MetaIdMappingsLog.TYPE_FROM_HMS_EVENT);
         log4.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                     MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,

@@ -68,8 +68,8 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
 
     protected boolean invalidCacheInInit = true;
 
-    protected Map<Long, T> idToTbl = Maps.newConcurrentMap();
-    protected Map<String, Long> tableNameToId = Maps.newConcurrentMap();
+    protected volatile Map<Long, T> idToTbl = Maps.newConcurrentMap();
+    protected volatile Map<String, Long> tableNameToId = Maps.newConcurrentMap();
 
     /**
      * Create external database.
@@ -127,7 +127,7 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
 
         MetaIdMappingsLog log = new MetaIdMappingsLog();
         log.setCatalogId(extCatalog.getId());
-        log.setFromInitDb(true);
+        log.setType(MetaIdMappingsLog.TYPE_FROM_INIT_DATABASE);
         log.setLastUpdateTime(System.currentTimeMillis());
         if (CollectionUtils.isNotEmpty(tableNames)) {
             for (String tableName : tableNames) {
@@ -146,6 +146,9 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
         ExternalMetaIdMgr metaIdMgr = Env.getCurrentEnv().getExternalMetaIdMgr();
         ExternalMetaIdMgr.DbMetaIdMgr dbMetaIdMgr = metaIdMgr.getDbMetaIdMgr(extCatalog.getId(), name);
         if (dbMetaIdMgr != null) {
+            // use a temp map container
+            Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
+            Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
             Map<String, ExternalMetaIdMgr.TblMetaIdMgr> tblNameToMgr = dbMetaIdMgr.getTblNameToMgr();
             for (String tableName : tblNameToMgr.keySet()) {
                 T table = idToTbl.getOrDefault(tableNameToId.getOrDefault(tableName, -1L), null);
@@ -155,6 +158,8 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
                 idToTbl.put(table.getId(), table);
                 tableNameToId.put(tableName, table.getId());
             }
+            this.idToTbl = tmpIdToTbl;
+            this.tableNameToId = tmpTableNameToId;
         }
         this.lastUpdateTime = lastUpdateTime;
         this.initialized = true;

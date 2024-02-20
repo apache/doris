@@ -34,7 +34,7 @@ public class MetaIdMappingsLogTest {
         MetaIdMappingsLog log1 = new MetaIdMappingsLog();
         Path path = Files.createFile(Paths.get("./metaIdMappingsLogTest.txt"));
         try (DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path))) {
-            log1.setFromHmsEvent(true);
+            log1.setType(MetaIdMappingsLog.TYPE_FROM_HMS_EVENT);
             log1.setLastSyncedEventId(-1L);
             log1.setCatalogId(1L);
             log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(

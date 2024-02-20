@@ -89,7 +89,7 @@ public class MetastoreEventFactory implements EventFactory {
     private void logMetaIdMappings(long catalogId, long lastSyncedEventId, List<MetastoreEvent> mergedEvents) {
         MetaIdMappingsLog log = new MetaIdMappingsLog();
         log.setCatalogId(catalogId);
-        log.setFromHmsEvent(true);
+        log.setType(MetaIdMappingsLog.TYPE_FROM_HMS_EVENT);
         log.setLastSyncedEventId(lastSyncedEventId);
         for (MetastoreEvent event : mergedEvents) {
             log.addMetaIdMappings(event.transferToMetaIdMappings());

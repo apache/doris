@@ -21,7 +21,6 @@ import org.apache.doris.catalog.EsResource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 
 import com.google.common.collect.ImmutableList;

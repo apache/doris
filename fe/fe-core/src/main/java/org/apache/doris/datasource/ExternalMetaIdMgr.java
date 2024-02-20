@@ -112,28 +112,59 @@ public class ExternalMetaIdMgr {
     public void replayMetaIdMappingsLog(@NotNull MetaIdMappingsLog log) {
         Preconditions.checkNotNull(log);
         long catalogId = log.getCatalogId();
-        CtlMetaIdMgr ctlMetaIdMgr = idToCtlMgr.computeIfAbsent(catalogId, CtlMetaIdMgr::new);
-        for (MetaIdMappingsLog.MetaIdMapping mapping : log.getMetaIdMappings()) {
-            handleMetaIdMapping(mapping, ctlMetaIdMgr);
-        }
-
-        CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
+        CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
         if (catalogIf == null) {
             return;
         }
 
-        if (log.isFromInitCtl()) {
-            ((ExternalCatalog) catalogIf).initForAllNodes(log.getLastUpdateTime());
-        } else if (log.isFromInitDb()) {
-            @SuppressWarnings("rawtypes")
-            ExternalDatabase db = (ExternalDatabase) catalogIf.getDbNullable(log.getDbId());
-            if (db != null) {
-                db.initForAllNodes(log.getLastUpdateTime());
-            }
-        } else if (log.isFromHmsEvent()) {
-            MetastoreEventsProcessor metastoreEventsProcessor = Env.getCurrentEnv().getMetastoreEventsProcessor();
-            metastoreEventsProcessor.updateMasterLastSyncedEventId(
-                    (HMSExternalCatalog) catalogIf, log.getLastSyncedEventId());
+        CtlMetaIdMgr ctlMetaIdMgr = idToCtlMgr.computeIfAbsent(catalogId, CtlMetaIdMgr::new);
+        CtlMetaIdMgr tmpCtlMetaIdMgr;
+        switch (log.getType()) {
+            case MetaIdMappingsLog.TYPE_FROM_INIT_CATALOG:
+                // use a new CtlMetaIdMgr to handle these logs, and replace the old one
+                tmpCtlMetaIdMgr = new CtlMetaIdMgr(catalogId);
+                for (MetaIdMappingsLog.MetaIdMapping mapping : log.getMetaIdMappings()) {
+                    handleMetaIdMapping(mapping, tmpCtlMetaIdMgr);
+                }
+                idToCtlMgr.put(catalogId, tmpCtlMetaIdMgr);
+                // do the extra init operations
+                ((ExternalCatalog) catalogIf).initForAllNodes(log.getLastUpdateTime());
+                break;
+
+            case MetaIdMappingsLog.TYPE_FROM_INIT_DATABASE:
+                // use a new CtlMetaIdMgr to handle these logs, and replace the old one
+                tmpCtlMetaIdMgr = new CtlMetaIdMgr(catalogId);
+                for (MetaIdMappingsLog.MetaIdMapping mapping : log.getMetaIdMappings()) {
+                    handleMetaIdMapping(mapping, tmpCtlMetaIdMgr);
+                }
+                for (String dbName : ctlMetaIdMgr.dbNameToMgr.keySet()) {
+                    // put the dbMetaIdMgr of ctlMetaIdMgr to tmpCtlMetaIdMgr which not contains
+                    if (!tmpCtlMetaIdMgr.dbNameToMgr.containsKey(dbName)) {
+                        tmpCtlMetaIdMgr.dbNameToMgr.put(dbName, ctlMetaIdMgr.dbNameToMgr.get(dbName));
+                    }
+                }
+                idToCtlMgr.put(catalogId, tmpCtlMetaIdMgr);
+                // do the extra init operations
+                @SuppressWarnings("rawtypes")
+                ExternalDatabase db = (ExternalDatabase) catalogIf.getDbNullable(log.getDbId());
+                if (db != null) {
+                    db.initForAllNodes(log.getLastUpdateTime());
+                }
+                break;
+
+            case MetaIdMappingsLog.TYPE_FROM_HMS_EVENT:
+                // handle these logs serialized
+                for (MetaIdMappingsLog.MetaIdMapping mapping : log.getMetaIdMappings()) {
+                    handleMetaIdMapping(mapping, ctlMetaIdMgr);
+                }
+
+                MetastoreEventsProcessor metastoreEventsProcessor = Env.getCurrentEnv().getMetastoreEventsProcessor();
+                metastoreEventsProcessor.updateMasterLastSyncedEventId(
+                        (HMSExternalCatalog) catalogIf, log.getLastSyncedEventId());
+                break;
+
+            default:
+                // do nothing
         }
     }
 

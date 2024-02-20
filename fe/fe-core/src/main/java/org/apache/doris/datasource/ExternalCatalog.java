@@ -281,7 +281,7 @@ public abstract class ExternalCatalog
 
         MetaIdMappingsLog log = new MetaIdMappingsLog();
         log.setCatalogId(id);
-        log.setFromInitCtl(true);
+        log.setType(MetaIdMappingsLog.TYPE_FROM_INIT_CATALOG);
         log.setLastUpdateTime(System.currentTimeMillis());
         for (String dbName : allDatabases) {
             if (!dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
@@ -309,12 +309,17 @@ public abstract class ExternalCatalog
         ExternalMetaIdMgr metaIdMgr = Env.getCurrentEnv().getExternalMetaIdMgr();
         ExternalMetaIdMgr.CtlMetaIdMgr ctlMetaIdMgr = metaIdMgr.getCtlMetaIdMgr(id);
         if (ctlMetaIdMgr != null) {
+            // use a temp map container
+            Map<Long, ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
+            Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
             Map<String, ExternalMetaIdMgr.DbMetaIdMgr> dbNameToMgr = ctlMetaIdMgr.getDbNameToMgr();
             for (String dbName : dbNameToMgr.keySet()) {
                 ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbNameToMgr.get(dbName).dbId, type);
-                idToDb.put(db.getId(), db);
-                dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
+                tmpIdToDb.put(db.getId(), db);
+                tmpDbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
             }
+            this.idToDb = tmpIdToDb;
+            this.dbNameToId = tmpDbNameToId;
         }
         this.lastUpdateTime = lastUpdateTime;
         this.initialized = true;
@@ -358,7 +363,7 @@ public abstract class ExternalCatalog
 
     @Override
     public String getType() {
-        return logType.name().toLowerCase(Locale.ROOT);
+        return type.name().toLowerCase(Locale.ROOT);
     }
 
     @Override

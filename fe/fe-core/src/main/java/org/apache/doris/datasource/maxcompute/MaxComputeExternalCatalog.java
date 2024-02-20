@@ -21,7 +21,6 @@ package org.apache.doris.datasource.maxcompute;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.property.constants.MCProperties;
