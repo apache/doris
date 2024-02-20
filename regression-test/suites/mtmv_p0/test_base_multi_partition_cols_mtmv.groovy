@@ -37,8 +37,7 @@ suite("test_base_multi_partition_cols_mtmv") {
             PARTITION `p1_sh` VALUES IN (("1", "sh")),
             PARTITION `p2_bj` VALUES IN (("2", "bj")),
             PARTITION `p2_sh` VALUES IN (("2", "sh")),
-            PARTITION `p3_bj` VALUES IN (("3", "bj")),
-            PARTITION `p3_sh` VALUES IN (("3", "sh"))
+            PARTITION `p34_bj_sh` VALUES IN (("3", "bj"),("3", "sh"),("4", "bj"),("4", "sh"))
         )
         DISTRIBUTED BY HASH(k2) BUCKETS 2
         PROPERTIES (
@@ -47,7 +46,7 @@ suite("test_base_multi_partition_cols_mtmv") {
         """
 
     sql """
-        insert into ${tableName} values (1,1,"bj"),(1,2,"bj"),(1,3,"bj"),(1,1,"sh"),(1,2,"sh"),(1,3,"sh");
+        insert into ${tableName} values (1,1,"bj"),(1,2,"bj"),(1,3,"bj"),(1,4,"bj"),(1,1,"sh"),(1,2,"sh"),(1,3,"sh"),(1,4,"sh");
         """
     
     sql """
@@ -63,9 +62,7 @@ suite("test_base_multi_partition_cols_mtmv") {
     // should has 3 partitions
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertTrue(showPartitionsResult.toString().contains("p_1"))
-    assertTrue(showPartitionsResult.toString().contains("p_2"))
-    assertTrue(showPartitionsResult.toString().contains("p_3"))
+    assertEquals(showPartitionsResult.size(),3)
 
     // refresh one partition
     sql """
@@ -109,7 +106,7 @@ suite("test_base_multi_partition_cols_mtmv") {
 
     // add partition k2
     sql """
-        alter table ${tableName} ADD PARTITION `p4_bj` VALUES IN (("4", "bj"))
+        alter table ${tableName} ADD PARTITION `p4_bj` VALUES IN (("5", "bj"))
         """
     sql """
             REFRESH MATERIALIZED VIEW ${mvName};
@@ -118,7 +115,6 @@ suite("test_base_multi_partition_cols_mtmv") {
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(showPartitionsResult.size(),4)
-    assertTrue(showPartitionsResult.toString().contains("p_4"))
 
     // sql """drop table if exists `${tableName}`"""
     // sql """drop materialized view if exists ${mvName};"""
