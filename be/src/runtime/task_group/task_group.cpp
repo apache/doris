@@ -51,15 +51,17 @@ TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
           _enable_memory_overcommit(tg_info.enable_memory_overcommit),
           _cpu_share(tg_info.cpu_share),
           _mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM),
-          _cpu_hard_limit(tg_info.cpu_hard_limit) {}
+          _cpu_hard_limit(tg_info.cpu_hard_limit),
+          _scan_thread_num(tg_info.scan_thread_num) {}
 
 std::string TaskGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
     return fmt::format(
             "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
-            "{}, version = {}, cpu_hard_limit = {}]",
+            "{}, version = {}, cpu_hard_limit = {}, scan_thread_num = {}]",
             _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
-            _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit());
+            _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit(),
+            _scan_thread_num);
 }
 
 void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
@@ -81,6 +83,7 @@ void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
             _enable_memory_overcommit = tg_info.enable_memory_overcommit;
             _cpu_share = tg_info.cpu_share;
             _cpu_hard_limit = tg_info.cpu_hard_limit;
+            _scan_thread_num = tg_info.scan_thread_num;
         } else {
             return;
         }
@@ -184,6 +187,12 @@ Status TaskGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_group_
         enable_cpu_hard_limit = workload_group_info.enable_cpu_hard_limit;
     }
     task_group_info->enable_cpu_hard_limit = enable_cpu_hard_limit;
+
+    // 9 scan thread num
+    task_group_info->scan_thread_num = config::doris_scanner_thread_pool_thread_num;
+    if (workload_group_info.__isset.scan_thread_num && workload_group_info.scan_thread_num > 0) {
+        task_group_info->scan_thread_num = workload_group_info.scan_thread_num;
+    }
 
     return Status::OK();
 }
