@@ -82,6 +82,7 @@ suite("txn_insert") {
         ) distributed by hash(id, c1) 
         properties('replication_num'="1");
     """
+    createMV """ create materialized view mv_${table} as select c1 from $table; """
     sql "begin"
     sql """insert into $table values(1, 2), (3, 4)"""
     sql """insert into $table values(5, 6)"""
