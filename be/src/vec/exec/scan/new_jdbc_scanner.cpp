@@ -85,6 +85,7 @@ Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
     if (jdbc_table == nullptr) {
         return Status::InternalError("jdbc table pointer is NULL of VJdbcScanNode::prepare.");
     }
+    _jdbc_param.catalog_id = jdbc_table->jdbc_catalog_id();
     _jdbc_param.driver_class = jdbc_table->jdbc_driver_class();
     _jdbc_param.driver_path = jdbc_table->jdbc_driver_url();
     _jdbc_param.resource_name = jdbc_table->jdbc_resource_name();
@@ -95,11 +96,11 @@ Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
     _jdbc_param.tuple_desc = _tuple_desc;
     _jdbc_param.query_string = std::move(_query_string);
     _jdbc_param.table_type = _table_type;
-    _jdbc_param.min_pool_size = jdbc_table->jdbc_min_pool_size();
-    _jdbc_param.max_pool_size = jdbc_table->jdbc_max_pool_size();
-    _jdbc_param.max_idle_time = jdbc_table->jdbc_max_idle_time();
-    _jdbc_param.max_wait_time = jdbc_table->jdbc_max_wait_time();
-    _jdbc_param.keep_alive = jdbc_table->jdbc_keep_alive();
+    _jdbc_param.connection_pool_min_size = jdbc_table->connection_pool_min_size();
+    _jdbc_param.connection_pool_max_size = jdbc_table->connection_pool_max_size();
+    _jdbc_param.connection_pool_max_life_time = jdbc_table->connection_pool_max_life_time();
+    _jdbc_param.connection_pool_max_wait_time = jdbc_table->connection_pool_max_wait_time();
+    _jdbc_param.connection_pool_keep_alive = jdbc_table->connection_pool_keep_alive();
 
     if (get_parent() != nullptr) {
         get_parent()->_scanner_profile->add_info_string("JdbcDriverClass",

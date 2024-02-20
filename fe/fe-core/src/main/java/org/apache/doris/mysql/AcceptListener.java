@@ -52,7 +52,9 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                 return;
             }
             connection.setOption(Options.KEEP_ALIVE, true);
-            LOG.debug("Connection established. remote={}", connection.getPeerAddress());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Connection established. remote={}", connection.getPeerAddress());
+            }
             // connection has been established, so need to call context.cleanup()
             // if exception happens.
             ConnectContext context = new ConnectContext(connection);
@@ -104,7 +106,9 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                     } else {
                         // for unauthrorized access such lvs probe request,
                         // may cause exception, just log it in debug level
-                        LOG.debug("connect processor exception because ", e);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("connect processor exception because ", e);
+                        }
                     }
                     context.cleanup();
                 } finally {

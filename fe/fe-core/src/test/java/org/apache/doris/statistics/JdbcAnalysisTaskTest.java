@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 

@@ -115,6 +115,14 @@ Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) 
         _get_value_fn = get_decimal256_value;
         break;
     }
+    case PrimitiveType::TYPE_IPV4: {
+        _get_value_fn = get_ipv4_value;
+        break;
+    }
+    case PrimitiveType::TYPE_IPV6: {
+        _get_value_fn = get_ipv6_value;
+        break;
+    }
     default:
         return Status::InvalidArgument("unsupported runtime predicate type {}", type);
     }

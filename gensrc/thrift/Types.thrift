@@ -428,11 +428,13 @@ struct TJdbcExecutorCtorParams {
 
   9: optional TOdbcTableType table_type
 
-  10: optional i32 min_pool_size
-  11: optional i32 max_pool_size
-  12: optional i32 max_idle_time
-  13: optional i32 max_wait_time
-  14: optional bool keep_alive
+  10: optional i32 connection_pool_min_size
+  11: optional i32 connection_pool_max_size
+  12: optional i32 connection_pool_max_wait_time
+  13: optional i32 connection_pool_max_life_time
+  14: optional i32 connection_pool_cache_clear_time
+  15: optional bool connection_pool_keep_alive
+  16: optional i64 catalog_id
 }
 
 struct TJavaUdfExecutorCtorParams {

@@ -272,10 +272,19 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public long getUsedDataQuotaWithLock() {
-        long usedDataQuota = 0;
+        return getUsedDataSize().first;
+    }
+
+    public Pair<Long, Long> getUsedDataSize() {
+        long usedDataSize = 0;
+        long usedRemoteDataSize = 0;
+        List<Table> tables = new ArrayList<>();
         readLock();
-        List<Table> tables = new ArrayList<>(this.idToTable.values());
-        readUnlock();
+        try {
+            tables.addAll(this.idToTable.values());
+        } finally {
+            readUnlock();
+        }
 
         for (Table table : tables) {
             if (table.getType() != TableType.OLAP) {
@@ -285,12 +294,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             OlapTable olapTable = (OlapTable) table;
             olapTable.readLock();
             try {
-                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+                usedDataSize = usedDataSize + olapTable.getDataSize();
+                usedRemoteDataSize = usedRemoteDataSize + olapTable.getRemoteDataSize();
             } finally {
                 olapTable.readUnlock();
             }
         }
-        return usedDataQuota;
+        return Pair.of(usedDataSize, usedRemoteDataSize);
     }
 
     public long getReplicaCountWithLock() {
@@ -568,7 +578,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         StringBuilder sb = new StringBuilder(signatureVersion);
         sb.append(fullQualifiedName);
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of database {}: {}. signature string: {}", fullQualifiedName, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of database {}: {}. signature string: {}", fullQualifiedName, md5, sb.toString());
+        }
         return md5;
     }
 

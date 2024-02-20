@@ -75,7 +75,7 @@ public:
         }
 
         if (!arguments.empty()) {
-            if (get_null_presence(arguments)) {
+            if (have_null_column(arguments)) {
                 return make_nullable(std::make_shared<doris::vectorized::DataTypeUInt8>());
             }
         }

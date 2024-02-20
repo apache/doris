@@ -891,4 +891,3 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         return dateDiff(1, secondsDiff, context);
     }
 }
-

@@ -41,6 +41,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.QueryStmt;
@@ -64,6 +65,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.EsTable;
@@ -131,10 +133,10 @@ import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSCachedClientFactory;
 import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -1019,7 +1021,9 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     private void unprotectAddReplica(OlapTable olapTable, ReplicaPersistInfo info) {
-        LOG.debug("replay add a replica {}", info);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replay add a replica {}", info);
+        }
         Partition partition = olapTable.getPartition(info.getPartitionId());
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
@@ -1038,7 +1042,9 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     private void unprotectUpdateReplica(OlapTable olapTable, ReplicaPersistInfo info) {
-        LOG.debug("replay update a replica {}", info);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replay update a replica {}", info);
+        }
         Partition partition = olapTable.getPartition(info.getPartitionId());
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
@@ -1259,6 +1265,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                         default:
                             throw new DdlException("Unsupported string type for ctas");
                     }
+                    if (resultExpr.getSrcSlotRef() != null
+                            && resultExpr.getSrcSlotRef().getTable() != null
+                            && !resultExpr.getSrcSlotRef().getTable().isManagedTable()) {
+                        typeDef = new TypeDef(ScalarType.createStringType());
+                    }
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
                 } else if (resultType.isDecimalV3()) {
@@ -1284,7 +1295,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 ColumnDef columnDef;
                 if (resultExpr.getSrcSlotRef() == null) {
                     columnDef = new ColumnDef(name, typeDef, false, null,
-                            true, false, new DefaultValue(false, null), "");
+                            true, -1, new DefaultValue(false, null), "");
                 } else {
                     Column column = resultExpr.getSrcSlotRef().getDesc().getColumn();
                     boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
@@ -1302,7 +1313,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
                     }
                     columnDef = new ColumnDef(name, typeDef, false, null,
-                            column.isAllowNull(), false, defaultValue, column.getComment());
+                            column.isAllowNull(), -1, defaultValue, column.getComment());
                 }
                 createTableStmt.addColumnDef(columnDef);
                 // set first column as default distribution
@@ -1802,10 +1813,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(partition.getId());
             }
         }
-
+        long version = olapTable.getNextVersion();
+        long versionTime = System.currentTimeMillis();
+        olapTable.updateVisibleVersionAndTime(version, versionTime);
         // log
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition,
-                clause.isForceDrop(), recycleTime);
+                clause.isForceDrop(), recycleTime, version, versionTime);
         Env.getCurrentEnv().getEditLog().logDropPartition(info);
 
         LOG.info("succeed in dropping partition[{}], table : [{}-{}], is temp : {}, is force : {}",
@@ -1826,6 +1839,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
                 }
             }
+            olapTable.updateVisibleVersionAndTime(info.getVersion(), info.getVersionTime());
         } finally {
             olapTable.writeUnlock();
         }
@@ -2012,7 +2026,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throws DdlException {
     }
 
-    protected void checkAvailableCapacity(Database db) throws DdlException {
+    public void checkAvailableCapacity(Database db) throws DdlException {
         // check cluster capacity
         Env.getCurrentSystemInfo().checkAvailableCapacity();
         // check db quota
@@ -2022,7 +2036,9 @@ public class InternalCatalog implements CatalogIf<Database> {
     // Create olap table and related base index synchronously.
     private void createOlapTable(Database db, CreateTableStmt stmt) throws UserException {
         String tableName = stmt.getTableName();
-        LOG.debug("begin create olap table: {}", tableName);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("begin create olap table: {}", tableName);
+        }
 
         BinlogConfig dbBinlogConfig;
         db.readLock();
@@ -2087,7 +2103,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // calc short key column count
         short shortKeyColumnCount = Env.calcShortKeyColumnCount(baseSchema, stmt.getProperties(), isKeysRequired);
-        LOG.debug("create table[{}] short key column count: {}", tableName, shortKeyColumnCount);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("create table[{}] short key column count: {}", tableName, shortKeyColumnCount);
+        }
 
         // create table
         long tableId = idGeneratorBuffer.getNextId();
@@ -2479,7 +2497,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (!col.getType().isFixedPointType() && !col.getType().isDateType()) {
                     throw new DdlException("Sequence type only support integer types and date types");
                 }
-                olapTable.setSequenceMapCol(sequenceMapCol);
+                olapTable.setSequenceMapCol(col.getName());
                 olapTable.setSequenceInfo(col.getType());
             }
         } catch (Exception e) {
@@ -2598,7 +2616,27 @@ public class InternalCatalog implements CatalogIf<Database> {
                                     "Only support dynamic partition properties on range partition table");
                         }
                     }
-
+                    // check the interval same between dynamic & auto range partition
+                    DynamicPartitionProperty dynamicProperty = olapTable.getTableProperty()
+                            .getDynamicPartitionProperty();
+                    if (dynamicProperty.isExist() && dynamicProperty.getEnable()
+                            && partitionDesc.isAutoCreatePartitions()) {
+                        String dynamicUnit = dynamicProperty.getTimeUnit();
+                        ArrayList<Expr> autoExprs = partitionDesc.getPartitionExprs();
+                        for (Expr autoExpr : autoExprs) {
+                            Expr func = (FunctionCallExpr) autoExpr;
+                            for (Expr child : func.getChildren()) {
+                                if (child instanceof LiteralExpr) {
+                                    String autoUnit = ((LiteralExpr) child).getStringValue();
+                                    if (!dynamicUnit.equalsIgnoreCase(autoUnit)) {
+                                        throw new AnalysisException(
+                                                "If support auto partition and dynamic partition at same time, "
+                                                        + "they must have the same interval unit.");
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }

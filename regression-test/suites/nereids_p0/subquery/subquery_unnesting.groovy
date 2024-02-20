@@ -129,4 +129,5 @@ suite ("subquery_unnesting") {
     qt_select57 """select t1.* from t1 left join t2 on t1.k2 = t2.k3 and not exists ( select t3.k1 from t3 where t1.k2 < t3.k2 ) order by t1.k1, t1.k2;"""
     qt_select58 """select t1.* from t1 left join t2 on t1.k2 = t2.k3 and not exists ( select t3.k1 from t3 ) or t1.k1 < 10 order by t1.k1, t1.k2;"""
     qt_select59 """select t1.* from t1 left join t2 on t1.k2 = t2.k3 and not exists ( select t3.k1 from t3 ) order by t1.k1, t1.k2;"""
+    qt_select60 """select * from t1 where exists(select distinct k1 from t2 where t1.k1 > t2.k3 or t1.k2 < t2.v1) order by t1.k1, t1.k2;"""
 }

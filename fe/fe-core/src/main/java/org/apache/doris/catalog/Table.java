@@ -118,7 +118,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     protected String comment = "";
 
     @SerializedName(value = "ta")
-    private TableAttributes tableAttributes = new TableAttributes();
+    protected TableAttributes tableAttributes = new TableAttributes();
 
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
@@ -356,6 +356,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return getBaseSchema(Util.showHiddenColumns());
     }
 
+    @Override
+    public List<Column> getSchemaAllIndexes(boolean full) {
+        return getBaseSchema();
+    }
+
     public List<Column> getBaseSchema(boolean full) {
         if (full) {
             return fullSchema;
@@ -578,7 +583,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         OlapTable olapTable = (OlapTable) this;
 
         if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-            LOG.debug("table {} is a colocate table, skip tablet checker.", name);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("table {} is a colocate table, skip tablet checker.", name);
+            }
             return false;
         }
 

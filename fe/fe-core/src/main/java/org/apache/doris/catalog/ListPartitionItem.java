@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
+
 import com.google.common.collect.Lists;
 
 import java.io.DataInput;
@@ -24,6 +27,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class ListPartitionItem extends PartitionItem {
     public static ListPartitionItem DUMMY_ITEM = new ListPartitionItem(Lists.newArrayList());
@@ -67,6 +71,13 @@ public class ListPartitionItem extends PartitionItem {
             }
         }
         return null;
+    }
+
+    @Override
+    public PartitionKeyDesc toPartitionKeyDesc() {
+        List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
+                .collect(Collectors.toList());
+        return PartitionKeyDesc.createIn(inValues);
     }
 
     @Override

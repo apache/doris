@@ -12,7 +12,7 @@ FROM
     FROM
     (
         SELECT
-        lower(cast(repo:name as string)) AS repo_name,
+        lower(cast(repo["name"] as string)) AS repo_name,
         year(created_at) AS year,
         count() AS cnt
         FROM github_events

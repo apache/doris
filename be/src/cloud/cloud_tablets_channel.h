@@ -41,7 +41,7 @@ public:
                  PTabletWriterAddBlockResult* res, bool* finished) override;
 
 private:
-    Status _init_writers_by_parition_ids(const std::unordered_set<int64_t>& partition_ids);
+    Status _init_writers_by_partition_ids(const std::unordered_set<int64_t>& partition_ids);
 
     CloudStorageEngine& _engine;
 };

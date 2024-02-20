@@ -1006,4 +1006,3 @@ public enum PrimitiveType {
         }
     }
 }
-

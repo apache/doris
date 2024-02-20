@@ -101,6 +101,10 @@ extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>&
                                    std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
+namespace {
+bvar::Adder<uint64_t> unused_rowsets_counter("ununsed_rowsets_counter");
+};
+
 BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
         : _type(type),
           _rowset_id_generator(std::make_unique<UniqueRowsetIdGenerator>(backend_uid)),
@@ -148,7 +152,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
-          _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
           _stream_load_recorder(nullptr),
           _create_tablet_idx_lru_cache(
@@ -478,10 +481,12 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
             if ((_available_storage_medium_type_count == 1 ||
                  data_dir->storage_medium() == storage_medium) &&
                 !data_dir->reach_capacity_limit(0)) {
+                double usage = data_dir->get_usage(0);
                 DirInfo dir_info;
                 dir_info.data_dir = data_dir;
+                dir_info.usage = usage;
                 dir_info.available_level = 0;
-                usages.push_back(data_dir->get_usage(0));
+                usages.push_back(usage);
                 dir_infos.push_back(dir_info);
             }
         }
@@ -512,7 +517,7 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
         }
     }
     for (auto& dir_info : dir_infos) {
-        double usage = dir_info.data_dir->get_usage(0);
+        double usage = dir_info.usage;
         for (size_t i = 1; i < level_min_usages.size() && usage >= level_min_usages[i]; i++) {
             dir_info.available_level++;
         }
@@ -1067,27 +1072,43 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
+    LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size();
     std::vector<RowsetSharedPtr> unused_rowsets_copy;
     unused_rowsets_copy.reserve(_unused_rowsets.size());
+    auto due_to_use_count = 0;
+    auto due_to_not_delete_file = 0;
+    auto due_to_delayed_expired_ts = 0;
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
             uint64_t now = UnixSeconds();
             auto&& rs = it->second;
-            if (rs.use_count() == 1 && rs->need_delete_file() &&
+            if (now > rs->delayed_expired_timestamp()) {
                 // We delay the GC time of this rowset since it's maybe still needed, see #20732
-                now > rs->delayed_expired_timestamp()) {
                 evict_querying_rowset(it->second->rowset_id());
+            }
+            if (rs.use_count() == 1 && rs->need_delete_file()) {
                 // remote rowset data will be reclaimed by `remove_unused_remote_files`
                 if (rs->is_local()) {
                     unused_rowsets_copy.push_back(std::move(rs));
                 }
                 it = _unused_rowsets.erase(it);
             } else {
+                if (rs.use_count() != 1) {
+                    ++due_to_use_count;
+                } else if (!rs->need_delete_file()) {
+                    ++due_to_not_delete_file;
+                } else {
+                    ++due_to_delayed_expired_ts;
+                }
                 ++it;
             }
         }
     }
+    LOG(INFO) << "collected " << unused_rowsets_copy.size() << " unused rowsets to remove, skipped "
+              << due_to_use_count << " rowsets due to use count > 1, skipped "
+              << due_to_not_delete_file << " rowsets due to don't need to delete file, skipped "
+              << due_to_delayed_expired_ts << " rowsets due to delayed expired timestamp.";
     for (auto&& rs : unused_rowsets_copy) {
         VLOG_NOTICE << "start to remove rowset:" << rs->rowset_id()
                     << ", version:" << rs->version();
@@ -1098,8 +1119,10 @@ void StorageEngine::start_delete_unused_rowset() {
                                                           {rs->rowset_id(), UINT32_MAX, 0});
         }
         Status status = rs->remove();
+        unused_rowsets_counter << -1;
         VLOG_NOTICE << "remove rowset:" << rs->rowset_id() << " finished. status:" << status;
     }
+    LOG(INFO) << "removed all collected unused rowsets";
 }
 
 void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
@@ -1114,6 +1137,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
         rowset->set_need_delete_file();
         rowset->close();
         _unused_rowsets[rowset->rowset_id()] = std::move(rowset);
+        unused_rowsets_counter << 1;
     }
 }
 

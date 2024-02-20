@@ -1,4 +1,4 @@
-SELECT
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
   CAST(P.var["P_BRAND"] AS TEXT),
   CAST(P.var["P_TYPE"] AS TEXT),
   CAST(P.var["P_SIZE"] AS INT),

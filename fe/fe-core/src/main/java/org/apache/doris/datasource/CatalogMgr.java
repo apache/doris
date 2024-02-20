@@ -31,10 +31,6 @@ import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -48,6 +44,9 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -110,7 +109,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public static CatalogMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        LOG.debug("debug: read json: {}", json);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("debug: read json: {}", json);
+        }
         return GsonUtils.GSON.fromJson(json, CatalogMgr.class);
     }
 
@@ -1015,4 +1016,3 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return new HashSet<>(idToCatalog.values());
     }
 }
-

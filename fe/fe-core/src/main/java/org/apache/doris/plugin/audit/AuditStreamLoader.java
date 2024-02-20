@@ -17,7 +17,7 @@
 
 package org.apache.doris.plugin.audit;
 
-import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 
@@ -48,7 +48,7 @@ public class AuditStreamLoader {
         this.auditLogTbl = AuditLoaderPlugin.AUDIT_LOG_TABLE;
         this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
         // currently, FE identity is FE's IP, so we replace the "." in IP to make it suitable for label
-        this.feIdentity = hostPort.replaceAll("\\.", "_");
+        this.feIdentity = hostPort.replaceAll("\\.", "_").replaceAll(":", "_");
     }
 
     private HttpURLConnection getConnection(String urlStr, String label, String clusterToken) throws IOException {
@@ -63,7 +63,7 @@ public class AuditStreamLoader {
         conn.addRequestProperty("label", label);
         conn.addRequestProperty("max_filter_ratio", "1.0");
         conn.addRequestProperty("columns",
-                InternalSchemaInitializer.AUDIT_TABLE_COLUMNS.stream().map(c -> c.getName()).collect(
+                InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
                         Collectors.joining(",")));
         conn.setDoOutput(true);
         conn.setDoInput(true);
@@ -78,7 +78,7 @@ public class AuditStreamLoader {
         sb.append("-H \"").append("Content-Type\":").append("\"text/plain; charset=UTF-8\" \\\n  ");
         sb.append("-H \"").append("max_filter_ratio\":").append("\"1.0\" \\\n  ");
         sb.append("-H \"").append("columns\":")
-                .append("\"" + InternalSchemaInitializer.AUDIT_TABLE_COLUMNS.stream().map(c -> c.getName()).collect(
+                .append("\"" + InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
                         Collectors.joining(",")) + "\" \\\n  ");
         sb.append("\"").append(conn.getURL()).append("\"");
         return sb.toString();

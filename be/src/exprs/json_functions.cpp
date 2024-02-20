@@ -330,6 +330,8 @@ void JsonFunctions::merge_objects(rapidjson::Value& dst_object, rapidjson::Value
     if (!src_object.IsObject()) {
         return;
     }
+    VLOG_DEBUG << "merge from src: " << print_json_value(src_object)
+               << ", to: " << print_json_value(dst_object);
     for (auto src_it = src_object.MemberBegin(); src_it != src_object.MemberEnd(); ++src_it) {
         auto dst_it = dst_object.FindMember(src_it->name);
         if (dst_it != dst_object.MemberEnd()) {

@@ -71,20 +71,15 @@ public:
 
     ~RuntimeFilterMgr() = default;
 
-    Status get_consume_filter(const int filter_id, const int node_id,
-                              IRuntimeFilter** consumer_filter);
-
     Status get_consume_filters(const int filter_id, std::vector<IRuntimeFilter*>& consumer_filters);
-
-    Status get_producer_filter(const int filter_id, IRuntimeFilter** producer_filter);
 
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    int node_id, bool build_bf_exactly = false,
-                                    bool is_global = false);
+                                    int node_id, IRuntimeFilter** consumer_filter,
+                                    bool build_bf_exactly = false, bool is_global = false);
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    bool build_bf_exactly = false, bool is_global = false,
-                                    int parallel_tasks = 0);
+                                    IRuntimeFilter** producer_filter, bool build_bf_exactly = false,
+                                    bool is_global = false, int parallel_tasks = 0);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request,
@@ -148,9 +143,6 @@ public:
         std::unordered_set<UniqueId> arrive_id; // fragment_instance_id ?
         std::shared_ptr<ObjectPool> pool;
     };
-
-public:
-    RuntimeFilterCntlVal* get_filter(int id) { return _filter_map[id].first.get(); }
 
 private:
     Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,

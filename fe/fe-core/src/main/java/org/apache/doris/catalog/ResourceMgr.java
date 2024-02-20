@@ -78,7 +78,7 @@ public class ResourceMgr implements Writable {
         Resource resource = Resource.fromStmt(stmt);
         if (createResource(resource, stmt.isIfNotExists())) {
             Env.getCurrentEnv().getEditLog().logCreateResource(resource);
-            LOG.info("Create resource success. Resource: {}", resource);
+            LOG.info("Create resource success. Resource: {}", resource.getName());
         }
     }
 
@@ -96,6 +96,7 @@ public class ResourceMgr implements Writable {
     }
 
     public void replayCreateResource(Resource resource) {
+        resource.applyDefaultProperties();
         nameToResource.put(resource.getName(), resource);
     }
 

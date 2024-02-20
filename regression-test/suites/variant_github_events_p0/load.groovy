@@ -16,6 +16,16 @@
 // under the License.
 
 suite("regression_test_variant_github_events_p0", "variant_type"){
+    def set_be_config = { key, value ->
+        String backend_id;
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+        backend_id = backendId_to_backendIP.keySet()[0]
+        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+    }
     sql "set enable_memtable_on_sink_node = true"
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -58,6 +68,7 @@ suite("regression_test_variant_github_events_p0", "variant_type"){
         DISTRIBUTED BY HASH(k) BUCKETS 4 
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
+    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
@@ -69,6 +80,6 @@ suite("regression_test_variant_github_events_p0", "variant_type"){
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-22.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
     // TODO fix compaction issue, this case could be stable
-    qt_sql """select cast(v:payload.pull_request.additions as int)  from github_events where cast(v:repo.name as string) = 'xpressengine/xe-core' order by 1;"""
+    qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
 }

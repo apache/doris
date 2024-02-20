@@ -238,8 +238,11 @@ Status ParquetReader::_open_file() {
     }
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
-        if (_file_reader->size() == 0) {
-            return Status::EndOfFile("open file failed, empty parquet file: " + _scan_range.path);
+        if (_file_reader->size() <= sizeof(PARQUET_VERSION_NUMBER)) {
+            // Some system may generate parquet file with only 4 bytes: PAR1
+            // Should consider it as empty file.
+            return Status::EndOfFile("open file failed, empty parquet file {} with size: {}",
+                                     _scan_range.path, _file_reader->size());
         }
         size_t meta_size = 0;
         if (_meta_cache == nullptr) {

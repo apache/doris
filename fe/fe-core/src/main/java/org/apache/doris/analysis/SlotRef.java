@@ -215,7 +215,9 @@ public class SlotRef extends Expr {
     @Override
     public void computeOutputColumn(Analyzer analyzer) {
         outputColumn = desc.getSlotOffset();
-        LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
+        }
     }
 
     @Override
@@ -307,7 +309,7 @@ public class SlotRef extends Expr {
             if (tableType.equals(TableType.JDBC_EXTERNAL_TABLE) || tableType.equals(TableType.JDBC) || tableType
                     .equals(TableType.ODBC)) {
                 if (inputTable instanceof JdbcTable) {
-                    return ((JdbcTable) inputTable).getProperRealColumnName(
+                    return ((JdbcTable) inputTable).getProperRemoteColumnName(
                             ((JdbcTable) inputTable).getJdbcTableType(), col);
                 } else if (inputTable instanceof OdbcTable) {
                     return JdbcTable.databaseProperName(((OdbcTable) inputTable).getOdbcTableType(), col);

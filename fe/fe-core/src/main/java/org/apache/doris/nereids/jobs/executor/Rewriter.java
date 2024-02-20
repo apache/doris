@@ -56,6 +56,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateGroupBy;
+import org.apache.doris.nereids.rules.rewrite.EliminateGroupByKey;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinByFK;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinByUnique;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
@@ -98,14 +99,13 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
+import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
-import org.apache.doris.nereids.rules.rewrite.PushDownCountThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
-import org.apache.doris.nereids.rules.rewrite.PushDownSumThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
@@ -288,9 +288,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
             topic("Eager aggregation",
                     topDown(
-                            new PushDownSumThroughJoin(),
                             new PushDownAggThroughJoinOneSide(),
-                            new PushDownCountThroughJoin()
+                            new PushDownAggThroughJoin()
                     ),
                     custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)
             ),
@@ -314,6 +313,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                     custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
+            ),
+
+            // this rule should invoke after topic "Join pull up"
+            topic("eliminate group by keys according to fd items",
+                    topDown(new EliminateGroupByKey())
             ),
 
             topic("Limit optimization",

@@ -371,7 +371,7 @@ Status PushBrokerReader::init() {
     TQueryOptions query_options;
     TQueryGlobals query_globals;
     _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
-                                                 ExecEnv::GetInstance());
+                                                 ExecEnv::GetInstance(), nullptr);
     DescriptorTbl* desc_tbl = nullptr;
     Status status = DescriptorTbl::create(_runtime_state->obj_pool(), _t_desc_tbl, &desc_tbl);
     if (UNLIKELY(!status.ok())) {

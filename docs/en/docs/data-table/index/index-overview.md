@@ -30,7 +30,7 @@ Indexes are used to help quickly filter or find data.
 
 Doris currently supports two main types of indexes:
 1. built-in smart indexes, including prefix indexes and ZoneMap indexes.
-2. User-created secondary indexes, including the [inverted index](./inverted-index.md), [bloomfilter index](./bloomfilter.md)、[ngram bloomfilter index](./ngram-bloomfilter-index.md) and [bitmap index](./bitmap-index.md).
+2. User-created secondary indexes, including the [inverted index](./inverted-index.md), [bloomfilter index](./bloomfilter.md) and [ngram bloomfilter index](./ngram-bloomfilter-index.md).
 
 The ZoneMap index is the index information automatically maintained for each column in the column storage format, including Min/Max, the number of Null values, and so on. This index is transparent to the user.
 

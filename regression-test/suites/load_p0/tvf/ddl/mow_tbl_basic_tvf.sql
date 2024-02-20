@@ -43,11 +43,6 @@ CREATE TABLE mow_tbl_basic_tvf
     INDEX idx_inverted_k113 (`k13`) USING INVERTED,
     INDEX idx_inverted_k114 (`k14`) USING INVERTED,
     INDEX idx_inverted_k117 (`k17`) USING INVERTED PROPERTIES("parser" = "english"),
-    INDEX idx_bitmap_k104 (`k05`) USING BITMAP,
-    INDEX idx_bitmap_k110 (`k11`) USING BITMAP,
-    INDEX idx_bitmap_k113 (`k13`) USING BITMAP,
-    INDEX idx_bitmap_k114 (`k14`) USING BITMAP,
-    INDEX idx_bitmap_k117 (`k17`) USING BITMAP,
     INDEX idx_ngrambf_k115 (`k15`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
     INDEX idx_ngrambf_k116 (`k16`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
     INDEX idx_ngrambf_k117 (`k17`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256")

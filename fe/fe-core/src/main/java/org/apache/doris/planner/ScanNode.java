@@ -41,9 +41,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.planner.external.FederationBackendPolicy;
-import org.apache.doris.planner.external.FileScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -454,7 +454,9 @@ public abstract class ScanNode extends PlanNode {
             }
 
         }
-        LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
+        }
         return partitionColumnFilter;
     }
 

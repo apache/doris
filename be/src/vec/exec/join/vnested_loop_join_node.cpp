@@ -34,7 +34,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "exprs/runtime_filter.h"
 #include "exprs/runtime_filter_slots_cross.h"
 #include "gutil/integral_types.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
@@ -43,14 +42,12 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
-#include "vec/columns/column_const.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
@@ -65,10 +62,10 @@ namespace doris::vectorized {
 
 template <typename Parent>
 Status RuntimeFilterBuild<Parent>::operator()(RuntimeState* state) {
-    if (_parent->runtime_filter_descs().empty()) {
+    if (_parent->runtime_filters().empty()) {
         return Status::OK();
     }
-    VRuntimeFilterSlotsCross runtime_filter_slots(_parent->runtime_filter_descs(),
+    VRuntimeFilterSlotsCross runtime_filter_slots(_parent->runtime_filters(),
                                                   _parent->filter_src_expr_ctxs());
 
     RETURN_IF_ERROR(runtime_filter_slots.init(state));
@@ -96,8 +93,7 @@ VNestedLoopJoinNode::VNestedLoopJoinNode(ObjectPool* pool, const TPlanNode& tnod
           _matched_rows_done(false),
           _left_block_pos(0),
           _left_side_eos(false),
-          _old_version_flag(!tnode.__isset.nested_loop_join_node),
-          _runtime_filter_descs(tnode.runtime_filters) {
+          _old_version_flag(!tnode.__isset.nested_loop_join_node) {
     _left_block = Block::create_shared();
 }
 
@@ -123,7 +119,7 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         filter_src_exprs.push_back(_runtime_filter_descs[i].src_expr);
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                _runtime_filter_descs[i], state->query_options()));
+                _runtime_filter_descs[i], state->query_options(), &_runtime_filters[i]));
     }
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(filter_src_exprs, _filter_src_expr_ctxs));
     return Status::OK();

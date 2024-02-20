@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.collect.Range;
@@ -43,6 +44,13 @@ public class RangePartitionItem extends PartitionItem {
     @Override
     public boolean isDefaultPartition() {
         return false;
+    }
+
+    @Override
+    public PartitionKeyDesc toPartitionKeyDesc() {
+        return PartitionKeyDesc.createFixed(
+                PartitionInfo.toPartitionValue(partitionKeyRange.lowerEndpoint()),
+                PartitionInfo.toPartitionValue(partitionKeyRange.upperEndpoint()));
     }
 
     @Override

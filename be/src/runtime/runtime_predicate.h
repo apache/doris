@@ -179,6 +179,16 @@ private:
         auto v = field.get<DecimalField<Decimal256>>();
         return cast_to_string<TYPE_DECIMAL256, ValueType>(v.get_value(), v.get_scale());
     }
+
+    static std::string get_ipv4_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_IPV4>::CppType;
+        return cast_to_string<TYPE_IPV4, ValueType>(field.get<ValueType>(), 0);
+    }
+
+    static std::string get_ipv6_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_IPV6>::CppType;
+        return cast_to_string<TYPE_IPV6, ValueType>(field.get<ValueType>(), 0);
+    }
 };
 
 } // namespace vectorized

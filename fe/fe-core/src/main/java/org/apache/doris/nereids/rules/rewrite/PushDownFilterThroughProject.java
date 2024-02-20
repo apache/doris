@@ -44,7 +44,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
                 logicalFilter(logicalProject())
                         .whenNot(filter -> filter.child().getProjects().stream().anyMatch(
                                 expr -> expr.anyMatch(WindowExpression.class::isInstance)))
-                        .whenNot(filter -> filter.child().isPulledUpProjectFromScan())
+                        .whenNot(filter -> filter.child().hasPushedDownToProjectionFunctions())
                         .then(PushDownFilterThroughProject::pushdownFilterThroughProject)
                         .toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_PROJECT),
                 // filter(project(limit)) will change to filter(limit(project)) by PushdownProjectThroughLimit,
@@ -52,7 +52,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
                 logicalFilter(logicalLimit(logicalProject()))
                         .whenNot(filter -> filter.child().child().getProjects().stream()
                                 .anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance)))
-                        .whenNot(filter -> filter.child().child().isPulledUpProjectFromScan())
+                        .whenNot(filter -> filter.child().child().hasPushedDownToProjectionFunctions())
                         .then(filter -> {
                             LogicalLimit<LogicalProject<Plan>> limit = filter.child();
                             LogicalProject<Plan> project = limit.child();

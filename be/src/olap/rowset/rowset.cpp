@@ -101,4 +101,20 @@ std::string Rowset::get_rowset_info_str() {
                        rowset_id().to_string(), disk_size);
 }
 
+Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
+    if (rowsets.size() < 2) {
+        return Status::OK();
+    }
+    auto prev = rowsets.begin();
+    for (auto it = rowsets.begin() + 1; it != rowsets.end(); ++it) {
+        if ((*prev)->end_version() + 1 != (*it)->start_version()) {
+            return Status::InternalError("versions are not continuity: prev={} cur={}",
+                                         (*prev)->version().to_string(),
+                                         (*it)->version().to_string());
+        }
+        prev = it;
+    }
+    return Status::OK();
+}
+
 } // namespace doris

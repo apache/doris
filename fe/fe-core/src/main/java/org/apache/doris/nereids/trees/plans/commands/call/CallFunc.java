@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.call;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.qe.ConnectContext;
 
 /**
  * call function
@@ -28,13 +29,15 @@ public abstract class CallFunc {
     /**
      * Get the instance of CallFunc
      */
-    public static CallFunc getFunc(UserIdentity user, UnboundFunction unboundFunction) {
+    public static CallFunc getFunc(ConnectContext ctx, UserIdentity user, UnboundFunction unboundFunction,
+            String originSql) {
         String funcName = unboundFunction.getName().toUpperCase();
         switch (funcName) {
-            case "EXECUTE_STMT":
+            // TODO, built-in functions require a separate management
+            case "EXECUTE_STMT": // Call built-in functions first
                 return CallExecuteStmtFunc.create(user, unboundFunction.getArguments());
             default:
-                throw new IllegalArgumentException("unknown function name: " + funcName);
+                return CallProcedure.create(ctx, originSql);
         }
     }
 

@@ -122,6 +122,10 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
     }
+    // add sparse column to footer
+    for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
+        _init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i));
+    }
 }
 
 Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column) {

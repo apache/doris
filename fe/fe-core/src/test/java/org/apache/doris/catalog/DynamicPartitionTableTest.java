@@ -641,7 +641,8 @@ public class DynamicPartitionTableTest {
                 + ");";
         // start and history_partition_num are not set, can not create history partition
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Provide start or history_partition_num property when creating history partition",
+                "Provide start or history_partition_num property when create_history_partition=true. "
+                        + "Otherwise set create_history_partition=false",
                 () -> createTable(createOlapTblStmt));
 
         String createOlapTblStmt2 = "CREATE TABLE test.`dynamic_partition3` (\n"

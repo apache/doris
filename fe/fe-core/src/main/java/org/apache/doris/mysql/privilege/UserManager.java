@@ -327,6 +327,7 @@ public class UserManager implements Writable, GsonPostProcessable {
             String user = entry.getKey();
             newNameToUsers.put(ClusterNamespace.getNameFromFullName(user), entry.getValue());
         }
+        this.nameToUsers = newNameToUsers;
     }
 
     @Override

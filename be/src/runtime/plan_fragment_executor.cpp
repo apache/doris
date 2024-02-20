@@ -126,9 +126,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals = _query_ctx->query_globals;
-    _runtime_state =
-            RuntimeState::create_unique(params, request.query_options, query_globals, _exec_env);
-    _runtime_state->set_query_ctx(_query_ctx.get());
+    _runtime_state = RuntimeState::create_unique(params, request.query_options, query_globals,
+                                                 _exec_env, _query_ctx.get());
     _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
@@ -517,8 +516,7 @@ void PlanFragmentExecutor::send_report(bool done) {
             _runtime_state.get(),
             std::bind(&PlanFragmentExecutor::update_status, this, std::placeholders::_1),
             std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1,
-                      std::placeholders::_2),
-            _query_ctx->get_query_statistics()};
+                      std::placeholders::_2)};
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.

@@ -999,7 +999,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         } finally {
             if (!passCheck) {
                 writeUnlock();
-                LOG.debug("unlock write lock of routine load job before check: {}", id);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("unlock write lock of routine load job before check: {}", id);
+                }
             }
         }
     }
@@ -1021,7 +1023,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 taskBeId = routineLoadTaskInfo.getBeId();
                 executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.COMMITTED, null);
                 ++this.jobStatistic.committedTaskNum;
-                LOG.debug("routine load task committed. task id: {}, job id: {}", txnState.getLabel(), id);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("routine load task committed. task id: {}, job id: {}", txnState.getLabel(), id);
+                }
             }
         } catch (Throwable e) {
             LOG.warn("after committed failed", e);
@@ -1032,7 +1036,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     new ErrorReason(InternalErrorCode.INTERNAL_ERR, errmsg), false /* not replay */);
         } finally {
             writeUnlock();
-            LOG.debug("unlock write lock of routine load job after committed: {}", id);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("unlock write lock of routine load job after committed: {}", id);
+            }
         }
     }
 
@@ -1041,7 +1047,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
         replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
         this.jobStatistic.committedTaskNum++;
-        LOG.debug("replay on committed: {}", txnState);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replay on committed: {}", txnState);
+        }
     }
 
     /*
@@ -1197,7 +1205,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     .build(), e);
         } finally {
             writeUnlock();
-            LOG.debug("unlock write lock of routine load job after aborted: {}", id);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("unlock write lock of routine load job after aborted: {}", id);
+            }
         }
     }
 
@@ -1208,7 +1218,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
         }
         this.jobStatistic.abortedTaskNum++;
-        LOG.debug("replay on aborted: {}, has attachment: {}", txnState, txnState.getTxnCommitAttachment() == null);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replay on aborted: {}, has attachment: {}", txnState, txnState.getTxnCommitAttachment() == null);
+        }
     }
 
     // check task exists or not before call method

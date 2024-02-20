@@ -1542,6 +1542,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
         if (this.type.isAggStateType()) {
             List<Type> subTypes = ((AggStateType) targetType).getSubTypes();
+            List<Boolean> subNullables = ((AggStateType) targetType).getSubTypeNullables();
 
             if (this instanceof FunctionCallExpr) {
                 if (subTypes.size() != getChildren().size()) {
@@ -1549,6 +1550,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
                 for (int i = 0; i < subTypes.size(); i++) {
                     setChild(i, getChild(i).castTo(subTypes.get(i)));
+                    if (getChild(i).isNullable() && !subNullables.get(i)) {
+                        FunctionCallExpr newChild = new FunctionCallExpr("non_nullable",
+                                Lists.newArrayList(getChild(i)));
+                        newChild.analyzeImplForDefaultValue(subTypes.get(i));
+                        setChild(i, newChild);
+                    } else if (!getChild(i).isNullable() && subNullables.get(i)) {
+                        FunctionCallExpr newChild = new FunctionCallExpr("nullable", Lists.newArrayList(getChild(i)));
+                        newChild.analyzeImplForDefaultValue(subTypes.get(i));
+                        setChild(i, newChild);
+                    }
                 }
                 type = targetType;
             } else {

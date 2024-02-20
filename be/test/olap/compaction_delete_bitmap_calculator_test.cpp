@@ -273,7 +273,7 @@ TEST_F(CompactionDeleteBitmapCalculatorTest, test) {
 
     CommitTabletTxnInfoVec commit_tablet_txn_info_vec {};
     engine_ref->txn_manager()->get_all_commit_tablet_txn_info_by_tablet(
-            _tablet, &commit_tablet_txn_info_vec);
+            *_tablet, &commit_tablet_txn_info_vec);
     EXPECT_EQ(commit_tablet_txn_info_vec.size(), 1);
 }
 } // namespace doris

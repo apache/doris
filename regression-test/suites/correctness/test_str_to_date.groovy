@@ -49,9 +49,10 @@ sql """ set enable_nereids_planner=true ,  enable_fallback_to_original_planner=f
     qt_select4 """
         SELECT STR_TO_DATE('2020-12-03 11:45:14', 'yyyy-MM-dd HH:mm:ss');
     """
-    qt_add_1 " select STR_TO_DATE('2023', '%Y') "
-    qt_add_2 " select STR_TO_DATE('2023-12', '%Y-%m') "
-    qt_add_3 " select STR_TO_DATE('2023-12', '%Y')"
+    qt_short_nereids_1 " select STR_TO_DATE('2023', '%Y') "
+    qt_short_nereids_2 " select STR_TO_DATE('2023-12', '%Y-%m') "
+    qt_short_nereids_3 " select STR_TO_DATE('2023-12', '%Y')"
+    qt_short_nereids_4 " select STR_TO_DATE('2020%2', '%Y%%%m')"
 
 
 sql """ set enable_nereids_planner=false;"""
@@ -67,7 +68,8 @@ sql """ set enable_nereids_planner=false;"""
     qt_select8 """
         SELECT STR_TO_DATE('2020-12-03 11:45:14', 'yyyy-MM-dd HH:mm:ss');
     """
-    qt_add_4 " select STR_TO_DATE('2023', '%Y') "
-    qt_add_5 " select STR_TO_DATE('2023-12', '%Y-%m') "
-    qt_add_6 " select STR_TO_DATE('2023-12', '%Y')"
+    qt_short_legacy_1 " select STR_TO_DATE('2023', '%Y') "
+    qt_short_legacy_2 " select STR_TO_DATE('2023-12', '%Y-%m') "
+    qt_short_legacy_3 " select STR_TO_DATE('2023-12', '%Y')"
+    qt_short_legacy_4 " select STR_TO_DATE('2020%2', '%Y%%%m')"
 }

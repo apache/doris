@@ -122,9 +122,6 @@ public interface GlobalTransactionMgrIface extends Writable {
     public void updateMultiTableRunningTransactionTableIds(Long dbId, Long transactionId, List<Long> tableIds)
             throws UserException;
 
-    public void putTransactionTableNames(Long dbId, Long transactionId, List<Long> tableIds)
-            throws Exception;
-
     public TWaitingTxnStatusResult getWaitingTxnStatus(TWaitingTxnStatusRequest request)
             throws AnalysisException, TimeoutException;
 

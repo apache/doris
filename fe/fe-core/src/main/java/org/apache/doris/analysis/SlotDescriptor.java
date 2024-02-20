@@ -311,7 +311,9 @@ public class SlotDescriptor {
         tSlotDescriptor.setNeedMaterialize(needMaterialize);
         tSlotDescriptor.setIsAutoIncrement(isAutoInc);
         if (column != null) {
-            LOG.debug("column name:{}, column unique id:{}", column.getNonShadowName(), column.getUniqueId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("column name:{}, column unique id:{}", column.getNonShadowName(), column.getUniqueId());
+            }
             tSlotDescriptor.setColUniqueId(column.getUniqueId());
             tSlotDescriptor.setPrimitiveType(column.getDataType().toThrift());
             tSlotDescriptor.setIsKey(column.isKey());

@@ -418,7 +418,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     }
     RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter));
     if (ancestor_nulls != 0) {
-        static_cast<void>(_chunk_reader->skip_values(ancestor_nulls, false));
+        RETURN_IF_ERROR(_chunk_reader->skip_values(ancestor_nulls, false));
     }
 
     if (!align_rows) {
@@ -608,6 +608,9 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
         }
         data_column = doris_column->assume_mutable();
     }
+    if (remove_nullable(type)->get_type_id() != TypeIndex::Array) {
+        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
+    }
 
     ColumnPtr& element_column = static_cast<ColumnArray&>(*data_column).get_data_ptr();
     DataTypePtr& element_type = const_cast<DataTypePtr&>(
@@ -653,6 +656,9 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
         data_column = doris_column->assume_mutable();
+    }
+    if (remove_nullable(type)->get_type_id() != TypeIndex::Map) {
+        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
     }
 
     auto& map = static_cast<ColumnMap&>(*data_column);
@@ -717,6 +723,9 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         }
         data_column = doris_column->assume_mutable();
     }
+    if (remove_nullable(type)->get_type_id() != TypeIndex::Struct) {
+        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
+    }
 
     auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
     if (_child_readers.size() != doris_struct.tuple_size()) {
@@ -731,7 +740,7 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         size_t field_rows = 0;
         bool field_eof = false;
         if (i == 0) {
-            static_cast<void>(_child_readers[i]->read_column_data(
+            RETURN_IF_ERROR(_child_readers[i]->read_column_data(
                     doris_field, doris_type, select_vector, batch_size, &field_rows, &field_eof,
                     is_dict_filter));
             *read_rows = field_rows;
@@ -740,7 +749,7 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             while (field_rows < *read_rows && !field_eof) {
                 size_t loop_rows = 0;
                 select_vector.reset();
-                static_cast<void>(_child_readers[i]->read_column_data(
+                RETURN_IF_ERROR(_child_readers[i]->read_column_data(
                         doris_field, doris_type, select_vector, *read_rows - field_rows, &loop_rows,
                         &field_eof, is_dict_filter));
                 field_rows += loop_rows;

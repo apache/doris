@@ -174,8 +174,6 @@ private:
     bool _enable_pipeline;
     std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
             _sender_to_local_channel_dependency;
-
-    std::shared_ptr<bool> _mem_available;
 };
 
 class ThreadClosure : public google::protobuf::Closure {

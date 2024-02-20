@@ -218,4 +218,27 @@ PROPERTIES (
         """
         exception "the auto increment column can't have default value."
     }
+
+    sql "drop table if exists ${table_check}"
+    try {
+        sql """
+            CREATE TABLE IF NOT EXISTS `${table_check}` (
+              AUTO_INCREMENT BIGINT NOT NULL AUTO_INCREMENT COMMENT "",
+              VALUE int(11) NOT NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(AUTO_INCREMENT)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(AUTO_INCREMENT) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            )
+        """
+    } catch (Exception e){
+        // no exception
+        assertTrue(false)
+    } finally{
+
+    }
 }

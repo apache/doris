@@ -147,7 +147,6 @@ public:
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
     pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
-    pipeline::TaskScheduler* pipeline_task_group_scheduler() { return _with_group_task_scheduler; }
     taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
     RuntimeQueryStatiticsMgr* runtime_query_statistics_mgr() {
@@ -320,7 +319,6 @@ private:
 
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
-    pipeline::TaskScheduler* _with_group_task_scheduler = nullptr;
     taskgroup::TaskGroupManager* _task_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
@@ -374,8 +372,6 @@ private:
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler;
     // used for query without workload group
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
-    // used for query with workload group cpu soft limit
-    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _with_group_block_scheduler;
 
     doris::pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 

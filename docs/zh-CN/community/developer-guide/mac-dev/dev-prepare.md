@@ -28,10 +28,11 @@ under the License.
 
 ```shell
 brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@11 npm
+python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@17 npm
 ```
 
-*使用 brew 安装的 jdk 版本为 11，因为在 macOS上，arm64 版本的 brew 默认没有 8 版本的 jdk*
+*使用 brew 安装的 jdk 版本为 17，因为在 macOS上，arm64 版本的 brew 默认没有 8 版本的 jdk*
+*Doris目前只支持 jdk8 和 jdk17 两个版本*
 
 **依赖说明：**
 1. Java、Maven 等可以单独下载，方便管理
@@ -59,9 +60,10 @@ MacOS:
         `ln -s /usr/local/Cellar/thrift@0.16.0/0.16.0/bin/thrift ./thirdparty/installed/bin/thrift`
 
 注：macOS 执行 `brew install thrift@0.16.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.16.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.16.0`
+    1. `brew tap homebrew/core --force`
+    2. `brew tap-new $USER/local-tap`
+    3. `brew extract --version='0.16.0' thrift $USER/local-tap`
+    4. `brew install thrift@0.16.0`
 参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
 ```
 

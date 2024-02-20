@@ -60,6 +60,96 @@ PROPERTIES (
 );
 ```
 
+### Use `JDBC`
+
+To reduce the CPU cost of SQL parsing and query planning, we provide the `PreparedStatement` in the FE. When using `PreparedStatement`, the SQL and its plan will be cached in the session level memory cache and will be reused later on, which reduces the CPU cost of FE. The following is an example of using PreparedStatement in JDBC:
+
+1. Setup JDBC url and enable server side prepared statement
+
+```
+url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true
+```
+
+2. Set `group_commit` session variable, there are two ways to do it:
+
+* Add `sessionVariables=group_commit=async_mode` in JDBC url
+
+```
+url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true&sessionVariables=group_commit=async_mode
+```
+
+* Use `SET group_commit = async_mode;` command
+
+```
+try (Statement statement = conn.createStatement()) {
+    statement.execute("SET group_commit = async_mode;");
+}
+```
+
+3. Using `PreparedStatement`
+
+```java
+private static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
+private static final String URL_PATTERN = "jdbc:mysql://%s:%d/%s?useServerPrepStmts=true";
+private static final String HOST = "127.0.0.1";
+private static final int PORT = 9087;
+private static final String DB = "db";
+private static final String TBL = "dt";
+private static final String USER = "root";
+private static final String PASSWD = "";
+private static final int INSERT_BATCH_SIZE = 10;
+
+private static void groupCommitInsert() throws Exception {
+    Class.forName(JDBC_DRIVER);
+    try (Connection conn = DriverManager.getConnection(String.format(URL_PATTERN, HOST, PORT, DB), USER, PASSWD)) {
+        // set session variable 'group_commit'
+        try (Statement statement = conn.createStatement()) {
+            statement.execute("SET group_commit = async_mode;");
+        }
+
+        String query = "insert into " + TBL + " values(?, ?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(query)) {
+            for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
+                stmt.setInt(1, i);
+                stmt.setString(2, "name" + i);
+                stmt.setInt(3, i + 10);
+                int result = stmt.executeUpdate();
+                System.out.println("rows: " + result);
+            }
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}   
+
+private static void groupCommitInsertBatch() throws Exception {
+    Class.forName(JDBC_DRIVER);
+    // add rewriteBatchedStatements=true and cachePrepStmts=true in JDBC url
+    // set session variables by sessionVariables=group_commit=async_mode in JDBC url
+    try (Connection conn = DriverManager.getConnection(
+            String.format(URL_PATTERN + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=group_commit=async_mode", HOST, PORT, DB), USER, PASSWD)) {
+
+        String query = "insert into " + TBL + " values(?, ?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(query)) {
+            for (int j = 0; j < 5; j++) {
+                // 10 rows per insert
+                for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
+                    stmt.setInt(1, i);
+                    stmt.setString(2, "name" + i);
+                    stmt.setInt(3, i + 10);
+                    stmt.addBatch();
+                }
+                int[] result = stmt.executeBatch();
+            }
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+```
+
+See [Synchronize Data Using Insert Method](../import-scenes/jdbc-load.md) for more details about **JDBC**.
+
 ### INSERT INTO VALUES
 
 * async_mode
@@ -244,96 +334,6 @@ curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:sync_mo
 ```
 
 See [Stream Load](stream-load-manual.md) for more detailed syntax used by **Http Stream**.
-
-### Use `PreparedStatement`
-
-To reduce the CPU cost of SQL parsing and query planning, we provide the `PreparedStatement` in the FE. When using `PreparedStatement`, the SQL and its plan will be cached in the session level memory cache and will be reused later on, which reduces the CPU cost of FE. The following is an example of using PreparedStatement in JDBC:
-
-1. Setup JDBC url and enable server side prepared statement
-
-```
-url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true
-```
-
-2. Set `group_commit` session variable, there are two ways to do it:
-
-* Add `sessionVariables=group_commit=async_mode` in JDBC url
-
-```
-url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true&sessionVariables=group_commit=async_mode
-```
-
-* Use `SET group_commit = async_mode;` command
-
-```
-try (Statement statement = conn.createStatement()) {
-    statement.execute("SET group_commit = async_mode;");
-}
-```
-
-3. Using `PreparedStatement`
-
-```java
-private static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
-private static final String URL_PATTERN = "jdbc:mysql://%s:%d/%s?useServerPrepStmts=true";
-private static final String HOST = "127.0.0.1";
-private static final int PORT = 9087;
-private static final String DB = "db";
-private static final String TBL = "dt";
-private static final String USER = "root";
-private static final String PASSWD = "";
-private static final int INSERT_BATCH_SIZE = 10;
-
-private static void groupCommitInsert() throws Exception {
-    Class.forName(JDBC_DRIVER);
-    try (Connection conn = DriverManager.getConnection(String.format(URL_PATTERN, HOST, PORT, DB), USER, PASSWD)) {
-        // set session variable 'group_commit'
-        try (Statement statement = conn.createStatement()) {
-            statement.execute("SET group_commit = async_mode;");
-        }
-
-        String query = "insert into " + TBL + " values(?, ?, ?)";
-        try (PreparedStatement stmt = conn.prepareStatement(query)) {
-            for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
-                stmt.setInt(1, i);
-                stmt.setString(2, "name" + i);
-                stmt.setInt(3, i + 10);
-                int result = stmt.executeUpdate();
-                System.out.println("rows: " + result);
-            }
-        }
-    } catch (Exception e) {
-        e.printStackTrace();
-    }
-}   
-
-private static void groupCommitInsertBatch() throws Exception {
-    Class.forName(JDBC_DRIVER);
-    // add rewriteBatchedStatements=true and cachePrepStmts=true in JDBC url
-    // set session variables by sessionVariables=group_commit=async_mode in JDBC url
-    try (Connection conn = DriverManager.getConnection(
-            String.format(URL_PATTERN + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=group_commit=async_mode", HOST, PORT, DB), USER, PASSWD)) {
-
-        String query = "insert into " + TBL + " values(?, ?, ?)";
-        try (PreparedStatement stmt = conn.prepareStatement(query)) {
-            for (int j = 0; j < 5; j++) {
-                // 10 rows per insert
-                for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
-                    stmt.setInt(1, i);
-                    stmt.setString(2, "name" + i);
-                    stmt.setInt(3, i + 10);
-                    stmt.addBatch();
-                }
-                int[] result = stmt.executeBatch();
-            }
-        }
-    } catch (Exception e) {
-        e.printStackTrace();
-    }
-}
-```
-
-See [Synchronize Data Using Insert Method](../import-scenes/jdbc-load.md) for more details about **JDBC**.
 
 ## Modify the group commit interval
 

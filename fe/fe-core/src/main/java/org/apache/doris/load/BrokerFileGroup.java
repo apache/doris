@@ -542,4 +542,3 @@ public class BrokerFileGroup implements Writable {
         return fileGroup;
     }
 }
-

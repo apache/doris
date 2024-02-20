@@ -110,8 +110,10 @@ public class RangerDorisAccessController extends RangerAccessController {
         request.setResource(resource);
         RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
 
-        LOG.debug(String.format("maskType: %s, maskTypeDef: %s, maskedValue: %s", result.getMaskType(),
-                result.getMaskTypeDef(), result.getMaskedValue()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(String.format("maskType: %s, maskTypeDef: %s, maskedValue: %s", result.getMaskType(),
+                    result.getMaskTypeDef(), result.getMaskedValue()));
+        }
     }
 
     @Override

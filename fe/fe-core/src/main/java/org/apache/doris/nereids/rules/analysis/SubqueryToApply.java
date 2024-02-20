@@ -134,14 +134,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     }
                     Set<Expression> conjuncts = ImmutableSet.copyOf(newConjuncts.build());
                     Plan newFilter = new LogicalFilter<>(conjuncts, applyPlan);
-                    if (conjuncts.stream().flatMap(c -> c.children().stream())
-                            .anyMatch(MarkJoinSlotReference.class::isInstance)) {
-                        return new LogicalProject<>(applyPlan.getOutput().stream()
-                                .filter(s -> !(s instanceof MarkJoinSlotReference))
-                                .collect(ImmutableList.toImmutableList()), newFilter);
-                    } else {
-                        return newFilter;
-                    }
+                    return new LogicalProject<>(filter.getOutput().stream().collect(ImmutableList.toImmutableList()),
+                        newFilter);
                 })
             ),
             RuleType.PROJECT_SUBQUERY_TO_APPLY.build(logicalProject().thenApply(ctx -> {

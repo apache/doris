@@ -81,6 +81,7 @@
 #include "util/md5.h"
 #include "util/simd/vstring_function.h"
 #include "util/sm3.h"
+#include "util/url_coding.h"
 #include "util/url_parser.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
@@ -471,8 +472,6 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
@@ -622,8 +621,6 @@ public:
 
     bool is_variadic() const override { return true; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
@@ -636,7 +633,7 @@ public:
                 assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
 
         if (arguments.size() > 1) {
-            auto& col = *block.get_by_position(arguments[1]).column;
+            const auto& col = *block.get_by_position(arguments[1]).column;
             auto string_ref = col.get_data_at(0);
             if (string_ref.size > 0) {
                 upper = *string_ref.data;
@@ -644,7 +641,7 @@ public:
         }
 
         if (arguments.size() > 2) {
-            auto& col = *block.get_by_position(arguments[2]).column;
+            const auto& col = *block.get_by_position(arguments[2]).column;
             auto string_ref = col.get_data_at(0);
             if (string_ref.size > 0) {
                 lower = *string_ref.data;
@@ -652,7 +649,7 @@ public:
         }
 
         if (arguments.size() > 3) {
-            auto& col = *block.get_by_position(arguments[3]).column;
+            const auto& col = *block.get_by_position(arguments[3]).column;
             auto string_ref = col.get_data_at(0);
             if (string_ref.size > 0) {
                 number = *string_ref.data;
@@ -721,8 +718,6 @@ public:
 
     bool is_variadic() const override { return true; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
@@ -732,10 +727,10 @@ public:
 
         auto res = ColumnString::create();
         auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const ColumnString& source_column = assert_cast<const ColumnString&>(*col);
+        const auto& source_column = assert_cast<const ColumnString&>(*col);
 
         if (arguments.size() == 2) {
-            auto& col = *block.get_by_position(arguments[1]).column;
+            const auto& col = *block.get_by_position(arguments[1]).column;
             n = col.get_int(0);
         } else if (arguments.size() > 2) {
             return Status::InvalidArgument(
@@ -758,8 +753,8 @@ public:
 private:
     static void vector(const ColumnString& src, int n, ColumnString& result) {
         const auto num_rows = src.size();
-        auto* chars = src.get_chars().data();
-        auto* offsets = src.get_offsets().data();
+        const auto* chars = src.get_chars().data();
+        const auto* offsets = src.get_offsets().data();
         result.get_chars().resize(src.get_chars().size());
         result.get_offsets().resize(src.get_offsets().size());
         memcpy_small_allow_read_write_overflow15(
@@ -799,8 +794,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -854,8 +847,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1041,7 +1032,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1061,7 +1051,7 @@ public:
         for (int i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            auto col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
+            const auto* col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
             offsets_list[i] = &col_str->get_offsets();
             chars_list[i] = &col_str->get_chars();
         }
@@ -1094,8 +1084,8 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             int current_length = 0;
             for (size_t j = 0; j < offsets_list.size(); ++j) {
-                auto& current_offsets = *offsets_list[j];
-                auto& current_chars = *chars_list[j];
+                const auto& current_offsets = *offsets_list[j];
+                const auto& current_chars = *chars_list[j];
 
                 int size = current_offsets[i] - current_offsets[i - 1];
                 if (size > 0) {
@@ -1442,6 +1432,103 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        DCHECK_EQ(arguments.size(), 2);
+        auto res = ColumnString::create();
+
+        ColumnPtr argument_ptr[2];
+        argument_ptr[0] =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        argument_ptr[1] = block.get_by_position(arguments[1]).column;
+
+        if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
+            if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
+                vector_vector(col1->get_chars(), col1->get_offsets(), col2->get_data(),
+                              res->get_chars(), res->get_offsets(),
+                              context->state()->repeat_max_num());
+                block.replace_by_position(result, std::move(res));
+                return Status::OK();
+            } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
+                DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
+                int repeat = 0;
+                repeat = std::min<int>(col2_const->get_int(0), context->state()->repeat_max_num());
+
+                if (repeat <= 0) {
+                    res->insert_many_defaults(input_rows_count);
+                } else {
+                    vector_const(col1->get_chars(), col1->get_offsets(), repeat, res->get_chars(),
+                                 res->get_offsets());
+                }
+                block.replace_by_position(result, std::move(res));
+                return Status::OK();
+            }
+        }
+
+        return Status::RuntimeError("repeat function get error param: {}, {}",
+                                    argument_ptr[0]->get_name(), argument_ptr[1]->get_name());
+    }
+
+    void vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                       const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
+                       ColumnString::Offsets& res_offsets, const int repeat_max_num) const {
+        size_t input_row_size = offsets.size();
+
+        fmt::memory_buffer buffer;
+        res_offsets.resize(input_row_size);
+        for (ssize_t i = 0; i < input_row_size; ++i) {
+            buffer.clear();
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t size = offsets[i] - offsets[i - 1];
+            int repeat = 0;
+            repeat = std::min<int>(repeats[i], repeat_max_num);
+
+            if (repeat <= 0) {
+                StringOP::push_empty_string(i, res_data, res_offsets);
+            } else {
+                for (int j = 0; j < repeat; ++j) {
+                    buffer.append(raw_str, raw_str + size);
+                }
+                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
+                                            res_data, res_offsets);
+            }
+        }
+    }
+
+    // TODO: 1. use pmr::vector<char> replace fmt_buffer may speed up the code
+    //       2. abstract the `vector_vector` and `vector_const`
+    //       3. rethink we should use `DEFAULT_MAX_STRING_SIZE` to bigger here
+    void vector_const(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                      int repeat, ColumnString::Chars& res_data,
+                      ColumnString::Offsets& res_offsets) const {
+        size_t input_row_size = offsets.size();
+
+        fmt::memory_buffer buffer;
+        res_offsets.resize(input_row_size);
+        for (ssize_t i = 0; i < input_row_size; ++i) {
+            buffer.clear();
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t size = offsets[i] - offsets[i - 1];
+
+            for (int j = 0; j < repeat; ++j) {
+                buffer.append(raw_str, raw_str + size);
+            }
+            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
+                                        res_offsets);
+        }
+    }
+};
+
+class FunctionStringRepeatOld : public IFunction {
+public:
+    static constexpr auto name = "repeat";
+    static FunctionPtr create() { return std::make_shared<FunctionStringRepeatOld>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1555,7 +1642,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1697,8 +1783,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1867,18 +1951,14 @@ public:
     size_t get_number_of_arguments() const override { return 3; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+        return std::make_shared<DataTypeString>();
     }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
         // Create a zero column to simply implement
-        auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res = ColumnString::create();
 
         auto& res_offsets = res->get_offsets();
@@ -1889,7 +1969,159 @@ public:
         std::tie(content_column, content_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
 
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*content_column)) {
+        const auto* str_col = assert_cast<const ColumnString*>(content_column.get());
+
+        [[maybe_unused]] const auto& [delimiter_col, delimiter_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        auto delimiter = delimiter_col->get_data_at(0);
+        int32_t delimiter_size = delimiter.size;
+
+        [[maybe_unused]] const auto& [part_num_col, part_const] =
+                unpack_if_const(block.get_by_position(arguments[2]).column);
+        auto part_number = *((int*)part_num_col->get_data_at(0).data);
+
+        if (part_number == 0 || delimiter_size == 0) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+            }
+        } else if (part_number > 0) {
+            if (delimiter_size == 1) {
+                // If delimiter is a char, use memchr to split
+                for (size_t i = 0; i < input_rows_count; ++i) {
+                    auto str = str_col->get_data_at(i);
+                    int32_t offset = -1;
+                    int32_t num = 0;
+                    while (num < part_number) {
+                        size_t n = str.size - offset - 1;
+                        const char* pos = reinterpret_cast<const char*>(
+                                memchr(str.data + offset + 1, delimiter.data[0], n));
+                        if (pos != nullptr) {
+                            offset = pos - str.data;
+                            num++;
+                        } else {
+                            offset = str.size;
+                            num = (num == 0) ? 0 : num + 1;
+                            break;
+                        }
+                    }
+
+                    if (num == part_number) {
+                        StringOP::push_value_string(
+                                std::string_view {reinterpret_cast<const char*>(str.data),
+                                                  (size_t)offset},
+                                i, res_chars, res_offsets);
+                    } else {
+                        StringOP::push_value_string(std::string_view(str.data, str.size), i,
+                                                    res_chars, res_offsets);
+                    }
+                }
+            } else {
+                StringRef delimiter_ref(delimiter);
+                StringSearch search(&delimiter_ref);
+                for (size_t i = 0; i < input_rows_count; ++i) {
+                    auto str = str_col->get_data_at(i);
+                    int32_t offset = -delimiter_size;
+                    int32_t num = 0;
+                    while (num < part_number) {
+                        size_t n = str.size - offset - delimiter_size;
+                        // search first match delimter_ref index from src string among str_offset to end
+                        const char* pos = search.search(str.data + offset + delimiter_size, n);
+                        if (pos < str.data + str.size) {
+                            offset = pos - str.data;
+                            num++;
+                        } else {
+                            offset = str.size;
+                            num = (num == 0) ? 0 : num + 1;
+                            break;
+                        }
+                    }
+
+                    if (num == part_number) {
+                        StringOP::push_value_string(
+                                std::string_view {reinterpret_cast<const char*>(str.data),
+                                                  (size_t)offset},
+                                i, res_chars, res_offsets);
+                    } else {
+                        StringOP::push_value_string(std::string_view(str.data, str.size), i,
+                                                    res_chars, res_offsets);
+                    }
+                }
+            }
+        } else {
+            // if part_number is negative
+            part_number = -part_number;
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto str = str_col->get_data_at(i);
+                auto str_str = str.to_string();
+                int32_t offset = str.size;
+                int32_t pre_offset = offset;
+                int32_t num = 0;
+                auto substr = str_str;
+                while (num <= part_number && offset >= 0) {
+                    offset = (int)substr.rfind(delimiter, offset);
+                    if (offset != -1) {
+                        if (++num == part_number) {
+                            break;
+                        }
+                        pre_offset = offset;
+                        offset = offset - 1;
+                        substr = str_str.substr(0, pre_offset);
+                    } else {
+                        break;
+                    }
+                }
+                num = (offset == -1 && num != 0) ? num + 1 : num;
+
+                if (num == part_number) {
+                    if (offset == -1) {
+                        StringOP::push_value_string(std::string_view(str.data, str.size), i,
+                                                    res_chars, res_offsets);
+                    } else {
+                        StringOP::push_value_string(
+                                std::string_view {str.data + offset + delimiter_size,
+                                                  str.size - offset - delimiter_size},
+                                i, res_chars, res_offsets);
+                    }
+                } else {
+                    StringOP::push_value_string(std::string_view(str.data, str.size), i, res_chars,
+                                                res_offsets);
+                }
+            }
+        }
+
+        block.get_by_position(result).column = std::move(res);
+        return Status::OK();
+    }
+};
+
+class FunctionSubstringIndexOld : public IFunction {
+public:
+    static constexpr auto name = "substring_index";
+    static FunctionPtr create() { return std::make_shared<FunctionSubstringIndexOld>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        DCHECK_EQ(arguments.size(), 3);
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        // Create a zero column to simply implement
+        auto res = ColumnString::create();
+
+        auto& res_offsets = res->get_offsets();
+        auto& res_chars = res->get_chars();
+        res_offsets.resize(input_rows_count);
+        ColumnPtr content_column;
+        bool content_const = false;
+        std::tie(content_column, content_const) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+
+        if (const auto* nullable = check_and_get_column<const ColumnNullable>(*content_column)) {
             // Danger: Here must dispose the null map data first! Because
             // argument_columns[0]=nullable->get_nested_column_ptr(); will release the mem
             // of column nullable mem of null map
@@ -1897,7 +2129,7 @@ public:
             content_column = nullable->get_nested_column_ptr();
         }
 
-        auto str_col = assert_cast<const ColumnString*>(content_column.get());
+        const auto* str_col = assert_cast<const ColumnString*>(content_column.get());
 
         [[maybe_unused]] const auto& [delimiter_col, delimiter_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
@@ -2022,7 +2254,6 @@ public:
         return Status::OK();
     }
 };
-
 class FunctionSplitByString : public IFunction {
 public:
     static constexpr auto name = "split_by_string";
@@ -2067,17 +2298,17 @@ public:
         dest_offsets.reserve(0);
 
         NullMapType* dest_nested_null_map = nullptr;
-        ColumnNullable* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
+        auto* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
         dest_nested_column = dest_nullable_col->get_nested_column_ptr();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
-        auto col_left = check_and_get_column<ColumnString>(src_column.get());
+        const auto* col_left = check_and_get_column<ColumnString>(src_column.get());
         if (!col_left) {
             return Status::InternalError("Left operator of function {} can not be {}", get_name(),
                                          src_column_type->get_name());
         }
 
-        auto col_right = check_and_get_column<ColumnString>(right_column.get());
+        const auto* col_right = check_and_get_column<ColumnString>(right_column.get());
         if (!col_right) {
             return Status::InternalError("Right operator of function {} can not be {}", get_name(),
                                          right_column_type->get_name());
@@ -2107,7 +2338,7 @@ private:
                                      const StringRef& delimiter_ref, IColumn& dest_nested_column,
                                      ColumnArray::Offsets64& dest_offsets,
                                      NullMapType* dest_nested_null_map) const {
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(0);
@@ -2174,7 +2405,7 @@ private:
                          const ColumnString& delimiter_column, IColumn& dest_nested_column,
                          ColumnArray::Offsets64& dest_offsets,
                          NullMapType* dest_nested_null_map) const {
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(0);
@@ -2231,7 +2462,7 @@ private:
                                       IColumn& dest_nested_column,
                                       ColumnArray::Offsets64& dest_offsets,
                                       NullMapType* dest_nested_null_map) const {
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        auto& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(0);
@@ -2521,7 +2752,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -2598,6 +2828,53 @@ public:
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+};
+
+class FunctionUrlDecode : public IFunction {
+public:
+    static constexpr auto name = "url_decode";
+    static FunctionPtr create() { return std::make_shared<FunctionUrlDecode>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    bool is_variadic() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block,
+
+                        const ColumnNumbers& arguments, size_t result,
+                        size_t input_rows_count) const override {
+        auto res = ColumnString::create();
+        auto& res_offsets = res->get_offsets();
+        auto& res_chars = res->get_chars();
+        res_offsets.resize(input_rows_count);
+
+        ColumnPtr argument_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto* url_col = check_and_get_column<ColumnString>(argument_column.get());
+
+        if (!url_col) {
+            return Status::InternalError("Not supported input argument type");
+        }
+
+        std::string decoded_url;
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto source = url_col->get_data_at(i);
+            StringRef url_val(const_cast<char*>(source.data), source.size);
+
+            url_decode(url_val.to_string(), &decoded_url);
+
+            StringOP::push_value_string(decoded_url, i, res_chars, res_offsets);
+            decoded_url.clear();
+        }
+
+        block.get_by_position(result).column = std::move(res);
+
         return Status::OK();
     }
 };

@@ -70,23 +70,23 @@ The formats available are:
 
 % m | month, numerical value (00-12)
 
-%p | AM or PM
+% p | AM or PM, only available on 12-hours system
 
-% R | Time, 12 - hour (hh: mm: SS AM or PM)
+% R | Time, 12-hour (hh:mm:ss), could be with or without AM/PM marking
 
 % S | seconds (00-59)
 
 % s | seconds (00-59)
 
-% T | Time, 24 - hour (hh: mm: ss)
+% T | Time, 24-hour (hh:mm:ss)
 
 % U | Week (00-53) Sunday is the first day of the week
 
-% U | Week (00 - 53) Monday is the first day of the week
+% U | Week (00-53) Monday is the first day of the week
 
 % V | Week (01-53) Sunday is the first day of the week, and% X is used.
 
-% v | Week (01 - 53) Monday is the first day of the week, and% x is used
+% v | Week (01-53) Monday is the first day of the week, and% x is used
 
 % W | Sunday
 

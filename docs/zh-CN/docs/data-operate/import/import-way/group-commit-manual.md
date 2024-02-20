@@ -60,6 +60,96 @@ PROPERTIES (
 );
 ```
 
+### 使用`JDBC`
+
+当用户使用 JDBC `insert into values`方式写入时，为了减少 SQL 解析和生成规划的开销， 我们在 FE 端支持了 MySQL 协议的`PreparedStatement`特性。当使用`PreparedStatement`时，SQL 和其导入规划将被缓存到 Session 级别的内存缓存中，后续的导入直接使用缓存对象，降低了 FE 的 CPU 压力。下面是在 JDBC 中使用 PreparedStatement 的例子：
+
+1. 设置 JDBC url 并在 Server 端开启 prepared statement
+
+```
+url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true
+```
+
+2. 配置 `group_commit` session变量，有如下两种方式：
+
+* 通过 JDBC url 设置，增加`sessionVariables=group_commit=async_mode`
+
+```
+url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true&sessionVariables=group_commit=async_mode
+```
+
+* 通过执行 SQL 设置
+
+```
+try (Statement statement = conn.createStatement()) {
+    statement.execute("SET group_commit = async_mode;");
+}
+```
+
+3. 使用 `PreparedStatement`
+
+```java
+private static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
+private static final String URL_PATTERN = "jdbc:mysql://%s:%d/%s?useServerPrepStmts=true";
+private static final String HOST = "127.0.0.1";
+private static final int PORT = 9087;
+private static final String DB = "db";
+private static final String TBL = "dt";
+private static final String USER = "root";
+private static final String PASSWD = "";
+private static final int INSERT_BATCH_SIZE = 10;
+
+private static void groupCommitInsert() throws Exception {
+    Class.forName(JDBC_DRIVER);
+    try (Connection conn = DriverManager.getConnection(String.format(URL_PATTERN, HOST, PORT, DB), USER, PASSWD)) {
+        // set session variable 'group_commit'
+        try (Statement statement = conn.createStatement()) {
+            statement.execute("SET group_commit = async_mode;");
+        }
+
+        String query = "insert into " + TBL + " values(?, ?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(query)) {
+            for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
+                stmt.setInt(1, i);
+                stmt.setString(2, "name" + i);
+                stmt.setInt(3, i + 10);
+                int result = stmt.executeUpdate();
+                System.out.println("rows: " + result);
+            }
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}   
+
+private static void groupCommitInsertBatch() throws Exception {
+    Class.forName(JDBC_DRIVER);
+    // add rewriteBatchedStatements=true and cachePrepStmts=true in JDBC url
+    // set session variables by sessionVariables=group_commit=async_mode in JDBC url
+    try (Connection conn = DriverManager.getConnection(
+            String.format(URL_PATTERN + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=group_commit=async_mode", HOST, PORT, DB), USER, PASSWD)) {
+
+        String query = "insert into " + TBL + " values(?, ?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(query)) {
+            for (int j = 0; j < 5; j++) {
+                // 10 rows per insert
+                for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
+                    stmt.setInt(1, i);
+                    stmt.setString(2, "name" + i);
+                    stmt.setInt(3, i + 10);
+                    stmt.addBatch();
+                }
+                int[] result = stmt.executeBatch();
+            }
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+```
+
+关于**JDBC**的更多用法，参考[使用Insert方式同步数据](../import-scenes/jdbc-load.md)。
+
 ### INSERT INTO VALUES
 
 * 异步模式
@@ -243,96 +333,6 @@ curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:sync_mo
 ```
 
 关于 Http Stream 使用的更多详细语法及最佳实践，请参阅 [Stream Load](stream-load-manual.md)。
-
-### 使用`PreparedStatement`
-
-当用户使用 JDBC `insert into values`方式写入时，为了减少 SQL 解析和生成规划的开销， 我们在 FE 端支持了 MySQL 协议的`PreparedStatement`特性。当使用`PreparedStatement`时，SQL 和其导入规划将被缓存到 Session 级别的内存缓存中，后续的导入直接使用缓存对象，降低了 FE 的 CPU 压力。下面是在 JDBC 中使用 PreparedStatement 的例子：
-
-1. 设置 JDBC url 并在 Server 端开启 prepared statement
-
-```
-url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true
-```
-
-2. 配置 `group_commit` session变量，有如下两种方式：
-
-* 通过 JDBC url 设置，增加`sessionVariables=group_commit=async_mode`
-
-```
-url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true&sessionVariables=group_commit=async_mode
-```
-
-* 通过执行 SQL 设置
-
-```
-try (Statement statement = conn.createStatement()) {
-    statement.execute("SET group_commit = async_mode;");
-}
-```
-
-3. 使用 `PreparedStatement`
-
-```java
-private static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
-private static final String URL_PATTERN = "jdbc:mysql://%s:%d/%s?useServerPrepStmts=true";
-private static final String HOST = "127.0.0.1";
-private static final int PORT = 9087;
-private static final String DB = "db";
-private static final String TBL = "dt";
-private static final String USER = "root";
-private static final String PASSWD = "";
-private static final int INSERT_BATCH_SIZE = 10;
-
-private static void groupCommitInsert() throws Exception {
-    Class.forName(JDBC_DRIVER);
-    try (Connection conn = DriverManager.getConnection(String.format(URL_PATTERN, HOST, PORT, DB), USER, PASSWD)) {
-        // set session variable 'group_commit'
-        try (Statement statement = conn.createStatement()) {
-            statement.execute("SET group_commit = async_mode;");
-        }
-
-        String query = "insert into " + TBL + " values(?, ?, ?)";
-        try (PreparedStatement stmt = conn.prepareStatement(query)) {
-            for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
-                stmt.setInt(1, i);
-                stmt.setString(2, "name" + i);
-                stmt.setInt(3, i + 10);
-                int result = stmt.executeUpdate();
-                System.out.println("rows: " + result);
-            }
-        }
-    } catch (Exception e) {
-        e.printStackTrace();
-    }
-}   
-
-private static void groupCommitInsertBatch() throws Exception {
-    Class.forName(JDBC_DRIVER);
-    // add rewriteBatchedStatements=true and cachePrepStmts=true in JDBC url
-    // set session variables by sessionVariables=group_commit=async_mode in JDBC url
-    try (Connection conn = DriverManager.getConnection(
-            String.format(URL_PATTERN + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=group_commit=async_mode", HOST, PORT, DB), USER, PASSWD)) {
-
-        String query = "insert into " + TBL + " values(?, ?, ?)";
-        try (PreparedStatement stmt = conn.prepareStatement(query)) {
-            for (int j = 0; j < 5; j++) {
-                // 10 rows per insert
-                for (int i = 0; i < INSERT_BATCH_SIZE; i++) {
-                    stmt.setInt(1, i);
-                    stmt.setString(2, "name" + i);
-                    stmt.setInt(3, i + 10);
-                    stmt.addBatch();
-                }
-                int[] result = stmt.executeBatch();
-            }
-        }
-    } catch (Exception e) {
-        e.printStackTrace();
-    }
-}
-```
-
-关于**JDBC**的更多用法，参考[使用Insert方式同步数据](../import-scenes/jdbc-load.md)。
 
 ## 修改group commit默认提交间隔
 

@@ -65,7 +65,6 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs();
     vectorized::VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
     RuntimeProfile::Counter* runtime_filter_compute_timer() {
         return _runtime_filter_compute_timer;
@@ -115,7 +114,6 @@ private:
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 
-    const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;
 };

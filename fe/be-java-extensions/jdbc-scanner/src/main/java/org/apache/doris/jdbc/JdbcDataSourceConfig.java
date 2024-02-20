@@ -21,6 +21,7 @@ import org.apache.doris.thrift.TJdbcOperation;
 import org.apache.doris.thrift.TOdbcTableType;
 
 public class JdbcDataSourceConfig {
+    private Long catalogId;
     private String jdbcUrl;
     private String jdbcUser;
     private String jdbcPassword;
@@ -29,16 +30,25 @@ public class JdbcDataSourceConfig {
     private int batchSize;
     private TJdbcOperation op;
     private TOdbcTableType tableType;
-    private int minPoolSize;
-    private int maxPoolSize;
-    private int minIdleSize;
-    private int maxIdleTime;
-    private int maxWaitTime;
-    private boolean keepAlive;
+    private int connectionPoolMinSize;
+    private int connectionPoolMaxSize;
+    private int connectionPoolMaxWaitTime;
+    private int connectionPoolMaxLifeTime;
+    private boolean connectionPoolKeepAlive;
 
     public String createCacheKey() {
-        return jdbcUrl + jdbcUser + jdbcPassword + jdbcDriverUrl + jdbcDriverClass
-                + minPoolSize + maxPoolSize + minIdleSize + maxIdleTime + maxWaitTime + keepAlive;
+        return catalogId + jdbcUrl + jdbcUser + jdbcPassword + jdbcDriverUrl + jdbcDriverClass
+                + connectionPoolMinSize + connectionPoolMaxSize + connectionPoolMaxLifeTime + connectionPoolMaxWaitTime
+                + connectionPoolKeepAlive;
+    }
+
+    public long getCatalogId() {
+        return catalogId;
+    }
+
+    public JdbcDataSourceConfig setCatalogId(long catalogId) {
+        this.catalogId = catalogId;
+        return this;
     }
 
     public String getJdbcUrl() {
@@ -113,57 +123,48 @@ public class JdbcDataSourceConfig {
         return this;
     }
 
-    public int getMinPoolSize() {
-        return minPoolSize;
+    public int getConnectionPoolMinSize() {
+        return connectionPoolMinSize;
     }
 
-    public JdbcDataSourceConfig setMinPoolSize(int minPoolSize) {
-        this.minPoolSize = minPoolSize;
+    public JdbcDataSourceConfig setConnectionPoolMinSize(int connectionPoolMinSize) {
+        this.connectionPoolMinSize = connectionPoolMinSize;
         return this;
     }
 
-    public int getMaxPoolSize() {
-        return maxPoolSize;
+    public int getConnectionPoolMaxSize() {
+        return connectionPoolMaxSize;
     }
 
-    public JdbcDataSourceConfig setMaxPoolSize(int maxPoolSize) {
-        this.maxPoolSize = maxPoolSize;
+    public JdbcDataSourceConfig setConnectionPoolMaxSize(int connectionPoolMaxSize) {
+        this.connectionPoolMaxSize = connectionPoolMaxSize;
         return this;
     }
 
-    public int getMinIdleSize() {
-        return minIdleSize;
+    public int getConnectionPoolMaxWaitTime() {
+        return connectionPoolMaxWaitTime;
     }
 
-    public JdbcDataSourceConfig setMinIdleSize(int minIdleSize) {
-        this.minIdleSize = minIdleSize;
+    public JdbcDataSourceConfig setConnectionPoolMaxWaitTime(int connectionPoolMaxWaitTime) {
+        this.connectionPoolMaxWaitTime = connectionPoolMaxWaitTime;
         return this;
     }
 
-    public int getMaxIdleTime() {
-        return maxIdleTime;
+    public int getConnectionPoolMaxLifeTime() {
+        return connectionPoolMaxLifeTime;
     }
 
-    public JdbcDataSourceConfig setMaxIdleTime(int maxIdleTime) {
-        this.maxIdleTime = maxIdleTime;
+    public JdbcDataSourceConfig setConnectionPoolMaxLifeTime(int connectionPoolMaxLifeTime) {
+        this.connectionPoolMaxLifeTime = connectionPoolMaxLifeTime;
         return this;
     }
 
-    public int getMaxWaitTime() {
-        return maxWaitTime;
+    public boolean isConnectionPoolKeepAlive() {
+        return connectionPoolKeepAlive;
     }
 
-    public JdbcDataSourceConfig setMaxWaitTime(int maxWaitTime) {
-        this.maxWaitTime = maxWaitTime;
-        return this;
-    }
-
-    public boolean isKeepAlive() {
-        return keepAlive;
-    }
-
-    public JdbcDataSourceConfig setKeepAlive(boolean keepAlive) {
-        this.keepAlive = keepAlive;
+    public JdbcDataSourceConfig setConnectionPoolKeepAlive(boolean connectionPoolKeepAlive) {
+        this.connectionPoolKeepAlive = connectionPoolKeepAlive;
         return this;
     }
 }

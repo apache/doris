@@ -478,7 +478,7 @@ struct TReportExecStatusParams {
 
   23: optional list<TDetailedReportParams> detailed_report
 
-  24: optional TQueryStatistics query_statistics
+  24: optional TQueryStatistics query_statistics // deprecated
 
   25: TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 }
@@ -551,6 +551,7 @@ struct TMasterOpResult {
     5: optional string status;
     6: optional i32 statusCode;
     7: optional string errMessage;
+    8: optional list<binary> queryResultBufList;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -1157,6 +1158,55 @@ struct TRestoreSnapshotResult {
     2: optional Types.TNetworkAddress master_address
 }
 
+struct TPlsqlStoredProcedure {
+    1: optional string name
+    2: optional string catalogName
+    3: optional string dbName
+    4: optional string ownerName
+    5: optional string source
+}
+
+struct TPlsqlPackage {
+    1: optional string name
+    2: optional string catalogName
+    3: optional string dbName
+    4: optional string ownerName
+    5: optional string header
+    6: optional string body
+}
+
+struct TPlsqlProcedureKey {
+    1: optional string name
+    2: optional string catalogName
+    3: optional string dbName
+}
+
+struct TAddPlsqlStoredProcedureRequest {
+    1: optional TPlsqlStoredProcedure plsqlStoredProcedure
+    2: optional bool isForce
+}
+
+struct TDropPlsqlStoredProcedureRequest {
+    1: optional TPlsqlProcedureKey plsqlProcedureKey
+}
+
+struct TPlsqlStoredProcedureResult {
+    1: optional Status.TStatus status
+}
+
+struct TAddPlsqlPackageRequest {
+    1: optional TPlsqlPackage plsqlPackage
+    2: optional bool isForce
+}
+
+struct TDropPlsqlPackageRequest {
+    1: optional TPlsqlProcedureKey plsqlProcedureKey
+}
+
+struct TPlsqlPackageResult {
+    1: optional Status.TStatus status
+}
+
 struct TGetMasterTokenRequest {
     1: optional string cluster
     2: optional string user
@@ -1179,7 +1229,8 @@ struct TGetBinlogLagResult {
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
-    2: list<string> statsRows;
+    2: optional list<string> statsRows;
+    3: optional string colStatsData;
 }
 
 struct TInvalidateFollowerStatsCacheRequest {
@@ -1339,6 +1390,14 @@ struct TGetColumnInfoResult {
     2: optional list<TColumnInfo> columns
 }
 
+struct TShowProcessListRequest {
+    1: optional bool show_full_sql
+}
+
+struct TShowProcessListResult {
+    1: optional list<list<string>> process_list
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1399,6 +1458,11 @@ service FrontendService {
 
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 
+    TPlsqlStoredProcedureResult addPlsqlStoredProcedure(1: TAddPlsqlStoredProcedureRequest request)
+    TPlsqlStoredProcedureResult dropPlsqlStoredProcedure(1: TDropPlsqlStoredProcedureRequest request)
+    TPlsqlPackageResult addPlsqlPackage(1: TAddPlsqlPackageRequest request)
+    TPlsqlPackageResult dropPlsqlPackage(1: TDropPlsqlPackageRequest request)
+
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
 
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
@@ -1416,4 +1480,6 @@ service FrontendService {
     TGetColumnInfoResult getColumnInfo(1: TGetColumnInfoRequest request)
 
     Status.TStatus invalidateStatsCache(1: TInvalidateFollowerStatsCacheRequest request)
+
+    TShowProcessListResult showProcessList(1: TShowProcessListRequest request)
 }

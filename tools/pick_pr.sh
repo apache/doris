@@ -40,9 +40,10 @@ remote_to=$(echo "${branch_to}" | awk -F/ '{print $1}')
 push_remote=$3
 push_url=$(git remote get-url --push "${push_remote}")
 # https://github.com/your_name/doris.git
-push_url=$(echo "${push_url}" | sed 's|^https://github.com/||')
+# https://token@github.com/your_name/doris.git
+push_url=$(echo "${push_url}" | sed 's|^https://.*github.com/||')
 # git@github.com:your_name/doris.git
-push_url=$(echo "${push_url}" | sed 's|^git@github.com:||')
+push_url=$(echo "${push_url}" | sed 's|^git@.*github.com:||')
 # get your_name
 push_id=$(echo "${push_url}" | awk -F/ '{print $1}')
 

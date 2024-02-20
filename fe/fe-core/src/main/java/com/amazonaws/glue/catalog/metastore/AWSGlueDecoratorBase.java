@@ -1543,4 +1543,3 @@ public class AWSGlueDecoratorBase implements AWSGlue {
         return null;
     }
 }
-

@@ -41,7 +41,6 @@ public:
         _profile = _runtime_state.runtime_profile();
         _runtime_state.init_mem_trackers();
         static_cast<void>(_runtime_state.init(unique_id, query_options, query_globals, _env));
-        _runtime_state.set_query_ctx(query_ctx);
     }
     void init();
 
@@ -61,6 +60,8 @@ private:
     int64_t db_id = 1;
     int64_t tb_id = 2;
     int64_t txn_id = 789;
+    int64_t version = 0;
+    int64_t backend_id = 1001;
     std::string label = "test";
 
     TupleId _dst_tuple_id = 0;
@@ -75,7 +76,6 @@ private:
     TUniqueId unique_id;
     TQueryOptions query_options;
     TQueryGlobals query_globals;
-    QueryContext* query_ctx = nullptr;
 };
 
 void VWalScannerTest::init_desc_table() {
@@ -199,10 +199,6 @@ void VWalScannerTest::init() {
     init_desc_table();
     static_cast<void>(io::global_local_filesystem()->create_directory(
             wal_dir + "/" + std::to_string(db_id) + "/" + std::to_string(tb_id)));
-    std::string src = "./be/test/exec/test_data/wal_scanner/wal";
-    std::string dst = wal_dir + "/" + std::to_string(db_id) + "/" + std::to_string(tb_id) + "/" +
-                      std::to_string(txn_id) + "_" + label;
-    std::filesystem::copy(src, dst);
 
     // Node Id
     _tnode.node_id = 0;
@@ -215,10 +211,19 @@ void VWalScannerTest::init() {
     _tnode.__isset.file_scan_node = true;
 
     _env = ExecEnv::GetInstance();
+    _env->_master_info = new TMasterInfo();
+    _env->_master_info->network_address.hostname = "host name";
+    _env->_master_info->network_address.port = backend_id;
+    _env->_master_info->backend_id = 1001;
     _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
     std::string base_path;
     auto st = _env->_wal_manager->_init_wal_dirs_info();
     st = _env->_wal_manager->create_wal_path(db_id, tb_id, txn_id, label, base_path);
+    std::string src = "./be/test/exec/test_data/wal_scanner/wal";
+    std::string dst = wal_dir + "/" + std::to_string(db_id) + "/" + std::to_string(tb_id) + "/" +
+                      std::to_string(version) + "_" + std::to_string(backend_id) + "_" +
+                      std::to_string(txn_id) + "_" + label;
+    std::filesystem::copy(src, dst);
 }
 
 TEST_F(VWalScannerTest, normal) {

@@ -18,7 +18,6 @@
 #include "pipeline.h"
 
 #include <ostream>
-#include <typeinfo>
 #include <utility>
 
 #include "pipeline/exec/operator.h"
@@ -26,10 +25,8 @@
 namespace doris::pipeline {
 
 void Pipeline::_init_profile() {
-    std::stringstream ss;
-    ss << "Pipeline"
-       << " (pipeline id=" << _pipeline_id << ")";
-    _pipeline_profile.reset(new RuntimeProfile(ss.str()));
+    auto s = fmt::format("Pipeline (pipeline id={})", _pipeline_id);
+    _pipeline_profile.reset(new RuntimeProfile(std::move(s)));
 }
 
 Status Pipeline::build_operators() {

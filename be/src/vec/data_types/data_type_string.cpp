@@ -94,8 +94,7 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
         if (auto bytes = data_column.get_chars().size(); bytes <= SERIALIZED_MEM_SIZE_LIMIT) {
             size += bytes;
         } else {
-            size += sizeof(size_t) +
-                    std::max(bytes, streamvbyte_max_compressedbytes(upper_int32(bytes)));
+            size += sizeof(size_t) + std::max(bytes, (size_t)LZ4_compressBound(bytes));
         }
         return size;
     } else {
@@ -142,9 +141,9 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_ve
             buf += value_len;
             return buf;
         }
-        auto encode_size = streamvbyte_encode(
-                reinterpret_cast<const uint32_t*>(data_column.get_chars().data()),
-                upper_int32(value_len), (uint8_t*)(buf + sizeof(size_t)));
+        auto encode_size =
+                LZ4_compress_fast(data_column.get_chars().raw_data(), (buf + sizeof(size_t)),
+                                  value_len, LZ4_compressBound(value_len), 1);
         *reinterpret_cast<size_t*>(buf) = encode_size;
         buf += (sizeof(size_t) + encode_size);
         return buf;
@@ -195,15 +194,14 @@ const char* DataTypeString::deserialize(const char* buf, IColumn* column,
         buf += sizeof(uint64_t);
         data.resize(value_len);
 
-        // offsets
+        // values
         if (value_len <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(data.data(), buf, value_len);
             buf += value_len;
         } else {
             size_t encode_size = *reinterpret_cast<const size_t*>(buf);
             buf += sizeof(size_t);
-            streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(data.data()),
-                               upper_int32(value_len));
+            LZ4_decompress_safe(buf, reinterpret_cast<char*>(data.data()), encode_size, value_len);
             buf += encode_size;
         }
         return buf;

@@ -231,7 +231,7 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     std::vector<PRowLocation> rows_locs;
     rows_locs.reserve(rows_locs.size());
     RETURN_IF_ERROR(_merge_rpc_results(mget_req, resps, cntls, res_block, &rows_locs));
-    if (rows_locs.size() != res_block->rows()) {
+    if (rows_locs.size() != res_block->rows() || rows_locs.size() != column_row_ids->size()) {
         return Status::InternalError("Miss matched return row loc count {}, expected {}, input {}",
                                      rows_locs.size(), res_block->rows(), column_row_ids->size());
     }

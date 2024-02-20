@@ -36,6 +36,7 @@ import java.time.Year;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 
 /**
  * Date literal in Nereids.
@@ -100,7 +101,7 @@ public class DateLiteral extends Literal {
 
     // normalize yymmdd -> yyyymmdd
     static String normalizeBasic(String s) {
-        java.util.function.UnaryOperator<String> normalizeTwoDigit = (input) -> {
+        UnaryOperator<String> normalizeTwoDigit = (input) -> {
             String yy = input.substring(0, 2);
             int year = Integer.parseInt(yy);
             if (year >= 0 && year <= 69) {
@@ -182,9 +183,9 @@ public class DateLiteral extends Literal {
         // normalize leading 0 for date and time
         // date and time contains 6 number part at most, so we just need normal 6 number part
         int partNumber = 0;
-        while (i < s.length()) {
+        while (i < s.length() && partNumber < 6) {
             char c = s.charAt(i);
-            if (Character.isDigit(c) && partNumber < 6) {
+            if (Character.isDigit(c)) {
                 // find consecutive digit
                 int j = i + 1;
                 while (j < s.length() && Character.isDigit(s.charAt(j))) {
@@ -233,11 +234,14 @@ public class DateLiteral extends Literal {
         }
 
         // parse MicroSecond
+        // Keep up to 7 digits at most, 7th digit is use for overflow.
         if (partNumber == 6 && i < s.length() && s.charAt(i) == '.') {
             sb.append(s.charAt(i));
             i += 1;
             while (i < s.length() && Character.isDigit(s.charAt(i))) {
-                sb.append(s.charAt(i));
+                if (i - 19 <= 7) {
+                    sb.append(s.charAt(i));
+                }
                 i += 1;
             }
         }
@@ -265,9 +269,12 @@ public class DateLiteral extends Literal {
         try {
             TemporalAccessor dateTime;
 
+            // remove suffix/prefix ' '
+            s = s.trim();
             // parse condition without '-' and ':'
             boolean containsPunctuation = false;
-            for (int i = 0; i < s.length(); i++) {
+            int len = Math.min(s.length(), 11);
+            for (int i = 0; i < len; i++) {
                 if (isPunctuation(s.charAt(i))) {
                     containsPunctuation = true;
                     break;

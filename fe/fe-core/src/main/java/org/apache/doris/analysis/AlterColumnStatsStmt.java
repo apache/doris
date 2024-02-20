@@ -73,6 +73,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
             .build();
 
     private final TableName tableName;
+    private final String indexName;
     private final String columnName;
     private final Map<String, String> properties;
     private final PartitionNames optPartitionNames;
@@ -80,9 +81,12 @@ public class AlterColumnStatsStmt extends DdlStmt {
     private final List<Long> partitionIds = Lists.newArrayList();
     private final Map<StatsType, String> statsTypeToValue = Maps.newHashMap();
 
-    public AlterColumnStatsStmt(TableName tableName, String columnName,
+    private long indexId = -1;
+
+    public AlterColumnStatsStmt(TableName tableName, String indexName, String columnName,
             Map<String, String> properties, PartitionNames optPartitionNames) {
         this.tableName = tableName;
+        this.indexName = indexName;
         this.columnName = columnName;
         this.properties = properties == null ? Collections.emptyMap() : properties;
         this.optPartitionNames = optPartitionNames;
@@ -94,6 +98,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
 
     public String getColumnName() {
         return columnName;
+    }
+
+    public long getIndexId() {
+        return indexId;
     }
 
     public List<Long> getPartitionIds() {
@@ -148,6 +156,19 @@ public class AlterColumnStatsStmt extends DdlStmt {
         DatabaseIf db = catalog.getDbOrAnalysisException(tableName.getDb());
         TableIf table = db.getTableOrAnalysisException(tableName.getTbl());
 
+        if (indexName != null) {
+            if (!(table instanceof OlapTable)) {
+                throw new AnalysisException("Only OlapTable support alter index stats. "
+                    + "Table " + table.getName() + " is not OlapTable.");
+            }
+            OlapTable olapTable = (OlapTable) table;
+            Long idxId = olapTable.getIndexIdByName(indexName);
+            if (idxId == null) {
+                throw new AnalysisException("Index " + indexName + " not exist in table " + table.getName());
+            }
+            indexId = idxId;
+        }
+
         if (table.getColumn(columnName) == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, FeNameFormat.getColumnNameRegex());
@@ -176,6 +197,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ");
         sb.append(tableName.toSql());
+        if (indexName != null) {
+            sb.append(" INDEX ");
+            sb.append(indexName);
+        }
         sb.append(" MODIFY COLUMN ");
         sb.append(columnName);
         sb.append(" SET STATS ");

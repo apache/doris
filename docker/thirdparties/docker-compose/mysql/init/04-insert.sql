@@ -1160,3 +1160,7 @@ SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE',''));
 SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE',''));
 
 insert into doris_test.test_zd (id,d_z) VALUES (1,'0000-00-00'),(2,'2022-01-01');
+
+insert into Doris.DORIS values ('DORIS');
+insert into Doris.Doris values ('Doris');
+insert into Doris.doris values ('doris');

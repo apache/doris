@@ -23,18 +23,23 @@ import com.google.common.base.Preconditions;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 
 @Data
 public class HivePartition {
+    public static final String LAST_MODIFY_TIME_KEY = "transient_lastDdlTime";
+    public static final String FILE_NUM_KEY = "numFiles";
+
     private String dbName;
     private String tblName;
     private String inputFormat;
     private String path;
     private List<String> partitionValues;
     private boolean isDummyPartition;
+    private Map<String, String> parameters;
 
     public HivePartition(String dbName, String tblName, boolean isDummyPartition,
-                         String inputFormat, String path, List<String> partitionValues) {
+            String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters) {
         this.dbName = dbName;
         this.tblName = tblName;
         this.isDummyPartition = isDummyPartition;
@@ -44,6 +49,7 @@ public class HivePartition {
         this.path = path;
         // eg: cn, beijing
         this.partitionValues = partitionValues;
+        this.parameters = parameters;
     }
 
     // return partition name like: nation=cn/city=beijing
@@ -61,6 +67,31 @@ public class HivePartition {
 
     public boolean isDummyPartition() {
         return this.isDummyPartition;
+    }
+
+    public long getLastModifiedTime() {
+        if (parameters == null || !parameters.containsKey(LAST_MODIFY_TIME_KEY)) {
+            return 0L;
+        }
+        return Long.parseLong(parameters.get(LAST_MODIFY_TIME_KEY)) * 1000;
+    }
+
+    /**
+     * If there are no files, it proves that there is no data under the partition, we return 0
+     * @return
+     */
+    public long getLastModifiedTimeIgnoreInit() {
+        if (getFileNum() == 0) {
+            return 0L;
+        }
+        return getLastModifiedTime();
+    }
+
+    public long getFileNum() {
+        if (parameters == null || !parameters.containsKey(FILE_NUM_KEY)) {
+            return 0L;
+        }
+        return Long.parseLong(parameters.get(FILE_NUM_KEY));
     }
 
     @Override

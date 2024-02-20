@@ -212,9 +212,17 @@ public class PlanTranslatorContext {
         exprIdToColumnRef.put(exprId, columnRefExpr);
     }
 
+    /**
+     * merge source fragment info into target fragment.
+     * include runtime filter info and fragment attribute.
+     */
     public void mergePlanFragment(PlanFragment srcFragment, PlanFragment targetFragment) {
         srcFragment.getTargetRuntimeFilterIds().forEach(targetFragment::setTargetRuntimeFilterIds);
         srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
+        targetFragment.setHasColocatePlanNode(targetFragment.hasColocatePlanNode()
+                || srcFragment.hasColocatePlanNode());
+        targetFragment.setHasNullAwareLeftAntiJoin(targetFragment.isHasNullAwareLeftAntiJoin()
+                || srcFragment.isHasNullAwareLeftAntiJoin());
         this.planFragments.remove(srcFragment);
     }
 

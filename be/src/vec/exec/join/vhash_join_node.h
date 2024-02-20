@@ -53,9 +53,7 @@ template <typename T>
 struct HashCRC32;
 
 namespace doris {
-
 class ObjectPool;
-class IRuntimeFilter;
 class DescriptorTbl;
 class RuntimeState;
 
@@ -77,11 +75,11 @@ class HashJoinNode;
 template <typename Parent>
 Status process_runtime_filter_build(RuntimeState* state, Block* block, Parent* parent,
                                     bool is_global = false) {
-    if (parent->runtime_filter_descs().empty()) {
+    if (parent->runtime_filters().empty()) {
         return Status::OK();
     }
     parent->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-            parent->_build_expr_ctxs, parent->runtime_filter_descs(), is_global);
+            parent->_build_expr_ctxs, parent->runtime_filters(), is_global);
 
     RETURN_IF_ERROR(parent->_runtime_filter_slots->init(state, block->rows()));
 
@@ -117,11 +115,6 @@ struct ProcessHashTableBuild {
             for (uint32_t i = 1; i < _rows; i++) {
                 if ((*null_map)[i]) {
                     *has_null_key = true;
-                    if constexpr (with_other_conjuncts &&
-                                  (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                                   JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN)) {
-                        _parent->_build_indexes_null->emplace_back(i);
-                    }
                 }
             }
             if (short_circuit_for_null && *has_null_key) {
@@ -136,13 +129,15 @@ struct ProcessHashTableBuild {
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr, true, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
-        hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
-                                         _rows);
+        hash_table_ctx.hash_table->template build<JoinOpType, with_other_conjuncts>(
+                hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), _rows);
         hash_table_ctx.bucket_nums.resize(_batch_size);
         hash_table_ctx.bucket_nums.shrink_to_fit();
 
-        COUNTER_UPDATE(_parent->_hash_table_memory_usage,
-                       hash_table_ctx.hash_table->get_byte_size());
+        COUNTER_SET(_parent->_hash_table_memory_usage,
+                    (int64_t)hash_table_ctx.hash_table->get_byte_size());
+        COUNTER_SET(_parent->_build_arena_memory_usage,
+                    (int64_t)hash_table_ctx.serialized_keys_size(true));
         return Status::OK();
     }
 
@@ -229,13 +224,6 @@ public:
 
     bool should_build_hash_table() const { return _should_build_hash_table; }
 
-    bool ready_for_finish() {
-        if (_runtime_filter_slots == nullptr) {
-            return true;
-        }
-        return _runtime_filter_slots->ready_finish_publish();
-    }
-
     bool have_other_join_conjunct() const { return _have_other_join_conjunct; }
     bool is_right_semi_anti() const { return _is_right_semi_anti; }
     bool is_outer_join() const { return _is_outer_join; }
@@ -246,7 +234,6 @@ public:
     DataTypes right_table_data_types() { return _right_table_data_types; }
     DataTypes left_table_data_types() { return _left_table_data_types; }
     bool build_unique() const { return _build_unique; }
-    std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
     std::shared_ptr<vectorized::Arena> arena() { return _arena; }
 
 protected:
@@ -300,13 +287,6 @@ private:
 
     std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
-
-    /*
-     * For null aware anti/semi join with other join conjuncts, we do need to care about the rows in
-     * build side with null keys,
-     * because the other join conjuncts' result maybe change null to false(null & false == false).
-     */
-    std::shared_ptr<std::vector<uint32_t>> _build_indexes_null;
 
     DataTypes _right_table_data_types;
     DataTypes _left_table_data_types;
@@ -417,9 +397,6 @@ private:
     friend Status process_runtime_filter_build(RuntimeState* state, vectorized::Block* block,
                                                Parent* parent, bool is_global);
 
-    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-
-    std::vector<IRuntimeFilter*> _runtime_filters;
     std::atomic_bool _probe_open_finish = false;
     std::vector<int> _build_col_ids;
 };

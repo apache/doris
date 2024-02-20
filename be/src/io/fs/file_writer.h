@@ -46,6 +46,9 @@ public:
 
     DISALLOW_COPY_AND_ASSIGN(FileWriter);
 
+    // Open the file for writing.
+    virtual Status open() { return Status::OK(); }
+
     // Normal close. Wait for all data to persist before returning.
     virtual Status close() = 0;
 

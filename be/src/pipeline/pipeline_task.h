@@ -196,8 +196,6 @@ public:
 
     virtual std::string debug_string();
 
-    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
-
     void set_task_queue(TaskQueue* task_queue);
     TaskQueue* get_task_queue() { return _task_queue; }
 
@@ -288,6 +286,8 @@ public:
         }
     }
 
+    RuntimeState* runtime_state() { return _state; }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
@@ -324,6 +324,7 @@ protected:
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
     int _core_id = 0;
+    Status _open_status = Status::OK();
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;

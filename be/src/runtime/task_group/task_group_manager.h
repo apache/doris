@@ -48,8 +48,8 @@ public:
 
     TaskGroupPtr get_or_create_task_group(const TaskGroupInfo& task_group_info);
 
-    void get_resource_groups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
-                             std::vector<TaskGroupPtr>* task_groups);
+    void get_related_taskgroups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
+                                std::vector<TaskGroupPtr>* task_groups);
 
     Status upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv* exec_env);
 
@@ -68,10 +68,6 @@ public:
     void get_query_scheduler(uint64_t tg_id, doris::pipeline::TaskScheduler** exec_sched,
                              vectorized::SimplifiedScanScheduler** scan_sched,
                              ThreadPool** non_pipe_thread_pool);
-
-    Status add_query_to_group(uint64_t tg_id, TUniqueId query_id, TaskGroupPtr* tg_ptr);
-
-    void remove_query_from_group(uint64_t tg_id, TUniqueId query_id);
 
 private:
     std::shared_mutex _group_mutex;

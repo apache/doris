@@ -223,10 +223,10 @@ public class PhysicalHashJoin<
         AbstractPhysicalPlan builderRightNode = (AbstractPhysicalPlan) builderNode.child(1);
         Preconditions.checkState(builderLeftNode != null && builderRightNode != null,
                 "builder join node child node is null");
-        if (RuntimeFilterGenerator.hasCTEConsumerDescendant(builderLeftNode)
-                && RuntimeFilterGenerator.hasCTEConsumerDescendant(builderRightNode)) {
-            return false;
-        }
+        // if (RuntimeFilterGenerator.hasCTEConsumerDescendant(builderLeftNode)
+        //         && RuntimeFilterGenerator.hasCTEConsumerDescendant(builderRightNode)) {
+        //     return false;
+        // }
 
         boolean pushedDown = false;
         AbstractPhysicalPlan leftNode = (AbstractPhysicalPlan) child(0);
@@ -235,23 +235,25 @@ public class PhysicalHashJoin<
                 "join child node is null");
 
         Set<Expression> probExprList = Sets.newHashSet(probeExpr);
-        Pair<PhysicalRelation, Slot> pair = ctx.getAliasTransferMap().get(probeExpr);
-        PhysicalRelation target1 = (pair == null) ? null : pair.first;
+        Pair<PhysicalRelation, Slot> srcPair = ctx.getAliasTransferMap().get(srcExpr);
+        PhysicalRelation srcNode = (srcPair == null) ? null : srcPair.first;
+        Pair<PhysicalRelation, Slot> targetPair = ctx.getAliasTransferMap().get(probeExpr);
+        // when probeExpr is output slot of setOperator, targetPair is null
+        PhysicalRelation target1 = (targetPair == null) ? null : targetPair.first;
         PhysicalRelation target2 = null;
-        pair = ctx.getAliasTransferMap().get(srcExpr);
-        PhysicalRelation srcNode = (pair == null) ? null : pair.first;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
-            if (!this.equals(builderNode) && this.getJoinType() == JoinType.INNER_JOIN) {
+            if (!this.equals(builderNode)
+                    && (this.getJoinType() == JoinType.INNER_JOIN || this.getJoinType().isSemiJoin())) {
                 for (Expression expr : this.getHashJoinConjuncts()) {
                     EqualPredicate equalTo = (EqualPredicate) expr;
                     if (probeExpr.equals(equalTo.left())) {
                         probExprList.add(equalTo.right());
-                        pair = ctx.getAliasTransferMap().get(equalTo.right());
-                        target2 = (pair == null) ? null : pair.first;
+                        targetPair = ctx.getAliasTransferMap().get(equalTo.right());
+                        target2 = (targetPair == null) ? null : targetPair.first;
                     } else if (probeExpr.equals(equalTo.right())) {
                         probExprList.add(equalTo.left());
-                        pair = ctx.getAliasTransferMap().get(equalTo.left());
-                        target2 = (pair == null) ? null : pair.first;
+                        targetPair = ctx.getAliasTransferMap().get(equalTo.left());
+                        target2 = (targetPair == null) ? null : targetPair.first;
                     }
                     if (target2 != null) {
                         ctx.getExpandedRF().add(

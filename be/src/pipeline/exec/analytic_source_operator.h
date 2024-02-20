@@ -121,7 +121,6 @@ private:
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
 
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 

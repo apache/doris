@@ -160,7 +160,7 @@ KEY(k1,k2)
 ```
 
 ##### partition
-物化视图有两种分区方式，如果不指定分区，默认只有一个分区，如果指定分区字段，会自动推导出字段来自哪个基表并同步基表的所有分区（限制条件：基表只能有一个分区字段且不能允许空值）
+物化视图有两种分区方式，如果不指定分区，默认只有一个分区，如果指定分区字段，会自动推导出字段来自哪个基表并同步基表(当前支持`OlapTable`和`hive`)的所有分区（限制条件：当前基表只能有一个分区字段）
 
 例如：基表是range分区，分区字段为`create_time`并按天分区，创建物化视图时指定`partition by(ct) as select create_time as ct from t1`
 那么物化视图也会是range分区，分区字段为`ct`,并且按天分区
@@ -170,11 +170,13 @@ KEY(k1,k2)
 
 物化视图特有的property包括：
 
-`grace_period`：查询改写时允许物化视图数据的最大延迟时间
+`grace_period`：查询改写时允许物化视图数据的最大延迟时间（单位：秒）。如果分区A和基表的数据不一致，物化视图的分区A上次刷新时间为1，系统当前时间为2，那么该分区不会被透明改写。但是如果grace_period大于等于1，该分区就会被用于透明改写
 
 `excluded_trigger_tables`：数据刷新时忽略的表名，逗号分割。例如`table1,table2`
 
-`refresh_partition_num`：单次insert语句刷新的分区数量，默认为1
+`refresh_partition_num`：单次insert语句刷新的分区数量，默认为1。物化视图刷新时会先计算要刷新的分区列表，然后根据该配置拆分成多个insert语句顺序执行。遇到失败的insert语句，整个任务将停止执行。物化视图保证单个insert语句的事务性，失败的insert语句不会影响到已经刷新成功的分区。
+
+`workload_group`：物化视图执行刷新任务时使用的workload_group名称。用来限制物化视图刷新数据使用的资源，避免影响到其它业务的运行。workload_group创建及使用 [WORKLOAD-GROUP](../../../../admin-manual/workload-group.md)
 
 ##### query
 

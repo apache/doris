@@ -143,10 +143,6 @@ suite("push_down_filter_other_condition") {
     qt_pushdown_left_outer_join_subquery_outer"""
     explain shape plan select * from t1 where t1.id = (select id from t2) or t1.id is null and t1.id > 1;
     """
-    // Push down join condition to left anti join child outside the subquery
-    qt_pushdown_left_anti_join_subquery_outer"""
-    explain shape plan select * from t1 where t1.id not in (select id from t2) and t1.id > 1;
-    """
     // Push down join condition to cross join child outside the subquery
     qt_pushdown_cross_join_subquery_outer"""
     explain shape plan select * from t1 where exists (select 1 from t2) and t1.id > 1;

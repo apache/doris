@@ -1659,7 +1659,7 @@ sys_log_dir:
 
 默认值：INFO
 
-日志级别，可选项：INFO, WARNING, ERROR, FATAL
+日志级别，可选项：INFO, WARN, ERROR, FATAL
 
 #### `sys_log_roll_num`
 

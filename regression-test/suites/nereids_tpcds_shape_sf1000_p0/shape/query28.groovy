@@ -30,7 +30,7 @@ suite("query28") {
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
-    sql 'set dump_nereids_memo=true'
+    sql 'set dump_nereids_memo=false'
     def ds = """select  *
 from (select avg(ss_list_price) B1_LP
             ,count(ss_list_price) B1_CNT

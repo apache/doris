@@ -588,4 +588,3 @@ public class CastExpr extends Expr {
         return this.notFold;
     }
 }
-

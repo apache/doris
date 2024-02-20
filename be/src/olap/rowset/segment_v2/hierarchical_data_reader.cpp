@@ -183,6 +183,10 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
     vectorized::MutableColumnPtr extracted_column;
     RETURN_IF_ERROR(root.extract_root( // trim the root name, eg. v.a.b -> a.b
             _col.path_info().copy_pop_front(), extracted_column));
+
+    if (_target_type_hint != nullptr) {
+        variant.create_root(_target_type_hint, _target_type_hint->create_column());
+    }
     if (variant.empty() || variant.is_null_root()) {
         variant.create_root(root.get_root_type(), std::move(extracted_column));
     } else {

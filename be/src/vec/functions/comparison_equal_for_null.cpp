@@ -76,7 +76,7 @@ public:
             auto right_type_nullable = col_right.type->is_nullable();
             if (!right_type_nullable) {
                 block.get_by_position(result).column =
-                        ColumnVector<UInt8>::create(input_rows_count);
+                        ColumnVector<UInt8>::create(input_rows_count, 0);
             } else {
                 auto const* nullable_right_col =
                         assert_cast<const ColumnNullable*>(col_right.column.get());

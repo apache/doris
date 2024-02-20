@@ -81,8 +81,8 @@ bigint_value	BIGINT	Yes	false	\N	NONE
 real_value	FLOAT	Yes	false	\N	NONE
 float_value	DOUBLE	Yes	false	\N	NONE
 floatn_value	FLOAT	Yes	false	\N	NONE
-decimal_value	DECIMAL	Yes	false	\N	NONE
-numeric_value	DECIMAL	Yes	false	\N	NONE
+decimal_value	DECIMAL(38, 0)	Yes	false	\N	NONE
+numeric_value	DECIMAL(38, 0)	Yes	false	\N	NONE
 decimal_value2	DECIMAL(38, 10)	Yes	false	\N	NONE
 numeric_value2	DECIMAL(38, 10)	Yes	false	\N	NONE
 char_value	TEXT	Yes	false	\N	NONE

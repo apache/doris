@@ -77,11 +77,21 @@ private:
 
 class DistinctStreamingAggSinkOperatorX;
 
+class DistinctStreamingAggSinkDependency final : public Dependency {
+public:
+    using SharedState = AggSharedState;
+    DistinctStreamingAggSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "DistinctStreamingAggSinkDependency", true, query_ctx) {}
+    ~DistinctStreamingAggSinkDependency() override = default;
+};
+
 class DistinctStreamingAggSinkLocalState final
-        : public AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState> {
+        : public AggSinkLocalState<DistinctStreamingAggSinkDependency,
+                                   DistinctStreamingAggSinkLocalState> {
 public:
     using Parent = DistinctStreamingAggSinkOperatorX;
-    using Base = AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>;
+    using Base = AggSinkLocalState<DistinctStreamingAggSinkDependency,
+                                   DistinctStreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(DistinctStreamingAggSinkLocalState);
     DistinctStreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 

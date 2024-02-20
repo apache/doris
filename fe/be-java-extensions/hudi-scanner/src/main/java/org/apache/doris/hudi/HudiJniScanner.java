@@ -21,6 +21,8 @@ package org.apache.doris.hudi;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopUGI;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.avro.generic.GenericDatumReader;
@@ -138,7 +140,7 @@ public class HudiJniScanner extends JniScanner {
                     predicates = new ScanPredicate[0];
                 }
             }
-            ugi = Utils.getUserGroupInformation(split.hadoopConf());
+            ugi = HadoopUGI.loginWithUGI(AuthenticationConfig.getKerberosConfig(split.hadoopConf()));
         } catch (Exception e) {
             LOG.error("Failed to initialize hudi scanner, split params:\n" + debugString, e);
             throw e;

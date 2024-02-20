@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_compress_type", "load_p0") {
+suite("test_stream_load_compress_type", "load_p0") {
     def tableName = "basic_data"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -153,6 +153,50 @@ suite("test_compress_type", "load_p0") {
         }       
     }
 
+    // LZO = LZOP
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', '|'
+        set 'trim_double_quotes', 'true'
+        set 'compress_type', 'LZO'
+
+        file "basic_data.csv.lzo"
+        check {
+            result, exception, startTime, endTime ->
+                assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("Success", json.Status)
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+                assertTrue(json.LoadBytes > 0)
+        }
+    }
+
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', '|'
+        set 'trim_double_quotes', 'true'
+        set 'compress_type', 'LZOP'
+
+        file "basic_data.csv.lzo"
+        check {
+            result, exception, startTime, endTime ->
+                assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("Success", json.Status)
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+                assertTrue(json.LoadBytes > 0)
+        }
+    }
+
+    // no compress_type
     streamLoad {
         table "${tableName}"
         set 'column_separator', '|'
@@ -174,6 +218,7 @@ suite("test_compress_type", "load_p0") {
         }
     }
 
+    // no compress_type
     streamLoad {
         table "${tableName}"
         set 'column_separator', '|'
@@ -195,6 +240,7 @@ suite("test_compress_type", "load_p0") {
         }
     }
 
+    // no compress_type
     streamLoad {
         table "${tableName}"
         set 'column_separator', '|'
@@ -216,6 +262,7 @@ suite("test_compress_type", "load_p0") {
         }
     }
 
+    // no compress_type
     streamLoad {
         table "${tableName}"
         set 'column_separator', '|'
@@ -236,6 +283,7 @@ suite("test_compress_type", "load_p0") {
         }
     }
 
+    // no compress_type
     streamLoad {
         table "${tableName}"
         set 'column_separator', '|'
@@ -256,6 +304,7 @@ suite("test_compress_type", "load_p0") {
         }
     }
 
+    // no compress_type
     streamLoad {
         table "${tableName}"
         set 'column_separator', '|'
@@ -272,6 +321,27 @@ suite("test_compress_type", "load_p0") {
                 assertEquals(31, json.NumberTotalRows)
                 assertEquals(0, json.NumberLoadedRows)
                 assertEquals(31, json.NumberFilteredRows)
+                assertTrue(json.LoadBytes > 0)
+        }
+    }
+
+    // no compress_type
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', '|'
+        set 'trim_double_quotes', 'true'
+        file "basic_data.csv.lzo"
+
+        check {
+            result, exception, startTime, endTime ->
+                assertTrue(exception == null)
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("Fail", json.Status)
+                assertTrue(json.Message.contains("too many filtered rows"))
+                assertEquals(23, json.NumberTotalRows)
+                assertEquals(0, json.NumberLoadedRows)
+                assertEquals(23, json.NumberFilteredRows)
                 assertTrue(json.LoadBytes > 0)
         }
     }

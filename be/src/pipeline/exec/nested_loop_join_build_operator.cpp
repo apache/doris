@@ -40,15 +40,12 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
     }
+    _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                p._runtime_filter_descs[i], state->query_options()));
+                p._runtime_filter_descs[i], state->query_options(), &_runtime_filters[i]));
     }
     return Status::OK();
-}
-
-const std::vector<TRuntimeFilterDesc>& NestedLoopJoinBuildSinkLocalState::runtime_filter_descs() {
-    return _parent->cast<NestedLoopJoinBuildSinkOperatorX>()._runtime_filter_descs;
 }
 
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
@@ -57,7 +54,6 @@ NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* p
                                                                    const DescriptorTbl& descs)
         : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, tnode,
                                                                     descs),
-          _runtime_filter_descs(tnode.runtime_filters),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}

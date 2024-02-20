@@ -52,7 +52,7 @@ Status LoadStreamMgr::open_load_stream(const POpenLoadStreamRequest* request,
     UniqueId load_id(request->load_id());
 
     {
-        std::lock_guard<decltype(_lock)> l(_lock);
+        std::lock_guard l(_lock);
         auto it = _load_streams_map.find(load_id);
         if (it != _load_streams_map.end()) {
             load_stream = it->second;

@@ -343,7 +343,9 @@ public class DatabaseTransactionMgr {
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
-        InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
+        if (!coordinator.isFromInternal) {
+            InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
+        }
         checkDatabaseDataQuota();
         Preconditions.checkNotNull(coordinator);
         Preconditions.checkNotNull(label);
@@ -440,17 +442,23 @@ public class DatabaseTransactionMgr {
         }
 
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-            LOG.debug("transaction is already visible: {}", transactionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction is already visible: {}", transactionId);
+            }
             throw new TransactionCommitFailedException("transaction is already visible");
         }
 
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
-            LOG.debug("transaction is already committed: {}", transactionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction is already committed: {}", transactionId);
+            }
             throw new TransactionCommitFailedException("transaction is already committed");
         }
 
         if (transactionState.getTransactionStatus() == TransactionStatus.PRECOMMITTED) {
-            LOG.debug("transaction is already pre-committed: {}", transactionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction is already pre-committed: {}", transactionId);
+            }
             return;
         }
 
@@ -681,18 +689,24 @@ public class DatabaseTransactionMgr {
         }
 
         if (transactionState == null) {
-            LOG.debug("transaction not found: {}", transactionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction not found: {}", transactionId);
+            }
             throw new TransactionCommitFailedException("transaction [" + transactionId + "] not found.");
         }
 
         if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            LOG.debug("transaction is already aborted: {}", transactionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction is already aborted: {}", transactionId);
+            }
             throw new TransactionCommitFailedException("transaction [" + transactionId
                     + "] is already aborted. abort reason: " + transactionState.getReason());
         }
 
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-            LOG.debug("transaction is already visible: {}", transactionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction is already visible: {}", transactionId);
+            }
             if (is2PC) {
                 throw new TransactionCommitFailedException("transaction [" + transactionId
                         + "] is already visible, not pre-committed.");
@@ -700,7 +714,9 @@ public class DatabaseTransactionMgr {
             return;
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
-            LOG.debug("transaction is already committed: {}", transactionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction is already committed: {}", transactionId);
+            }
             if (is2PC) {
                 throw new TransactionCommitFailedException("transaction [" + transactionId
                         + "] is already committed, not pre-committed.");
@@ -709,7 +725,9 @@ public class DatabaseTransactionMgr {
         }
 
         if (is2PC && transactionState.getTransactionStatus() == TransactionStatus.PREPARE) {
-            LOG.debug("transaction is prepare, not pre-committed: {}", transactionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction is prepare, not pre-committed: {}", transactionId);
+            }
             throw new TransactionCommitFailedException("transaction [" + transactionId
                     + "] is prepare, not pre-committed.");
         }
@@ -994,7 +1012,9 @@ public class DatabaseTransactionMgr {
         // a blocking function, the returned result would be the existed table list which hold write lock
         Database db = env.getInternalCatalog().getDbOrMetaException(transactionState.getDbId());
         List<Long> tableIdList = transactionState.getTableIdList();
-        LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
+        }
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         PublishResult publishResult;
@@ -1019,7 +1039,9 @@ public class DatabaseTransactionMgr {
                 // subsequent `updateCatalogAfterVisible()` is called, but it does not seem to be executed here
                 // (because the relevant editlog does not see the log of visible transactions).
                 // So I add a log here for observation.
-                LOG.debug("after set transaction {} to visible", transactionState);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("after set transaction {} to visible", transactionState);
+                }
             } finally {
                 writeUnlock();
                 try {
@@ -1072,10 +1094,12 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
                 if (partition.getVisibleVersion() != partitionCommitInfo.getVersion() - 1) {
-                    LOG.debug("for table {} partition {}, transactionId {} partition commitInfo version {} is not"
-                            + " equal with partition visible version {} plus one, need wait",
-                            table.getId(), partition.getId(), transactionState.getTransactionId(),
-                            partitionCommitInfo.getVersion(), partition.getVisibleVersion());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("for table {} partition {}, transactionId {} partition commitInfo version {} is not"
+                                + " equal with partition visible version {} plus one, need wait",
+                                table.getId(), partition.getId(), transactionState.getTransactionId(),
+                                partitionCommitInfo.getVersion(), partition.getVisibleVersion());
+                    }
                     String errMsg = String.format("wait for publishing partition %d version %d."
                                     + " self version: %d. table %d", partitionId, partition.getVisibleVersion() + 1,
                             partitionCommitInfo.getVersion(), tableId);
@@ -1291,8 +1315,9 @@ public class DatabaseTransactionMgr {
         transactionState.setTransactionStatus(TransactionStatus.PRECOMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
+                    System.currentTimeMillis());
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 String partitionRange = "";
@@ -1331,8 +1356,9 @@ public class DatabaseTransactionMgr {
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
+                    System.currentTimeMillis());
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
@@ -1966,6 +1992,9 @@ public class DatabaseTransactionMgr {
                             transactionState, partition.getId(), version);
                 }
             }
+            long tableVersion = tableCommitInfo.getVersion();
+            long tableVersionTime = tableCommitInfo.getVersionTime();
+            table.updateVisibleVersionAndTime(tableVersion, tableVersionTime);
         }
         Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
         Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
@@ -1979,7 +2008,9 @@ public class DatabaseTransactionMgr {
                                 tableIdToNumDeltaRows.put(tableId, numRows / replicaNum);
                             }
                         });
-        LOG.debug("table id to loaded rows:{}", tableIdToNumDeltaRows);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("table id to loaded rows:{}", tableIdToNumDeltaRows);
+        }
         tableIdToNumDeltaRows.forEach(analysisManager::updateUpdatedRows);
         return true;
     }
@@ -1993,8 +2024,10 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
-                    LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
-                            entry.getKey(), dbId, endTransactionId);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                                entry.getKey(), dbId, endTransactionId);
+                    }
                     return false;
                 }
             }
@@ -2237,17 +2270,6 @@ public class DatabaseTransactionMgr {
             msgBuilder.append(e.toString()).append("\n");
         }
         return msgBuilder.toString();
-    }
-
-    protected void putTransactionTableNames(long transactionId, List<Long> tableIds) {
-        if (CollectionUtils.isEmpty(tableIds)) {
-            return;
-        }
-        if (multiTableRunningTransactionTableIdMaps.contains(transactionId)) {
-            multiTableRunningTransactionTableIdMaps.get(transactionId).addAll(tableIds);
-            return;
-        }
-        multiTableRunningTransactionTableIdMaps.put(transactionId, tableIds);
     }
 
     /**

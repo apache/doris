@@ -144,25 +144,21 @@ public:
                 << ", attach mem tracker label: " << mem_tracker->label();
 #endif
         _task_id = task_id;
-        _fragment_instance_id = fragment_instance_id;
         thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, fragment_instance_id);
     }
 
     void detach_task() {
         _task_id = TUniqueId();
-        _fragment_instance_id = TUniqueId();
         thread_mem_tracker_mgr->detach_limiter_tracker();
     }
 
     [[nodiscard]] const TUniqueId& task_id() const { return _task_id; }
-    [[nodiscard]] const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
 
     static std::string get_thread_id() {
         std::stringstream ss;
         ss << std::this_thread::get_id();
         return ss.str();
     }
-
     // After thread_mem_tracker_mgr is initialized, the current thread Hook starts to
     // consume/release mem_tracker.
     // Note that the use of shared_ptr will cause a crash. The guess is that there is an
@@ -184,7 +180,6 @@ public:
 
 private:
     TUniqueId _task_id;
-    TUniqueId _fragment_instance_id;
 };
 
 class ThreadLocalHandle {

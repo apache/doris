@@ -186,7 +186,7 @@ public class StatementContext {
      * Add a slot ref attached with paths in context to avoid duplicated slot
      */
     public void addPathSlotRef(Slot root, List<String> paths, SlotReference slotRef, Expression originalExpr) {
-        Comparator<List<String>> pathsComparator = new Comparator<List<String>>() {
+        subColumnSlotRefMap.computeIfAbsent(root, k -> Maps.newTreeMap(new Comparator<List<String>>() {
             @Override
             public int compare(List<String> lst1, List<String> lst2) {
                 Iterator<String> it1 = lst1.iterator();
@@ -199,8 +199,7 @@ public class StatementContext {
                 }
                 return Integer.compare(lst1.size(), lst2.size());
             }
-        };
-        subColumnSlotRefMap.computeIfAbsent(root, k -> Maps.newTreeMap(pathsComparator));
+        }));
         subColumnSlotRefMap.get(root).put(paths, slotRef);
         subColumnOriginalExprMap.put(slotRef, originalExpr);
         originalExprToRewrittenSubColumn.put(originalExpr, slotRef);

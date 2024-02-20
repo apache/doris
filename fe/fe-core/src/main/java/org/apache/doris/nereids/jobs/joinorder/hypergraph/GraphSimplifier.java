@@ -33,6 +33,7 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -417,7 +418,7 @@ public class GraphSimplifier {
 
         JoinEdge newEdge = new JoinEdge(join, edge.getIndex(),
                 edge.getLeftChildEdges(), edge.getRightChildEdges(), edge.getSubTreeNodes(),
-                edge.getLeftRequiredNodes(), edge.getRightRequiredNodes());
+                edge.getLeftRequiredNodes(), edge.getRightRequiredNodes(), ImmutableSet.of(), ImmutableSet.of());
         newEdge.addLeftExtendNode(leftNodes);
         newEdge.addRightExtendNode(rightNodes);
         return newEdge;

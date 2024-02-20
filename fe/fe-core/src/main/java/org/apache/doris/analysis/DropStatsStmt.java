@@ -122,7 +122,7 @@ public class DropStatsStmt extends DdlStmt {
             }
         } else {
             isAllColumns = true;
-            columnNames = table.getColumns().stream().map(Column::getName).collect(Collectors.toSet());
+            columnNames = table.getSchemaAllIndexes(false).stream().map(Column::getName).collect(Collectors.toSet());
         }
     }
 

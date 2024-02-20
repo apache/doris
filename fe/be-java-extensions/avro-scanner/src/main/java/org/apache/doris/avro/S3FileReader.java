@@ -20,6 +20,7 @@ package org.apache.doris.avro;
 import org.apache.avro.Schema;
 import org.apache.avro.mapred.AvroWrapper;
 import org.apache.avro.mapred.Pair;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -58,8 +59,10 @@ public class S3FileReader extends AvroReader {
     @Override
     public void open(AvroFileContext avroFileContext, boolean tableSchema) throws IOException {
         Configuration conf = new Configuration();
-        conf.set(AvroProperties.FS_S3A_ACCESS_KEY, accessKey);
-        conf.set(AvroProperties.FS_S3A_SECRET_KEY, secretKey);
+        if (!StringUtils.isEmpty(accessKey) && !StringUtils.isEmpty(secretKey)) {
+            conf.set(AvroProperties.FS_S3A_ACCESS_KEY, accessKey);
+            conf.set(AvroProperties.FS_S3A_SECRET_KEY, secretKey);
+        }
         conf.set(AvroProperties.FS_S3A_ENDPOINT, endpoint);
         conf.set(AvroProperties.FS_S3A_REGION, region);
         path = new Path(s3aUri);

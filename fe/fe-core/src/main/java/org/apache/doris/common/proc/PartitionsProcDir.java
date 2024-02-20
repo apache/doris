@@ -45,7 +45,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -309,7 +309,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(tblPartitionInfo.getIsMutable(partitionId));
                 if (olapTable instanceof MTMV) {
                     try {
-                        List<String> partitionUnSyncTables = MTMVUtil
+                        List<String> partitionUnSyncTables = MTMVPartitionUtil
                                 .getPartitionUnSyncTables((MTMV) olapTable, partitionId);
                         partitionInfo.add(CollectionUtils.isEmpty(partitionUnSyncTables));
                         partitionInfo.add(partitionUnSyncTables.toString());

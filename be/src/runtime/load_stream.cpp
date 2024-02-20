@@ -292,8 +292,8 @@ Status IndexStream::_init_tablet_stream(TabletStreamSharedPtr& tablet_stream, in
                                         int64_t partition_id) {
     tablet_stream = std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id, _load_stream_mgr,
                                                    _profile);
-    RETURN_IF_ERROR(tablet_stream->init(_schema, _id, partition_id));
     _tablet_streams_map[tablet_id] = tablet_stream;
+    RETURN_IF_ERROR(tablet_stream->init(_schema, _id, partition_id));
     return Status::OK();
 }
 

@@ -54,6 +54,8 @@ SHOW CATALOG RECYCLE BIN [ WHERE NAME [ = "name" | LIKE "name_matcher"] ]
         TableId：             table对应的id
         PartitionId：         partition对应的id
         DropTime：            元数据放入回收站的时间
+        DataSize：            数据量. 如果元数据类型是database, 该值包含了database下在回收站中的所有table和partition的数据量
+        RemoteDataSize：      remote storage(hdfs或对象存储)的数据量. 如果元数据类型是database, 该值包含了database下在回收站中的所有table和partition的remote storage数据量
 ```
 
 

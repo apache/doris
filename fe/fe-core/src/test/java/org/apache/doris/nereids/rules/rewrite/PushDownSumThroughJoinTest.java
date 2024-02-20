@@ -45,7 +45,7 @@ class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
     private MockUp<SessionVariable> mockUp = new MockUp<SessionVariable>() {
         @Mock
         public Set<Integer> getEnableNereidsRules() {
-            return ImmutableSet.of(RuleType.PUSH_DOWN_SUM_THROUGH_JOIN.type());
+            return ImmutableSet.of(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN.type());
         }
     };
 
@@ -58,7 +58,7 @@ class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(new PushDownSumThroughJoin())
+                .applyTopDown(new PushDownAggThroughJoin())
                 .matches(
                         logicalAggregate(
                                 logicalJoin(
@@ -78,7 +78,28 @@ class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(new PushDownSumThroughJoin())
+                .applyTopDown(new PushDownAggThroughJoin())
+                .matches(
+                        logicalAggregate(
+                                logicalJoin(
+                                        logicalAggregate(),
+                                        logicalAggregate()
+                                )
+                        )
+                );
+    }
+
+    @Test
+    void testSingleJoinBothSum() {
+        Alias leftSum = new Sum(scan1.getOutput().get(1)).alias("leftSum");
+        Alias rightSum = new Sum(scan2.getOutput().get(1)).alias("rightSum");
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .aggGroupUsingIndex(ImmutableList.of(0), ImmutableList.of(scan1.getOutput().get(0), leftSum, rightSum))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushDownAggThroughJoin())
                 .matches(
                         logicalAggregate(
                                 logicalJoin(
@@ -99,7 +120,7 @@ class PushDownSumThroughJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(new PushDownSumThroughJoin())
+                .applyTopDown(new PushDownAggThroughJoin())
                 .matches(
                         logicalAggregate(
                                 logicalJoin(

@@ -69,7 +69,7 @@ public class EliminateJoinByFK extends OneRewriteRuleFactory {
                 res = tryEliminatePrimary(project, equalSet, join.left(), join.right());
             }
             return res;
-        }).toRule(RuleType.ELIMINATE_JOIN_BY_UK);
+        }).toRule(RuleType.ELIMINATE_JOIN_BY_FK);
     }
 
     private @Nullable Plan tryEliminatePrimary(LogicalProject<LogicalJoin<Plan, Plan>> project,

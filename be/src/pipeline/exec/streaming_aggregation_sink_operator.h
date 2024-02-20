@@ -74,11 +74,19 @@ private:
 
 class StreamingAggSinkOperatorX;
 
+class StreamingAggSinkDependency final : public Dependency {
+public:
+    using SharedState = AggSharedState;
+    StreamingAggSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "StreamingAggSinkDependency", true, query_ctx) {}
+    ~StreamingAggSinkDependency() override = default;
+};
+
 class StreamingAggSinkLocalState final
-        : public AggSinkLocalState<AggSinkDependency, StreamingAggSinkLocalState> {
+        : public AggSinkLocalState<StreamingAggSinkDependency, StreamingAggSinkLocalState> {
 public:
     using Parent = StreamingAggSinkOperatorX;
-    using Base = AggSinkLocalState<AggSinkDependency, StreamingAggSinkLocalState>;
+    using Base = AggSinkLocalState<StreamingAggSinkDependency, StreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
     StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~StreamingAggSinkLocalState() override = default;

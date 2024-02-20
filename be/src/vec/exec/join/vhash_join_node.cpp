@@ -92,7 +92,6 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids
                                         ? tnode.hash_join_node.hash_output_slot_ids
                                         : std::vector<SlotId> {}) {
-    _runtime_filter_descs = tnode.runtime_filters;
     _arena = std::make_shared<Arena>();
     _hash_table_variants = std::make_shared<HashTableVariants>();
     _process_hashtable_ctx_variants = std::make_unique<HashTableCtxVariants>();
@@ -180,18 +179,10 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 #endif
 
-    if ((_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-         _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
-        _have_other_join_conjunct) {
-        _build_indexes_null = std::make_shared<std::vector<uint32_t>>();
-    }
-
-    _runtime_filters.resize(_runtime_filter_descs.size());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                _runtime_filter_descs[i], state->query_options(), _probe_expr_ctxs.size() == 1));
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
-                _runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
+                _runtime_filter_descs[i], state->query_options(), &_runtime_filters[i],
+                _probe_expr_ctxs.size() == 1));
     }
 
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
@@ -437,7 +428,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                             using HashTableCtxType = std::decay_t<decltype(arg)>;
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                                 st = process_hashtable_ctx.process_data_in_hashtable(
-                                        arg, mutable_join_block, &temp_block, eos);
+                                        arg, mutable_join_block, &temp_block, eos, _is_mark_join);
                             } else {
                                 st = Status::InternalError("uninited hash table");
                             }
@@ -761,7 +752,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             // arena will be shared with other instances.
             _shared_hash_table_context->arena = _arena;
             _shared_hash_table_context->block = _build_block;
-            _shared_hash_table_context->build_indexes_null = _build_indexes_null;
             _shared_hash_table_context->hash_table_variants = _hash_table_variants;
             _shared_hash_table_context->short_circuit_for_null_in_probe_side =
                     _has_null_in_build_side;
@@ -794,7 +784,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                 *std::static_pointer_cast<HashTableVariants>(
                         _shared_hash_table_context->hash_table_variants));
         _build_block = _shared_hash_table_context->block;
-        _build_indexes_null = _shared_hash_table_context->build_indexes_null;
 
         if (!_shared_hash_table_context->runtime_filters.empty()) {
             auto ret = std::visit(
@@ -803,11 +792,11 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                   __builtin_unreachable();
                               },
                               [&](auto&& arg) -> Status {
-                                  if (_runtime_filter_descs.empty()) {
+                                  if (_runtime_filters.empty()) {
                                       return Status::OK();
                                   }
                                   _runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-                                          _build_expr_ctxs, _runtime_filter_descs);
+                                          _build_expr_ctxs, _runtime_filters);
 
                                   RETURN_IF_ERROR(_runtime_filter_slots->init(
                                           state, arg.hash_table->size()));
@@ -823,6 +812,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
 
     if (eos) {
         _process_hashtable_ctx_variants_init(state);
+        _init_short_circuit_for_probe();
     }
 
     // Since the comparison of null values is meaningless, null aware left anti/semi join should not output null
@@ -831,7 +821,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                          _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN)) {
         _probe_ignore_null = true;
     }
-    _init_short_circuit_for_probe();
 
     return Status::OK();
 }
@@ -1092,9 +1081,6 @@ HashJoinNode::~HashJoinNode() {
     if (_shared_hashtable_controller && _should_build_hash_table) {
         // signal at here is abnormal
         _shared_hashtable_controller->signal(id(), Status::Cancelled("signaled in destructor"));
-    }
-    if (_runtime_filter_slots != nullptr) {
-        _runtime_filter_slots->finish_publish();
     }
 }
 

@@ -313,6 +313,15 @@ void ColumnNullable::insert_indices_from(const IColumn& src, const uint32_t* ind
     _need_update_has_null = true;
 }
 
+void ColumnNullable::insert_indices_from_not_has_null(const IColumn& src,
+                                                      const uint32_t* indices_begin,
+                                                      const uint32_t* indices_end) {
+    const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
+    get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin,
+                                            indices_end);
+    _get_null_map_column().insert_many_defaults(indices_end - indices_begin);
+}
+
 void ColumnNullable::insert(const Field& x) {
     if (x.is_null()) {
         get_nested_column().insert_default();
@@ -506,12 +515,6 @@ ColumnPtr ColumnNullable::replicate(const Offsets& offsets) const {
     ColumnPtr replicated_data = get_nested_column().replicate(offsets);
     ColumnPtr replicated_null_map = get_null_map_column().replicate(offsets);
     return ColumnNullable::create(replicated_data, replicated_null_map);
-}
-
-void ColumnNullable::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
-    auto& res = reinterpret_cast<ColumnNullable&>(column);
-    get_nested_column().replicate(counts, target_size, res.get_nested_column());
-    get_null_map_column().replicate(counts, target_size, res.get_null_map_column());
 }
 
 template <bool negative>

@@ -121,7 +121,6 @@ import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionUtil;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -140,11 +139,11 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
@@ -181,8 +180,10 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.datasource.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
@@ -208,7 +209,11 @@ import org.apache.doris.task.AgentClient;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.SnapshotTask;
+import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TShowProcessListRequest;
+import org.apache.doris.thrift.TShowProcessListResult;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
@@ -454,13 +459,53 @@ public class ShowExecutor {
     // Handle show processlist
     private void handleShowProcesslist() {
         ShowProcesslistStmt showStmt = (ShowProcesslistStmt) stmt;
-        List<List<String>> rowSet = Lists.newArrayList();
+        boolean isShowFullSql = showStmt.isFull();
+        boolean isShowAllFe = showStmt.isShowAllFe();
 
+        List<List<String>> rowSet = Lists.newArrayList();
         List<ConnectContext.ThreadInfo> threadInfos = ctx.getConnectScheduler()
-                .listConnection(ctx.getQualifiedUser(), showStmt.isFull());
+                .listConnection(ctx.getQualifiedUser(), isShowFullSql);
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs, false));
+            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs, isShowAllFe));
+        }
+
+        if (isShowAllFe) {
+            try {
+                TShowProcessListRequest request = new TShowProcessListRequest();
+                request.setShowFullSql(isShowFullSql);
+                List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(),
+                        false);
+                FrontendService.Client client = null;
+                for (Pair<String, Integer> fe : frontends) {
+                    TNetworkAddress thriftAddress = new TNetworkAddress(fe.key(), fe.value());
+                    try {
+                        client = ClientPool.frontendPool.borrowObject(thriftAddress, 3000);
+                    } catch (Exception e) {
+                        LOG.warn("Failed to get frontend {} client. exception: {}", fe.key(), e);
+                        continue;
+                    }
+
+                    boolean isReturnToPool = false;
+                    try {
+                        TShowProcessListResult result = client.showProcessList(request);
+                        if (result.process_list != null && result.process_list.size() > 0) {
+                            rowSet.addAll(result.process_list);
+                        }
+                        isReturnToPool = true;
+                    } catch (Exception e) {
+                        LOG.warn("Failed to request processlist to fe: {} . exception: {}", fe.key(), e);
+                    } finally {
+                        if (isReturnToPool) {
+                            ClientPool.frontendPool.returnObject(thriftAddress, client);
+                        } else {
+                            ClientPool.frontendPool.invalidateObject(thriftAddress, client);
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                LOG.warn(" fetch process list from other fe failed, ", t);
+            }
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
@@ -1082,7 +1127,8 @@ public class ShowExecutor {
                 for (Index index : indexes) {
                     rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
                             "", String.join(",", index.getColumns()), "", "", "", "",
-                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString(),
+                            String.valueOf(index.getIndexId())));
                 }
             } finally {
                 table.readUnlock();
@@ -1331,7 +1377,9 @@ public class ShowExecutor {
                 throw new AnalysisException("job is not exist.");
             }
         } else {
-            LOG.debug("load_job_id={}", jobId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("load_job_id={}", jobId);
+            }
             jobId = showWarningsStmt.getJobId();
             job = load.getLoadJob(jobId);
             if (job == null) {
@@ -2501,43 +2549,54 @@ public class ShowExecutor {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         TableName tableName = showColumnStatsStmt.getTableName();
         TableIf tableIf = showColumnStatsStmt.getTable();
-        List<Pair<String, ColumnStatistic>> columnStatistics = new ArrayList<>();
+        List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics = new ArrayList<>();
         Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
         boolean showCache = showColumnStatsStmt.isCached();
 
         for (String colName : columnNames) {
-            // Show column statistics in columnStatisticsCache. For validation.
-            if (showCache) {
-                ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                        tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(), tableIf.getId(), colName);
-                columnStatistics.add(Pair.of(colName, columnStatistic));
-            } else if (partitionNames == null) {
-                ColumnStatistic columnStatistic =
-                        StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), colName);
-                columnStatistics.add(Pair.of(colName, columnStatistic));
+            // Olap base index use -1 as index id.
+            List<Long> indexIds = Lists.newArrayList();
+            if (StatisticsUtil.isMvColumn(tableIf, colName)) {
+                OlapTable olapTable = (OlapTable) tableIf;
+                indexIds = olapTable.getMvColumnIndexIds(colName);
             } else {
-                columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                                colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
-                        .stream().map(s -> Pair.of(colName, s))
-                        .collect(Collectors.toList()));
+                indexIds.add(-1L);
             }
-
+            for (long indexId : indexIds) {
+                String indexName = "N/A";
+                if (indexId != -1) {
+                    indexName = ((OlapTable) tableIf).getIndexNameById(indexId);
+                    if (indexName == null) {
+                        continue;
+                    }
+                }
+                // Show column statistics in columnStatisticsCache.
+                if (showCache) {
+                    ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+                            tableIf.getDatabase().getCatalog().getId(),
+                            tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
+                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                } else if (partitionNames == null) {
+                    ColumnStatistic columnStatistic =
+                            StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), indexId, colName);
+                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                } else {
+                    String finalIndexName = indexName;
+                    columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
+                            colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
+                            .stream().map(s -> Pair.of(Pair.of(colName, finalIndexName), s))
+                            .collect(Collectors.toList()));
+                }
+            }
         }
         resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
     }
 
     public void handleShowColumnHist() {
+        // TODO: support histogram in the future.
         ShowColumnHistStmt showColumnHistStmt = (ShowColumnHistStmt) stmt;
-        TableIf tableIf = showColumnHistStmt.getTable();
-        Set<String> columnNames = showColumnHistStmt.getColumnNames();
-
-        List<Pair<String, Histogram>> columnStatistics = columnNames.stream()
-                .map(colName -> Pair.of(colName,
-                        StatisticsRepository.queryColumnHistogramByName(tableIf.getId(), colName)))
-                .collect(Collectors.toList());
-
+        List<Pair<String, Histogram>> columnStatistics = Lists.newArrayList();
         resultSet = showColumnHistStmt.constructResultSet(columnStatistics);
     }
 
@@ -2920,12 +2979,19 @@ public class ShowExecutor {
 
     private void handleShowAnalyzeTaskStatus() {
         ShowAnalyzeTaskStatus showStmt = (ShowAnalyzeTaskStatus) stmt;
+        AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(showStmt.getJobId());
+        TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
         List<AnalysisInfo> analysisInfos = Env.getCurrentEnv().getAnalysisManager().findTasks(showStmt.getJobId());
         List<List<String>> rows = new ArrayList<>();
         for (AnalysisInfo analysisInfo : analysisInfos) {
             List<String> row = new ArrayList<>();
             row.add(String.valueOf(analysisInfo.taskId));
             row.add(analysisInfo.colName);
+            if (StatisticsUtil.isMvColumn(table, analysisInfo.colName)) {
+                row.add(((OlapTable) table).getIndexNameById(analysisInfo.indexId));
+            } else {
+                row.add("N/A");
+            }
             row.add(analysisInfo.message);
             row.add(TimeUtils.DATETIME_FORMAT.format(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
@@ -2976,4 +3042,3 @@ public class ShowExecutor {
     }
 
 }
-

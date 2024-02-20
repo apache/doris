@@ -18,7 +18,6 @@
 #pragma once
 
 #include <gen_cpp/BackendService.h>
-#include <stdint.h>
 
 #include <memory>
 #include <string>
@@ -68,11 +67,7 @@ class BaseBackendService : public BackendServiceIf {
 public:
     BaseBackendService(ExecEnv* exec_env);
 
-    ~BaseBackendService() override = default;
-
-    // NOTE: now we do not support multiple backend in one process
-    static Status create_service(ExecEnv* exec_env, int port,
-                                 std::unique_ptr<ThriftServer>* server);
+    ~BaseBackendService() override;
 
     // Agent service
     void submit_tasks(TAgentResult& return_value,
@@ -116,8 +111,32 @@ public:
     // used for external service, close some context and release resource related with this context
     void close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) override;
 
-    // TODO(AlexYue): The below cloud backend functions should be implemented in
-    // CloudBackendService
+    ////////////////////////////////////////////////////////////////////////////
+    // begin local backend functions
+    ////////////////////////////////////////////////////////////////////////////
+    void get_tablet_stat(TTabletStatResult& result) override;
+
+    int64_t get_trash_used_capacity() override;
+
+    void get_stream_load_record(TStreamLoadRecordResult& result,
+                                int64_t last_stream_record_time) override;
+
+    void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
+
+    void clean_trash() override;
+
+    void make_snapshot(TAgentResult& return_value,
+                       const TSnapshotRequest& snapshot_request) override;
+
+    void release_snapshot(TAgentResult& return_value, const std::string& snapshot_path) override;
+
+    void check_storage_format(TCheckStorageFormatResult& result) override;
+
+    void ingest_binlog(TIngestBinlogResult& result, const TIngestBinlogRequest& request) override;
+
+    void query_ingest_binlog(TQueryIngestBinlogResult& result,
+                             const TQueryIngestBinlogRequest& request) override;
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////
@@ -137,9 +156,6 @@ public:
     void warm_up_tablets(TWarmUpTabletsResponse& response,
                          const TWarmUpTabletsRequest& request) override;
 
-    ////////////////////////////////////////////////////////////////////////////
-    // end cloud backend functions
-    ////////////////////////////////////////////////////////////////////////////
 protected:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
 
@@ -151,9 +167,13 @@ protected:
 // `StorageEngine` mixin for `BaseBackendService`
 class BackendService final : public BaseBackendService {
 public:
+    // NOTE: now we do not support multiple backend in one process
+    static Status create_service(StorageEngine& engine, ExecEnv* exec_env, int port,
+                                 std::unique_ptr<ThriftServer>* server);
+
     BackendService(StorageEngine& engine, ExecEnv* exec_env);
 
-    ~BackendService() override = default;
+    ~BackendService() override;
 
     void get_tablet_stat(TTabletStatResult& result) override;
 

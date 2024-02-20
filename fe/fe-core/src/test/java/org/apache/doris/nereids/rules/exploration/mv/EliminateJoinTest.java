@@ -52,10 +52,22 @@ class EliminateJoinTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
+        CascadesContext c3 = createCascadesContext(
+                "select * from T1 left outer join (select id as id2 from T2 group by id) T2 "
+                        + "on T1.id = T2.id2 ",
+                connectContext
+        );
+        Plan p3 = PlanChecker.from(c3)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
         HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
+        HyperGraph h3 = HyperGraph.builderForMv(p3).buildAll().get(0);
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
+        Assertions.assertTrue(!HyperGraphComparator.isLogicCompatible(h1, h3, constructContext(p1, p2)).isInvalid());
         Assertions.assertTrue(res.getViewExpressions().isEmpty());
     }
 
@@ -112,11 +124,23 @@ class EliminateJoinTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
+        CascadesContext c3 = createCascadesContext(
+                "select * from T1 inner join (select id as id2 from T2) T2 "
+                        + "on T1.id = T2.id2 ",
+                connectContext
+        );
+        Plan p3 = PlanChecker.from(c3)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
         HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
+        HyperGraph h3 = HyperGraph.builderForMv(p3).buildAll().get(0);
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertTrue(res.getViewExpressions().isEmpty());
+        Assertions.assertTrue(!HyperGraphComparator.isLogicCompatible(h1, h3, constructContext(p1, p2)).isInvalid());
         dropConstraint("alter table T2 drop constraint pk");
     }
 
@@ -154,7 +178,6 @@ class EliminateJoinTest extends SqlTestBase {
         dropConstraint("alter table T3 drop constraint uk");
     }
 
-    @Disabled
     @Test
     void testLOJWithPKFKAndUK2() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");

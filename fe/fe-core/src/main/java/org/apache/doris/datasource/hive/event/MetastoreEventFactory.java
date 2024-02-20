@@ -19,8 +19,8 @@
 package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;

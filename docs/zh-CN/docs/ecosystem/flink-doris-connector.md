@@ -40,13 +40,13 @@ under the License.
 ## 版本兼容
 
 | Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
-| --------- | ----- | ------ | ---- | ----- |
-| 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.1     | 1.14  | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.1     | 1.15  | 1.0+   | 8    | -         |
-| 1.3.0     | 1.16  | 1.0+   | 8    | -         |
-| 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
-| 1.5.0 | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
+|-------------------| ----- | ------ | ---- | ----- |
+| 1.0.3             | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
+| 1.1.1             | 1.14  | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.1             | 1.15  | 1.0+   | 8    | -         |
+| 1.3.0             | 1.16  | 1.0+   | 8    | -         |
+| 1.4.0             | 1.15,1.16,1.17  | 1.0+   | 8   |- |
+| 1.5.2             | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
 
 ## 使用
 
@@ -314,14 +314,14 @@ ON a.city = c.city
 ### 通用配置项
 
 | Key                              | Default Value | Required | Comment                                                      |
-| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| -------------------------------- |---------------| -------- | ------------------------------------------------------------ |
 | fenodes                          | --            | Y        | Doris FE http 地址， 支持多个地址，使用逗号分隔              |
 | benodes                          | --            | N        | Doris BE http 地址， 支持多个地址，使用逗号分隔，参考[#187](https://github.com/apache/doris-flink-connector/pull/187) |
 | jdbc-url                         | --            | N        | jdbc连接信息，如: jdbc:mysql://127.0.0.1:9030                |
 | table.identifier                 | --            | Y        | Doris 表名，如：db.tbl                                       |
 | username                         | --            | Y        | 访问 Doris 的用户名                                          |
 | password                         | --            | Y        | 访问 Doris 的密码                                            |
-| auto-redirect                    | false         | N        | 是否重定向StreamLoad请求。开启后StreamLoad将通过FE写入，不再显示获取BE信息，同时也可通过开启该参数写入SelectDB Cloud |
+| auto-redirect                    | true          | N        | 是否重定向StreamLoad请求。开启后StreamLoad将通过FE写入，不再显示获取BE信息 |
 | doris.request.retries            | 3             | N        | 向 Doris 发送请求的重试次数                                  |
 | doris.request.connect.timeout.ms | 30000         | N        | 向 Doris 发送请求的连接超时时间                              |
 | doris.request.read.timeout.ms    | 30000         | N        | 向 Doris 发送请求的读取超时时间                              |

@@ -23,7 +23,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
@@ -45,7 +44,7 @@ public class TablesProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TableId").add("TableName").add("IndexNum").add("PartitionColumnName")
             .add("PartitionNum").add("State").add("Type").add("LastConsistencyCheckTime").add("ReplicaCount")
-            .add("LastUpdateTime")
+            .add("VisibleVersion").add("VisibleVersionTime").add("LastUpdateTime")
             .build();
 
     private DatabaseIf db;
@@ -91,7 +90,7 @@ public class TablesProcDir implements ProcDirInterface {
             String partitionKey = FeConstants.null_string;
             table.readLock();
             try {
-                if (table.getType() == TableType.OLAP) {
+                if (table instanceof OlapTable) {
                     OlapTable olapTable = (OlapTable) table;
                     if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
                         partitionNum = olapTable.getPartitions().size();
@@ -117,6 +116,8 @@ public class TablesProcDir implements ProcDirInterface {
                     // last check time
                     tableInfo.add(TimeUtils.longToTimeString(olapTable.getLastCheckTime()));
                     tableInfo.add(replicaCount);
+                    tableInfo.add(olapTable.getVisibleVersion());
+                    tableInfo.add(olapTable.getVisibleVersionTime());
                 } else {
                     tableInfo.add(table.getId());
                     tableInfo.add(table.getName());
@@ -128,6 +129,8 @@ public class TablesProcDir implements ProcDirInterface {
                     // last check time
                     tableInfo.add(FeConstants.null_string);
                     tableInfo.add(replicaCount);
+                    tableInfo.add(FeConstants.null_string);
+                    tableInfo.add(FeConstants.null_string);
                 }
                 tableInfo.add(TimeUtils.longToTimeString(table.getUpdateTime()));
                 tableInfos.add(tableInfo);

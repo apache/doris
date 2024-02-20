@@ -121,7 +121,8 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
                     _expr_name, _data_type->get_name(), *result_column_id, block->dump_structure());
         }
 
-        calculate_filter(_filtered_rows, _scan_rows, _has_calculate_filter, _always_true);
+        calculate_filter(VRuntimeFilterWrapper::EXPECTED_FILTER_RATE, _filtered_rows, _scan_rows,
+                         _has_calculate_filter, _always_true);
         return Status::OK();
     }
 }

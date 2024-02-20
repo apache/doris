@@ -192,6 +192,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
         wrequest.table_schema_param = _schema;
+        wrequest.txn_expiration = params.txn_expiration(); // Required by CLOUD.
 
         auto delta_writer = create_delta_writer(wrequest);
         {
@@ -455,6 +456,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .tablet_id = tablet.tablet_id(),
                 .schema_hash = schema_hash,
                 .txn_id = _txn_id,
+                .txn_expiration = request.txn_expiration(), // Required by CLOUD.
                 .index_id = request.index_id(),
                 .partition_id = tablet.partition_id(),
                 .load_id = request.id(),
@@ -609,10 +611,13 @@ void BaseTabletsChannel::_build_tablet_to_rowidxs(
     // tests show that a relatively coarse-grained read lock here performs better under multicore scenario
     // see: https://github.com/apache/doris/pull/28552
     std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
+    if (request.is_single_tablet_block()) {
+        // The cloud mode need the tablet ids to prepare rowsets.
+        int64_t tablet_id = request.tablet_ids(0);
+        tablet_to_rowidxs->emplace(tablet_id, std::initializer_list<uint32_t> {0});
+        return;
+    }
     for (uint32_t i = 0; i < request.tablet_ids_size(); ++i) {
-        if (request.is_single_tablet_block()) {
-            break;
-        }
         int64_t tablet_id = request.tablet_ids(i);
         if (_is_broken_tablet(tablet_id)) {
             // skip broken tablets

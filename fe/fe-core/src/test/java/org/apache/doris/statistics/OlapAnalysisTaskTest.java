@@ -162,7 +162,7 @@ public class OlapAnalysisTaskTest {
                         + "SUM(LENGTH(`column_key`) * count) * 5.0 AS `data_size`, NOW() "
                         + "FROM (     SELECT t0.`${colName}` as `column_key`, COUNT(1) "
                         + "as `count`     FROM     (SELECT `${colName}` FROM "
-                        + "`catalogName`.`${dbName}`.`${tblName}`     "
+                        + "`catalogName`.`${dbName}`.`${tblName}`      "
                         + " limit 100) as `t0`     GROUP BY `t0`.`${colName}` ) as `t1` ", sql);
                 return;
             }
@@ -238,7 +238,7 @@ public class OlapAnalysisTaskTest {
                         + "AS `null_count`, SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "SUM(LENGTH(`${colName}`)) * 5.0 AS `data_size`, NOW() "
-                        + "FROM `catalogName`.`${dbName}`.`${tblName}`  limit 100", sql);
+                        + "FROM `catalogName`.`${dbName}`.`${tblName}`   limit 100", sql);
                 return;
             }
         };
@@ -322,7 +322,7 @@ public class OlapAnalysisTaskTest {
                         + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "SUM(LENGTH(`column_key`) * count) * 5.0 AS `data_size`, NOW() "
-                        + "FROM (     SELECT t0.`${colName}` as `column_key`, COUNT(1) as `count`     FROM     (SELECT `${colName}` FROM `catalogName`.`${dbName}`.`${tblName}`      limit 100) as `t0`     GROUP BY `t0`.`${colName}` ) as `t1` ", sql);
+                        + "FROM (     SELECT t0.`${colName}` as `column_key`, COUNT(1) as `count`     FROM     (SELECT `${colName}` FROM `catalogName`.`${dbName}`.`${tblName}`       limit 100) as `t0`     GROUP BY `t0`.`${colName}` ) as `t1` ", sql);
                 return;
             }
         };

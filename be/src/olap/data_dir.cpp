@@ -713,7 +713,7 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
         bool is_valid = doris::TabletManager::get_tablet_id_and_schema_hash_from_path(
                 path, &tablet_id, &schema_hash);
         if (!is_valid || tablet_id < 1 || schema_hash < 1) [[unlikely]] {
-            LOG(WARNING) << "unknown path:" << path;
+            LOG(WARNING) << "[path gc] unknown path:" << path;
             continue;
         }
 
@@ -734,7 +734,7 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
         std::vector<io::FileInfo> files;
         auto st = io::global_local_filesystem()->list(path, true, &files, &exists);
         if (!st.ok()) [[unlikely]] {
-            LOG(WARNING) << "fail to list tablet path " << path << " : " << st;
+            LOG(WARNING) << "[path gc] fail to list tablet path " << path << " : " << st;
             continue;
         }
 
@@ -763,10 +763,10 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
         auto reclaim_rowset_file = [](const std::string& path) {
             auto st = io::global_local_filesystem()->delete_file(path);
             if (!st.ok()) [[unlikely]] {
-                LOG(WARNING) << "failed to delete garbage rowset file: " << st;
+                LOG(WARNING) << "[path gc] failed to delete garbage rowset file: " << st;
                 return;
             }
-            LOG(INFO) << "delete garbage path: " << path; // Audit log
+            LOG(INFO) << "[path gc] delete garbage path: " << path; // Audit log
         };
 
         auto should_reclaim = [&, this](const RowsetId& rowset_id) {

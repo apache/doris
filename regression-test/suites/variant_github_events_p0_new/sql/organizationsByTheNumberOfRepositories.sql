@@ -1,4 +1,4 @@
-SELECT
+SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
     lower(split_part(repo_name, '/', 1)) AS org,
     count(distinct repo_name) AS repos
 FROM

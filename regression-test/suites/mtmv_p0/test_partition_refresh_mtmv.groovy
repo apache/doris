@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.junit.Assert;
+
 suite("test_partition_refresh_mtmv") {
     def tableNameNum = "t_test_pr_mtmv_user_num"
     def tableNameUser = "t_test_pr_mtmv_user"

@@ -257,6 +257,7 @@ struct TWorkloadGroupInfo {
   6: optional string mem_limit
   7: optional bool enable_memory_overcommit
   8: optional bool enable_cpu_hard_limit
+  9: optional i32 scan_thread_num
 }
 
 struct TWorkloadMoveQueryToGroupAction {

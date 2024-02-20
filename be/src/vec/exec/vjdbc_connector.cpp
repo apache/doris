@@ -135,6 +135,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
+        ctor_params.__set_catalog_id(_conn_param.catalog_id);
         ctor_params.__set_jdbc_url(_conn_param.jdbc_url);
         ctor_params.__set_jdbc_user(_conn_param.user);
         ctor_params.__set_jdbc_password(_conn_param.passwd);
@@ -143,11 +144,13 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_batch_size(read ? state->batch_size() : 0);
         ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
         ctor_params.__set_table_type(_conn_param.table_type);
-        ctor_params.__set_min_pool_size(_conn_param.min_pool_size);
-        ctor_params.__set_max_pool_size(_conn_param.max_pool_size);
-        ctor_params.__set_max_idle_time(_conn_param.max_idle_time);
-        ctor_params.__set_max_wait_time(_conn_param.max_wait_time);
-        ctor_params.__set_keep_alive(_conn_param.keep_alive);
+        ctor_params.__set_connection_pool_min_size(_conn_param.connection_pool_min_size);
+        ctor_params.__set_connection_pool_max_size(_conn_param.connection_pool_max_size);
+        ctor_params.__set_connection_pool_max_wait_time(_conn_param.connection_pool_max_wait_time);
+        ctor_params.__set_connection_pool_max_life_time(_conn_param.connection_pool_max_life_time);
+        ctor_params.__set_connection_pool_cache_clear_time(
+                config::jdbc_connection_pool_cache_clear_time_sec);
+        ctor_params.__set_connection_pool_keep_alive(_conn_param.connection_pool_keep_alive);
 
         jbyteArray ctor_params_bytes;
         // Pushed frame will be popped when jni_frame goes out-of-scope.

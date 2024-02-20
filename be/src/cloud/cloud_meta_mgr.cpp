@@ -51,18 +51,21 @@
 namespace doris::cloud {
 using namespace ErrorCode;
 
-static bvar::LatencyRecorder g_get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
+namespace {
+constexpr int kBrpcRetryTimes = 3;
 
-static constexpr int BRPC_RETRY_TIMES = 3;
+static bvar::LatencyRecorder _get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
+} // namespace
 
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
-    Status status; // Guard by mtx
-    int count = 0; // Guard by mtx
-    bthread::Mutex mtx;
-    bthread::ConditionVariable condv;
     if (tasks.empty()) {
-        return status;
+        return Status::OK();
     }
+
+    bthread::Mutex lock;
+    bthread::ConditionVariable cond;
+    Status status; // Guard by lock
+    int count = 0; // Guard by lock
 
     auto* run_bthread_work = +[](void* arg) -> void* {
         auto* f = reinterpret_cast<std::function<void()>*>(arg);
@@ -71,46 +74,49 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
         return nullptr;
     };
 
-    for (auto it = tasks.begin(); it != tasks.end() - 1; ++it) {
+    std::vector<bthread_t> bthread_ids;
+    bthread_ids.resize(tasks.size());
+    for (int task_idx = 0; task_idx < tasks.size(); ++task_idx) {
+        auto* task = &(tasks[task_idx]);
         {
-            std::unique_lock lock(mtx);
+            std::unique_lock lk(lock);
+            // Wait until there are available slots
             while (status.ok() && count >= concurrency) {
-                condv.wait(lock);
+                cond.wait(lk);
             }
             if (!status.ok()) {
                 break;
             }
 
+            // Increase running task count
             ++count;
         }
-        auto* fn = new std::function<void()>([&, &task = *it] {
-            auto st = task();
+
+        // dispatch task into bthreads
+        auto* fn = new std::function<void()>([&, task] {
+            auto st = (*task)();
             {
-                std::lock_guard lock(mtx);
+                std::lock_guard lk(lock);
                 --count;
                 if (!st.ok()) {
                     std::swap(st, status);
                 }
-                condv.notify_one();
+                cond.notify_one();
             }
         });
-        bthread_t bid;
-        if (bthread_start_background(&bid, nullptr, run_bthread_work, fn) != 0) {
+        if (bthread_start_background(&bthread_ids[task_idx], nullptr, run_bthread_work, fn) != 0) {
             run_bthread_work(fn);
         }
     }
-    if (status.ok()) {
-        auto st = tasks.back()(); // Do last task inplace
-        if (!st.ok()) {
-            std::unique_lock lock(mtx);
-            std::swap(st, status);
+
+    // Wait until all running tasks have done
+    {
+        std::unique_lock lk(lock);
+        while (count > 0) {
+            cond.wait(lk);
         }
     }
 
-    std::unique_lock lock(mtx);
-    while (count > 0) { // Wait until all running tasks have done
-        condv.wait(lock);
-    }
     return status;
 }
 
@@ -286,7 +292,7 @@ static Status retry_rpc(std::string_view op_name, const Request& req, Response* 
     while (true) {
         brpc::Controller cntl;
         cntl.set_timeout_ms(config::meta_service_brpc_timeout_ms);
-        cntl.set_max_retry(BRPC_RETRY_TIMES);
+        cntl.set_max_retry(kBrpcRetryTimes);
         res->Clear();
         (stub.get()->*method)(&cntl, &req, res, nullptr);
         if (cntl.Failed()) [[unlikely]] {
@@ -371,7 +377,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
 
         stub->get_rowset(&cntl, &req, &resp, nullptr);
         int64_t latency = cntl.latency_us();
-        g_get_rowset_latency << latency;
+        _get_rowset_latency << latency;
         int retry_times = config::meta_service_rpc_retry_times;
         if (cntl.Failed()) {
             if (tried++ < retry_times) {

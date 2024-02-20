@@ -76,7 +76,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env)
+                           ExecEnv* exec_env, QueryContext* ctx)
         : _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
@@ -93,7 +93,8 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file(nullptr) {
+          _error_log_file(nullptr),
+          _query_ctx(ctx) {
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
@@ -106,7 +107,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
 
 RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
                            int32_t fragment_id, const TQueryOptions& query_options,
-                           const TQueryGlobals& query_globals, ExecEnv* exec_env)
+                           const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx)
         : _profile("Fragment " + print_id(instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
@@ -125,7 +126,8 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file(nullptr) {
+          _error_log_file(nullptr),
+          _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
     _runtime_filter_mgr.reset(
@@ -135,7 +137,7 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
 RuntimeState::RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
                            const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env)
+                           ExecEnv* exec_env, QueryContext* ctx)
         : _profile("Fragment " + print_id(instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
@@ -155,14 +157,15 @@ RuntimeState::RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId&
           _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file(nullptr) {
+          _error_log_file(nullptr),
+          _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
 }
 
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env)
+                           ExecEnv* exec_env, QueryContext* ctx)
         : _profile("PipelineX  " + std::to_string(fragment_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
@@ -181,7 +184,8 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file(nullptr) {
+          _error_log_file(nullptr),
+          _query_ctx(ctx) {
     // TODO: do we really need instance id?
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
     DCHECK(status.ok());

@@ -69,6 +69,8 @@ struct MethodBaseInner {
                                       const uint8_t* null_map = nullptr, bool is_join = false,
                                       bool is_build = false, uint32_t bucket_size = 0) = 0;
 
+    virtual size_t serialized_keys_size(bool is_build) const { return 0; }
+
     void init_join_bucket_num(uint32_t num_rows, uint32_t bucket_size, const uint8_t* null_map) {
         bucket_nums.resize(num_rows);
 
@@ -243,6 +245,10 @@ struct MethodSerialized : public MethodBase<TData> {
         Base::keys = input_keys.data();
     }
 
+    size_t serialized_keys_size(bool is_build) const override {
+        return is_build ? build_arena.size() : Base::arena.size();
+    }
+
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
@@ -276,6 +282,10 @@ struct MethodStringNoCache : public MethodBase<TData> {
             ColumnsHashing::HashMethodString<typename Base::Value, typename Base::Mapped, true>;
 
     std::vector<StringRef> stored_keys;
+
+    size_t serialized_keys_size(bool is_build) const override {
+        return stored_keys.size() * sizeof(StringRef);
+    }
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
@@ -430,6 +440,10 @@ struct MethodKeysFixed : public MethodBase<TData> {
         }
     }
 
+    size_t serialized_keys_size(bool is_build) const override {
+        return (is_build ? build_stored_keys.size() : stored_keys.size()) *
+               sizeof(typename Base::Key);
+    }
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {

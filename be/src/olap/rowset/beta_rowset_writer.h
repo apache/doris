@@ -131,13 +131,13 @@ private:
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:
-    void _build_rowset_meta(RowsetMeta* rowset_meta);
+    Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
     virtual Status _check_segment_number_limit();
     virtual int64_t _num_seg() const;
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
-    RowsetSharedPtr _build_tmp();
+    Status _build_tmp(RowsetSharedPtr& rowset_ptr);
 
     std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id

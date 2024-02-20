@@ -562,4 +562,3 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         return Optional.empty();
     }
 }
-

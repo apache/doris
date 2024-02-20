@@ -215,8 +215,10 @@ Status JniConnector::close() {
 Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_IF_ERROR(
             JniUtil::get_jni_scanner_class(env, _connector_class.c_str(), &_jni_scanner_cls));
-    if (_jni_scanner_cls == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
+    if (_jni_scanner_cls == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
         return Status::InternalError("Fail to get JniScanner class.");
     }
     RETURN_ERROR_IF_EXC(env);
@@ -249,13 +251,10 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
 
 Status JniConnector::fill_block(Block* block, const ColumnNumbers& arguments, long table_address) {
     if (table_address == 0) {
-        return Status::OK();
+        return Status::InternalError("table_address is 0");
     }
     TableMetaAddress table_meta(table_address);
     long num_rows = table_meta.next_meta_as_long();
-    if (num_rows == 0) {
-        return Status::OK();
-    }
     for (size_t i : arguments) {
         if (block->get_by_position(i).column == nullptr) {
             auto return_type = block->get_data_type(i);

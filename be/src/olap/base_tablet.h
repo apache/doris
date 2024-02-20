@@ -35,6 +35,11 @@ class RowsetWriter;
 class CalcDeleteBitmapToken;
 class SegmentCacheHandle;
 
+struct TabletWithVersion {
+    BaseTabletSPtr tablet;
+    int64_t version;
+};
+
 // Base class for all tablet classes
 class BaseTablet {
 public:
@@ -82,6 +87,9 @@ public:
     virtual Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(RowsetWriterContext& context,
                                                                        bool vertical) = 0;
 
+    virtual Status capture_consistent_rowsets_unlocked(
+            const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const = 0;
+
     virtual Status capture_rs_readers(const Version& spec_version,
                                       std::vector<RowSetSplits>* rs_splits,
                                       bool skip_missing_version) = 0;
@@ -109,6 +117,9 @@ public:
     void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta) const;
 
     virtual int64_t max_version_unlocked() const { return _tablet_meta->max_version().second; }
+
+    static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
+            const std::vector<RowsetMetaSharedPtr>& rowset_metas);
 
     ////////////////////////////////////////////////////////////////////////////
     // begin MoW functions
@@ -204,6 +215,9 @@ protected:
     static void _rowset_ids_difference(const RowsetIdUnorderedSet& cur,
                                        const RowsetIdUnorderedSet& pre,
                                        RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
+
+    Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
+                                                std::vector<RowsetSharedPtr>* rowsets) const;
 
     void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 

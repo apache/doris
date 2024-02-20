@@ -181,4 +181,3 @@ public class LongBitmap {
         return bitSet.toString();
     }
 }
-

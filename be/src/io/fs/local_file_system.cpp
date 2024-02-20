@@ -48,6 +48,9 @@
 namespace doris {
 namespace io {
 
+std::filesystem::perms LocalFileSystem::PERMS_OWNER_RW =
+        std::filesystem::perms::owner_read | std::filesystem::perms::owner_write;
+
 std::shared_ptr<LocalFileSystem> LocalFileSystem::create(Path path, std::string id) {
     return std::shared_ptr<LocalFileSystem>(new LocalFileSystem(std::move(path), std::move(id)));
 }
@@ -203,23 +206,30 @@ Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<F
         return Status::OK();
     }
     std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-        if (only_file && !entry.is_regular_file()) {
-            continue;
-        }
-        FileInfo file_info;
-        file_info.file_name = entry.path().filename();
-        file_info.is_file = entry.is_regular_file(ec);
-        if (ec) {
-            break;
-        }
-        if (file_info.is_file) {
-            file_info.file_size = entry.file_size(ec);
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+            if (only_file && !entry.is_regular_file()) {
+                continue;
+            }
+            FileInfo file_info;
+            file_info.file_name = entry.path().filename();
+            file_info.is_file = entry.is_regular_file(ec);
             if (ec) {
                 break;
             }
+            if (file_info.is_file) {
+                file_info.file_size = entry.file_size(ec);
+                if (ec) {
+                    break;
+                }
+            }
+            files->push_back(std::move(file_info));
         }
-        files->push_back(std::move(file_info));
+    } catch (const std::filesystem::filesystem_error& e) {
+        // although `directory_iterator(dir, ec)` does not throw an exception,
+        // it may throw an exception during iterator++, so we need to catch the exception here
+        return localfs_error(e.code(), fmt::format("failed to list {}, error message: {}",
+                                                   dir.native(), e.what()));
     }
     if (ec) {
         return localfs_error(ec, fmt::format("failed to list {}", dir.native()));
@@ -443,6 +453,20 @@ Status LocalFileSystem::_glob(const std::string& pattern, std::vector<std::strin
     }
 
     globfree(&glob_result);
+    return Status::OK();
+}
+
+Status LocalFileSystem::permission(const Path& file, std::filesystem::perms prms) {
+    auto path = absolute_path(file);
+    FILESYSTEM_M(permission_impl(path, prms));
+}
+
+Status LocalFileSystem::permission_impl(const Path& file, std::filesystem::perms prms) {
+    std::error_code ec;
+    std::filesystem::permissions(file, prms, ec);
+    if (ec) {
+        return localfs_error(ec, fmt::format("failed to change file permission {}", file.native()));
+    }
     return Status::OK();
 }
 

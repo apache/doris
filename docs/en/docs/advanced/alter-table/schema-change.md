@@ -31,8 +31,7 @@ Users can modify the schema of existing tables through the Schema Change operati
 * Add and delete columns
 * Modify column type
 * Adjust column order
-* Add and modify Bloom Filter
-* Add and delete bitmap index
+* Add and delete index
 
 This document mainly describes how to create a Schema Change job, as well as some considerations and frequently asked questions about Schema Change.
 ## Glossary

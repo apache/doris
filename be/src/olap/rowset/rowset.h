@@ -342,4 +342,7 @@ protected:
     std::set<int32_t> skip_index_compaction;
 };
 
+// `rs_metas` MUST already be sorted by `RowsetMeta::comparator`
+Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
+
 } // namespace doris

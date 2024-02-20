@@ -33,28 +33,31 @@ class WalDirInfo {
     ENABLE_FACTORY_CREATOR(WalDirInfo);
 
 public:
-    WalDirInfo(std::string wal_dir, size_t limit, size_t used, size_t pre_allocated)
+    WalDirInfo(std::string wal_dir, size_t limit, size_t used, size_t estimated_wal_bytes)
             : _wal_dir(std::move(wal_dir)),
               _limit(limit),
               _used(used),
-              _pre_allocated(pre_allocated) {}
+              _estimated_wal_bytes(estimated_wal_bytes) {}
     const std::string& get_wal_dir() const;
     size_t get_limit();
     size_t get_used();
-    size_t get_pre_allocated();
+    size_t get_estimated_wal_bytes();
     void set_limit(size_t limit);
     void set_used(size_t used);
-    void set_pre_allocated(size_t increase_pre_allocated, size_t decrease_pre_allocated);
+    void set_estimated_wal_bytes(size_t increase_estimated_wal_bytes,
+                                 size_t decrease_estimated_wal_bytes);
     size_t available();
     Status update_wal_dir_limit(size_t limit = -1);
     Status update_wal_dir_used(size_t used = -1);
-    void update_wal_dir_pre_allocated(size_t increase_pre_allocated, size_t decrease_pre_allocated);
+    void update_wal_dir_estimated_wal_bytes(size_t increase_estimated_wal_bytes,
+                                            size_t decrease_estimated_wal_bytes);
+    std::string get_wal_dir_info_string();
 
 private:
     std::string _wal_dir;
     size_t _limit;
     size_t _used;
-    size_t _pre_allocated;
+    size_t _estimated_wal_bytes;
     std::shared_mutex _lock;
 };
 
@@ -64,17 +67,19 @@ class WalDirsInfo {
 public:
     WalDirsInfo() = default;
     ~WalDirsInfo() = default;
-    Status add(const std::string& wal_dir, size_t limit, size_t used, size_t pre_allocated);
+    Status add(const std::string& wal_dir, size_t limit, size_t used, size_t estimated_wal_bytes);
     std::string get_available_random_wal_dir();
     size_t get_max_available_size();
     Status update_wal_dir_limit(const std::string& wal_dir, size_t limit = -1);
     Status update_all_wal_dir_limit();
     Status update_wal_dir_used(const std::string& wal_dir, size_t used = -1);
     Status update_all_wal_dir_used();
-    Status update_wal_dir_pre_allocated(const std::string& wal_dir, size_t increase_pre_allocated,
-                                        size_t decrease_pre_allocated);
+    Status update_wal_dir_estimated_wal_bytes(const std::string& wal_dir,
+                                              size_t increase_estimated_wal_bytes,
+                                              size_t decrease_estimated_wal_bytes);
     Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
     Status get_wal_dir_info(const std::string& wal_dir, std::shared_ptr<WalDirInfo>& wal_dir_info);
+    std::string get_wal_dirs_info_string();
 
 private:
     std::vector<std::shared_ptr<WalDirInfo>> _wal_dirs_info_vec;

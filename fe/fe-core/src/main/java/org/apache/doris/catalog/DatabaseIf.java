@@ -84,8 +84,6 @@ public interface DatabaseIf<T extends TableIf> {
         }
     }
 
-    List<T> getTablesOnIdOrder();
-
     List<T> getViews();
 
     default List<T> getViewsOrEmpty() {

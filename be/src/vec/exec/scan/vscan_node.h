@@ -377,7 +377,6 @@ protected:
     RuntimeProfile::Counter* _filter_timer = nullptr;
 
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
-    RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
@@ -387,11 +386,10 @@ protected:
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
 
     std::unordered_map<std::string, int> _colname_to_slot_id;
-    std::vector<int> _col_distribute_ids;
 
     TPushAggOp::type _push_down_agg_type;
 

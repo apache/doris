@@ -38,13 +38,13 @@ under the License.
 ## Version Compatibility
 
 | Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
-| --------- | ----- | ------ | ---- | ----- |
-| 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.1    | 1.14  | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.1    | 1.15  | 1.0+   | 8    | -         |
-| 1.3.0     | 1.16  | 1.0+   | 8    | -         |
-| 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
-| 1.5.0 | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
+|-------------------| ----- | ------ | ---- | ----- |
+| 1.0.3             | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
+| 1.1.1             | 1.14  | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.1             | 1.15  | 1.0+   | 8    | -         |
+| 1.3.0             | 1.16  | 1.0+   | 8    | -         |
+| 1.4.0             | 1.15,1.16,1.17  | 1.0+   | 8   |- |
+| 1.5.2             | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
 
 ## USE
 
@@ -311,14 +311,14 @@ ON a.city = c.city
 ### General configuration items
 
 | Key                              | Default Value | Required | Comment                                                      |
-| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| -------------------------------- |---------------| -------- | ------------------------------------------------------------ |
 | fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas |
 | benodes                          | --            | N        | Doris BE http address, multiple addresses are supported, separated by commas. refer to [#187](https://github.com/apache/doris-flink-connector/pull/187) |
 | jdbc-url                         | --            | N        | jdbc connection information, such as: jdbc:mysql://127.0.0.1:9030 |
 | table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                            |
 | username                         | --            | Y        | username to access Doris                                     |
 | password                         | --            | Y        | Password to access Doris                                     |
-| auto-redirect                    | false         | N        | Whether to redirect StreamLoad requests. After being turned on, StreamLoad will be written through FE, and BE information will no longer be displayed. At the same time, it can also be written to SelectDB Cloud by turning on this parameter. |
+| auto-redirect                    | true          | N        | Whether to redirect StreamLoad requests. After being turned on, StreamLoad will be written through FE, and BE information will no longer be displayed. |
 | doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                  |
 | doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris             |
 | doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                   |

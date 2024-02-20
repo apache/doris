@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -51,24 +52,28 @@ public class ClusterLoadStatisticsTest {
     @Before
     public void setUp() {
         // be1
+        // 50%, 95%, 2%
         be1 = new Backend(10001, "192.168.0.1", 9051);
         Map<String, DiskInfo> disks = Maps.newHashMap();
         DiskInfo diskInfo1 = new DiskInfo("/path1");
-        diskInfo1.setTotalCapacityB(1000000);
-        diskInfo1.setAvailableCapacityB(500000);
-        diskInfo1.setDataUsedCapacityB(480000);
+        diskInfo1.setTotalCapacityB(1_000_000);
+        diskInfo1.setAvailableCapacityB(500_000);
+        diskInfo1.setDataUsedCapacityB(480_000);
+        diskInfo1.setPathHash(1001);
         disks.put(diskInfo1.getRootPath(), diskInfo1);
 
         DiskInfo diskInfo2 = new DiskInfo("/path2");
-        diskInfo2.setTotalCapacityB(2000000);
-        diskInfo2.setAvailableCapacityB(100000);
-        diskInfo2.setDataUsedCapacityB(80000);
+        diskInfo2.setTotalCapacityB(2_000_000);
+        diskInfo2.setAvailableCapacityB(100_000);
+        diskInfo2.setDataUsedCapacityB(80_000);
+        diskInfo2.setPathHash(1002);
         disks.put(diskInfo2.getRootPath(), diskInfo2);
 
         DiskInfo diskInfo3 = new DiskInfo("/path3");
-        diskInfo3.setTotalCapacityB(500000);
-        diskInfo3.setAvailableCapacityB(490000);
-        diskInfo3.setDataUsedCapacityB(10000);
+        diskInfo3.setTotalCapacityB(500_000);
+        diskInfo3.setAvailableCapacityB(490_000);
+        diskInfo3.setDataUsedCapacityB(10_000);
+        diskInfo3.setPathHash(1003);
         disks.put(diskInfo3.getRootPath(), diskInfo3);
 
         be1.setDisks(ImmutableMap.copyOf(disks));
@@ -78,15 +83,17 @@ public class ClusterLoadStatisticsTest {
         be2 = new Backend(10002, "192.168.0.2", 9052);
         disks = Maps.newHashMap();
         diskInfo1 = new DiskInfo("/path1");
-        diskInfo1.setTotalCapacityB(2000000);
-        diskInfo1.setAvailableCapacityB(1900000);
-        diskInfo1.setDataUsedCapacityB(480000);
+        diskInfo1.setTotalCapacityB(2_000_000);
+        diskInfo1.setAvailableCapacityB(1_900_000);
+        diskInfo1.setDataUsedCapacityB(480_000);
+        diskInfo1.setPathHash(2001);
         disks.put(diskInfo1.getRootPath(), diskInfo1);
 
         diskInfo2 = new DiskInfo("/path2");
-        diskInfo2.setTotalCapacityB(20000000);
-        diskInfo2.setAvailableCapacityB(1000000);
-        diskInfo2.setDataUsedCapacityB(80000);
+        diskInfo2.setTotalCapacityB(20_000_000);
+        diskInfo2.setAvailableCapacityB(1_000_000);
+        diskInfo2.setDataUsedCapacityB(80_000);
+        diskInfo2.setPathHash(2002);
         disks.put(diskInfo2.getRootPath(), diskInfo2);
 
         be2.setDisks(ImmutableMap.copyOf(disks));
@@ -96,21 +103,24 @@ public class ClusterLoadStatisticsTest {
         be3 = new Backend(10003, "192.168.0.3", 9053);
         disks = Maps.newHashMap();
         diskInfo1 = new DiskInfo("/path1");
-        diskInfo1.setTotalCapacityB(4000000);
-        diskInfo1.setAvailableCapacityB(100000);
-        diskInfo1.setDataUsedCapacityB(80000);
+        diskInfo1.setTotalCapacityB(4_000_000);
+        diskInfo1.setAvailableCapacityB(100_000);
+        diskInfo1.setDataUsedCapacityB(80_000);
+        diskInfo1.setPathHash(3001);
         disks.put(diskInfo1.getRootPath(), diskInfo1);
 
         diskInfo2 = new DiskInfo("/path2");
-        diskInfo2.setTotalCapacityB(2000000);
-        diskInfo2.setAvailableCapacityB(100000);
-        diskInfo2.setDataUsedCapacityB(80000);
+        diskInfo2.setTotalCapacityB(2_000_000);
+        diskInfo2.setAvailableCapacityB(100_000);
+        diskInfo2.setDataUsedCapacityB(80_000);
+        diskInfo2.setPathHash(3002);
         disks.put(diskInfo2.getRootPath(), diskInfo2);
 
         diskInfo3 = new DiskInfo("/path3");
-        diskInfo3.setTotalCapacityB(500000);
-        diskInfo3.setAvailableCapacityB(490000);
-        diskInfo3.setDataUsedCapacityB(10000);
+        diskInfo3.setTotalCapacityB(500_000);
+        diskInfo3.setAvailableCapacityB(490_000);
+        diskInfo3.setDataUsedCapacityB(10_000);
+        diskInfo3.setPathHash(3003);
         disks.put(diskInfo3.getRootPath(), diskInfo3);
 
         be3.setDisks(ImmutableMap.copyOf(disks));
@@ -120,9 +130,9 @@ public class ClusterLoadStatisticsTest {
         be4 = new Backend(10004, "192.168.0.4", 9053);
         disks = Maps.newHashMap();
         diskInfo1 = new DiskInfo("/path1");
-        diskInfo1.setTotalCapacityB(4000000);
-        diskInfo1.setAvailableCapacityB(100000);
-        diskInfo1.setDataUsedCapacityB(80000);
+        diskInfo1.setTotalCapacityB(4_000_000);
+        diskInfo1.setAvailableCapacityB(100_000);
+        diskInfo1.setDataUsedCapacityB(80_000);
         disks.put(diskInfo1.getRootPath(), diskInfo1);
 
         be4.setDisks(ImmutableMap.copyOf(disks));
@@ -161,6 +171,14 @@ public class ClusterLoadStatisticsTest {
         loadStatistic.init();
         List<List<String>> infos = loadStatistic.getStatistic(TStorageMedium.HDD);
         Assert.assertEquals(3, infos.size());
+        BackendLoadStatistic beStat1 = loadStatistic.getBackendLoadStatistic(be1.getId());
+        Assert.assertNotNull(beStat1);
+        RootPathLoadStatistic path2 = beStat1.getPathStatisticByPathHash(1002);
+        RootPathLoadStatistic path3 = beStat1.getPathStatisticByPathHash(1003);
+        Assert.assertEquals(Classification.HIGH, path2.getLocalClazz());
+        Assert.assertEquals(Classification.HIGH, path2.getGlobalClazz());
+        Assert.assertEquals(Classification.LOW, path3.getLocalClazz());
+        Assert.assertEquals(Classification.LOW, path3.getGlobalClazz());
     }
 
 }

@@ -29,6 +29,7 @@
 #include <set>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -644,12 +645,16 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
         break;
     }
 
-    for (auto& rs : _rs_metas) {
-        rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
+    // RowsetMetaPB is separated from TabletMetaPB
+    if (!config::is_cloud_mode()) {
+        for (auto& rs : _rs_metas) {
+            rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
+        }
+        for (auto rs : _stale_rs_metas) {
+            rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
+        }
     }
-    for (auto rs : _stale_rs_metas) {
-        rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
-    }
+
     _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
 
     tablet_meta_pb->set_in_restore_mode(in_restore_mode());

@@ -157,7 +157,9 @@ public class NestedLoopJoinNode extends JoinNodeBase {
                 cardinality = Math.round(((double) cardinality) * computeOldSelectivity());
             }
         }
-        LOG.debug("stats NestedLoopJoin: cardinality={}", Long.toString(cardinality));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats NestedLoopJoin: cardinality={}", Long.toString(cardinality));
+        }
     }
 
     @Override

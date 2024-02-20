@@ -52,7 +52,8 @@ PROPERTIES ("key"="value", ...)
 | `driver_url `             | Yes             |               | JDBC Driver Jar                                                                                                          |
 | `driver_class `           | Yes             |               | JDBC Driver Class                                                                                                        |
 | `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                                                  |
-| `lower_case_table_names`  | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.          |
+| `lower_case_meta_names`   | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.          |
+| `meta_names_mapping`      | No              | ""            | When the jdbc external data source has the same name but different case, such as DORIS and doris, Doris reports an error when querying the Catalog due to ambiguity. In this case, the `meta_names_mapping` parameter needs to be configured to resolve the conflict. |
 | `include_database_list`   | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.   |
 | `exclude_database_list`   | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
 
@@ -66,23 +67,118 @@ PROPERTIES ("key"="value", ...)
 
 3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
 
-### Lowercase table name synchronization
+### Lowercase name synchronization
 
-When `lower_case_table_names` is set to `true`, Doris is able to query non-lowercase databases and tables and columns by maintaining a mapping of lowercase names to actual names on the remote system
+When `lower_case_meta_names` is set to `true`, Doris maintains the mapping of lowercase names to actual names in the remote system, enabling queries to use lowercase to query non-lowercase databases, tables and columns of external data sources.
+
+Since FE has the `lower_case_table_names` parameter, it will affect the table name case rules during query, so the rules are as follows
+
+* When FE `lower_case_table_names` config is 0
+
+  lower_case_meta_names = false, the case is consistent with the source library.
+  lower_case_meta_names = true, lowercase repository table column names.
+
+* When FE `lower_case_table_names` config is 1
+
+  lower_case_meta_names = false, the case of db and column is consistent with the source library, but the table is stored in lowercase
+  lower_case_meta_names = true, lowercase repository table column names.
+
+* When FE `lower_case_table_names` config is 2
+
+  lower_case_meta_names = false, the case is consistent with the source library.
+  lower_case_meta_names = true, lowercase repository table column names.
+
+If the parameter configuration when creating the Catalog matches the lowercase conversion rule in the above rules, Doris will convert the corresponding name to lowercase and store it in Doris. When querying, you need to use the lowercase name displayed by Doris.
+
+If the external data source has the same name but different case, such as DORIS and doris, Doris will report an error when querying the Catalog due to ambiguity. In this case, you need to configure the `meta_names_mapping` parameter to resolve the conflict.
+
+The `meta_names_mapping` parameter accepts a Json format string with the following format:
+
+```json
+{
+  "databases": [
+    {
+      "remoteDatabase": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "doris",
+      "mapping": "doris_2"
+    }],
+  "tables": [
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "doris",
+      "mapping": "doris_2"
+    }],
+  "columns": [
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "remoteColumn": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "remoteColumn": "doris",
+      "mapping": "doris_2"
+    }]
+}
+```
+
+When filling this configuration into the statement that creates the Catalog, there are double quotes in Json, so you need to escape the double quotes or directly use single quotes to wrap the Json string when filling in.
+
+```sql
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = "{\"databases\":[{\"remoteDatabase\":\"DORIS\",\"mapping\":\"doris_1\"},{\"remoteDatabase\":\"doris\",\"mapping\":\"doris_2\"}]}"
+    ...
+);
+```
+
+或者
+```sql
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = '{"databases":[{"remoteDatabase":"DORIS","mapping":"doris_1"},{"remoteDatabase":"doris","mapping":"doris_2"}]}'
+    ...
+);
+
+```
 
 **Notice:**
 
-1. In versions before Doris 2.0.3, it is only valid for Oracle database. When querying, all library names and table names will be converted to uppercase before querying Oracle, for example:
+JDBC Catalog has the following three stages for mapping rules for external table case:
 
-   Oracle has the TEST table in the TEST space. When Doris creates the Catalog, set `lower_case_table_names` to `true`, then Doris can query the TEST table through `select * from oracle_catalog.test.test`, and Doris will automatically format test.test into TEST.TEST is sent to Oracle. It should be noted that this is the default behavior, which also means that lowercase table names in Oracle cannot be queried.
+* Doris versions prior to 2.0.3
 
-   For other databases, you still need to specify the real library name and table name when querying.
+  This configuration name is `lower_case_table_names`, which is only valid for Oracle database. Setting this parameter to `true` in other data sources will affect the query, so please do not set it.
 
-2. In Doris 2.0.3 and later versions, it is valid for all databases. When querying, all database names and table names and columns will be converted into real names and then queried. If you upgrade from an old version to 2.0. 3, `Refresh <catalog_name>` is required to take effect.
+  When querying Oracle, all library names and table names will be converted to uppercase before querying Oracle, for example:
 
-   However, if the database or table or column names differ only in case, such as `Doris` and `doris`, Doris cannot query them due to ambiguity.
+  Oracle has the TEST table in the TEST space. When Doris creates the Catalog, set `lower_case_table_names` to `true`, then Doris can query the TEST table through `select * from oracle_catalog.test.test`, and Doris will automatically format test.test into TEST.TEST is sent to Oracle. It should be noted that this is the default behavior, which also means that lowercase table names in Oracle cannot be queried.
 
-3. When the FE parameter's `lower_case_table_names` is set to `1` or `2`, the JDBC Catalog's `lower_case_table_names` parameter must be set to `true`. If the FE parameter's `lower_case_table_names` is set to `0`, the JDBC Catalog parameter can be `true` or `false` and defaults to `false`. This ensures consistency and predictability in how Doris handles internal and external table configurations.
+* Doris 2.0.3 version:
+
+  This configuration is called `lower_case_table_names` and is valid for all databases. When querying, all library names and table names will be converted into real names and then queried. If you upgrade from an old version to 2.0.3, you need ` Refresh <catalog_name>` can take effect.
+
+  However, if the library, table, or column names differ only in case, such as `Doris` and `doris`, Doris cannot query them due to ambiguity.
+
+  And when the `lower_case_table_names` parameter of the FE parameter is set to `1` or `2`, the `lower_case_table_names` parameter of the JDBC Catalog must be set to `true`. If the `lower_case_table_names` of the FE parameter is set to `0`, the JDBC Catalog parameter can be `true` or `false`, defaulting to `false`.
+
+* Doris 2.1.0 and later versions:
+
+  In order to avoid confusion with the `lower_case_table_names` parameter of FE conf, this configuration name is changed to `lower_case_meta_names`, which is valid for all databases. During query, all library names, table names and column names will be converted into real names, and then Check it out. If you upgrade from an old version to 2.0.4, you need `Refresh <catalog_name>` to take effect.
+
+  For specific rules, please refer to the introduction of `lower_case_meta_names` at the beginning of this section.
+
+  Users who have previously set the JDBC Catalog `lower_case_table_names` parameter will automatically have `lower_case_table_names` converted to `lower_case_meta_names` when upgrading to 2.0.4.
 
 ### Specify synchronization database:
 
@@ -158,6 +254,22 @@ set enable_odbc_transcation = true;
 ```
 
 The transaction mechanism ensures the atomicity of data writing to JDBC External Tables, but it reduces performance to a certain extent. You may decide whether to enable transactions based on your own tradeoff.
+
+## JDBC Connection Pool Configuration
+
+In Doris, each Frontend (FE) and Backend (BE) node maintains a connection pool, thus avoiding the need to frequently open and close individual connections to data sources. Each connection within this pool can be used to establish a connection to a data source and perform queries. After operations are completed, connections are returned to the pool for reuse. This not only enhances performance but also reduces system load during connection establishment, and helps to prevent hitting the maximum connection limits of the data sources.
+
+The following Catalog configuration properties are available for tuning the behavior of the connection pool:
+
+| Parameter Name                  | Default Value  | Description and Behavior                                                                                                                                                                                                                                                                                                                                                                          |
+|---------------------------------|----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `connection_pool_min_size`      | 1              | Defines the minimum number of connections that the pool will maintain, ensuring that this number of connections remains active when the keep-alive mechanism is enabled.                                                                                                                                                                                                                          |
+| `connection_pool_max_size`      | 10             | Specifies the maximum number of connections allowed in the pool. Each Catalog corresponding to every FE or BE node can hold up to this number of connections.                                                                                                                                                                                                                                     |
+| `connection_pool_max_wait_time` | 5000           | Determines the maximum amount of time, in milliseconds, that the client will wait for a connection from the pool if none is immediately available.                                                                                                                                                                                                                                                |
+| `connection_pool_max_life_time` | 1800000        | Sets the maximum lifetime of connections in the pool, in milliseconds. Connections exceeding this set time limit will be forcibly closed. Additionally, half of this value is used as the minimum evictable idle time for the pool. Connections reaching this idle time are considered for eviction, and the eviction task runs at intervals of one-tenth of the `connection_pool_max_life_time`. |
+| `connection_pool_keep_alive`    | false          | Effective only on BE nodes, it controls whether to keep connections that have reached the minimum evictable idle time but not the maximum lifetime active. It is kept false by default to avoid unnecessary resource usage.                                                                                                                                                                       |
+
+To prevent an accumulation of unused connection pool caches on the BE, the BE `jdbc_connection_pool_cache_clear_time_sec` parameter for the BE can be set to specify the interval for clearing the cache. With a default value of 28800 seconds (8 hours), the BE will forcibly clear all connection pool caches that have not been used beyond this interval.
 
 ## Guide
 

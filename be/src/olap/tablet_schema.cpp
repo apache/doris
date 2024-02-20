@@ -20,6 +20,9 @@
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
+#include <google/protobuf/io/coded_stream.h>
+#include <google/protobuf/io/zero_copy_stream.h>
+#include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 
 #include <algorithm>
 #include <cctype>
@@ -27,6 +30,7 @@
 #include <cmath> // IWYU pragma: keep
 #include <memory>
 #include <ostream>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
@@ -552,6 +556,12 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _column_path.from_protobuf(column.column_path_info());
         _parent_col_unique_id = column.column_path_info().parrent_column_unique_id();
     }
+    for (auto& column_pb : column.sparse_columns()) {
+        TabletColumn column;
+        column.init_from_pb(column_pb);
+        _sparse_cols.emplace_back(std::move(column));
+        _num_sparse_columns++;
+    }
 }
 
 TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
@@ -611,6 +621,17 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     if (!_column_path.empty()) {
         // CHECK_GT(_parent_col_unique_id, 0);
         _column_path.to_protobuf(column->mutable_column_path_info(), _parent_col_unique_id);
+        // Update unstable information for variant columns. Some of the fields in the tablet schema
+        // are irrelevant for variant sub-columns, but retaining them may lead to an excessive growth
+        // in the number of tablet schema cache entries.
+        if (_type == FieldType::OLAP_FIELD_TYPE_STRING) {
+            column->set_length(INT_MAX);
+        }
+        column->set_index_length(0);
+    }
+    for (auto& col : _sparse_cols) {
+        ColumnPB* sparse_column = column->add_sparse_columns();
+        col.to_schema_pb(sparse_column);
     }
 }
 
@@ -770,7 +791,7 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
         index->add_col_unique_id(col_unique_id);
     }
     index->set_index_type(_index_type);
-    for (auto& kv : _properties) {
+    for (const auto& kv : _properties) {
         (*index->mutable_properties())[kv.first] = kv.second;
     }
     index->set_index_suffix_name(_escaped_index_suffix_path);
@@ -810,6 +831,11 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     _field_id_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::move(column));
     _num_columns++;
+}
+
+void TabletColumn::append_sparse_column(TabletColumn column) {
+    _sparse_cols.push_back(std::move(column));
+    _num_sparse_columns++;
 }
 
 void TabletSchema::append_index(TabletIndex index) {
@@ -929,7 +955,7 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
 std::string TabletSchema::to_key() const {
     TabletSchemaPB pb;
     to_schema_pb(&pb);
-    return pb.SerializeAsString();
+    return TabletSchema::deterministic_string_serialize(pb);
 }
 
 void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version,
@@ -1134,6 +1160,10 @@ const std::vector<TabletColumn>& TabletSchema::columns() const {
     return _cols;
 }
 
+const std::vector<TabletColumn>& TabletColumn::sparse_columns() const {
+    return _sparse_cols;
+}
+
 std::vector<TabletColumn>& TabletSchema::mutable_columns() {
     return _cols;
 }
@@ -1143,7 +1173,17 @@ const TabletColumn& TabletSchema::column(size_t ordinal) const {
     return _cols[ordinal];
 }
 
+const TabletColumn& TabletColumn::sparse_column_at(size_t ordinal) const {
+    DCHECK(ordinal < _sparse_cols.size())
+            << "ordinal:" << ordinal << ", _num_columns:" << _sparse_cols.size();
+    return _sparse_cols[ordinal];
+}
+
 const TabletColumn& TabletSchema::column_by_uid(int32_t col_unique_id) const {
+    return _cols.at(_field_id_to_index.at(col_unique_id));
+}
+
+TabletColumn& TabletSchema::mutable_column_by_uid(int32_t col_unique_id) {
     return _cols.at(_field_id_to_index.at(col_unique_id));
 }
 
@@ -1380,6 +1420,15 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
+}
+
+std::string TabletSchema::deterministic_string_serialize(const TabletSchemaPB& schema_pb) {
+    std::string output;
+    google::protobuf::io::StringOutputStream string_output_stream(&output);
+    google::protobuf::io::CodedOutputStream output_stream(&string_output_stream);
+    output_stream.SetSerializationDeterministic(true);
+    schema_pb.SerializeToCodedStream(&output_stream);
+    return output;
 }
 
 } // namespace doris

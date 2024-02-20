@@ -28,20 +28,20 @@ public:
     WalDirsInfoTest() = default;
     ~WalDirsInfoTest() override = default;
     void SetUp() override {
-        // limit 1000 used 100 preallocated 200 available 700
+        // limit 1000 used 100 estimated bytes in wal 200 available 700
         Status st = wal_dirs_info.add(wal_dir_test_1, 0, 0, 0);
         EXPECT_EQ(st, Status::OK());
-        // limit 1000 used 200 preallocated 300 available 500
+        // limit 1000 used 200 estimated bytes in wal 300 available 500
         st = wal_dirs_info.add(wal_dir_test_2, 0, 0, 0);
         EXPECT_EQ(st, Status::OK());
-        // limit 1000 used 400 preallocated 500 available 100
+        // limit 1000 used 400 estimated bytes in wal 500 available 100
         st = wal_dirs_info.add(wal_dir_test_3, 0, 0, 0);
         EXPECT_EQ(st, Status::OK());
     }
     void TearDown() override {}
 
     void set_and_check_success(std::string wal_dir, size_t limit, size_t used,
-                               size_t pre_allocated) {
+                               size_t estimated_wal_bytes) {
         Status st = wal_dirs_info.update_wal_dir_limit(wal_dir, limit);
         EXPECT_EQ(st, Status::OK());
         std::shared_ptr<WalDirInfo> wal_dir_info;
@@ -57,31 +57,32 @@ public:
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(wal_dir_info->get_used(), used);
 
-        st = wal_dirs_info.update_wal_dir_pre_allocated(wal_dir, pre_allocated, 0);
+        st = wal_dirs_info.update_wal_dir_estimated_wal_bytes(wal_dir, estimated_wal_bytes, 0);
         EXPECT_EQ(st, Status::OK());
         st = wal_dirs_info.get_wal_dir_info(wal_dir, wal_dir_info);
         EXPECT_NE(wal_dir_info, nullptr);
         EXPECT_EQ(st, Status::OK());
-        EXPECT_EQ(wal_dir_info->get_pre_allocated(), pre_allocated);
+        EXPECT_EQ(wal_dir_info->get_estimated_wal_bytes(), estimated_wal_bytes);
 
-        st = wal_dirs_info.update_wal_dir_pre_allocated(wal_dir, 0, pre_allocated);
+        st = wal_dirs_info.update_wal_dir_estimated_wal_bytes(wal_dir, 0, estimated_wal_bytes);
         EXPECT_EQ(st, Status::OK());
         st = wal_dirs_info.get_wal_dir_info(wal_dir, wal_dir_info);
         EXPECT_NE(wal_dir_info, nullptr);
         EXPECT_EQ(st, Status::OK());
-        EXPECT_EQ(wal_dir_info->get_pre_allocated(), 0);
+        EXPECT_EQ(wal_dir_info->get_estimated_wal_bytes(), 0);
 
-        st = wal_dirs_info.update_wal_dir_pre_allocated(wal_dir, pre_allocated, 0);
+        st = wal_dirs_info.update_wal_dir_estimated_wal_bytes(wal_dir, estimated_wal_bytes, 0);
         EXPECT_EQ(st, Status::OK());
         st = wal_dirs_info.get_wal_dir_info(wal_dir, wal_dir_info);
         EXPECT_NE(wal_dir_info, nullptr);
         EXPECT_EQ(st, Status::OK());
-        EXPECT_EQ(wal_dir_info->get_pre_allocated(), pre_allocated);
+        EXPECT_EQ(wal_dir_info->get_estimated_wal_bytes(), estimated_wal_bytes);
 
-        EXPECT_EQ(wal_dir_info->available(), limit - used - pre_allocated);
+        EXPECT_EQ(wal_dir_info->available(), limit - used - estimated_wal_bytes);
     }
 
-    void set_and_check_fail(std::string wal_dir, size_t limit, size_t used, size_t pre_allocated) {
+    void set_and_check_fail(std::string wal_dir, size_t limit, size_t used,
+                            size_t estimated_wal_bytes) {
         Status st = wal_dirs_info.update_wal_dir_limit(wal_dir, limit);
         EXPECT_EQ(st, Status::InternalError(""));
     }

@@ -200,6 +200,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         rewriteToBitmapWithCheck();
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.forbiddenMVRewrite();
+        if (isReplay) {
+            analyzer.setReplay();
+        }
         selectStmt.analyze(analyzer);
 
         ExprRewriter rewriter = analyzer.getExprRewriter();
@@ -207,6 +210,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         selectStmt.rewriteExprs(rewriter);
         selectStmt.reset();
         analyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
+        if (isReplay) {
+            analyzer.setReplay();
+        }
         selectStmt.analyze(analyzer);
 
         analyzeSelectClause(analyzer);

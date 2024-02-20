@@ -215,7 +215,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         qt_specified_database   """ show databases; """
         sql """drop catalog if exists ${catalog_name} """
 
-        // test lower_case_table_names argument
+        // test lower_case_meta_names argument
         sql """create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="doris_test",
@@ -223,7 +223,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
-                    "lower_case_table_names" = "true"
+                    "lower_case_meta_names" = "true"
         );"""
         sql """ switch ${catalog_name} """
         sql """ use ${ex_db_name_lower_case}"""
@@ -248,10 +248,12 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
-                    "lower_case_table_names" = "true"
+                    "lower_case_meta_names" = "true"
         );"""
         sql """ switch ${catalog_name} """
         qt_query_clob """ select * from doris_test.test_clob order by id; """
+
+        sql """drop catalog if exists ${catalog_name} """
 
         // test for `AA/D`
         sql """create catalog if not exists ${catalog_name} properties(
@@ -261,11 +263,32 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
-                    "lower_case_table_names" = "true"
+                    "lower_case_meta_names" = "true"
         );"""
         sql """ switch ${catalog_name} """
         qt_query_ad1 """ select * from doris_test.`aa/d` order by id; """
         qt_query_ad2 """ select * from doris_test.aaad order by id; """
 
+        sql """drop catalog if exists ${catalog_name} """
+
+        // test for suffix column name
+        sql """create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "lower_case_meta_names" = "true",
+                    "meta_names_mapping" = '{"columns": [{"remoteDatabase": "DORIS_TEST","remoteTable": "LOWER_TEST","remoteColumn": "DORIS","mapping": "doris_1"},{"remoteDatabase": "DORIS_TEST","remoteTable": "LOWER_TEST","remoteColumn": "Doris","mapping": "doris_2"},{"remoteDatabase": "DORIS_TEST","remoteTable": "LOWER_TEST","remoteColumn": "doris","mapping": "doris_3"}]}'
+        );"""
+        sql """ switch ${catalog_name} """
+        qt_query_lower_desc """ desc doris_test.lower_test; """
+        qt_query_lower_all """ select * from doris_test.lower_test; """
+        qt_query_lower_1 """ select doris_1 from doris_test.lower_test; """
+        qt_query_lower_2 """ select doris_2 from doris_test.lower_test; """
+        qt_query_lower_3 """ select doris_3 from doris_test.lower_test; """
+
+        sql """drop catalog if exists ${catalog_name} """
     }
 }

@@ -42,7 +42,7 @@ public class PushDownFilterThroughProject extends PlanPostProcessor {
         }
 
         PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
-        if (project.isPulledUpProjectFromScan()) {
+        if (project.hasPushedDownToProjectionFunctions()) {
             // ignore project which is pulled up from LogicalOlapScan
             return filter;
         }

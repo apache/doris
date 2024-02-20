@@ -1,5 +1,5 @@
 -- TABLES: customer,orders,lineitem,SUPPLIER,NATION,REGION
-SELECT
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
   CAST(N.var["N_NAME"] AS TEXT),
   SUM(CAST(L.var["L_EXTENDEDPRICE"] AS DOUBLE) * (1 - CAST(L.var["L_DISCOUNT"] AS DOUBLE))) AS REVENUE
 FROM

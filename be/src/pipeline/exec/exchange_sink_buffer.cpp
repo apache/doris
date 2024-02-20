@@ -93,6 +93,7 @@ ExchangeSinkBuffer<Parent>::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId de
           _dest_node_id(dest_node_id),
           _sender_id(send_id),
           _be_number(be_number),
+          _state(state),
           _context(state->get_query_ctx()) {}
 
 template <typename Parent>
@@ -281,6 +282,8 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
                 // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
                 return;
             }
+            // attach task for memory tracker and query id when core
+            SCOPED_ATTACH_TASK(_state);
             _failed(id, err);
         });
         send_callback->start_rpc_time = GetCurrentTimeNanos();
@@ -293,6 +296,8 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
                 // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
                 return;
             }
+            // attach task for memory tracker and query id when core
+            SCOPED_ATTACH_TASK(_state);
             set_rpc_time(id, start_rpc_time, result.receive_time());
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
@@ -356,6 +361,8 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
                 // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
                 return;
             }
+            // attach task for memory tracker and query id when core
+            SCOPED_ATTACH_TASK(_state);
             _failed(id, err);
         });
         send_callback->start_rpc_time = GetCurrentTimeNanos();
@@ -368,6 +375,8 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
                 // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
                 return;
             }
+            // attach task for memory tracker and query id when core
+            SCOPED_ATTACH_TASK(_state);
             set_rpc_time(id, start_rpc_time, result.receive_time());
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
