@@ -174,7 +174,7 @@ LRUCache::LRUCache(LRUCacheType type) : _type(type) {
 }
 
 LRUCache::~LRUCache() {
-    prune(nullptr);
+    prune();
 }
 
 bool LRUCache::_unref(LRUHandle* e) {
@@ -443,7 +443,7 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash) {
     }
 }
 
-int64_t LRUCache::prune(int64_t* freed_size) {
+std::tuple<PrunedCount, PrunedSize> LRUCache::prune() {
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
@@ -461,21 +461,18 @@ int64_t LRUCache::prune(int64_t* freed_size) {
         }
     }
     int64_t pruned_count = 0;
-    int64_t size = 0;
+    int64_t pruned_size = 0;
     while (to_remove_head != nullptr) {
         ++pruned_count;
-        size += to_remove_head->bytes;
+        pruned_size += to_remove_head->bytes;
         LRUHandle* next = to_remove_head->next;
         to_remove_head->free();
         to_remove_head = next;
     }
-    if (freed_size) {
-        *freed_size = size;
-    }
-    return pruned_count;
+    return {pruned_count, pruned_size};
 }
 
-int64_t LRUCache::prune_if(CachePrunePredicate pred, int64_t* freed_size, bool lazy_mode) {
+std::tuple<PrunedCount, PrunedSize> LRUCache::prune_if(CachePrunePredicate pred, bool lazy_mode) {
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
@@ -506,18 +503,15 @@ int64_t LRUCache::prune_if(CachePrunePredicate pred, int64_t* freed_size, bool l
         }
     }
     int64_t pruned_count = 0;
-    int64_t size = 0;
+    int64_t pruned_size = 0;
     while (to_remove_head != nullptr) {
         ++pruned_count;
-        size += to_remove_head->bytes;
+        pruned_size += to_remove_head->bytes;
         LRUHandle* next = to_remove_head->next;
         to_remove_head->free();
         to_remove_head = next;
     }
-    if (freed_size) {
-        *freed_size = size;
-    }
-    return pruned_count;
+    return {pruned_count, pruned_size};
 }
 
 void LRUCache::set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor) {
@@ -635,20 +629,27 @@ uint64_t ShardedLRUCache::new_id() {
     return _last_id.fetch_add(1, std::memory_order_relaxed);
 }
 
-int64_t ShardedLRUCache::prune(int64_t* freed_size) {
-    int64_t num_prune = 0;
+std::tuple<PrunedCount, PrunedSize> ShardedLRUCache::prune() {
+    int64_t pruned_count = 0;
+    int64_t pruned_size = 0;
     for (int s = 0; s < _num_shards; s++) {
-        num_prune += _shards[s]->prune(freed_size);
+        auto [count, size] = _shards[s]->prune();
+        pruned_count += count;
+        pruned_size += size;
     }
-    return num_prune;
+    return {pruned_count, pruned_size};
 }
 
-int64_t ShardedLRUCache::prune_if(CachePrunePredicate pred, int64_t* freed_size, bool lazy_mode) {
-    int64_t num_prune = 0;
+std::tuple<PrunedCount, PrunedSize> ShardedLRUCache::prune_if(CachePrunePredicate pred,
+                                                              bool lazy_mode) {
+    int64_t pruned_count = 0;
+    int64_t pruned_size = 0;
     for (int s = 0; s < _num_shards; s++) {
-        num_prune += _shards[s]->prune_if(pred, freed_size, lazy_mode);
+        auto [count, size] = _shards[s]->prune_if(pred, lazy_mode);
+        pruned_count += count;
+        pruned_size += size;
     }
-    return num_prune;
+    return {pruned_count, pruned_size};
 }
 
 int64_t ShardedLRUCache::mem_consumption() {

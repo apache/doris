@@ -156,6 +156,8 @@ using CachePrunePredicate = std::function<bool(const LRUHandle*)>;
 // in cache value through the specified function,
 // such as last_visit_time in InvertedIndexSearcherCache::CacheValue
 using CacheValueTimeExtractor = std::function<int64_t(const void*)>;
+using PrunedCount = int64_t;
+using PrunedSize = int64_t;
 
 class Cache {
 public:
@@ -220,14 +222,14 @@ public:
     // encouraged to override the default implementation.  A future release of
     // leveldb may change prune() to a pure abstract method.
     // return num of entries being pruned.
-    virtual int64_t prune(int64_t* freed_size = nullptr) { return 0; }
+    virtual std::tuple<PrunedCount, PrunedSize> prune() { return {0, 0}; }
 
     // Same as prune(), but the entry will only be pruned if the predicate matched.
     // NOTICE: the predicate should be simple enough, or the prune_if() function
     // may hold lock for a long time to execute predicate.
-    virtual int64_t prune_if(CachePrunePredicate pred, int64_t* freed_size = nullptr,
-                             bool lazy_mode = false) {
-        return 0;
+    virtual std::tuple<PrunedCount, PrunedSize> prune_if(CachePrunePredicate pred,
+                                                         bool lazy_mode = false) {
+        return {0, 0};
     }
 
     virtual int64_t mem_consumption() = 0;
@@ -353,9 +355,8 @@ public:
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
-    int64_t prune(int64_t* freed_size = nullptr);
-    int64_t prune_if(CachePrunePredicate pred, int64_t* freed_size = nullptr,
-                     bool lazy_mode = false);
+    std::tuple<PrunedCount, PrunedSize> prune();
+    std::tuple<PrunedCount, PrunedSize> prune_if(CachePrunePredicate pred, bool lazy_mode = false);
 
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
@@ -417,9 +418,9 @@ public:
     virtual void* value(Handle* handle) override;
     Slice value_slice(Handle* handle) override;
     virtual uint64_t new_id() override;
-    virtual int64_t prune(int64_t* freed_size = nullptr) override;
-    int64_t prune_if(CachePrunePredicate pred, int64_t* freed_size = nullptr,
-                     bool lazy_mode = false) override;
+    std::tuple<PrunedCount, PrunedSize> prune() override;
+    std::tuple<PrunedCount, PrunedSize> prune_if(CachePrunePredicate pred,
+                                                 bool lazy_mode = false) override;
     int64_t mem_consumption() override;
     int64_t get_usage() override;
     size_t get_total_capacity() override { return _total_capacity; };
@@ -489,10 +490,10 @@ public:
     void* value(Handle* handle) override;
     Slice value_slice(Handle* handle) override;
     uint64_t new_id() override { return 0; };
-    int64_t prune(int64_t* freed_size = nullptr) override { return 0; };
-    int64_t prune_if(CachePrunePredicate pred, int64_t* freed_size = nullptr,
-                     bool lazy_mode = false) override {
-        return 0;
+    std::tuple<PrunedCount, PrunedSize> prune() override { return {0, 0}; };
+    std::tuple<PrunedCount, PrunedSize> prune_if(CachePrunePredicate pred,
+                                                 bool lazy_mode = false) override {
+        return {0, 0};
     };
     int64_t mem_consumption() override { return 0; };
     int64_t get_usage() override { return 0; };

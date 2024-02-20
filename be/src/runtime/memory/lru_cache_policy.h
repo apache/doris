@@ -76,8 +76,8 @@ public:
 
     // Try to prune the cache if expired.
     void prune_stale() override {
-        COUNTER_SET(_freed_entrys_counter, 0L);
-        COUNTER_SET(_freed_memory_counter, 0L);
+        COUNTER_SET(_freed_entrys_counter, (int64_t)0);
+        COUNTER_SET(_freed_memory_counter, (int64_t)0);
         if (_stale_sweep_time_s <= 0 && _cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
             return;
         }
@@ -91,9 +91,9 @@ public:
             };
 
             // Prune cache in lazy mode to save cpu and minimize the time holding write lock
-            int64_t freed_size = 0;
-            COUNTER_SET(_freed_entrys_counter, _cache->prune_if(pred, &freed_size, true));
-            COUNTER_SET(_freed_memory_counter, freed_size);
+            auto [pruned_count, pruned_size] = _cache->prune_if(pred, true);
+            COUNTER_SET(_freed_entrys_counter, pruned_count);
+            COUNTER_SET(_freed_memory_counter, pruned_size);
             COUNTER_UPDATE(_prune_stale_number_counter, 1);
             LOG(INFO) << fmt::format("{} prune stale {} entries, {} bytes, {} times prune",
                                      type_string(_type), _freed_entrys_counter->value(),
@@ -103,8 +103,8 @@ public:
     }
 
     void prune_all(bool clear) override {
-        COUNTER_SET(_freed_entrys_counter, 0L);
-        COUNTER_SET(_freed_memory_counter, 0L);
+        COUNTER_SET(_freed_entrys_counter, (int64_t)0);
+        COUNTER_SET(_freed_memory_counter, (int64_t)0);
         if (_cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
             return;
         }
@@ -112,9 +112,9 @@ public:
             _cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
-            int64_t freed_size = 0;
-            COUNTER_SET(_freed_entrys_counter, _cache->prune(&freed_size));
-            COUNTER_SET(_freed_memory_counter, freed_size);
+            auto [pruned_count, pruned_size] = _cache->prune();
+            COUNTER_SET(_freed_entrys_counter, pruned_count);
+            COUNTER_SET(_freed_memory_counter, pruned_size);
             COUNTER_UPDATE(_prune_all_number_counter, 1);
             LOG(INFO) << fmt::format(
                     "{} prune all {} entries, {} bytes, {} times prune, is clear: {}",

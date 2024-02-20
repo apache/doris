@@ -375,7 +375,7 @@ TEST_F(CacheTest, PruneIfLazyMode) {
     EXPECT_EQ(7, cache.get_usage());
 
     auto pred = [](const LRUHandle* handle) -> bool { return false; };
-    cache.prune_if(pred, nullptr, true);
+    cache.prune_if(pred, true);
     EXPECT_EQ(7, cache.get_usage());
 
     // in lazy mode, the first item not satisfied the pred2, `prune_if` then stopped
@@ -383,7 +383,7 @@ TEST_F(CacheTest, PruneIfLazyMode) {
     auto pred2 = [](const LRUHandle* handle) -> bool {
         return DecodeValue((void*)(handle->value)) > 400;
     };
-    cache.prune_if(pred2, nullptr, true);
+    cache.prune_if(pred2, true);
     EXPECT_EQ(7, cache.get_usage());
 
     // in normal priority, 100, 300 are removed
@@ -391,7 +391,7 @@ TEST_F(CacheTest, PruneIfLazyMode) {
     auto pred3 = [](const LRUHandle* handle) -> bool {
         return DecodeValue((void*)(handle->value)) <= 600;
     };
-    EXPECT_EQ(3, cache.prune_if(pred3, nullptr, true));
+    EXPECT_EQ(3, cache.prune_if(pred3, true));
     EXPECT_EQ(4, cache.get_usage());
 }
 
