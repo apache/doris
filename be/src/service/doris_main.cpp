@@ -489,7 +489,6 @@ int main(int argc, char** argv) {
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, broken_paths);
     if (status != Status::OK()) {
         std::cerr << "failed to init doris storage engine, res=" << status;
-        LOG(ERROR) << "failed to init doris storage engine, res=" << status;
         return 0;
     }
 
@@ -511,7 +510,6 @@ int main(int argc, char** argv) {
     status = be_server->start();
     if (!status.ok()) {
         std::cerr << "Doris BE server did not start correctly, exiting\n";
-        LOG(ERROR) << "Doris BE server did not start correctly, exiting";
         exit(-1);
     }
 
@@ -521,7 +519,6 @@ int main(int argc, char** argv) {
     status = brpc_service->start(doris::config::brpc_port, doris::config::brpc_num_threads);
     if (!status.ok()) {
         std::cerr << "BRPC service did not start correctly, exiting\n";
-        LOG(ERROR) << "BRPC service did not start correctly, exiting";
         exit(-1);
     }
 
@@ -531,7 +528,6 @@ int main(int argc, char** argv) {
     status = http_service->start();
     if (!status.ok()) {
         std::cerr << "Doris Be http service did not start correctly, exiting\n";
-        LOG(ERROR) << "Doris Be http service did not start correctly, exiting";
         exit(-1);
     }
 
@@ -544,7 +540,6 @@ int main(int argc, char** argv) {
 
     if (!heartbeat_status.ok()) {
         std::cerr << "Heartbeat services did not start correctly, exiting";
-        LOG(ERROR) << "Heartbeat services did not start correctly, exiting";
         exit(-1);
     }
 
@@ -552,7 +547,6 @@ int main(int argc, char** argv) {
     if (!status.ok()) {
         std::cerr << "Doris BE HeartBeat Service did not start correctly, exiting: " << status
                   << '\n';
-        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: " << status;
         exit(-1);
     }
 
@@ -567,8 +561,6 @@ int main(int argc, char** argv) {
     if (!status.ok()) {
         std::cerr << "Arrow Flight Service did not start correctly, exiting, " << status.to_string()
                   << '\n';
-        LOG(ERROR) << "Arrow Flight Service did not start correctly, exiting, "
-                   << status.to_string();
         exit(-1);
     }
 
