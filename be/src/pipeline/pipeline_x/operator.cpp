@@ -72,6 +72,10 @@
 
 namespace doris::pipeline {
 
+template class AggSinkLocalState<DistinctStreamingAggSinkDependency,
+                                 DistinctStreamingAggSinkLocalState>;
+template class AggSinkLocalState<StreamingAggSinkDependency, StreamingAggSinkLocalState>;
+
 template <typename DependencyType>
 std::string PipelineXLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
@@ -652,6 +656,8 @@ template class PipelineXSinkLocalState<SortSinkDependency>;
 template class PipelineXSinkLocalState<NestedLoopJoinBuildSinkDependency>;
 template class PipelineXSinkLocalState<AnalyticSinkDependency>;
 template class PipelineXSinkLocalState<AggSinkDependency>;
+template class PipelineXSinkLocalState<StreamingAggSinkDependency>;
+template class PipelineXSinkLocalState<DistinctStreamingAggSinkDependency>;
 template class PipelineXSinkLocalState<FakeDependency>;
 template class PipelineXSinkLocalState<UnionSinkDependency>;
 template class PipelineXSinkLocalState<PartitionSortSinkDependency>;
