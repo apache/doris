@@ -71,7 +71,9 @@ Notes:
 
 Doris 2.0 version uses Doris scheduling to limit CPU resources, but since version 2.1, Doris defaults to using CGgroup v1 to limit CPU resources (CGgroup v2 is currently not supported). Therefore, if CPU resources are expected to be limited in version 2.1, it is necessary to have CGgroup v1 installed on the node where BE is located.
 
-If users use the Workload Group software limit in version 2.0 and upgrade to version 2.1, they also need to configure CGroup.
+If users use the Workload Group software limit in version 2.0 and upgrade to version 2.1, they also need to configure CGroup, Otherwise, cpu soft limit may not work.
+
+Without configuring cgroup, users can use all functions of the workload group except for CPU limitations.
 
 1 Firstly, confirm that the CGgroup v1 version has been installed on the node where BE is located, and the path ```/sys/fs/cgroup/cpu/``` exists.
 
@@ -90,12 +92,10 @@ chonw -R doris:doris /sys/fs/cgroup/cpu/doris
 
 4 Modify the configuration of BE and specify the path to cgroup
 ```
-1：modify be.conf in disk
 doris_cgroup_cpu_path = /sys/fs/cgroup/cpu/doris
-
-2 modify be conf in memory
-curl -X POST http://{be_ip}:{be_http_port}/api/update_config?doris_cgroup_cpu_path=/sys/fs/cgroup/cpu/doris
 ```
+
+5 restart BE, in the log (be. INFO), you can see the words "add thread xxx to group" indicating successful configuration.
 
 It should be noted that the current workload group does not support the deployment of multiple BE on same machine.
 
