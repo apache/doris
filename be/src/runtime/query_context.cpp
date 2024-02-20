@@ -17,6 +17,8 @@
 
 #include "runtime/query_context.h"
 
+#include <memory>
+
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/runtime_query_statistics_mgr.h"
@@ -46,8 +48,8 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
     _shared_scanner_controller.reset(new vectorized::SharedScannerController());
     _execution_dependency =
             pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", this);
-    _runtime_filter_mgr.reset(
-            new RuntimeFilterMgr(TUniqueId(), RuntimeFilterParamsContext::create(this)));
+    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
+            TUniqueId(), RuntimeFilterParamsContext::create(this));
 
     timeout_second = query_options.execution_timeout;
 
@@ -86,7 +88,7 @@ QueryContext::~QueryContext() {
     // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
     // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
     // on query mem tracker, released on other trackers.
-    std::string mem_tracker_msg {""};
+    std::string mem_tracker_msg;
     if (query_mem_tracker->peak_consumption() != 0) {
         mem_tracker_msg = fmt::format(
                 ", deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
@@ -111,7 +113,7 @@ QueryContext::~QueryContext() {
                 std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
     }
 
-    ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id);
+    ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, _task_group->id());
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {

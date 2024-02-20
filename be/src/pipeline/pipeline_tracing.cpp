@@ -46,7 +46,8 @@ void PipelineTracerContext::record(ScheduleRecord record) {
     }
 }
 
-void PipelineTracerContext::end_query(TUniqueId query_id) {
+void PipelineTracerContext::end_query(TUniqueId query_id, uint64_t task_group) {
+    _id_to_taskgroup[query_id] = task_group;
     if (_dump_type == RecordType::PerQuery) {
         _dump(query_id);
     } else if (_dump_type == RecordType::Periodic) {
@@ -103,7 +104,7 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
 
         ScheduleRecord record;
         while (_datas[query_id].try_dequeue(record)) {
-            auto text = Slice {record.to_string()};
+            auto text = Slice {record.to_string(_id_to_taskgroup[query_id])};
             THROW_IF_ERROR(writer.appendv(&text, text.get_size()));
         }
 
@@ -122,7 +123,7 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
         for (auto& [id, trace] : _datas) {
             ScheduleRecord record;
             while (trace.try_dequeue(record)) {
-                auto text = Slice {record.to_string()};
+                auto text = Slice {record.to_string(_id_to_taskgroup[query_id])};
                 THROW_IF_ERROR(writer.appendv(&text, text.get_size()));
             }
         }
@@ -131,5 +132,7 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
 
         _last_dump_time = MonotonicSeconds();
     }
+    _datas.erase(query_id);
+    _id_to_taskgroup.erase(query_id);
 }
 } // namespace doris::pipeline

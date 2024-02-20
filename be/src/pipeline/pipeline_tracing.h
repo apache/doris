@@ -40,9 +40,10 @@ struct ScheduleRecord {
     std::string state_name;
 
     bool operator<(const ScheduleRecord& rhs) const { return start_time < rhs.start_time; }
-    std::string to_string() const {
-        return fmt::format("{}-{}-{}-{}-{}-{}-{}\n", (std::stringstream {} << query_id).str(),
-                           task_id, core_id, thread_id, start_time, end_time, state_name);
+    std::string to_string(uint64_t append_value) const {
+        return fmt::format("{}|{}|{}|{}|{}|{}|{}|{}\n", (std::stringstream {} << query_id).str(),
+                           task_id, core_id, thread_id, start_time, end_time, state_name,
+                           append_value);
     }
 };
 
@@ -58,7 +59,8 @@ public:
         Periodic  // record per times. one timeslice one file.
     };
     void record(ScheduleRecord record); // record one schedule record
-    void end_query(TUniqueId query_id); // tell context this query is end. may leads to dump.
+    void end_query(TUniqueId query_id,
+                   uint64_t task_group); // tell context this query is end. may leads to dump.
     Status change_record_params(const std::map<std::string, std::string>& params);
 
     bool enabled() const { return !(_dump_type == RecordType::None); }
@@ -68,6 +70,7 @@ private:
 
     std::mutex _data_lock; // lock for map, not map items.
     phmap::flat_hash_map<TUniqueId, OneQueryTraces> _datas;
+    phmap::flat_hash_map<TUniqueId, uint64_t> _id_to_taskgroup;
 
     RecordType _dump_type = RecordType::None;
     std::filesystem::path _dir = config::pipeline_tracing_log_dir;
