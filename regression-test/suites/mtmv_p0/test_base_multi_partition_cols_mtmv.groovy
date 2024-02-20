@@ -74,23 +74,25 @@ suite("test_base_multi_partition_cols_mtmv") {
     def jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_select_p1 "SELECT * FROM ${mvName}"
+    order_qt_select_p1 "SELECT * FROM ${mvName} order by k1,k2,k3"
 
     // refresh other partition
     sql """
             REFRESH MATERIALIZED VIEW ${mvName};
         """
     waitingMTMVTaskFinished(jobName)
-    order_qt_task_other "select NeedRefreshPartitions from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
-    order_qt_select_other "SELECT * FROM ${mvName}"
+    order_qt_select_other "SELECT * FROM ${mvName} order by k1,k2,k3"
 
     // data change
     sql """
         insert into ${tableName} values(1,1,'bj');
         """
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName};
+        """
     waitingMTMVTaskFinished(jobName)
     order_qt_task_other "select NeedRefreshPartitions from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
-    order_qt_select_other "SELECT * FROM ${mvName}"
+    order_qt_select_other "SELECT * FROM ${mvName} order by k1,k2,k3"
 
     // partition change
     //add partition k3

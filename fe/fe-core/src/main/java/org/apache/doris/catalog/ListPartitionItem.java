@@ -21,12 +21,14 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class ListPartitionItem extends PartitionItem {
@@ -84,11 +86,11 @@ public class ListPartitionItem extends PartitionItem {
     public PartitionKeyDesc toPartitionKeyDesc(int pos) {
         List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
                 .collect(Collectors.toList());
-        List<List<PartitionValue>> res = Lists.newArrayList();
+        Set<List<PartitionValue>> res = Sets.newHashSet();
         for (List<PartitionValue> list : inValues) {
             res.add(Lists.newArrayList(list.get(pos)));
         }
-        return PartitionKeyDesc.createIn(res);
+        return PartitionKeyDesc.createIn(Lists.newArrayList(res));
     }
 
     @Override
