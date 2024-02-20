@@ -195,7 +195,6 @@ void ColumnDecimal<T>::update_xxHash_with_value(size_t start, size_t end, uint64
     }
 }
 
-
 template <typename T>
 void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
                                        IColumn::Permutation& res) const {

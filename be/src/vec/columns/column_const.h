@@ -182,7 +182,6 @@ public:
                                 uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
-
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
 

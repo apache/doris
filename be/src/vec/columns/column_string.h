@@ -455,7 +455,6 @@ public:
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
 
-
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,

@@ -110,7 +110,6 @@ void ColumnVector<T>::update_hash_with_value(size_t n, SipHash& hash) const {
     hash.update(data[n]);
 }
 
-
 template <typename T>
 void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                   IColumn::Permutation& perms, EqualRange& range,

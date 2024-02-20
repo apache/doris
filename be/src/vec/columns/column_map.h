@@ -182,7 +182,6 @@ public:
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
-
     void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
                                 uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;

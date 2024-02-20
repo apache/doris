@@ -65,7 +65,6 @@ void Crc32HashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column,
                                    column->size());
 }
 
-
 template <typename ChannelIds>
 Status XXHashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                             std::unique_ptr<PartitionerBase>& partitioner) {
