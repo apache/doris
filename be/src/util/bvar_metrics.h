@@ -42,7 +42,9 @@
 namespace doris {
 
 namespace rj = RAPIDJSON_NAMESPACE;
+
 enum class BvarMetricType { COUNTER, GAUGE, HISTOGRAM, SUMMARY, UNTYPED };
+
 enum class BvarMetricUnit {
     NANOSECONDS,
     MICROSECONDS,
@@ -81,14 +83,18 @@ public:
               name_(name),
               description_(description),
               labels_(labels) {}
-    virtual const std::string to_prometheus(const std::string& registry_name) = 0;
-    virtual std::string to_core_string(const std::string& reigstry_name) const = 0;
-    virtual rj::Value to_json_value(rj::Document::AllocatorType& allocator) const = 0;
-    bool is_core() { return is_core_metric_; }
 
+    std::string simple_name() const;
+    std::string combine_name(const std::string& registry_name) const;
+    virtual std::string to_prometheus(const std::string& registry_name, const Labels& entity_labels) const = 0;
+    virtual rj::Value to_json_value(rj::Document::AllocatorType& allocator) const = 0;
+    virtual value_string() const = 0;
+    
 protected:
-    friend class DorisBvarMetrics;
-    friend class SystemBvarMetrics;
+    friend class MetricRegistry;
+    friend struct BvarMetircHash;
+    friend struct BvarMetricEqualTo;
+
     bool is_core_metric_;
 
     BvarMetricType type_;
@@ -100,6 +106,21 @@ protected:
     std::string description_;
 
     Labels labels_;
+};
+
+// For 'bvar_metrics' in BvarMetricEntity.
+struct BvarMetircHash {
+    size_t operator()(const BvarMetric* metric) const {
+        return std::hash<std::string>()(metric->group_name_.empty()
+                                                ? metric->name_
+                                                : metric->group_name_);
+    }
+};
+
+struct BvarMetricEqualTo {
+    bool operator()(const BvarMetric* first, const BvarMetric* second) const {
+        return first->group_name_ == second->group_name_ && first->name_ == second->name_;
+    }
 };
 
 // bvar::Adder which support the operation of commutative and associative laws
@@ -120,12 +141,10 @@ public:
     void set_value(T value);
     void reset() { adder_->reset(); }
 
-    const std::string to_prometheus(const std::string& registry_name) override;
-    std::string to_core_string(const std::string& reigstry_name) const override;
+    std::string to_prometheus(const std::string& registry_name, const Labels& entity_labels) const override;
     rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override {
         return rj::Value(get_value());
     }
-    std::string label_string() const;
     std::string value_string() const;
 
 private:
@@ -136,20 +155,19 @@ enum class BvarMetricEntityType { kServer, kTablet };
 
 class BvarMetricEntity {
 public:
+    using Labels = std::unordered_map<std::string, std::string>;
     BvarMetricEntity() = default;
-    BvarMetricEntity(std::string entity_name, BvarMetricType type)
-            : entity_name_(entity_name), metrics_type_(type) {}
+    BvarMetricEntity(std::string entity_name, BvarMetricEntityType type, const Labels& labels)
+            : name_(entity_name), type_(type), lables_(labels) {}
     BvarMetricEntity(const BvarMetricEntity& entity)
-            : entity_name_(entity.entity_name_), metrics_type_(entity.metrics_type_), metrics_(entity.metrics_) {}
+            : name_(entity.name_), type_(entity.type_), metrics_(entity.metrics_), lables_(entity.lables_) {}
 
     template <typename T>
     void register_metric(const std::string& name, T metric);
 
     void deregister_metric(const std::string& name);
 
-    const std::string to_prometheus(const std::string& registry_name);
-    const std::string to_core_string(const std::string& registry_name);
-    // std::shared_ptr<BvarMetric> get_metric(const std::string& name);
+    std::shared_ptr<BvarMetric> get_metric(const std::string& name);
 
     // Register a hook, this hook will called before get_metric is called
     void register_hook(const std::string& name, const std::function<void()>& hook);
@@ -157,19 +175,61 @@ public:
     void trigger_hook_unlocked(bool force) const;
 
 private:
-    friend class DorisBvarMetrics;
-    friend class SystemBvarMetrics;
-    
-    std::string entity_name_;
+    friend class BvarMetricRegistry;
+    friend struct BvarMetricEntityHash;
+    friend struct BvarMetricEntityEqualTo;
 
-    BvarMetricType metrics_type_;
+    std::string name_;
 
-    BvarMetricEntityType entity_type_ = BvarMetricEntityType::kServer;
+    BvarMetricEntityType type_;
+
+    Labels lables_;
 
     std::unordered_map<std::string, std::shared_ptr<BvarMetric>> metrics_;
 
     std::map<std::string, std::function<void()>> hooks_;
     
+    bthread::Mutex mutex_;
+};
+
+struct BvarMetricEntityHash {
+    size_t operator()(const std::shared_ptr<BvarMetricEntity> metric_entity) const {
+        return std::hash<std::string>()(metric_entity->name_);
+    }
+};
+
+struct BvarMetricEntityEqualTo {
+    bool operator()(const std::shared_ptr<BvarMetricEntity> first,
+                    const std::shared_ptr<BvarMetricEntity> second) const {
+        return first->type_ == second->type_ && first->name_ == second->name_ &&
+               first->lables_ == second->lables_;
+    }
+};
+
+using BvarEntityMetricsByType =
+        std::unordered_map<const BvarMetric*, std::vector<std::pair<BvarMetricEntity*, BvarMetric*>>,
+                           BvarMetircHash, BvarMetricEqualTo>;
+
+class BvarMetricRegistry {
+public:
+    BvarMetricRegistry(const std::string name) : name_(name) {}
+    ~BvarMetricRegistry() {}
+
+    void register_entity(BvarMetricEntity entity);
+    
+    void trigger_all_hooks(bool force);
+
+    const std::string to_prometheus(bool with_tablet_metrics);
+    const std::string to_json(bool with_tablet_metrics);
+    const std::string to_core_string();
+
+private:
+    const std::string name_;
+
+    // BvarMetricEntity -> register count
+    std::unordered_map<std::shared_ptr<BvarMetricEntity>, int32_t, BvarMetricEntityHash,
+                       BvarMetricEntityEqualTo> entities_;
+
     bthread::Mutex mutex_;
 };
 

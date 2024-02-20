@@ -74,6 +74,13 @@ const char* unit_name(BvarMetricUnit unit) {
     }
 }
 
+std::string BvarMetric::simple_name() const {
+    return group_name_.empty() ? name_ : group_name_;
+}
+
+std::string BvarMetric::combine_name(const std::string& registry_name) const {
+    return (registry_name.empty() ? std::string() : registry_name + "_") + simple_name();
+}
 
 template <typename T>
 T BvarAdderMetric<T>::get_value() const {
@@ -92,32 +99,12 @@ void BvarAdderMetric<T>::set_value(T value) {
 }
 
 template <typename T>
-const std::string BvarAdderMetric<T>::to_prometheus(const std::string& registry_name) {
-    return registry_name + "_" + name_ + label_string() + " " + value_string() + "\n";
-}
-
-template <typename T>
-std::string BvarAdderMetric<T>::to_core_string(const std::string& registry_name) const {
-    return registry_name + "_" + name_ + " " + "LONG " + value_string() + "\n";
-}
-
-template <typename T>
-std::string BvarAdderMetric<T>::label_string() const {
-    if (labels_.empty()) {
-        return "";
-    }
-
+std::string BvarAdderMetric<T>::to_prometheus(const std::string& registry_name, const Labels& entity_labels) const {
     std::stringstream ss;
-    ss << "{";
-    int i = 0;
-    for (auto label : labels_) {
-        if (i++ > 0) {
-            ss << ",";
-        }
-        ss << label.first << "=\"" << label.second << "\"";
-    }
-    ss << "}";
-    return ss.str();
+    ss << combine_name(registry_name)                  // metrics name
+       << labels_to_string({&entity_labels, &labels_}) // metrics lables
+       << value_string() << "\n";                      // metrics value
+    return ss.str();   
 }
 
 template <typename T>
@@ -146,16 +133,16 @@ void BvarMetricEntity::deregister_metric(const std::string& name) {
     }
 }
 
-// std::shared_ptr<BvarMetric> BvarMetricEntity::get_metric(const std::string& name) {
-//     {
-//         std::lock_guard<bthread::Mutex> l(mutex_);
-//         auto it = metrics_.find(name);
-//         if (it == metrics_.end()) {
-//             return nullptr;
-//         }
-//         return it->second;
-//     }
-// }
+std::shared_ptr<BvarMetric> BvarMetricEntity::get_metric(const std::string& name) {
+    {
+        std::lock_guard<bthread::Mutex> l(mutex_);
+        auto it = metrics_.find(name);
+        if (it == metrics_.end()) {
+            return nullptr;
+        }
+        return it->second;
+    }
+}
 
 void BvarMetricEntity::register_hook(const std::string& name, const std::function<void()>& hook) {
     std::lock_guard<bthread::Mutex> l(mutex_);
@@ -181,22 +168,116 @@ void BvarMetricEntity::trigger_hook_unlocked(bool force) const {
     }
 }
 
-const std::string BvarMetricEntity::to_prometheus(const std::string& registry_name) {
+void BvarMetricRegistry::register_entity(BvarMetricEntity entity) {}
+
+void BvarMetricRegistry::trigger_all_hooks(bool force) {
     std::lock_guard<bthread::Mutex> l(mutex_);
-    std::stringstream ss;
-    // ss << "# TYPE " << registry_name << "_" << entity_name_ << " " << type_ << "\n";
-    for (auto metric_pair : metrics_) {
-        ss << metric_pair.second->to_prometheus(registry_name);
+    for (const auto& entity : entities_) {
+        std::lock_guard<bthread::Mutex> l(entity.first->mutex_);
+        entity.first->trigger_hook_unlocked(force);
     }
+}
+
+const std::string BvarMetricRegistry::to_prometheus(bool with_tablet_metrics) {
+    BvarEntityMetricsByType entity_metrics_by_types;
+    std::lock_guard<bthread::Mutex> l(mutex_);
+
+    for (auto& entity : entities_) {
+        if (entity.first->type_ == BvarMetricEntityType::kTablet && !with_tablet_metrics) {
+            continue;
+        }
+        std::lock_guard<bthread::Mutex> l(entity->mutex_);
+        entity.first->trigger_hook_unlocked(false);
+        for(const auto& metric : entity.first->metrics_){
+            std::pair<BvarMetricEntity*, BvarMetric*> new_elem = 
+                    std::make_pair(entity.first.get(), metric.second.get());
+            auto found = entity_metrics_by_types.find(metric.second.get());
+            if(found == entity_metrics_by_types.end()) {
+                entity_metrics_by_typess.emplace(
+                        metric.second.get(), std::vector<std::pair<BvarMetricEntity*, BvarMetric*>>({new_elem}));
+            } else {
+                found->second.emplace_back(new_elem);
+            }
+        }
+    }
+
+    // Output
+    std::stringstream ss;
+    std::string last_group_name;
+    for (const auto& entity_metrics_by_type : entity_metrics_by_types) {
+
+        const auto metric = entity_metrics_by_type.first;
+        std::string display_name = metric->combine_name(name_);
+
+        if (last_group_name.empty() ||
+            last_group_name != metric->group_name_) {
+            ss << "# TYPE " << display_name << " " << metric->type_ << "\n"; // metric TYPE line
+        }
+
+        last_group_name = metric->group_name_;
+        
+        for (const auto& entity_metric : entity_metrics_by_type.second) {
+            ss << entity_metric.second->to_prometheus(display_name, // metric key-value line
+                                                      entity_metric.first->lables_);
+        }
+    }
+    
     return ss.str();
 }
 
-const std::string BvarMetricEntity::to_core_string(const std::string& registry_name) {
+const std::string BvarMetricRegistry::to_json(bool with_tablet_metrics) {
+    rj::Document doc {rj::kArrayType};
+    rj::Document::AllocatorType& allocator = doc.GetAllocator();
     std::lock_guard<bthread::Mutex> l(mutex_);
+    for (const auto& entity : entities_) {
+        if (entity.first->type_ == BvarMetricEntityType::kTablet && !with_tablet_metrics) {
+            continue;
+        }
+        std::lock_guard<bthread::Mutex> l(entity->mutex_);
+        entity.first->trigger_hook_unlocked(false);
+        for (const auto& metric : entity.first->metrics_) {
+            rj::Value metric_obj(rj::kObjectType);
+            // tags
+            rj::Value tag_obj(rj::kObjectType);
+            tag_obj.AddMember("metric", rj::Value(metric.second->simple_name().c_str(), allocator),
+                              allocator);
+            // MetricPrototype's labels
+            for (auto& label : metric.second->labels_) {
+                tag_obj.AddMember(rj::Value(label.first.c_str(), allocator),
+                                  rj::Value(label.second.c_str(), allocator), allocator);
+            }
+            // MetricEntity's labels
+            for (auto& label : entity.first->lables_) {
+                tag_obj.AddMember(rj::Value(label.first.c_str(), allocator),
+                                  rj::Value(label.second.c_str(), allocator), allocator);
+            }
+            metric_obj.AddMember("tags", tag_obj, allocator);
+            // unit
+            rj::Value unit_val(unit_name(metric.second->unit_), allocator);
+            metric_obj.AddMember("unit", unit_val, allocator);
+            // value
+            metric_obj.AddMember("value", metric.second->to_json_value(allocator), allocator);
+            doc.PushBack(metric_obj, allocator);
+        }
+    }
+
+    rj::StringBuffer strBuf;
+    rj::Writer<rj::StringBuffer> writer(strBuf);
+    doc.Accept(writer);
+    return strBuf.GetString();
+}
+
+const std::string BvarMetricRegistry::to_core_string(){
     std::stringstream ss;
-    for(auto metrics_pair : metrics_) {
-        if(metrics_pair.second->is_core()) {
-            ss << metrics_pair.second->to_core_string(registry_name);
+    std::lock_guard<bthread::Mutex> l(mutex_);
+    for (auto& entity : entities_) {
+        std::lock_guard<bthread::Mutex> l(entity.first->mutex_);
+        entity.first->trigger_hook_unlocked(false);
+        for (const auto& metric : entity.first->metrics_) {
+            if (metric.second->is_core_metric_) {
+                ss << metric.second->combine_name(name_) << " LONG " << metric.second->value_string()
+                   << "\n";
+            }
         }
     }
     return ss.str();
