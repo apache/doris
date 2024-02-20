@@ -99,12 +99,9 @@ struct SimplifiedScanTask {
     std::shared_ptr<vectorized::ScannerContext> scanner_context = nullptr;
 };
 
-// used for cpu hard limit
 class SimplifiedScanScheduler {
 public:
     SimplifiedScanScheduler(std::string wg_name, CgroupCpuCtl* cgroup_cpu_ctl) {
-        _scan_task_queue = std::make_unique<BlockingQueue<SimplifiedScanTask>>(
-                config::doris_scanner_thread_pool_queue_size);
         _is_stop.store(false);
         _cgroup_cpu_ctl = cgroup_cpu_ctl;
         _wg_name = wg_name;
@@ -117,7 +114,6 @@ public:
 
     void stop() {
         _is_stop.store(true);
-        _scan_task_queue->shutdown();
         _scan_thread_pool->shutdown();
         _scan_thread_pool->wait();
     }
@@ -128,27 +124,32 @@ public:
                                 .set_max_threads(config::doris_scanner_thread_pool_thread_num)
                                 .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                                 .build(&_scan_thread_pool));
-
-        for (int i = 0; i < config::doris_scanner_thread_pool_thread_num; i++) {
-            RETURN_IF_ERROR(_scan_thread_pool->submit_func([this] { this->_work(); }));
-        }
         return Status::OK();
     }
 
-    BlockingQueue<SimplifiedScanTask>* get_scan_queue() { return _scan_task_queue.get(); }
-
-private:
-    void _work() {
-        while (!_is_stop.load()) {
-            SimplifiedScanTask scan_task;
-            if (_scan_task_queue->blocking_get(&scan_task)) {
-                scan_task.scan_func();
-            };
+    Status submit_scan_task(SimplifiedScanTask scan_task) {
+        if (!_is_stop) {
+            return _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
+        } else {
+            return Status::InternalError<false>("scanner pool {} is shutdown.", _wg_name);
         }
     }
 
+    void reset_thread_num(int thread_num) {
+        int max_thread_num = _scan_thread_pool->max_threads();
+        if (max_thread_num != thread_num) {
+            if (thread_num > max_thread_num) {
+                static_cast<void>(_scan_thread_pool->set_max_threads(thread_num));
+                static_cast<void>(_scan_thread_pool->set_min_threads(thread_num));
+            } else {
+                static_cast<void>(_scan_thread_pool->set_min_threads(thread_num));
+                static_cast<void>(_scan_thread_pool->set_max_threads(thread_num));
+            }
+        }
+    }
+
+private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;
-    std::unique_ptr<BlockingQueue<SimplifiedScanTask>> _scan_task_queue;
     std::atomic<bool> _is_stop;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
     std::string _wg_name;

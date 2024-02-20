@@ -70,6 +70,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
             .add(WorkloadGroup.MAX_CONCURRENCY).add(WorkloadGroup.MAX_QUEUE_SIZE)
             .add(WorkloadGroup.QUEUE_TIMEOUT).add(WorkloadGroup.CPU_HARD_LIMIT)
+            .add(WorkloadGroup.SCAN_THREAD_NUM)
             .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
             .build();
 
