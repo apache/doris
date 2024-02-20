@@ -146,7 +146,7 @@ public:
 
     bool has_intersection(ColumnValueRange<primitive_type>& range);
 
-    Status intersection(ColumnValueRange<primitive_type>& range);
+    void intersection(ColumnValueRange<primitive_type>& range);
 
     void set_empty_value_range() {
         _fixed_values.clear();
@@ -966,7 +966,7 @@ bool ColumnValueRange<primitive_type>::is_in_range(const CppType& value) {
 }
 
 template <PrimitiveType primitive_type>
-Status ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_type>& range) {
+void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_type>& range) {
     // 1. clear if column type not match
     if (_column_type != range._column_type) {
         set_empty_value_range();
@@ -1022,8 +1022,8 @@ Status ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive
                 set_contain_null(true);
             }
         } else {
-            RETURN_IF_ERROR(add_range(range._high_op, range._high_value));
-            RETURN_IF_ERROR(add_range(range._low_op, range._low_value));
+            static_cast<void>(add_range(range._high_op, range._high_value));
+            static_cast<void>(add_range(range._low_op, range._low_value));
         }
     }
 }
