@@ -255,7 +255,8 @@ suite("test_partition_refresh_mtmv") {
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertTrue(showPartitionsResult.toString().contains("p_1"))
-    assertTrue(showPartitionsResult.toString().contains("p_2_3"))
+    assertTrue(showPartitionsResult.toString().contains("_2"))
+    assertTrue(showPartitionsResult.toString().contains("_3"))
 
     sql """
             REFRESH MATERIALIZED VIEW ${mvName}
@@ -364,6 +365,26 @@ suite("test_partition_refresh_mtmv") {
         """
     waitingMTMVTaskFinished(jobName)
     order_qt_refresh_other_table_change_other "SELECT * FROM ${mvName} order by user_id,age,date,num"
+
+    //test base table add partition
+    sql """alter table ${tableNameNum} ADD PARTITION p201704 VALUES [('2017-04-01'), ('2017-05-01'))"""
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName};
+        """
+    waitingMTMVTaskFinished(jobName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertTrue(showPartitionsResult.toString().contains("p_20170401_20170501"))
+
+    //test base table drop partition
+    sql """alter table ${tableNameNum} drop PARTITION p201704"""
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName};
+        """
+    waitingMTMVTaskFinished(jobName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertFalse(showPartitionsResult.toString().contains("p_20170401_20170501"))
 
     // test exclude table
     sql """drop materialized view if exists ${mvName};"""
