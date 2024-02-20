@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.base.Joiner;
@@ -36,6 +37,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -87,14 +89,20 @@ public class UserProperty implements Writable {
     // for normal user
     public static final Set<Pattern> COMMON_PROPERTIES = Sets.newHashSet();
 
+    @SerializedName(value = "qualifiedUser")
     private String qualifiedUser;
 
+    @SerializedName(value = "commonProperties")
     private CommonUserProperties commonProperties = new CommonUserProperties();
 
     // load cluster
+    @SerializedName(value = "defaultLoadCluster")
     private String defaultLoadCluster = null;
+
+    @SerializedName(value = "clusterToDppConfig")
     private Map<String, DppConfig> clusterToDppConfig = Maps.newHashMap();
 
+    @SerializedName(value = "defaultCloudCluster")
     private String defaultCloudCluster = null;
 
     /*
@@ -575,44 +583,21 @@ public class UserProperty implements Writable {
     }
 
     public static UserProperty read(DataInput in) throws IOException {
-        UserProperty userProperty = new UserProperty();
-        userProperty.readFields(in);
-        return userProperty;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_130) {
+            UserProperty userProperty = new UserProperty();
+            userProperty.readFields(in);
+            return userProperty;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, UserProperty.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // user name
-        Text.writeString(out, qualifiedUser);
-
-        // call UserResource.write(out) to make sure that FE can rollback.
-        UserResource.write(out);
-
-        // load cluster
-        if (defaultLoadCluster == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, defaultLoadCluster);
-        }
-        out.writeInt(clusterToDppConfig.size());
-        for (Map.Entry<String, DppConfig> entry : clusterToDppConfig.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            entry.getValue().write(out);
-        }
-
-        // default cloud cluster
-        if (defaultCloudCluster == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, defaultCloudCluster);
-        }
-
-        // common properties
-        commonProperties.write(out);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         qualifiedUser = Text.readString(in);
         // should be removed after version 3.0
@@ -637,11 +622,6 @@ public class UserProperty implements Writable {
             DppConfig dppConfig = new DppConfig();
             dppConfig.readFields(in);
             clusterToDppConfig.put(cluster, dppConfig);
-        }
-
-        // default cloud cluster
-        if (in.readBoolean()) {
-            defaultCloudCluster = Text.readString(in);
         }
 
         // whiteList

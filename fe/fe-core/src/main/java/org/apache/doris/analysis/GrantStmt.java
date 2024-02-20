@@ -257,7 +257,7 @@ public class GrantStmt extends DdlStmt {
         }
 
         // Rule 6
-        if (privileges.contains(Privilege.USAGE_PRIV) || privileges.contains(Privilege.CLUSTER_USAGE_PRIV)) {
+        if (privileges.contains(Privilege.USAGE_PRIV) || privileges.contains(Privilege.CLUSTER_USAGE_PRIV_COMPATIBLE)) {
             throw new AnalysisException("Can not grant/revoke USAGE_PRIV to/from database or table");
         }
 

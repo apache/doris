@@ -98,7 +98,7 @@ public class PrivPredicate {
 
     // resource/workloadGroup usage
     public static final PrivPredicate USAGE = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV), Operator.OR);
+            Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV_COMPATIBLE), Operator.OR);
 
 
     // all
@@ -110,7 +110,7 @@ public class PrivPredicate {
             Privilege.CREATE_PRIV,
             Privilege.DROP_PRIV,
             Privilege.USAGE_PRIV,
-            Privilege.CLUSTER_USAGE_PRIV),
+            Privilege.CLUSTER_USAGE_PRIV_COMPATIBLE),
             Operator.OR);
 
     private PrivBitSet privs;

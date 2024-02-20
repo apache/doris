@@ -51,17 +51,17 @@ public class PrivBitSet implements Writable {
     }
 
     public void set(int index) {
-        Preconditions.checkState(index < Privilege.privileges.length, index);
+        Preconditions.checkState(Privilege.privileges.containsKey(index), index);
         set |= 1 << index;
     }
 
     public void unset(int index) {
-        Preconditions.checkState(index < Privilege.privileges.length, index);
+        Preconditions.checkState(Privilege.privileges.containsKey(index), index);
         set &= ~(1 << index);
     }
 
     public boolean get(int index) {
-        Preconditions.checkState(index < Privilege.privileges.length, index);
+        Preconditions.checkState(Privilege.privileges.containsKey(index), index);
         return (set & (1 << index)) > 0;
     }
 
@@ -104,7 +104,7 @@ public class PrivBitSet implements Writable {
     }
 
     public boolean containsResourcePriv() {
-        return containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV);
+        return containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV_COMPATIBLE);
     }
 
     public boolean containsDbTablePriv() {
@@ -123,11 +123,11 @@ public class PrivBitSet implements Writable {
 
     public List<Privilege> toPrivilegeList() {
         List<Privilege> privs = Lists.newArrayList();
-        for (int i = 0; i < Privilege.privileges.length; i++) {
-            if (get(i)) {
-                privs.add(Privilege.getPriv(i));
+        Privilege.privileges.keySet().forEach(idx -> {
+            if (get(idx)) {
+                privs.add(Privilege.getPriv(idx));
             }
-        }
+        });
         return privs;
     }
 
@@ -156,11 +156,11 @@ public class PrivBitSet implements Writable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < Privilege.privileges.length; i++) {
-            if (get(i)) {
-                sb.append(Privilege.getPriv(i)).append(" ");
+        Privilege.privileges.keySet().forEach(idx -> {
+            if (get(idx)) {
+                sb.append(Privilege.getPriv(idx)).append(" ");
             }
-        }
+        });
         return sb.toString();
     }
 
@@ -189,7 +189,7 @@ public class PrivBitSet implements Writable {
             }
 
             if (resourcePattern.isClusterResource()) {
-                privs.or(PrivBitSet.of(Privilege.CLUSTER_USAGE_PRIV));
+                privs.or(PrivBitSet.of(Privilege.CLUSTER_USAGE_PRIV_COMPATIBLE));
             }
         }
         return new HashSet<>(privs.toPrivilegeList());

@@ -23,14 +23,18 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,12 +51,14 @@ import java.util.concurrent.atomic.AtomicLong;
 public class UserPropertyMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(UserPropertyMgr.class);
 
+    @SerializedName(value = "propertyMap")
     protected Map<String, UserProperty> propertyMap = Maps.newHashMap();
     public static final String ROOT_USER = "root";
     public static final String SYSTEM_RESOURCE_USER = "system";
     public static final String LDAP_RESOURCE_USER = "ldap";
 
     private static final UserProperty LDAP_PROPERTY = new UserProperty(LDAP_RESOURCE_USER);
+    @SerializedName(value = "resourceVersion")
     private AtomicLong resourceVersion = new AtomicLong(0);
 
     public UserPropertyMgr() {
@@ -245,21 +251,21 @@ public class UserPropertyMgr implements Writable {
     }
 
     public static UserPropertyMgr read(DataInput in) throws IOException {
-        UserPropertyMgr userPropertyMgr = new UserPropertyMgr();
-        userPropertyMgr.readFields(in);
-        return userPropertyMgr;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_130) {
+            UserPropertyMgr userPropertyMgr = new UserPropertyMgr();
+            userPropertyMgr.readFields(in);
+            return userPropertyMgr;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, UserPropertyMgr.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(propertyMap.size());
-        for (Map.Entry<String, UserProperty> entry : propertyMap.entrySet()) {
-            entry.getValue().write(out);
-        }
-        // Write resource version
-        out.writeLong(resourceVersion.get());
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; ++i) {

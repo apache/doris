@@ -17,8 +17,11 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.common.Config;
+
 import com.google.common.collect.ImmutableMap;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public enum Privilege {
@@ -31,25 +34,43 @@ public enum Privilege {
     CREATE_PRIV("Create_priv", 6, "Privilege for creating database or table"),
     DROP_PRIV("Drop_priv", 7, "Privilege for dropping database or table"),
     USAGE_PRIV("Usage_priv", 8, "Privilege for using resource or workloadGroup"),
+    // in doris code < VERSION_130
     SHOW_VIEW_PRIV("Show_view_priv", 9, "Privilege for show create view"),
-    CLUSTER_USAGE_PRIV("Cluster_Usage_priv", 10, "Privilege for using cluster");
 
-    public static Privilege[] privileges = {
-            NODE_PRIV,
-            ADMIN_PRIV,
-            GRANT_PRIV,
-            SELECT_PRIV,
-            LOAD_PRIV,
-            ALTER_PRIV,
-            CREATE_PRIV,
-            DROP_PRIV,
-            USAGE_PRIV,
-            SHOW_VIEW_PRIV,
-            CLUSTER_USAGE_PRIV
-    };
+    // in cloud code < VERSION_130
+    CLUSTER_USAGE_PRIV("Cluster_Usage_priv", 9, "Privilege for using cluster"),
+    // compatible doris and cloud, and 9 ~ 11 has been contaminated
+    CLUSTER_USAGE_PRIV_COMPATIBLE("Cluster_Usage_priv", 12, "Privilege for using cluster"),
+    // 13 placeholder for stage
+    STAGE_USAGE_PRIV_COMPATIBLE("Stage_Usage_priv", 13, "Privilege for using stage"),
+    SHOW_VIEW_PRIV_COMPATIBLE("Show_view_priv", 14, "Privilege for show create view");
+
+    public static final Map<Integer, Privilege> privileges;
+
+    static {
+        privileges = new HashMap<>();
+        privileges.put(0, NODE_PRIV);
+        privileges.put(1, ADMIN_PRIV);
+        privileges.put(2, GRANT_PRIV);
+        privileges.put(3, SELECT_PRIV);
+        privileges.put(4, LOAD_PRIV);
+        privileges.put(5, ALTER_PRIV);
+        privileges.put(6, CREATE_PRIV);
+        privileges.put(7, DROP_PRIV);
+        privileges.put(8, USAGE_PRIV);
+        if (Config.isCloudMode()) {
+            privileges.put(9, CLUSTER_USAGE_PRIV);
+        } else {
+            privileges.put(9, SHOW_VIEW_PRIV);
+        }
+        privileges.put(12, CLUSTER_USAGE_PRIV_COMPATIBLE);
+        privileges.put(13, STAGE_USAGE_PRIV_COMPATIBLE);
+        privileges.put(14, SHOW_VIEW_PRIV_COMPATIBLE);
+    }
+
 
     // only GRANT_PRIV and USAGE_PRIV can grant on resource
-    public static Privilege[] notBelongToResourcePrivileges = {
+    public static final Privilege[] notBelongToResourcePrivileges = {
             NODE_PRIV,
             ADMIN_PRIV,
             SELECT_PRIV,
@@ -61,7 +82,7 @@ public enum Privilege {
     };
 
     // only GRANT_PRIV and USAGE_PRIV can grant on workloadGroup
-    public static Privilege[] notBelongToWorkloadGroupPrivileges = {
+    public static final Privilege[] notBelongToWorkloadGroupPrivileges = {
             NODE_PRIV,
             ADMIN_PRIV,
             SELECT_PRIV,
@@ -72,7 +93,7 @@ public enum Privilege {
             SHOW_VIEW_PRIV
     };
 
-    public static Map<Privilege, String> privInDorisToMysql =
+    public static final Map<Privilege, String> privInDorisToMysql =
             ImmutableMap.<Privilege, String>builder() // No NODE_PRIV and ADMIN_PRIV in the mysql
                     .put(SELECT_PRIV, "SELECT")
                     .put(LOAD_PRIV, "INSERT")
@@ -80,7 +101,7 @@ public enum Privilege {
                     .put(CREATE_PRIV, "CREATE")
                     .put(DROP_PRIV, "DROP")
                     .put(USAGE_PRIV, "USAGE")
-                    .put(CLUSTER_USAGE_PRIV, "USAGE")
+                    .put(CLUSTER_USAGE_PRIV_COMPATIBLE, "USAGE")
                     .put(SHOW_VIEW_PRIV, "SHOW VIEW")
                     .build();
 
@@ -107,10 +128,10 @@ public enum Privilege {
     }
 
     public static Privilege getPriv(int index) {
-        if (index < 0 || index > Privilege.values().length - 1) {
+        if (!privileges.containsKey(index)) {
             return null;
         }
-        return privileges[index];
+        return privileges.get(index);
     }
 
     public static boolean satisfy(PrivBitSet grantPriv, PrivPredicate wanted) {
