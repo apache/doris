@@ -122,8 +122,6 @@ private:
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
 
-    vectorized::Block _preagg_block = vectorized::Block();
-
     struct ExecutorBase {
         virtual Status execute(StreamingAggLocalState* local_state, vectorized::Block* block) = 0;
         virtual void update_memusage(StreamingAggLocalState* local_state) = 0;
@@ -177,6 +175,12 @@ private:
     };
     std::unique_ptr<ExecutorBase> _executor = nullptr;
 
+    struct MemoryRecord {
+        MemoryRecord() : used_in_arena(0), used_in_state(0) {}
+        int64_t used_in_arena;
+        int64_t used_in_state;
+    };
+    MemoryRecord _mem_usage_record;
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
     SourceState _child_source_state;
     std::unique_ptr<vectorized::Block> _pre_aggregated_block = nullptr;

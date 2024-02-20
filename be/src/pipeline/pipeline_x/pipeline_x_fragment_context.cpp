@@ -44,8 +44,7 @@
 #include "pipeline/exec/assert_num_rows_operator.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/datagen_operator.h"
-#include "pipeline/exec/distinct_streaming_aggregation_sink_operator.h"
-#include "pipeline/exec/distinct_streaming_aggregation_source_operator.h"
+#include "pipeline/exec/distinct_streaming_aggregation_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
@@ -949,22 +948,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     }
     case TPlanNodeType::AGGREGATION_NODE: {
         if (tnode.agg_node.aggregate_functions.empty()) {
-            op.reset(new DistinctStreamingAggSourceOperatorX(pool, tnode, next_operator_id(),
-                                                             descs));
+            op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
-
-            const auto downstream_pipeline_id = cur_pipe->id();
-            if (_dag.find(downstream_pipeline_id) == _dag.end()) {
-                _dag.insert({downstream_pipeline_id, {}});
-            }
-            cur_pipe = add_pipeline(cur_pipe);
-            _dag[downstream_pipeline_id].push_back(cur_pipe->id());
-            DataSinkOperatorXPtr sink;
-            sink.reset(new DistinctStreamingAggSinkOperatorX(pool, next_sink_operator_id(), tnode,
-                                                             descs));
-            sink->set_dests_id({op->operator_id()});
-            RETURN_IF_ERROR(cur_pipe->set_sink(sink));
-            RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation) {
             op.reset(new StreamingAggOperatorX(pool, next_operator_id(), tnode, descs));
@@ -981,7 +966,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
             DataSinkOperatorXPtr sink;
-            sink.reset(new AggSinkOperatorX<>(pool, next_sink_operator_id(), tnode, descs));
+            sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));

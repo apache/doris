@@ -72,8 +72,6 @@ public:
 
 protected:
     friend class AggSourceOperatorX;
-    friend class DistinctStreamingAggSourceOperatorX;
-    friend class DistinctStreamingAggSinkOperatorX;
 
     Status _get_without_key_result(RuntimeState* state, vectorized::Block* block,
                                    SourceState& source_state);
@@ -131,7 +129,7 @@ class AggSourceOperatorX : public OperatorX<AggLocalState> {
 public:
     using Base = OperatorX<AggLocalState>;
     AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                       const DescriptorTbl& descs, bool is_streaming = false);
+                       const DescriptorTbl& descs);
     ~AggSourceOperatorX() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
@@ -141,7 +139,6 @@ public:
 
 private:
     friend class AggLocalState;
-    const bool _is_streaming;
 
     bool _needs_finalize;
     bool _without_key;

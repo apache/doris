@@ -1131,9 +1131,7 @@ StreamingAggOperatorX::StreamingAggOperatorX(ObjectPool* pool, int operator_id,
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_merge(false),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
-          _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) {
-    _limit = tnode.limit;
-}
+          _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) {}
 
 Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::init(tnode, state));
@@ -1247,7 +1245,7 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
     if (Base::_closed) {
         return Status::OK();
     }
-    _preagg_block.clear();
+    _pre_aggregated_block->clear();
     vectorized::PODArray<vectorized::AggregateDataPtr> tmp_places;
     _places.swap(tmp_places);
 

@@ -29,7 +29,7 @@
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
 #include "pipeline/exec/datagen_operator.h"
-#include "pipeline/exec/distinct_streaming_aggregation_sink_operator.h"
+#include "pipeline/exec/distinct_streaming_aggregation_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
@@ -70,9 +70,6 @@
 #include "util/runtime_profile.h"
 
 namespace doris::pipeline {
-
-template class AggSinkLocalState<DistinctStreamingAggSinkDependency,
-                                 DistinctStreamingAggSinkLocalState>;
 
 template <typename DependencyType>
 std::string PipelineXLocalState<DependencyType>::debug_string(int indentation_level) const {
@@ -599,8 +596,7 @@ DECLARE_OPERATOR_X(OlapTableSinkV2LocalState)
 DECLARE_OPERATOR_X(AnalyticSinkLocalState)
 DECLARE_OPERATOR_X(SortSinkLocalState)
 DECLARE_OPERATOR_X(LocalExchangeSinkLocalState)
-DECLARE_OPERATOR_X(BlockingAggSinkLocalState)
-DECLARE_OPERATOR_X(DistinctStreamingAggSinkLocalState)
+DECLARE_OPERATOR_X(AggSinkLocalState)
 DECLARE_OPERATOR_X(ExchangeSinkLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(UnionSinkLocalState)
@@ -646,6 +642,7 @@ template class StreamingOperatorX<SelectLocalState>;
 template class StatefulOperatorX<HashJoinProbeLocalState>;
 template class StatefulOperatorX<RepeatLocalState>;
 template class StatefulOperatorX<StreamingAggLocalState>;
+template class StatefulOperatorX<DistinctStreamingAggLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
 template class StatefulOperatorX<TableFunctionLocalState>;
 
@@ -654,7 +651,6 @@ template class PipelineXSinkLocalState<SortSinkDependency>;
 template class PipelineXSinkLocalState<NestedLoopJoinBuildSinkDependency>;
 template class PipelineXSinkLocalState<AnalyticSinkDependency>;
 template class PipelineXSinkLocalState<AggSinkDependency>;
-template class PipelineXSinkLocalState<DistinctStreamingAggSinkDependency>;
 template class PipelineXSinkLocalState<FakeDependency>;
 template class PipelineXSinkLocalState<UnionSinkDependency>;
 template class PipelineXSinkLocalState<PartitionSortSinkDependency>;
