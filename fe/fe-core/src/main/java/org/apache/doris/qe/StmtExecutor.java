@@ -56,6 +56,7 @@ import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SetStmt;
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SetVar.SetVarType;
 import org.apache.doris.analysis.ShowStmt;
@@ -953,6 +954,19 @@ public class StmtExecutor {
             setStmt.modifySetVarsForExecute();
             for (SetVar var : setStmt.getSetVars()) {
                 VariableMgr.setVarForNonMasterFE(context.getSessionVariable(), var);
+            }
+        } else if (parsedStmt instanceof UnsetVariableStmt) {
+            UnsetVariableStmt unsetStmt = (UnsetVariableStmt) parsedStmt;
+            if (unsetStmt.isApplyToAll()) {
+                VariableMgr.setAllVarsToDefaultValue(context.getSessionVariable(), SetType.SESSION);
+            } else {
+                String defaultValue = VariableMgr.getDefaultValue(unsetStmt.getVariable());
+                if (defaultValue == null) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, unsetStmt.getVariable());
+                }
+                SetVar var = new SetVar(SetType.SESSION, unsetStmt.getVariable(),
+                        new StringLiteral(defaultValue), SetVarType.SET_SESSION_VAR);
+                VariableMgr.setVar(context.getSessionVariable(), var);
             }
         }
     }

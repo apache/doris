@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;

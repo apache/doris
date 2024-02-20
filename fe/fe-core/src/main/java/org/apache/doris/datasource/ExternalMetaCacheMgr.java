@@ -18,17 +18,20 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hudi.source.HudiPartitionMgr;
+import org.apache.doris.datasource.hudi.source.HudiPartitionProcessor;
+import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
+import org.apache.doris.datasource.iceberg.IcebergMetadataCacheMgr;
+import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCache;
+import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCacheMgr;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
-import org.apache.doris.planner.external.hudi.HudiPartitionMgr;
-import org.apache.doris.planner.external.hudi.HudiPartitionProcessor;
-import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
-import org.apache.doris.planner.external.iceberg.IcebergMetadataCacheMgr;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
