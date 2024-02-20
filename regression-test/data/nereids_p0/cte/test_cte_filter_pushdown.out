@@ -46,14 +46,15 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------hashJoin[INNER_JOIN] hashCondition=((k3 = dd.k3)) otherCondition=()
---------PhysicalProject
-----------filter((tmp2.k3 = 0))
-------------PhysicalWindow
---------------PhysicalQuickSort[LOCAL_SORT]
-----------------PhysicalProject
-------------------filter((tmp.k1 = 1))
---------------------PhysicalOlapScan[test]
---------PhysicalDistribute[DistributionSpecReplicated]
+--------PhysicalDistribute[DistributionSpecHash]
+----------PhysicalProject
+------------filter((tmp2.k3 = 0))
+--------------PhysicalWindow
+----------------PhysicalQuickSort[LOCAL_SORT]
+------------------PhysicalProject
+--------------------filter((tmp.k1 = 1))
+----------------------PhysicalOlapScan[test]
+--------PhysicalDistribute[DistributionSpecHash]
 ----------PhysicalProject
 ------------filter((dd.k3 = 0))
 --------------PhysicalOlapScan[baseall]
