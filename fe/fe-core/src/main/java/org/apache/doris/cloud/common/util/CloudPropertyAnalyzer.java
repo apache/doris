@@ -20,7 +20,6 @@ package org.apache.doris.cloud.common.util;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 
 import com.google.common.collect.ImmutableList;
 

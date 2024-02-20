@@ -395,6 +395,7 @@ public interface TableIf {
                 case HIVE:
                     return "Hive";
                 case HUDI:
+                case HUDI_EXTERNAL_TABLE:
                     return "Hudi";
                 case JDBC:
                 case JDBC_EXTERNAL_TABLE:
@@ -405,10 +406,9 @@ public interface TableIf {
                     return "hms";
                 case ES_EXTERNAL_TABLE:
                     return "es";
+                case ICEBERG:
                 case ICEBERG_EXTERNAL_TABLE:
                     return "iceberg";
-                case HUDI_EXTERNAL_TABLE:
-                    return "hudi";
                 default:
                     return null;
             }

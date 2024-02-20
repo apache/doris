@@ -129,10 +129,10 @@ import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
@@ -5202,12 +5202,11 @@ public class Env {
         return checksum;
     }
 
-
     public String dumpImage() {
         LOG.info("begin to dump meta data");
         String dumpFilePath;
-        List<DatabaseIf> databases = Lists.newArrayList();
-        List<List<TableIf>> tableLists = Lists.newArrayList();
+        List<Database> databases = Lists.newArrayList();
+        List<List<Table>> tableLists = Lists.newArrayList();
         tryLock(true);
         try {
             // sort all dbs to avoid potential dead lock
@@ -5221,8 +5220,8 @@ public class Env {
             MetaLockUtils.readLockDatabases(databases);
             LOG.info("acquired all the dbs' read lock.");
             // lock all tables
-            for (DatabaseIf db : databases) {
-                List<TableIf> tableList = db.getTablesOnIdOrder();
+            for (Database db : databases) {
+                List<Table> tableList = db.getTablesOnIdOrder();
                 MetaLockUtils.readLockTables(tableList);
                 tableLists.add(tableList);
             }
