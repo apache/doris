@@ -17,18 +17,24 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Push down filter through project.
@@ -37,6 +43,7 @@ import java.util.List;
  * output:
  * project(c+d as a, e as b) -> filter(c+d>2, e=0).
  */
+
 public class PushDownFilterThroughProject implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
@@ -45,7 +52,6 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
                         .whenNot(filter -> filter.child().getProjects().stream().anyMatch(
                                 expr -> expr.anyMatch(WindowExpression.class::isInstance)))
                         .whenNot(filter -> filter.child().hasPushedDownToProjectionFunctions())
-                        .when(filter -> filter.child().getOutputSet().containsAll(filter.getInputSlots()))
                         .then(PushDownFilterThroughProject::pushdownFilterThroughProject)
                         .toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_PROJECT),
                 // filter(project(limit)) will change to filter(limit(project)) by PushdownProjectThroughLimit,
@@ -54,28 +60,56 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
                         .whenNot(filter -> filter.child().child().getProjects().stream()
                                 .anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance)))
                         .whenNot(filter -> filter.child().child().hasPushedDownToProjectionFunctions())
-                        .when(filter -> filter.child().child().getOutputSet().containsAll(filter.getInputSlots()))
-                        .then(filter -> {
-                            LogicalLimit<LogicalProject<Plan>> limit = filter.child();
-                            LogicalProject<Plan> project = limit.child();
-
-                            return project.withProjectsAndChild(project.getProjects(),
-                                    new LogicalFilter<>(
-                                            ExpressionUtils.replace(filter.getConjuncts(),
-                                                    project.getAliasToProducer()),
-                                            limit.withChildren(project.child())));
-                        }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_PROJECT_UNDER_LIMIT)
+                        .then(PushDownFilterThroughProject::pushdownFilterThroughLimitProject)
+                        .toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_PROJECT_UNDER_LIMIT)
         );
     }
 
     /** pushdown Filter through project */
-    public static Plan pushdownFilterThroughProject(LogicalFilter<LogicalProject<Plan>> filter) {
+    private static Plan pushdownFilterThroughProject(LogicalFilter<LogicalProject<Plan>> filter) {
         LogicalProject<Plan> project = filter.child();
-        return project.withChildren(
+        Set<Slot> childOutputs = project.getOutputSet();
+        Pair<Set<Expression>, Set<Expression>> splitConjuncts =
+                splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs);
+        if (splitConjuncts.second.isEmpty()) {
+            return null;
+        }
+        project = (LogicalProject<Plan>) project.withChildren(new LogicalFilter<>(
+                ExpressionUtils.replace(splitConjuncts.second, project.getAliasToProducer()),
+                project.child()));
+        return PlanUtils.filterOrSelf(splitConjuncts.first, project);
+    }
+
+    private static Plan pushdownFilterThroughLimitProject(
+            LogicalFilter<LogicalLimit<LogicalProject<Plan>>> filter) {
+        LogicalLimit<LogicalProject<Plan>> limit = filter.child();
+        LogicalProject<Plan> project = limit.child();
+        Set<Slot> childOutputs = project.getOutputSet();
+        Pair<Set<Expression>, Set<Expression>> splitConjuncts =
+                splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs);
+        if (splitConjuncts.second.isEmpty()) {
+            return null;
+        }
+        project = project.withProjectsAndChild(project.getProjects(),
                 new LogicalFilter<>(
-                        ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
-                        project.child()
-                )
-        );
+                        ExpressionUtils.replace(splitConjuncts.second,
+                                project.getAliasToProducer()),
+                        limit.withChildren(project.child())));
+        return PlanUtils.filterOrSelf(splitConjuncts.first, project);
+    }
+
+    private static Pair<Set<Expression>, Set<Expression>> splitConjunctsByChildOutput(
+            Set<Expression> conjuncts, Set<Slot> childOutputs) {
+        Set<Expression> pushDownPredicates = Sets.newLinkedHashSet();
+        Set<Expression> remainPredicates = Sets.newLinkedHashSet();
+        conjuncts.forEach(conjunct -> {
+            Set<Slot> conjunctSlots = conjunct.getInputSlots();
+            if (childOutputs.containsAll(conjunctSlots)) {
+                pushDownPredicates.add(conjunct);
+            } else {
+                remainPredicates.add(conjunct);
+            }
+        });
+        return Pair.of(remainPredicates, pushDownPredicates);
     }
 }
