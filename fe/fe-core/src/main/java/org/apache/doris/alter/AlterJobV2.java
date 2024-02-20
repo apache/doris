@@ -222,6 +222,7 @@ public abstract class AlterJobV2 implements Writable {
                     break;
             }
         } catch (Exception e) {
+            LOG.error("failed to run alter job {}", jobId, e);
             cancelImpl(e.getMessage());
         }
     }
