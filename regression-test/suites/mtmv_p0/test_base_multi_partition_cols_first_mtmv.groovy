@@ -17,9 +17,9 @@
 
 import org.junit.Assert;
 
-suite("test_base_multi_partition_cols_mtmv") {
-    def tableName = "t_multi_partition_cols_mtmv_user"
-    def mvName = "test_base_multi_partition_cols_mtmv"
+suite("test_base_multi_partition_cols_first_mtmv") {
+    def tableName = "t_multi_partition_cols_first_mtmv_user"
+    def mvName = "test_base_multi_partition_cols_first_mtmv"
     def dbName = "regression_test_mtmv_p0"
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
@@ -118,7 +118,7 @@ suite("test_base_multi_partition_cols_mtmv") {
 
     // drop partition
     sql """
-        alter table ${tableName} DROP PARTITION `p1_bj`
+        alter table ${tableName} DROP PARTITION `p2_bj`
         """
     sql """
             REFRESH MATERIALIZED VIEW ${mvName};
@@ -126,10 +126,10 @@ suite("test_base_multi_partition_cols_mtmv") {
     waitingMTMVTaskFinished(jobName)
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertTrue(showPartitionsResult.toString().contains("p_1"))
+    assertTrue(showPartitionsResult.toString().contains("p_2"))
 
     sql """
-        alter table ${tableName} DROP PARTITION `p1_sh`
+        alter table ${tableName} DROP PARTITION `p2_sh`
         """
     sql """
             REFRESH MATERIALIZED VIEW ${mvName};
@@ -137,7 +137,7 @@ suite("test_base_multi_partition_cols_mtmv") {
     waitingMTMVTaskFinished(jobName)
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertFalse(showPartitionsResult.toString().contains("p_1"))
+    assertFalse(showPartitionsResult.toString().contains("p_2"))
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
