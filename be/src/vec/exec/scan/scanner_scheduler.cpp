@@ -162,7 +162,7 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                     this->_scanner_scan(ctx, scanner_ref);
                 };
                 SimplifiedScanTask simple_scan_task = {work_func, ctx};
-                ret = scan_sche->get_scan_queue()->try_put(simple_scan_task);
+                ret = scan_sche->submit_scan_task(simple_scan_task);
             } else {
                 PriorityThreadPool::Task task;
                 task.work_function = [this, scanner_ref = scan_task, ctx]() {
