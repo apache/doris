@@ -192,6 +192,7 @@ public class InsertExecutor {
                         database.getId(), olapTableSink.getDstTable(), analyzer));
                 dataStreamSink.setPartitionParam(olapTableSink.createPartition(
                         database.getId(), olapTableSink.getDstTable(), analyzer));
+                dataStreamSink.setIntermediateTupleDesc(olapTableSink.getTupleDescriptor());
             }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);

@@ -58,6 +58,7 @@ public class DataStreamSink extends DataSink {
     // use for tablet id shuffle sink only
     protected TOlapTableSchemaParam schemaParam = null;
     protected TOlapTablePartitionParam partitionParam = null;
+    protected TupleDescriptor intermediateTupleDesc;
 
     public DataStreamSink() {
 
@@ -133,6 +134,10 @@ public class DataStreamSink extends DataSink {
         this.partitionParam = partitionParam;
     }
 
+    public void setIntermediateTupleDesc(TupleDescriptor intermediateTupleDesc) {
+        this.intermediateTupleDesc = intermediateTupleDesc;
+    }
+
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
@@ -201,6 +206,9 @@ public class DataStreamSink extends DataSink {
         }
         if (partitionParam != null) {
             tStreamSink.setPartition(partitionParam);
+        }
+        if (intermediateTupleDesc != null) {
+            tStreamSink.setIntermediateTupleId(intermediateTupleDesc.getId().asInt());
         }
         result.setStreamSink(tStreamSink);
         return result;

@@ -174,6 +174,8 @@ struct TDataStreamSink {
   // used for partition_type = TABLET_SINK_SHUFFLE_PARTITIONED
   8: optional Descriptors.TOlapTableSchemaParam schema
   9: optional Descriptors.TOlapTablePartitionParam partition
+  // it's not same output_tuple_id
+  10: optional Types.TTupleId intermediate_tuple_id
 }
 
 struct TMultiCastDataStreamSink {

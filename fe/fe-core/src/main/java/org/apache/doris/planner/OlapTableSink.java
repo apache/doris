@@ -589,4 +589,8 @@ public class OlapTableSink extends DataSink {
     public OlapTable getDstTable() {
         return dstTable;
     }
+
+    public TupleDescriptor getTupleDescriptor() {
+        return tupleDescriptor;
+    }
 }

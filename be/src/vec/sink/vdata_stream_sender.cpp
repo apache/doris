@@ -425,7 +425,8 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
         RETURN_IF_ERROR(_vpartition->init());
         auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
         _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
-        _output_tuple_desc = _state->desc_tbl().get_tuple_descriptor(t_stream_sink.output_tuple_id);
+        _intermediate_tuple_desc =
+                _state->desc_tbl().get_tuple_descriptor(t_stream_sink.intermediate_tuple_id);
     } else {
         // UNPARTITIONED
     }
@@ -651,9 +652,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 
         std::shared_ptr<vectorized::Block> convert_block =
                 vectorized::Block::create_shared(block->get_columns_with_type_and_name());
-        for (int i = 0; i < _output_tuple_desc->slots().size() && i < convert_block->columns();
-             ++i) {
-            SlotDescriptor* desc = _output_tuple_desc->slots()[i];
+        for (int i = 0;
+             i < _intermediate_tuple_desc->slots().size() && i < convert_block->columns(); ++i) {
+            SlotDescriptor* desc = _intermediate_tuple_desc->slots()[i];
             if (desc->is_nullable() != convert_block->get_by_position(i).type->is_nullable()) {
                 if (desc->is_nullable()) {
                     convert_block->get_by_position(i).type =
