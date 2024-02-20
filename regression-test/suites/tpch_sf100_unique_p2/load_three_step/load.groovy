@@ -92,6 +92,10 @@ suite("load_three_step") {
             }
             sleep(5000)
         }
+    }
+
+    Thread.sleep(70000) // wait for row count report of the tables just loaded
+    tables.each { table, rows ->
         sql """SET query_timeout = 1800"""
         sql """ ANALYZE TABLE $table WITH SYNC """
     }
