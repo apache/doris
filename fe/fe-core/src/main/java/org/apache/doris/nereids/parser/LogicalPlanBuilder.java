@@ -2249,8 +2249,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public List<String> visitMultipartIdentifier(MultipartIdentifierContext ctx) {
         List<String> ori = ctx.parts.stream()
-            .map(RuleContext::getText)
-            .collect(ImmutableList.toImmutableList());
+                .map(RuleContext::getText).collect(ImmutableList.toImmutableList());
         List<String> parts = Lists.newArrayList();
         for (String part : ori) {
             if (part.contains(".")) {
