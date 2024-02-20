@@ -56,10 +56,9 @@ struct ColumnRowRef {
 
     // when call set find, will use hash to find
     size_t operator()(const ColumnRowRef& a) const {
-        std::vector<uint32_t> hash_vec(1);
-        auto* __restrict hash_val = hash_vec.data();
-        a.column->update_crc_with_value(a.row_idx, a.row_idx + 1, *hash_val, nullptr);
-        return *hash_val;
+        uint32_t hash_val = 0;
+        a.column->update_crc_with_value(a.row_idx, a.row_idx + 1, hash_val, nullptr);
+        return hash_val;
     }
 };
 
@@ -105,8 +104,9 @@ public:
                 auto* null_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(col);
                 if (!null_in_set && null_col->has_null()) {
                     null_in_set = true;
+                } else {
+                    column_struct_ptr_args->insert_from(null_col->get_nested_column(), 0);
                 }
-                column_struct_ptr_args->insert_from(null_col->get_nested_column(), 0);
             } else {
                 column_struct_ptr_args->insert_from(*col, 0);
             }
