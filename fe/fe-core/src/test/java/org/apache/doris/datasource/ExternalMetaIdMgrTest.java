@@ -17,47 +17,87 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.CreateCatalogStmt;
+import org.apache.doris.analysis.DropCatalogStmt;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class ExternalMetaIdMgrTest {
+public class ExternalMetaIdMgrTest extends TestWithFeService {
+
+    private static Env env;
+    private ConnectContext rootCtx;
+
+    private long ctlId;
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
+        rootCtx = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        // create test catalog
+        CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
+                "create catalog test1 properties(\n"
+                        + "    \"type\" = \"test\",\n"
+                        + "    \"metadata_refresh_interval_sec\" = \"1\",\n"
+                        + "    \"catalog_provider.class\" "
+                        + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\"\n"
+                        + ");",
+                rootCtx);
+        env.getCatalogMgr().createCatalog(testCatalog);
+        ctlId = env.getCatalogMgr().getCatalog("test1").getId();
+    }
+
+    @Override
+    protected void runAfterAll() throws Exception {
+        super.runAfterAll();
+        rootCtx.setThreadLocalInfo();
+        DropCatalogStmt stmt = (DropCatalogStmt) parseAndAnalyzeStmt("drop catalog test1");
+        env.getCatalogMgr().dropCatalog(stmt);
+    }
 
     @Test
-    public void testReplayMetaIdMappingsLog() {
+    public void testReplayMetaIdMappingsLogFromHmsEvent() {
         ExternalMetaIdMgr mgr = new ExternalMetaIdMgr();
         MetaIdMappingsLog log1 = new MetaIdMappingsLog();
-        log1.setCatalogId(1L);
+        log1.setCatalogId(ctlId);
         log1.setType(MetaIdMappingsLog.TYPE_FROM_HMS_EVENT);
         log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_ADD,
                     MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
-                    "db1", ExternalMetaIdMgr.nextMetaId()));
+                    "db1",
+                    ExternalMetaIdMgr.nextMetaId()));
         mgr.replayMetaIdMappingsLog(log1);
-        Assertions.assertNotEquals(-1L, mgr.getDbId(1L, "db1"));
+        Assertions.assertNotEquals(-1L, mgr.getDbId(ctlId, "db1"));
 
         MetaIdMappingsLog log2 = new MetaIdMappingsLog();
-        log2.setCatalogId(1L);
+        log2.setCatalogId(ctlId);
         log2.setType(MetaIdMappingsLog.TYPE_FROM_HMS_EVENT);
         log2.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                     MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
                     "db1"));
         mgr.replayMetaIdMappingsLog(log2);
-        Assertions.assertEquals(-1L, mgr.getDbId(1L, "db1"));
+        Assertions.assertEquals(-1L, mgr.getDbId(ctlId, "db1"));
 
         MetaIdMappingsLog log3 = new MetaIdMappingsLog();
-        log3.setCatalogId(1L);
+        log3.setCatalogId(ctlId);
         log3.setType(MetaIdMappingsLog.TYPE_FROM_HMS_EVENT);
         log3.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_ADD,
                     MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,
-                    "db1", "tbl1", ExternalMetaIdMgr.nextMetaId()));
+                    "db1", "tbl1",
+                    ExternalMetaIdMgr.nextMetaId()));
         mgr.replayMetaIdMappingsLog(log3);
-        Assertions.assertEquals(-1L, mgr.getDbId(1L, "db1"));
-        Assertions.assertNotEquals(-1L, mgr.getTblId(1L, "db1", "tbl1"));
+        Assertions.assertEquals(-1L, mgr.getDbId(ctlId, "db1"));
+        Assertions.assertNotEquals(-1L, mgr.getTblId(ctlId, "db1", "tbl1"));
 
         MetaIdMappingsLog log4 = new MetaIdMappingsLog();
-        log4.setCatalogId(1L);
+        log4.setCatalogId(ctlId);
         log4.setType(MetaIdMappingsLog.TYPE_FROM_HMS_EVENT);
         log4.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_DELETE,
@@ -66,11 +106,12 @@ public class ExternalMetaIdMgrTest {
         log4.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_ADD,
                     MetaIdMappingsLog.META_OBJECT_TYPE_PARTITION,
-                    "db1", "tbl1", "p1", ExternalMetaIdMgr.nextMetaId()));
+                    "db1", "tbl1", "p1",
+                    ExternalMetaIdMgr.nextMetaId()));
         mgr.replayMetaIdMappingsLog(log4);
-        Assertions.assertEquals(-1L, mgr.getDbId(1L, "db1"));
-        Assertions.assertEquals(-1L, mgr.getTblId(1L, "db1", "tbl1"));
-        Assertions.assertNotEquals(-1L, mgr.getPartitionId(1L, "db1", "tbl1", "p1"));
+        Assertions.assertEquals(-1L, mgr.getDbId(ctlId, "db1"));
+        Assertions.assertEquals(-1L, mgr.getTblId(ctlId, "db1", "tbl1"));
+        Assertions.assertNotEquals(-1L, mgr.getPartitionId(ctlId, "db1", "tbl1", "p1"));
     }
 
 }

@@ -40,15 +40,16 @@ public class MetaIdMappingsLogTest {
             log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                         MetaIdMappingsLog.OPERATION_TYPE_ADD,
                         MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
-                        "db1", ExternalMetaIdMgr.nextMetaId()));
+                        "db1",
+                        ExternalMetaIdMgr.nextMetaId()));
             log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                         MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                         MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,
-                        "db1", "tbl1", ExternalMetaIdMgr.nextMetaId()));
+                        "db1", "tbl1"));
             log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                         MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                         MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,
-                        "db1", "tbl2", ExternalMetaIdMgr.nextMetaId()));
+                        "db1", "tbl2"));
             log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                         MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                         MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
@@ -56,11 +57,13 @@ public class MetaIdMappingsLogTest {
             log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                         MetaIdMappingsLog.OPERATION_TYPE_ADD,
                         MetaIdMappingsLog.META_OBJECT_TYPE_PARTITION,
-                        "db1", "tbl1", "p1", ExternalMetaIdMgr.nextMetaId()));
+                        "db1", "tbl1", "p1",
+                        ExternalMetaIdMgr.nextMetaId()));
             log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                         MetaIdMappingsLog.OPERATION_TYPE_ADD,
                         MetaIdMappingsLog.META_OBJECT_TYPE_PARTITION,
-                        "db1", "tbl1", "p2", ExternalMetaIdMgr.nextMetaId()));
+                        "db1", "tbl1", "p2",
+                        ExternalMetaIdMgr.nextMetaId()));
             log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                         MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                         MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
@@ -68,11 +71,11 @@ public class MetaIdMappingsLogTest {
             log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                         MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                         MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,
-                        "db1", "tbl1", ExternalMetaIdMgr.nextMetaId()));
+                        "db1", "tbl1"));
             log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
                         MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                         MetaIdMappingsLog.META_OBJECT_TYPE_PARTITION,
-                        "db1", "tbl1", "p2", ExternalMetaIdMgr.nextMetaId()));
+                        "db1", "tbl1", "p2"));
             log1.write(dos);
             dos.flush();
         } catch (Throwable throwable) {

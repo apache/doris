@@ -92,7 +92,8 @@ public class CreateTableEvent extends MetastoreTableEvent {
         MetaIdMappingsLog.MetaIdMapping metaIdMapping = new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_ADD,
                     MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,
-                    dbName, tblName, ExternalMetaIdMgr.nextMetaId());
+                    dbName, tblName,
+                    ExternalMetaIdMgr.nextMetaId());
         return ImmutableList.of(metaIdMapping);
     }
 }

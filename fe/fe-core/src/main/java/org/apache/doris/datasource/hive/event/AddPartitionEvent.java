@@ -120,7 +120,8 @@ public class AddPartitionEvent extends MetastorePartitionEvent {
             MetaIdMappingsLog.MetaIdMapping metaIdMapping = new MetaIdMappingsLog.MetaIdMapping(
                         MetaIdMappingsLog.OPERATION_TYPE_ADD,
                         MetaIdMappingsLog.META_OBJECT_TYPE_PARTITION,
-                        dbName, tblName, partitionName, ExternalMetaIdMgr.nextMetaId());
+                        dbName, tblName, partitionName,
+                        ExternalMetaIdMgr.nextMetaId());
             metaIdMappings.add(metaIdMapping);
         }
         return ImmutableList.copyOf(metaIdMappings);

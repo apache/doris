@@ -67,7 +67,8 @@ public class CreateDatabaseEvent extends MetastoreEvent {
         MetaIdMappingsLog.MetaIdMapping metaIdMapping = new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_ADD,
                     MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
-                    dbName, ExternalMetaIdMgr.nextMetaId());
+                    dbName,
+                    ExternalMetaIdMgr.nextMetaId());
         return ImmutableList.of(metaIdMapping);
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
@@ -58,6 +59,9 @@ public class MetaIdMappingsLog implements Writable {
 
     @SerializedName(value = "dbId")
     private long dbId = -1L;
+
+    @SerializedName(value = "dbName")
+    private String dbName;
 
     @SerializedName(value = "type")
     private short type = TYPE_UNKNOWN;
@@ -162,6 +166,7 @@ public class MetaIdMappingsLog implements Writable {
                              String tblName,
                              String partitionName,
                              long id) {
+            Preconditions.checkArgument(opType == OPERATION_TYPE_ADD);
             this.opType = opType;
             this.metaObjType = metaObjType;
             this.dbName = dbName;
@@ -175,6 +180,7 @@ public class MetaIdMappingsLog implements Writable {
                              String dbName,
                              String tblName,
                              String partitionName) {
+            Preconditions.checkArgument(opType == OPERATION_TYPE_DELETE);
             this.opType = opType;
             this.metaObjType = metaObjType;
             this.dbName = dbName;
@@ -188,6 +194,7 @@ public class MetaIdMappingsLog implements Writable {
                              String dbName,
                              String tblName,
                              long id) {
+            Preconditions.checkArgument(opType == OPERATION_TYPE_ADD);
             this.opType = opType;
             this.metaObjType = metaObjType;
             this.dbName = dbName;
@@ -200,6 +207,7 @@ public class MetaIdMappingsLog implements Writable {
                              short metaObjType,
                              String dbName,
                              String tblName) {
+            Preconditions.checkArgument(opType == OPERATION_TYPE_DELETE);
             this.opType = opType;
             this.metaObjType = metaObjType;
             this.dbName = dbName;
@@ -212,6 +220,7 @@ public class MetaIdMappingsLog implements Writable {
                              short metaObjType,
                              String dbName,
                              long id) {
+            Preconditions.checkArgument(opType == OPERATION_TYPE_ADD);
             this.opType = opType;
             this.metaObjType = metaObjType;
             this.dbName = dbName;
@@ -223,6 +232,7 @@ public class MetaIdMappingsLog implements Writable {
         public MetaIdMapping(short opType,
                              short metaObjType,
                              String dbName) {
+            Preconditions.checkArgument(opType == OPERATION_TYPE_DELETE);
             this.opType = opType;
             this.metaObjType = metaObjType;
             this.dbName = dbName;

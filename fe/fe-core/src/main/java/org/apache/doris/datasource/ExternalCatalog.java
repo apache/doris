@@ -98,7 +98,6 @@ public abstract class ExternalCatalog
     // save properties of this catalog, such as hive meta store url.
     @SerializedName(value = "catalogProperty")
     protected CatalogProperty catalogProperty;
-    @SerializedName(value = "initialized")
     private volatile boolean initialized = false;
     protected volatile Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
@@ -205,7 +204,6 @@ public abstract class ExternalCatalog
                 return;
             }
             initForMaster();
-            initialized = true;
         }
     }
 
@@ -284,6 +282,8 @@ public abstract class ExternalCatalog
         log.setType(MetaIdMappingsLog.TYPE_FROM_INIT_CATALOG);
         log.setLastUpdateTime(System.currentTimeMillis());
         for (String dbName : allDatabases) {
+            ExternalMetaIdMgr.CtlMetaIdMgr ctlMetaIdMgr = Env.getCurrentEnv().getExternalMetaIdMgr()
+                        .getCtlMetaIdMgr(id);
             if (!dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
                 // Exclude database map take effect with higher priority over include database map
                 if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
@@ -297,7 +297,8 @@ public abstract class ExternalCatalog
             MetaIdMappingsLog.MetaIdMapping metaIdMapping = new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_ADD,
                     MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
-                    dbName, ExternalMetaIdMgr.nextMetaId());
+                    dbName,
+                    ExternalMetaIdMgr.generateDbId(ctlMetaIdMgr != null ? ctlMetaIdMgr.copy() : null, dbName));
             log.addMetaIdMapping(metaIdMapping);
         }
 
@@ -305,22 +306,18 @@ public abstract class ExternalCatalog
         Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
     }
 
-    public void initForAllNodes(long lastUpdateTime) {
-        ExternalMetaIdMgr metaIdMgr = Env.getCurrentEnv().getExternalMetaIdMgr();
-        ExternalMetaIdMgr.CtlMetaIdMgr ctlMetaIdMgr = metaIdMgr.getCtlMetaIdMgr(id);
-        if (ctlMetaIdMgr != null) {
-            // use a temp map container
-            Map<Long, ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
-            Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
-            Map<String, ExternalMetaIdMgr.DbMetaIdMgr> dbNameToMgr = ctlMetaIdMgr.getDbNameToMgr();
-            for (String dbName : dbNameToMgr.keySet()) {
-                ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbNameToMgr.get(dbName).dbId, type);
-                tmpIdToDb.put(db.getId(), db);
-                tmpDbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
-            }
-            this.idToDb = tmpIdToDb;
-            this.dbNameToId = tmpDbNameToId;
+    public void initForAllNodes(ExternalMetaIdMgr.CtlMetaIdMgr ctlMetaIdMgr, long lastUpdateTime) {
+        // use a temp map and replace the old one later
+        Map<Long, ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
+        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
+        Map<String, ExternalMetaIdMgr.DbMetaIdMgr> dbNameToMgr = ctlMetaIdMgr.getDbNameToMgr();
+        for (String dbName : dbNameToMgr.keySet()) {
+            ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbNameToMgr.get(dbName).dbId, type);
+            tmpIdToDb.put(db.getId(), db);
+            tmpDbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
         }
+        this.idToDb = tmpIdToDb;
+        this.dbNameToId = tmpDbNameToId;
         this.lastUpdateTime = lastUpdateTime;
         this.initialized = true;
     }
