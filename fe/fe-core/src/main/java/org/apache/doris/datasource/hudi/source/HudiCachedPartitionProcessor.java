@@ -19,9 +19,10 @@ package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CacheException;
-import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.planner.external.TablePartitionValues;
-import org.apache.doris.planner.external.TablePartitionValues.TablePartitionKey;
+import org.apache.doris.datasource.TablePartitionValues;
+import org.apache.doris.datasource.TablePartitionValues.TablePartitionKey;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
