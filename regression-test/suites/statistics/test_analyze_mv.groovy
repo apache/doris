@@ -409,6 +409,48 @@ suite("test_analyze_mv") {
     verifyTaskStatus(result_sample, "mva_MIN__`value3`", "mv3")
     verifyTaskStatus(result_sample, "mva_SUM__CAST(`value1` AS BIGINT)", "mv3")
 
+    // Test alter column stats
+    sql """drop stats mvTestDup"""
+    sql """alter table mvTestDup modify column key1 set stats ('ndv'='1', 'num_nulls'='1', 'min_value'='10', 'max_value'='40', 'row_count'='50');"""
+    sql """alter table mvTestDup index mv3 modify column mv_key1 set stats ('ndv'='5', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='5');"""
+    sql """alter table mvTestDup index mv3 modify column `mva_SUM__CAST(``value1`` AS BIGINT)` set stats ('ndv'='10', 'num_nulls'='2', 'min_value'='1', 'max_value'='5', 'row_count'='11');"""
+
+    def result = sql """show column cached stats mvTestDup(key1)"""
+    assertEquals(1, result.size())
+    assertEquals("key1", result[0][0])
+    assertEquals("N/A", result[0][1])
+    assertEquals("50.0", result[0][2])
+    assertEquals("1.0", result[0][3])
+    assertEquals("1.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("10", result[0][7])
+    assertEquals("40", result[0][8])
+
+    result = sql """show column cached stats mvTestDup(mv_key1)"""
+    assertEquals(1, result.size())
+    assertEquals("mv_key1", result[0][0])
+    assertEquals("mv3", result[0][1])
+    assertEquals("5.0", result[0][2])
+    assertEquals("5.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("0", result[0][7])
+    assertEquals("4", result[0][8])
+
+    result = sql """show column cached stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
+    assertEquals(1, result.size())
+    assertEquals("mva_SUM__CAST(`value1` AS BIGINT)", result[0][0])
+    assertEquals("mv3", result[0][1])
+    assertEquals("11.0", result[0][2])
+    assertEquals("10.0", result[0][3])
+    assertEquals("2.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("1", result[0][7])
+    assertEquals("5", result[0][8])
+
     sql """drop database if exists test_analyze_mv"""
 }
 
