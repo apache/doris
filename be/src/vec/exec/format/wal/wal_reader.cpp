@@ -18,6 +18,7 @@
 #include "wal_reader.h"
 
 #include "common/logging.h"
+#include "common/sync_point.h"
 #include "gutil/strings/split.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/runtime_state.h"
@@ -62,13 +63,16 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     vectorized::Block dst_block;
     int index = 0;
     auto output_block_columns = block->get_columns_with_type_and_name();
+    size_t output_block_column_size = output_block_columns.size();
+    TEST_SYNC_POINT_CALLBACK("WalReader::set_column_id_count", &_column_id_count);
+    TEST_SYNC_POINT_CALLBACK("WalReader::set_out_block_column_size", &output_block_column_size);
     if (_column_id_count != src_block.columns() ||
-        output_block_columns.size() != _tuple_descriptor->slots().size()) {
+        output_block_column_size != _tuple_descriptor->slots().size()) {
         return Status::InternalError(
                 "not equal wal _column_id_count={} vs wal block columns size={}, "
                 "output block columns size={} vs tuple_descriptor size={}",
                 std::to_string(_column_id_count), std::to_string(src_block.columns()),
-                std::to_string(output_block_columns.size()),
+                std::to_string(output_block_column_size),
                 std::to_string(_tuple_descriptor->slots().size()));
     }
     for (auto slot_desc : _tuple_descriptor->slots()) {
