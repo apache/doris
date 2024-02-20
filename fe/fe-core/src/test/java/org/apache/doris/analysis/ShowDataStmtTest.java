@@ -142,7 +142,7 @@ public class ShowDataStmtTest {
         ShowDataStmt stmt = new ShowDataStmt(null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW DATA", stmt.toString());
-        Assert.assertEquals(5, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(false, stmt.hasTable());
 
         SlotRef slotRefOne = new SlotRef(null, "ReplicaCount");

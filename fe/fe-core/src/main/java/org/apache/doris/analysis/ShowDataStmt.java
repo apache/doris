@@ -73,7 +73,6 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("TransactionNum", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
@@ -86,13 +85,9 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
                     .build();
 
-    public static final ImmutableList<String> SHOW_DATABASE_DATA_META_DATA_ORIGIN =
-            new ImmutableList.Builder<String>().add("DbId").add("DbName").add("Size")
-            .add("RemoteSize").add("RecycleSize").add("RecycleRemoteSize").build();
-
     public static final ImmutableList<String> SHOW_TABLE_DATA_META_DATA_ORIGIN =
             new ImmutableList.Builder<String>().add("TableName").add("Size").add("ReplicaCount")
-            .add("RemoteSize").add("TransactionNum").build();
+            .add("RemoteSize").build();
 
     public static final ImmutableList<String> SHOW_INDEX_DATA_META_DATA_ORIGIN =
             new ImmutableList.Builder<String>().add("TableName").add("IndexName").add("Size").add("ReplicaCount")
@@ -146,16 +141,6 @@ public class ShowDataStmt extends ShowStmt {
         }
 
         if (tableName == null) {
-            Map<Long, List<Long>> transToTableListInfo = Env.getCurrentGlobalTransactionMgr()
-                    .getDbRunningTransInfo(db.getId());
-            Map<Long, Integer> tableToTransNumInfo = Maps.newHashMap();
-            for (Entry<Long, List<Long>> transWithTableList : transToTableListInfo.entrySet()) {
-                for (Long tableId : transWithTableList.getValue()) {
-                    int transNum = tableToTransNumInfo.getOrDefault(tableId, 0);
-                    transNum++;
-                    tableToTransNumInfo.put(tableId, transNum);
-                }
-            }
             db.readLock();
             try {
                 long totalSize = 0;
@@ -188,7 +173,6 @@ public class ShowDataStmt extends ShowStmt {
                     long tableSize = 0;
                     long replicaCount = 0;
                     long remoteSize = 0;
-                    int transNum = tableToTransNumInfo.getOrDefault(table.getId(), 0);
                     olapTable.readLock();
                     try {
                         tableSize = olapTable.getDataSize();
@@ -197,8 +181,8 @@ public class ShowDataStmt extends ShowStmt {
                     } finally {
                         olapTable.readUnlock();
                     }
-                    //|TableName|Size|ReplicaCount|RemoteSize|TransactionNum
-                    List<Object> row = Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize, transNum);
+                    //|TableName|Size|ReplicaCount|RemoteSize
+                    List<Object> row = Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize);
                     totalRowsObject.add(row);
 
                     totalSize += tableSize;
@@ -219,7 +203,7 @@ public class ShowDataStmt extends ShowStmt {
 
                 // for output
                 for (List<Object> row : totalRowsObject) {
-                    //|TableName|Size|ReplicaCount|RemoteSize|TransactionNum
+                    //|TableName|Size|ReplicaCount|RemoteSize
                     Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long) row.get(1));
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
                             + tableSizePair.second;
@@ -227,7 +211,7 @@ public class ShowDataStmt extends ShowStmt {
                     String remoteReadableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(remoteSizePair.first) + " "
                             + remoteSizePair.second;
                     List<String> result = Arrays.asList(String.valueOf(row.get(0)),
-                            readableSize, String.valueOf(row.get(2)), remoteReadableSize, String.valueOf(row.get(4)));
+                            readableSize, String.valueOf(row.get(2)), remoteReadableSize);
                     totalRows.add(result);
                 }
 
@@ -238,30 +222,26 @@ public class ShowDataStmt extends ShowStmt {
                 String remoteReadableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteSizePair.first) + " "
                         + totalRemoteSizePair.second;
                 List<String> total = Arrays.asList("Total", readableSize, String.valueOf(totalReplicaCount),
-                         remoteReadableSize, String.valueOf(transToTableListInfo.size()));
+                         remoteReadableSize);
                 totalRows.add(total);
 
                 // quota
                 long quota = db.getDataQuota();
                 long replicaQuota = db.getReplicaQuota();
-                long transactionQuota = db.getTransactionQuotaSize();
                 Pair<Double, String> quotaPair = DebugUtil.getByteUint(quota);
                 String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaPair.first) + " "
                         + quotaPair.second;
 
-                List<String> quotaRow = Arrays.asList("Quota", readableQuota, String.valueOf(replicaQuota), "",
-                        String.valueOf(transactionQuota));
+                List<String> quotaRow = Arrays.asList("Quota", readableQuota, String.valueOf(replicaQuota), "");
                 totalRows.add(quotaRow);
 
                 // left
                 long left = Math.max(0, quota - totalSize);
                 long replicaCountLeft = Math.max(0, replicaQuota - totalReplicaCount);
-                long transNumLeft = Math.max(0, transactionQuota - transToTableListInfo.size());
                 Pair<Double, String> leftPair = DebugUtil.getByteUint(left);
                 String readableLeft = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(leftPair.first) + " "
                         + leftPair.second;
-                List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft), "",
-                        String.valueOf(transNumLeft));
+                List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft), "");
                 totalRows.add(leftRow);
             } finally {
                 db.readUnlock();
