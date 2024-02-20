@@ -358,10 +358,6 @@ public:
     /// null_data to mark whether need to do hash compute, null_data == nullptr
     /// means all element need to do hash function, else only *null_data != 0 need to do hash func
     /// do xxHash here, faster than other sip hash
-    virtual void update_hashes_with_value(uint64_t* __restrict hashes,
-                                          const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << get_name() << " update_hashes_with_value xxhash not supported";
-    }
 
     // use range for one hash value to avoid virtual function call in loop
     virtual void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,

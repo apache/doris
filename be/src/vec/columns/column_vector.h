@@ -325,8 +325,6 @@ public:
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
 
-    void update_hashes_with_value(uint64_t* __restrict hashes,
-                                  const uint8_t* __restrict null_data) const override;
 
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
 

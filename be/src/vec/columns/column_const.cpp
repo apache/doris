@@ -110,22 +110,6 @@ void ColumnConst::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pri
     }
 }
 
-void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
-                                           const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    auto real_data = data->get_data_at(0);
-    auto real_size = size();
-    if (real_data.data == nullptr) {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
-        }
-    } else {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hashes[i]);
-        }
-    }
-}
-
 MutableColumns ColumnConst::scatter(ColumnIndex num_columns, const Selector& selector) const {
     if (s != selector.size()) {
         LOG(FATAL) << fmt::format("Size of selector ({}) doesn't match size of column ({})",

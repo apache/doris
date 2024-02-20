@@ -110,24 +110,6 @@ void ColumnVector<T>::update_hash_with_value(size_t n, SipHash& hash) const {
     hash.update(data[n]);
 }
 
-template <typename T>
-void ColumnVector<T>::update_hashes_with_value(uint64_t* __restrict hashes,
-                                               const uint8_t* __restrict null_data) const {
-    auto s = size();
-    if (null_data) {
-        for (int i = 0; i < s; i++) {
-            if (null_data[i] == 0) {
-                hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
-                                                       sizeof(T), hashes[i]);
-            }
-        }
-    } else {
-        for (int i = 0; i < s; i++) {
-            hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
-                                                   sizeof(T), hashes[i]);
-        }
-    }
-}
 
 template <typename T>
 void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,

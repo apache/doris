@@ -113,24 +113,6 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
     }
 }
 
-void ColumnNullable::update_hashes_with_value(uint64_t* __restrict hashes,
-                                              const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    auto s = size();
-    const auto* __restrict real_null_data =
-            assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
-    if (!has_null()) {
-        nested_column->update_hashes_with_value(hashes, nullptr);
-    } else {
-        for (int i = 0; i < s; ++i) {
-            if (real_null_data[i] != 0) {
-                hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
-            }
-        }
-        nested_column->update_hashes_with_value(hashes, real_null_data);
-    }
-}
-
 MutableColumnPtr ColumnNullable::clone_resized(size_t new_size) const {
     MutableColumnPtr new_nested_col = get_nested_column().clone_resized(new_size);
     auto new_null_map = ColumnUInt8::create();
