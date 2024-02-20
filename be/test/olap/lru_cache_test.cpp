@@ -391,8 +391,8 @@ TEST_F(CacheTest, PruneIfLazyMode) {
     auto pred3 = [](const LRUHandle* handle) -> bool {
         return DecodeValue((void*)(handle->value)) <= 600;
     };
-    auto [pruned_count, pruned_size] = cache.prune_if(pred3, true);
-    EXPECT_EQ(3, pruned_count);
+    PrunedInfo pruned_info = cache.prune_if(pred3, true);
+    EXPECT_EQ(3, pruned_info.pruned_count);
     EXPECT_EQ(4, cache.get_usage());
 }
 

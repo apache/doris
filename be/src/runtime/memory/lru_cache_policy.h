@@ -91,9 +91,9 @@ public:
             };
 
             // Prune cache in lazy mode to save cpu and minimize the time holding write lock
-            auto [pruned_count, pruned_size] = _cache->prune_if(pred, true);
-            COUNTER_SET(_freed_entrys_counter, pruned_count);
-            COUNTER_SET(_freed_memory_counter, pruned_size);
+            PrunedInfo pruned_info = _cache->prune_if(pred, true);
+            COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
+            COUNTER_SET(_freed_memory_counter, pruned_info.pruned_size);
             COUNTER_UPDATE(_prune_stale_number_counter, 1);
             LOG(INFO) << fmt::format("{} prune stale {} entries, {} bytes, {} times prune",
                                      type_string(_type), _freed_entrys_counter->value(),
@@ -112,9 +112,9 @@ public:
             _cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
-            auto [pruned_count, pruned_size] = _cache->prune();
-            COUNTER_SET(_freed_entrys_counter, pruned_count);
-            COUNTER_SET(_freed_memory_counter, pruned_size);
+            PrunedInfo pruned_info = _cache->prune();
+            COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
+            COUNTER_SET(_freed_memory_counter, pruned_info.pruned_size);
             COUNTER_UPDATE(_prune_all_number_counter, 1);
             LOG(INFO) << fmt::format(
                     "{} prune all {} entries, {} bytes, {} times prune, is clear: {}",
