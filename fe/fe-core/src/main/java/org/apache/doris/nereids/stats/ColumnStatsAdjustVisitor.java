@@ -71,7 +71,7 @@ public class ColumnStatsAdjustVisitor extends ExpressionVisitor<ColumnStatistic,
     public ColumnStatistic visitCast(Cast cast, Statistics context) {
         ColumnStatistic colStats = context.findColumnStatistics(cast);
 
-        if (colStats != null) {
+        if (colStats != null && colStats.minExpr != null && colStats.maxExpr != null) {
             try {
                 DataType childNereidsType = cast.child().getDataType();
                 if (childNereidsType instanceof CharacterType) {

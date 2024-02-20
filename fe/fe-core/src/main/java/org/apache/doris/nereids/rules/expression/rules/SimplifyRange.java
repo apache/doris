@@ -28,8 +28,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -204,7 +206,7 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         public static ValueDesc intersect(RangeValue range, DiscreteValue discrete) {
             DiscreteValue result = new DiscreteValue(discrete.reference, discrete.expr);
             discrete.values.stream().filter(x -> range.range.contains(x)).forEach(result.values::add);
-            if (result.values.size() > 0) {
+            if (!result.values.isEmpty()) {
                 return result;
             }
             return new EmptyValue(range.reference, ExpressionUtils.and(range.expr, discrete.expr));
@@ -333,12 +335,19 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
                     result.add(new LessThan(reference, range.upperEndpoint()));
                 }
             }
-            return result.isEmpty() ? BooleanLiteral.TRUE : ExpressionUtils.and(result);
+            if (!result.isEmpty()) {
+                return ExpressionUtils.and(result);
+            } else if (reference.nullable()) {
+                // when reference is nullable, we should filter null slot.
+                return new Not(new IsNull(reference));
+            } else {
+                return BooleanLiteral.TRUE;
+            }
         }
 
         @Override
         public String toString() {
-            return range == null ? "UnknwonRange" : range.toString();
+            return range == null ? "UnknownRange" : range.toString();
         }
     }
 

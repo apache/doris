@@ -35,7 +35,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-/**MappingTest*/
+/**
+ * MappingTest
+ */
 public class MappingTest extends TestWithFeService {
 
     @Override
@@ -64,7 +66,7 @@ public class MappingTest extends TestWithFeService {
                 + ")");
         createTable("CREATE TABLE IF NOT EXISTS customer (\n"
                 + "  C_CUSTKEY     INTEGER NOT NULL,\n"
-                + "  C_NAME        VARCHAR(25) NOT NULL,\n"
+                + "  C_NAME        VARCHAR(25) NOT NULL\n"
                 + ")\n"
                 + "DUPLICATE KEY(C_CUSTKEY, C_NAME)\n"
                 + "DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 3\n"
@@ -273,6 +275,72 @@ public class MappingTest extends TestWithFeService {
         expectedRelationMapping.put(new RelationId(0), new RelationId(1));
         expectedRelationMapping.put(new RelationId(2), new RelationId(0));
         assertRelationMapping(generateRelationMapping.get(1), expectedRelationMapping, expectedSlotMapping);
+    }
+
+    @Test
+    public void testGenerateMapping5() {
+        Plan sourcePlan = PlanChecker.from(connectContext)
+                .analyze("SELECT orders.*, l1.* "
+                        + "FROM\n"
+                        + "  orders,\n"
+                        + "  lineitem l1,\n"
+                        + "  lineitem l2\n"
+                        + "WHERE\n"
+                        + "  l1.l_orderkey = l2.l_orderkey\n"
+                        + "  AND l1.l_orderkey = o_orderkey")
+                .getPlan();
+
+        Plan targetPlan = PlanChecker.from(connectContext)
+                .analyze("SELECT orders.*, l1.* "
+                        + "FROM\n"
+                        + "  lineitem l1,\n"
+                        + "  orders,\n"
+                        + "  lineitem l2\n"
+                        + "WHERE\n"
+                        + "  l1.l_orderkey = l2.l_orderkey\n"
+                        + " AND l2.l_orderkey = o_orderkey")
+                .getPlan();
+        List<CatalogRelation> sourceRelations = new ArrayList<>();
+        sourcePlan.accept(RelationCollector.INSTANCE, sourceRelations);
+
+        List<CatalogRelation> targetRelations = new ArrayList<>();
+        targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
+
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        Assertions.assertNotNull(generateRelationMapping);
+        Assertions.assertEquals(2, generateRelationMapping.size());
+
+        // expected slot mapping
+        BiMap<ExprId, ExprId> expectedSlotMapping = HashBiMap.create();
+        expectedSlotMapping.put(new ExprId(0), new ExprId(2));
+        expectedSlotMapping.put(new ExprId(1), new ExprId(3));
+        expectedSlotMapping.put(new ExprId(2), new ExprId(4));
+        expectedSlotMapping.put(new ExprId(3), new ExprId(0));
+        expectedSlotMapping.put(new ExprId(4), new ExprId(1));
+        expectedSlotMapping.put(new ExprId(5), new ExprId(5));
+        expectedSlotMapping.put(new ExprId(6), new ExprId(6));
+        // expected relation mapping
+        BiMap<RelationId, RelationId> expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMapping.put(new RelationId(1), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(2));
+        assertRelationMapping(generateRelationMapping.get(1), expectedRelationMapping, expectedSlotMapping);
+
+        // expected slot mapping
+        expectedSlotMapping = HashBiMap.create();
+        expectedSlotMapping.put(new ExprId(0), new ExprId(2));
+        expectedSlotMapping.put(new ExprId(1), new ExprId(3));
+        expectedSlotMapping.put(new ExprId(2), new ExprId(4));
+        expectedSlotMapping.put(new ExprId(3), new ExprId(5));
+        expectedSlotMapping.put(new ExprId(4), new ExprId(6));
+        expectedSlotMapping.put(new ExprId(5), new ExprId(0));
+        expectedSlotMapping.put(new ExprId(6), new ExprId(1));
+        // expected relation mapping
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMapping.put(new RelationId(1), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(0));
+        assertRelationMapping(generateRelationMapping.get(0), expectedRelationMapping, expectedSlotMapping);
     }
 
     private void assertRelationMapping(RelationMapping relationMapping,

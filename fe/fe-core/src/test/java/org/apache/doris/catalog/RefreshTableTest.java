@@ -24,12 +24,14 @@ import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.external.TestExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
@@ -97,6 +99,16 @@ public class RefreshTableTest extends TestWithFeService {
         // updateTime is equal to schema update time as default
         long l5 = table.getUpdateTime();
         Assertions.assertTrue(l5 == l4);
+
+        // external info schema db
+        ExternalInfoSchemaDatabase infoDb = (ExternalInfoSchemaDatabase) test1.getDbNullable(InfoSchemaDb.DATABASE_NAME);
+        Assertions.assertNotNull(infoDb);
+        for (String tblName : SchemaTable.TABLE_MAP.keySet()) {
+            ExternalInfoSchemaTable infoTbl = (ExternalInfoSchemaTable) infoDb.getTableNullable(tblName);
+            Assertions.assertNotNull(infoTbl);
+            List<Column> schema = infoTbl.getFullSchema();
+            Assertions.assertEquals(SchemaTable.TABLE_MAP.get(tblName).getColumns().size(), schema.size());
+        }
     }
 
     @Test

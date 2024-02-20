@@ -37,7 +37,7 @@ import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
-public class IntLiteral extends LiteralExpr {
+public class IntLiteral extends NumericLiteralExpr {
     private static final Logger LOG = LogManager.getLogger(IntLiteral.class);
 
     public static final long TINY_INT_MIN = Byte.MIN_VALUE; // -2^7 ~ 2^7 - 1

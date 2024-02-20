@@ -69,7 +69,7 @@ public:
 
     Status init(std::shared_ptr<RowsetWriter> rowset_writer, TabletSchemaSPtr tablet_schema,
                 std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                bool unique_key_mow = false);
+                ThreadPool* wg_flush_pool_ptr, bool unique_key_mow = false);
 
     Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                  bool is_append = false);
@@ -109,6 +109,8 @@ public:
 
     const FlushStatistic& get_flush_token_stats();
 
+    uint64_t flush_running_count() const;
+
 private:
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -132,6 +134,7 @@ private:
     std::vector<std::shared_ptr<MemTracker>> _mem_table_insert_trackers;
     std::vector<std::shared_ptr<MemTracker>> _mem_table_flush_trackers;
     SpinLock _mem_table_tracker_lock;
+    SpinLock _mem_table_ptr_lock;
     std::atomic<uint32_t> _mem_table_num = 1;
 
     std::mutex _lock;

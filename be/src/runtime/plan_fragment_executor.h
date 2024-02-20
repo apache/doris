@@ -47,7 +47,6 @@ class DataSink;
 class DescriptorTbl;
 class ExecEnv;
 class ObjectPool;
-class QueryStatistics;
 struct ReportStatusRequest;
 
 namespace vectorized {
@@ -73,7 +72,7 @@ class Block;
 //
 // Aside from Cancel(), which may be called asynchronously, this class is not
 // thread-safe.
-class PlanFragmentExecutor {
+class PlanFragmentExecutor : public TaskExecutionContext {
 public:
     using report_status_callback = std::function<void(const ReportStatusRequest)>;
     // report_status_cb, if !empty(), is used to report the accumulated profile
@@ -220,7 +219,8 @@ private:
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
     RuntimeProfile::Counter* _fragment_cpu_timer = nullptr;
-
+    // This shared ptr is never used. It is just a reference to hold the object.
+    // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
@@ -231,17 +231,9 @@ private:
 
     VecDateTimeValue _start_time;
 
-    // It is shared with BufferControlBlock and will be called in two different
-    // threads. But their calls are all at different time, there is no problem of
-    // multithreaded access.
-    std::shared_ptr<QueryStatistics> _query_statistics;
-    bool _collect_query_statistics_with_every_batch;
-
     // Record the cancel information when calling the cancel() method, return it to FE
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
-
-    bool _group_commit = false;
 
     DescriptorTbl* _desc_tbl = nullptr;
 
@@ -277,16 +269,9 @@ private:
 
     const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
-    void _collect_query_statistics();
-
-    std::shared_ptr<QueryStatistics> _dml_query_statistics() {
-        if (_query_statistics && _query_statistics->collect_dml_statistics()) {
-            return _query_statistics;
-        }
-        return nullptr;
-    }
-
     void _collect_node_statistics();
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

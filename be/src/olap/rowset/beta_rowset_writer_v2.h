@@ -104,8 +104,6 @@ public:
 
     PUniqueId load_id() override { return _context.load_id; }
 
-    const RowsetWriterContext& context() const override { return _context; }
-
     Version version() override { return _context.version; }
 
     int64_t num_rows() const override { return _segment_creator.num_rows_written(); }
@@ -127,10 +125,6 @@ public:
 
     int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
 
-    bool is_doing_segcompaction() const override { return false; }
-
-    Status wait_flying_segcompaction() override { return Status::OK(); }
-
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 
     int64_t segment_writer_ns() override { return _segment_writer_ns; }
@@ -144,8 +138,6 @@ public:
     }
 
 private:
-    RowsetWriterContext _context;
-
     mutable SpinLock _lock; // protect following vectors.
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model

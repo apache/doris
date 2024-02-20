@@ -40,10 +40,12 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -228,7 +230,8 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT, val);
         }
         ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(val));
-        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null, false, true);
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, Maps.newHashMap(),
+                null, false, true);
     }
 
     private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, int hotPartitionNum,
@@ -237,14 +240,16 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
 
-        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null, false, true);
+        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs, null,
+                false, true);
         if (hotPartitionNum <= 0) {
             return;
         }
 
         try {
-            Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, TStorageMedium.SSD, false,
-                    true);
+            Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs,
+                    TStorageMedium.SSD, false, true);
         } catch (DdlException e) {
             throw new DdlException("Failed to find enough backend for ssd storage medium. When setting "
                     + DynamicPartitionProperty.HOT_PARTITION_NUM + " > 0, the hot partitions will store "
@@ -569,22 +574,22 @@ public class DynamicPartitionUtil {
         // If create_history_partition is true, will pre-create history partition according the valid value from
         // start and history_partition_num.
         //
-        int expectCreatePartitionNum = 0;
+        long expectCreatePartitionNum = 0;
         if (!createHistoryPartition) {
             start = 0;
-            expectCreatePartitionNum = end - start;
+            expectCreatePartitionNum = (long) end - start;
         } else {
             int historyPartitionNum = Integer.parseInt(analyzedProperties.getOrDefault(
                     DynamicPartitionProperty.HISTORY_PARTITION_NUM,
                     String.valueOf(DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM)));
             if (historyPartitionNum != DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM) {
-                expectCreatePartitionNum = end - Math.max(start, -historyPartitionNum);
+                expectCreatePartitionNum = (long) end - Math.max(start, -historyPartitionNum);
             } else {
                 if (start == Integer.MIN_VALUE) {
                     throw new DdlException("Provide start or history_partition_num property"
-                            + " when creating history partition");
+                            + " when create_history_partition=true. Otherwise set create_history_partition=false");
                 }
-                expectCreatePartitionNum = end - start;
+                expectCreatePartitionNum = (long) end - start;
             }
         }
         if (hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)

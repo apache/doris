@@ -27,6 +27,19 @@ under the License.
 
 # 常见问题
 
+## 证书问题
+
+1. 查询时报错 `curl 77: Problem with the SSL CA cert.`。说明当前系统证书过旧，需要更新本地证书。
+   - 可以从 `https://curl.haxx.se/docs/caextract.html` 下载最新的CA证书。
+   - 将下载后的cacert-xxx.pem放到`/etc/ssl/certs/`目录，例如：`sudo cp cacert-xxx.pem  /etc/ssl/certs/ca-certificates.crt`。
+
+2. 查询时报错：`ERROR 1105 (HY000): errCode = 2, detailMessage = (x.x.x.x)[CANCELLED][INTERNAL_ERROR]error setting certificate verify locations:  CAfile: /etc/ssl/certs/ca-certificates.crt CApath: none`.
+
+```
+yum install -y ca-certificates
+ln -s /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt /etc/ssl/certs/ca-certificates.crt
+```
+
 ## Kerberos
 
 1. 连接 Kerberos 认证的 Hive Metastore 报错：`GSS initiate failed`
@@ -58,6 +71,12 @@ under the License.
     - 用到的principal必须在klist中存在，使用`klist -kt your.keytab`检查。
     - 检查catalog配置是否正确，比如漏配`yarn.resourcemanager.principal`。
     - 若上述检查没问题，则当前系统yum或者其他包管理软件安装的JDK版本存在不支持的加密算法，建议自行安装JDK并设置`JAVA_HOME`环境变量。
+    - Kerberos默认使用AES-256来进行加密。如果使用Oracle JDK，则必须安装JCE。如果是OpenJDK，OpenJDK的某些发行版会自动提供无限强度的JCE，因此不需要安装JCE。
+    - JCE与JDK版本是对应的，需要根据JDK的版本来选择JCE版本，下载JCE的zip包并解压到`$JAVA_HOME/jre/lib/security`目录下：
+      - JDK6：[JCE6](http://www.oracle.com/technetwork/java/javase/downloads/jce-6-download-429243.html)
+      - JDK7：[JCE7](http://www.oracle.com/technetwork/java/embedded/embedded-se/downloads/jce-7-download-432124.html)
+      - JDK8：[JCE8](http://www.oracle.com/technetwork/java/javase/downloads/jce8-download-2133166.html)
+
 
 5. 使用 KMS 访问 HDFS 时报错：`java.security.InvalidKeyException: Illegal key size`
 

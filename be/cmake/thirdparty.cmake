@@ -70,10 +70,6 @@ add_thirdparty(lz4)
 add_thirdparty(thrift)
 add_thirdparty(thriftnb)
 
-if(WITH_LZO)
-    add_thirdparty(lzo LIBNAME "lib/liblzo2.a")
-endif()
-
 add_thirdparty(libevent LIBNAME "lib/libevent.a")
 add_thirdparty(libevent_pthreads LIBNAME "lib/libevent_pthreads.a")
 add_thirdparty(libbz2 LIBNAME "lib/libbz2.a")
@@ -154,6 +150,7 @@ add_thirdparty(com_err)
 add_thirdparty(k5crypto)
 add_thirdparty(gssapi_krb5)
 add_thirdparty(dragonbox_to_chars LIB64)
+add_thirdparty(streamvbyte LIB64)
 target_include_directories(dragonbox_to_chars INTERFACE "${THIRDPARTY_DIR}/include/dragonbox-1.1.3")
 
 if (OS_MACOSX)

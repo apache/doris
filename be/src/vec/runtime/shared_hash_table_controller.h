@@ -59,9 +59,10 @@ struct SharedHashTableContext {
     std::shared_ptr<Arena> arena;
     std::shared_ptr<void> hash_table_variants;
     std::shared_ptr<Block> block;
+    std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
     std::map<int, SharedRuntimeFilterContext> runtime_filters;
-    bool signaled {};
-    bool short_circuit_for_null_in_probe_side {};
+    std::atomic<bool> signaled = false;
+    bool short_circuit_for_null_in_probe_side = false;
 };
 
 using SharedHashTableContextPtr = std::shared_ptr<SharedHashTableContext>;

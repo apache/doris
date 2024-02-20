@@ -110,6 +110,7 @@ suite("test_too_many_segments", "nonConcurrent") { // the epic -238 case
                     assertTrue(1 == 2, "load Timeout: $uuid")
                 }
             }
+            logger.info(result[0][7].toString())
             assertTrue(result[0][7].contains("-238")) // EPIC!
 
             result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
@@ -120,5 +121,9 @@ suite("test_too_many_segments", "nonConcurrent") { // the epic -238 case
             GetDebugPoint().disableDebugPointForAllBEs("BetaRowsetWriter._check_segment_number_limit_too_many_segments")
         }
     }
+    
+    sql """ set enable_memtable_on_sink_node=true """
+    runLoadWithTooManySegments()
+    sql """ set enable_memtable_on_sink_node=false """
     runLoadWithTooManySegments()
 }

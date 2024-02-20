@@ -69,6 +69,14 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) throws Exception {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", e);
+            }
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
         return InsertExecutor.normalizePlan(this.logicalQuery, InsertExecutor.getTargetTable(this.logicalQuery, ctx));
     }
 

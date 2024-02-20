@@ -22,25 +22,26 @@
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/compaction.h"
-#include "olap/merger.h"
-#include "olap/tablet.h"
 
 namespace doris {
 
-class ColdDataCompaction final : public Compaction {
+class ColdDataCompaction final : public CompactionMixin {
 public:
-    ColdDataCompaction(const TabletSharedPtr& tablet);
+    ColdDataCompaction(StorageEngine& engine, const TabletSharedPtr& tablet);
     ~ColdDataCompaction() override;
 
     Status prepare_compact() override;
-    Status execute_compact_impl() override;
+    Status execute_compact() override;
 
 private:
-    std::string compaction_name() const override { return "cold data compaction"; }
+    std::string_view compaction_name() const override { return "cold data compaction"; }
     ReaderType compaction_type() const override { return ReaderType::READER_COLD_DATA_COMPACTION; }
 
-    Status pick_rowsets_to_compact() override;
-    Status modify_rowsets(const Merger::Statistics* stats = nullptr) override;
+    Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
+
+    Status pick_rowsets_to_compact();
+
+    Status modify_rowsets() override;
 };
 
 } // namespace doris

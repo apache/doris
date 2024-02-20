@@ -50,7 +50,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class StreamingAggSinkOperator final : public StreamingOperator<StreamingAggSinkOperatorBuilder> {
+class StreamingAggSinkOperator final : public StreamingOperator<vectorized::AggregationNode> {
 public:
     StreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
                              std::shared_ptr<DataQueue>);
@@ -74,11 +74,19 @@ private:
 
 class StreamingAggSinkOperatorX;
 
+class StreamingAggSinkDependency final : public Dependency {
+public:
+    using SharedState = AggSharedState;
+    StreamingAggSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "StreamingAggSinkDependency", true, query_ctx) {}
+    ~StreamingAggSinkDependency() override = default;
+};
+
 class StreamingAggSinkLocalState final
-        : public AggSinkLocalState<AggSinkDependency, StreamingAggSinkLocalState> {
+        : public AggSinkLocalState<StreamingAggSinkDependency, StreamingAggSinkLocalState> {
 public:
     using Parent = StreamingAggSinkOperatorX;
-    using Base = AggSinkLocalState<AggSinkDependency, StreamingAggSinkLocalState>;
+    using Base = AggSinkLocalState<StreamingAggSinkDependency, StreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
     StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~StreamingAggSinkLocalState() override = default;
@@ -120,7 +128,9 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    ExchangeType get_local_exchange_type() const override { return ExchangeType::PASSTHROUGH; }
+    DataDistribution required_data_distribution() const override {
+        return DataSinkOperatorX<StreamingAggSinkLocalState>::required_data_distribution();
+    }
 };
 
 } // namespace pipeline

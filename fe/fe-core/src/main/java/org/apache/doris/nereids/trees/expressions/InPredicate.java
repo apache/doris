@@ -48,6 +48,12 @@ public class InPredicate extends Expression {
         this.options = ImmutableList.copyOf(Objects.requireNonNull(options, "In list cannot be null"));
     }
 
+    public InPredicate(Expression compareExpr, List<Expression> options, boolean inferred) {
+        super(new Builder<Expression>().add(compareExpr).addAll(options).build(), inferred);
+        this.compareExpr = Objects.requireNonNull(compareExpr, "Compare Expr cannot be null");
+        this.options = ImmutableList.copyOf(Objects.requireNonNull(options, "In list cannot be null"));
+    }
+
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitInPredicate(this, context);
     }
@@ -78,6 +84,11 @@ public class InPredicate extends Expression {
                 throw new AnalysisException("in predicate could not contains complex type: " + this.toSql());
             }
         });
+    }
+
+    @Override
+    public Expression withInferred(boolean inferred) {
+        return new InPredicate(children.get(0), ImmutableList.copyOf(children).subList(1, children.size()), true);
     }
 
     @Override

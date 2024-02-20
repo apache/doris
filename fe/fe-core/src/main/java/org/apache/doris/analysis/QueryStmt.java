@@ -355,7 +355,9 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
                 strBuilder.append("or an insert/ctas statement has no effect on the query result ");
                 strBuilder.append("unless a LIMIT and/or OFFSET is used in conjunction ");
                 strBuilder.append("with the ORDER BY.");
-                LOG.debug(strBuilder.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(strBuilder.toString());
+                }
             }
         } else {
             evaluateOrderBy = true;
@@ -525,6 +527,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
             putBackExprs(exprMap);
         }
 
+    }
+
+    @Override
+    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
     }
 
 
@@ -818,6 +824,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
     public void setFromInsert(boolean value) {
         this.fromInsert = value;
+    }
+
+    public boolean isFromInsert() {
+        return fromInsert;
     }
 
     @Override

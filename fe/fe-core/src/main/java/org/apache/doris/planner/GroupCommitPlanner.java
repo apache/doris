@@ -79,7 +79,8 @@ public class GroupCommitPlanner {
     private TExecPlanFragmentParamsList paramsList;
     private ByteString execPlanFragmentParamsBytes;
 
-    public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId)
+    public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId,
+            String groupCommit)
             throws UserException, TException {
         this.db = db;
         this.table = table;
@@ -97,14 +98,16 @@ public class GroupCommitPlanner {
         }
         streamLoadPutRequest
                 .setDb(db.getFullName())
-                .setMaxFilterRatio(1)
+                .setMaxFilterRatio(ConnectContext.get().getSessionVariable().enableInsertStrict ? 0 : 1)
                 .setTbl(table.getName())
                 .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId)
-                .setGroupCommit(true).setTrimDoubleQuotes(true);
+                .setTrimDoubleQuotes(true).setGroupCommitMode(groupCommit)
+                .setStrictMode(ConnectContext.get().getSessionVariable().enableInsertStrict);
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
         StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
         // Will using load id as query id in fragment
+        // TODO support pipeline
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
         for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
             for (TScanRangeParams scanRangeParams : entry.getValue()) {
@@ -114,6 +117,7 @@ public class GroupCommitPlanner {
                         TFileCompressType.PLAIN);
             }
         }
+        tRequest.query_options.setEnablePipelineEngine(false);
         List<TScanRangeParams> scanRangeParams = tRequest.params.per_node_scan_ranges.values().stream()
                 .flatMap(Collection::stream).collect(Collectors.toList());
         Preconditions.checkState(scanRangeParams.size() == 1);
@@ -140,7 +144,9 @@ public class GroupCommitPlanner {
                 if (!backend.isDecommissioned()) {
                     ctx.setInsertGroupCommit(this.table.getId(), backend);
                     find = true;
-                    LOG.debug("choose new be {}", backend.getId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("choose new be {}", backend.getId());
+                    }
                     break;
                 }
             }
@@ -149,9 +155,6 @@ public class GroupCommitPlanner {
             }
         }
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
-                .setDbId(db.getId())
-                .setTableId(table.getId())
-                .setBaseSchemaVersion(table.getBaseSchemaVersion())
                 .setExecPlanFragmentRequest(InternalService.PExecPlanFragmentRequest.newBuilder()
                         .setRequest(execPlanFragmentParamsBytes)
                         .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_2).build())
@@ -210,6 +213,10 @@ public class GroupCommitPlanner {
         if (selectStmt.getValueList() != null) {
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
                 InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
+                            .collect(Collectors.joining(",")));
+                }
                 rows.add(data);
             }
         } else {
@@ -222,9 +229,12 @@ public class GroupCommitPlanner {
                 }
             }
             InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
+                        .collect(Collectors.joining(",")));
+            }
             rows.add(data);
         }
         return rows;
     }
 }
-

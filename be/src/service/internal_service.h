@@ -18,32 +18,30 @@
 #pragma once
 
 #include <gen_cpp/internal_service.pb.h>
-#include <stdint.h>
 
 #include <string>
 
 #include "common/status.h"
 #include "util/work_thread_pool.hpp"
 
-namespace google {
-namespace protobuf {
+namespace google::protobuf {
 class Closure;
 class RpcController;
-} // namespace protobuf
-} // namespace google
+} // namespace google::protobuf
 
 namespace doris {
 
+class StorageEngine;
 class ExecEnv;
 class PHandShakeRequest;
 class PHandShakeResponse;
 class LoadStreamMgr;
 class RuntimeState;
 
-class PInternalServiceImpl : public PBackendService {
+class PInternalService : public PBackendService {
 public:
-    PInternalServiceImpl(ExecEnv* exec_env);
-    ~PInternalServiceImpl() override;
+    PInternalService(ExecEnv* exec_env);
+    ~PInternalService() override;
 
     void transmit_data(::google::protobuf::RpcController* controller,
                        const ::doris::PTransmitDataParams* request,
@@ -166,31 +164,6 @@ public:
                            google::protobuf::Closure* done) override;
     void hand_shake(google::protobuf::RpcController* controller, const PHandShakeRequest* request,
                     PHandShakeResponse* response, google::protobuf::Closure* done) override;
-    void request_slave_tablet_pull_rowset(google::protobuf::RpcController* controller,
-                                          const PTabletWriteSlaveRequest* request,
-                                          PTabletWriteSlaveResult* response,
-                                          google::protobuf::Closure* done) override;
-    void response_slave_tablet_pull_rowset(google::protobuf::RpcController* controller,
-                                           const PTabletWriteSlaveDoneRequest* request,
-                                           PTabletWriteSlaveDoneResult* response,
-                                           google::protobuf::Closure* done) override;
-    void multiget_data(google::protobuf::RpcController* controller, const PMultiGetRequest* request,
-                       PMultiGetResponse* response, google::protobuf::Closure* done) override;
-
-    void tablet_fetch_data(google::protobuf::RpcController* controller,
-                           const PTabletKeyLookupRequest* request,
-                           PTabletKeyLookupResponse* response,
-                           google::protobuf::Closure* done) override;
-
-    void get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
-                                      const PFetchColIdsRequest* request,
-                                      PFetchColIdsResponse* response,
-                                      google::protobuf::Closure* done) override;
-
-    void get_tablet_rowset_versions(google::protobuf::RpcController* controller,
-                                    const PGetTabletVersionsRequest* request,
-                                    PGetTabletVersionsResponse* response,
-                                    google::protobuf::Closure* done) override;
 
     void report_stream_load_status(google::protobuf::RpcController* controller,
                                    const PReportStreamLoadStatusRequest* request,
@@ -223,9 +196,6 @@ private:
 
     Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 
-    Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
-                              PTabletKeyLookupResponse* response);
-
     void _transmit_data(::google::protobuf::RpcController* controller,
                         const ::doris::PTransmitDataParams* request,
                         ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
@@ -236,22 +206,7 @@ private:
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
                          const Status& extract_st);
 
-    void _tablet_writer_add_block(google::protobuf::RpcController* controller,
-                                  const PTabletWriterAddBlockRequest* request,
-                                  PTabletWriterAddBlockResult* response,
-                                  google::protobuf::Closure* done);
-
-    void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
-                                     int64_t txn_id, int64_t tablet_id, int64_t node_id,
-                                     bool is_succeed);
-    Status _multi_get(const PMultiGetRequest& request, PMultiGetResponse* response);
-
-    void _get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
-                                       const PFetchColIdsRequest* request,
-                                       PFetchColIdsResponse* response,
-                                       google::protobuf::Closure* done);
-
-private:
+protected:
     ExecEnv* _exec_env = nullptr;
 
     // every brpc service request should put into thread pool
@@ -264,4 +219,57 @@ private:
     std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
 };
 
+// `StorageEngine` mixin for `PInternalService`
+class PInternalServiceImpl final : public PInternalService {
+public:
+    PInternalServiceImpl(StorageEngine& engine, ExecEnv* exec_env);
+
+    ~PInternalServiceImpl() override;
+    void request_slave_tablet_pull_rowset(google::protobuf::RpcController* controller,
+                                          const PTabletWriteSlaveRequest* request,
+                                          PTabletWriteSlaveResult* response,
+                                          google::protobuf::Closure* done) override;
+    void response_slave_tablet_pull_rowset(google::protobuf::RpcController* controller,
+                                           const PTabletWriteSlaveDoneRequest* request,
+                                           PTabletWriteSlaveDoneResult* response,
+                                           google::protobuf::Closure* done) override;
+    void multiget_data(google::protobuf::RpcController* controller, const PMultiGetRequest* request,
+                       PMultiGetResponse* response, google::protobuf::Closure* done) override;
+
+    void tablet_fetch_data(google::protobuf::RpcController* controller,
+                           const PTabletKeyLookupRequest* request,
+                           PTabletKeyLookupResponse* response,
+                           google::protobuf::Closure* done) override;
+
+    void get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
+                                      const PFetchColIdsRequest* request,
+                                      PFetchColIdsResponse* response,
+                                      google::protobuf::Closure* done) override;
+
+    void get_tablet_rowset_versions(google::protobuf::RpcController* controller,
+                                    const PGetTabletVersionsRequest* request,
+                                    PGetTabletVersionsResponse* response,
+                                    google::protobuf::Closure* done) override;
+
+    void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                    const PFetchRemoteSchemaRequest* request,
+                                    PFetchRemoteSchemaResponse* response,
+                                    google::protobuf::Closure* done) override;
+
+private:
+    Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
+                              PTabletKeyLookupResponse* response);
+
+    void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
+                                     int64_t txn_id, int64_t tablet_id, int64_t node_id,
+                                     bool is_succeed);
+    Status _multi_get(const PMultiGetRequest& request, PMultiGetResponse* response);
+
+    void _get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
+                                       const PFetchColIdsRequest* request,
+                                       PFetchColIdsResponse* response,
+                                       google::protobuf::Closure* done);
+
+    StorageEngine& _engine;
+};
 } // namespace doris

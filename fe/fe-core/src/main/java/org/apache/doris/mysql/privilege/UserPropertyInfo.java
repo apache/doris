@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -67,7 +68,7 @@ public class UserPropertyInfo implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        user = Text.readString(in);
+        user = ClusterNamespace.getNameFromFullName(Text.readString(in));
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             String key = Text.readString(in);

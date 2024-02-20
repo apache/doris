@@ -61,7 +61,8 @@ public:
         int lhs_id = -1;
         int rhs_id = -1;
         RETURN_IF_ERROR(_children[0]->execute(context, block, &lhs_id));
-        ColumnPtr lhs_column = block->get_by_position(lhs_id).column;
+        ColumnPtr lhs_column =
+                block->get_by_position(lhs_id).column->convert_to_full_column_if_const();
         size_t size = lhs_column->size();
         bool lhs_is_nullable = lhs_column->is_nullable();
         auto [lhs_data_column, lhs_null_map] =
@@ -88,7 +89,8 @@ public:
         auto get_rhs_colum = [&]() {
             if (rhs_id == -1) {
                 RETURN_IF_ERROR(_children[1]->execute(context, block, &rhs_id));
-                rhs_column = block->get_by_position(rhs_id).column;
+                rhs_column =
+                        block->get_by_position(rhs_id).column->convert_to_full_column_if_const();
                 rhs_is_nullable = rhs_column->is_nullable();
                 auto rhs_nullable_column = _get_raw_data_and_null_map(rhs_column, rhs_is_nullable);
                 rhs_data_column = rhs_nullable_column.first;

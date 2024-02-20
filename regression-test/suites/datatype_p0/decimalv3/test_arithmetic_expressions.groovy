@@ -17,6 +17,7 @@
 
 suite("test_arithmetic_expressions") {
 
+    sql "set check_overflow_for_decimal=true;"
     sql "set enable_decimal256 = false;"
 
     sql "drop table if exists test_arithmetic_expressions"

@@ -37,7 +37,7 @@ public enum JobExecuteType {
      */
     MANUAL,
     /**
-     * The job will be executed immediately.
+     * The job will be executed only once and immediately.
      */
     INSTANT,
 }

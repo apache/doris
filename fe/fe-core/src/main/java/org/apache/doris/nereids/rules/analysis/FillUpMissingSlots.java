@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -158,7 +157,22 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             ),
             // Convert having to filter
             RuleType.FILL_UP_HAVING_PROJECT.build(
-                logicalHaving().then(having -> new LogicalFilter<>(having.getConjuncts(), having.child()))
+                    logicalHaving(logicalProject()).then(having -> {
+                        LogicalProject<Plan> project = having.child();
+                        Set<Slot> projectOutputSet = project.getOutputSet();
+                        Set<Slot> notExistedInProject = having.getExpressions().stream()
+                                .map(Expression::getInputSlots)
+                                .flatMap(Set::stream)
+                                .filter(s -> !projectOutputSet.contains(s))
+                                .collect(Collectors.toSet());
+                        if (notExistedInProject.size() == 0) {
+                            return null;
+                        }
+                        List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
+                                .addAll(project.getProjects()).addAll(notExistedInProject).build();
+                        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()),
+                                having.withChildren(new LogicalProject<>(projects, project.child())));
+                    })
             )
         );
     }
@@ -169,10 +183,14 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         private final List<Expression> groupByExpressions;
         private final Map<Expression, Slot> substitution = Maps.newHashMap();
         private final List<NamedExpression> newOutputSlots = Lists.newArrayList();
+        private final Map<Slot, Expression> outputSubstitutionMap;
 
         Resolver(Aggregate aggregate) {
             outputExpressions = aggregate.getOutputExpressions();
             groupByExpressions = aggregate.getGroupByExpressions();
+            outputSubstitutionMap = outputExpressions.stream().filter(Alias.class::isInstance)
+                    .collect(Collectors.toMap(alias -> alias.toSlot(), alias -> alias.child(0),
+                            (k1, k2) -> k1));
         }
 
         public void resolve(Expression expression) {
@@ -259,7 +277,8 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         }
 
         private void generateAliasForNewOutputSlots(Expression expression) {
-            Alias alias = new Alias(expression);
+            Expression replacedExpr = ExpressionUtils.replace(expression, outputSubstitutionMap);
+            Alias alias = new Alias(replacedExpr);
             newOutputSlots.add(alias);
             substitution.put(expression, alias.toSlot());
         }

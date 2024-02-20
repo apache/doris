@@ -32,7 +32,7 @@ suite("test_decimalv3_overflow") {
 	def tblName2 = "test_decimalv3_overflow2"
 	sql "drop table if exists ${tblName2}"
     sql """ CREATE  TABLE ${tblName2} (
-              `c2`  decimalv3(20, 2),
+              `c2`  decimalv3(20, 2)
           ) ENGINE=OLAP
         UNIQUE KEY(`c2`)
         DISTRIBUTED BY HASH(`c2`) BUCKETS 10
@@ -41,9 +41,7 @@ suite("test_decimalv3_overflow") {
         ); """
     sql "insert into ${tblName2} values(705091149953414452.46)"
 
-    // qt_sql1 """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
-
-    sql """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
+    qt_sql1 """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
 
     //=======================================
     // decimal32
@@ -583,4 +581,57 @@ suite("test_decimalv3_overflow") {
     >>> len('57896044618658097711785492504343953926634992332820282019728792003956564819967')
     77
     */
+
+    sql "drop TABLE IF EXISTS test_decimalv3_tb1;"
+    sql "drop TABLE IF EXISTS test_decimalv3_tb2;"
+
+    sql """
+        create table test_decimalv3_tb1(
+            k1 decimalv3(38, 37)
+        ) DISTRIBUTED BY HASH(`k1`) BUCKETS 8
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        create table test_decimalv3_tb2(
+            k2 decimalv3(38, 1) not null
+        ) DISTRIBUTED BY HASH(`k2`) BUCKETS 8
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into test_decimalv3_tb1 values(9.9999999999999999999999999), (9.9);
+    """
+
+    sql """
+        insert into test_decimalv3_tb2 values(999999999999999999.9), (9.9);
+    """
+
+    qt_union1 """
+        select * from (select * from test_decimalv3_tb1 union select * from test_decimalv3_tb2) t order by 1;
+    """
+
+    qt_union2 """
+        select * from (select * from test_decimalv3_tb2 union select * from test_decimalv3_tb1) t order by 1;
+    """
+
+    qt_intersect1 """
+        select * from (select * from test_decimalv3_tb1 intersect select * from test_decimalv3_tb2) t order by 1;
+    """
+
+    qt_intersect2 """
+        select * from (select * from test_decimalv3_tb2 intersect select * from test_decimalv3_tb1) t order by 1;
+    """
+
+    qt_except1 """
+        select * from (select * from test_decimalv3_tb1 except select * from test_decimalv3_tb2) t order by 1;
+    """
+
+    qt_except2 """
+        select * from (select * from test_decimalv3_tb2 except select * from test_decimalv3_tb1) t order by 1;
+    """
 }

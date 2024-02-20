@@ -63,7 +63,7 @@ namespace doris::vectorized {
 class ColumnConst final : public COWHelper<IColumn, ColumnConst> {
 private:
     friend class COWHelper<IColumn, ColumnConst>;
-
+    using Self = ColumnConst;
     WrappedPtr data;
     size_t s;
 
@@ -73,7 +73,9 @@ private:
 public:
     ColumnPtr convert_to_full_column() const;
 
-    ColumnPtr convert_to_full_column_if_const() const override { return convert_to_full_column(); }
+    ColumnPtr convert_to_full_column_if_const() const override {
+        return convert_to_full_column()->convert_to_full_column_if_const();
+    }
 
     ColumnPtr remove_low_cardinality() const;
 
@@ -190,7 +192,7 @@ public:
     size_t filter(const Filter& filter) override;
 
     ColumnPtr replicate(const Offsets& offsets) const override;
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
+
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -223,7 +225,7 @@ public:
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
-        LOG(FATAL) << "append_data_by_selector is not supported in ColumnConst!";
+        assert_cast<Self&>(*res).resize(selector.size());
     }
 
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }

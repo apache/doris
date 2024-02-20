@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_build_index_fault", "inverted_index"){
+suite("test_build_index_fault", "inverted_index, nonConcurrent"){
     // prepare test table
     def timeout = 60000
     def delta_time = 1000
@@ -63,10 +63,12 @@ suite("test_build_index_fault", "inverted_index"){
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
-            def last_job_state = alter_res[alter_res.size()-1][7];
-            if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
-                logger.info(table_name + " last index job finished, state: " + last_job_state + ", detail: " + alter_res)
-                return last_job_state;
+            if (alter_res.size() > 0) {
+                def last_job_state = alter_res[alter_res.size()-1][7];
+                if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
+                    logger.info(table_name + " last index job finished, state: " + last_job_state + ", detail: " + alter_res)
+                    return last_job_state;
+                }
             }
             useTime = t
             sleep(delta_time)
@@ -79,10 +81,12 @@ suite("test_build_index_fault", "inverted_index"){
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
-            def last_job_state = alter_res[alter_res.size()-1][7];
-            if (last_job_state == "RUNNING") {
-                logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
-                return last_job_state;
+            if (alter_res.size() > 0) {
+                def last_job_state = alter_res[alter_res.size()-1][7];
+                if (last_job_state == "RUNNING") {
+                    logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
+                    return last_job_state;
+                }
             }
             useTime = t
             sleep(delta_time)

@@ -38,7 +38,7 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class NestLoopJoinBuildOperator final : public StreamingOperator<NestLoopJoinBuildOperatorBuilder> {
+class NestLoopJoinBuildOperator final : public StreamingOperator<vectorized::VNestedLoopJoinNode> {
 public:
     NestLoopJoinBuildOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return true; }
@@ -65,7 +65,6 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs();
     vectorized::VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
     RuntimeProfile::Counter* runtime_filter_compute_timer() {
         return _runtime_filter_compute_timer;
@@ -102,12 +101,19 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
+    DataDistribution required_data_distribution() const override {
+        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            return {ExchangeType::NOOP};
+        }
+        return _child_x->ignore_data_distribution() ? DataDistribution(ExchangeType::BROADCAST)
+                                                    : DataDistribution(ExchangeType::NOOP);
+    }
+
 private:
     friend class NestedLoopJoinBuildSinkLocalState;
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 
-    const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;
 };

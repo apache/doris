@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -108,7 +109,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
     }
 
-    protected boolean containAllRequiredColumns(MaterializedIndex index, LogicalOlapScan scan,
+    protected static boolean containAllRequiredColumns(MaterializedIndex index, LogicalOlapScan scan,
             Set<Slot> requiredScanOutput, Set<? extends Expression> requiredExpr, Set<Expression> predicateExpr) {
         OlapTable table = scan.getTable();
         MaterializedIndexMeta meta = table.getIndexMetaByIndexId(index.getId());
@@ -160,7 +161,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
             return true;
         }
         if (expression.children().isEmpty()) {
-            return false;
+            return expression instanceof VirtualSlotReference;
         }
         for (Expression child : expression.children()) {
             if (child instanceof Literal) {
@@ -177,7 +178,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
      * 1. find matching key prefix most.
      * 2. sort by row count, column count and index id.
      */
-    protected long selectBestIndex(
+    protected static long selectBestIndex(
             List<MaterializedIndex> candidates,
             LogicalOlapScan scan,
             Set<Expression> predicates) {
@@ -212,7 +213,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         return CollectionUtils.isEmpty(sortedIndexIds) ? scan.getTable().getBaseIndexId() : sortedIndexIds.get(0);
     }
 
-    protected List<MaterializedIndex> matchPrefixMost(
+    protected static List<MaterializedIndex> matchPrefixMost(
             LogicalOlapScan scan,
             List<MaterializedIndex> candidate,
             Set<Expression> predicates,
@@ -238,7 +239,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
      * Filter the input conjuncts those can use prefix and split into 2 groups: is equal-to or non-equal-to predicate
      * when comparing the key column.
      */
-    private Map<Boolean, Set<String>> filterCanUsePrefixIndexAndSplitByEquality(
+    private static Map<Boolean, Set<String>> filterCanUsePrefixIndexAndSplitByEquality(
             Set<Expression> conjuncts, Map<ExprId, String> exprIdToColName) {
         return conjuncts.stream()
                 .map(expr -> PredicateChecker.canUsePrefixIndex(expr, exprIdToColName))
@@ -332,7 +333,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
     ///////////////////////////////////////////////////////////////////////////
     // Matching key prefix
     ///////////////////////////////////////////////////////////////////////////
-    private List<MaterializedIndex> matchKeyPrefixMost(
+    private static List<MaterializedIndex> matchKeyPrefixMost(
             OlapTable table,
             List<MaterializedIndex> indexes,
             Set<String> equalColumns,
@@ -350,16 +351,16 @@ public abstract class AbstractSelectMaterializedIndexRule {
         return collect.descendingMap().firstEntry().getValue();
     }
 
-    private int indexKeyPrefixMatchCount(
+    private static int indexKeyPrefixMatchCount(
             OlapTable table,
             MaterializedIndex index,
             Set<String> equalColNames,
             Set<String> nonEqualColNames) {
         int matchCount = 0;
         for (Column column : table.getSchemaByIndexId(index.getId())) {
-            if (equalColNames.contains(column.getName())) {
+            if (equalColNames.contains(normalizeName(column.getNameWithoutMvPrefix()))) {
                 matchCount++;
-            } else if (nonEqualColNames.contains(column.getName())) {
+            } else if (nonEqualColNames.contains(normalizeName(column.getNameWithoutMvPrefix()))) {
                 // un-equivalence predicate's columns can match only first column in index.
                 matchCount++;
                 break;
@@ -370,7 +371,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         return matchCount;
     }
 
-    protected boolean preAggEnabledByHint(LogicalOlapScan olapScan) {
+    protected static boolean preAggEnabledByHint(LogicalOlapScan olapScan) {
         return olapScan.getHints().stream().anyMatch("PREAGGOPEN"::equalsIgnoreCase);
     }
 

@@ -37,8 +37,6 @@ public:
     using IFunction::execute;
 
     static constexpr auto name = Impl::name;
-    static constexpr bool has_variadic_argument =
-            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Impl>()))>;
     static FunctionPtr create() { return std::make_shared<FunctionMathUnary>(); }
 
 private:
@@ -46,145 +44,43 @@ private:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        const auto& arg = arguments.front();
-        if (!is_number(arg)) {
-            return nullptr;
-        }
         return std::make_shared<typename Impl::Type>();
     }
 
-    DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) return Impl::get_variadic_argument_types();
-        return {};
-    }
-
-    template <typename T, typename ReturnType>
-    static void execute_in_iterations(const T* src_data, ReturnType* dst_data, size_t size) {
-        if constexpr (Impl::rows_per_iteration == 0) {
-            /// Process all data as a whole and use FastOps implementation
-
-            /// If the argument is integer, convert to Float64 beforehand
-            if constexpr (!std::is_floating_point_v<T>) {
-                PODArray<Float64> tmp_vec(size);
-                for (size_t i = 0; i < size; ++i) tmp_vec[i] = src_data[i];
-
-                Impl::execute(tmp_vec.data(), size, dst_data);
-            } else {
-                Impl::execute(src_data, size, dst_data);
-            }
-        } else {
-            const size_t rows_remaining = size % Impl::rows_per_iteration;
-            const size_t rows_size = size - rows_remaining;
-
-            for (size_t i = 0; i < rows_size; i += Impl::rows_per_iteration)
-                Impl::execute(&src_data[i], &dst_data[i]);
-
-            if (rows_remaining != 0) {
-                T src_remaining[Impl::rows_per_iteration];
-                memcpy(src_remaining, &src_data[rows_size], rows_remaining * sizeof(T));
-                memset(src_remaining + rows_remaining, 0,
-                       (Impl::rows_per_iteration - rows_remaining) * sizeof(T));
-                ReturnType dst_remaining[Impl::rows_per_iteration];
-
-                Impl::execute(src_remaining, dst_remaining);
-
-                memcpy(&dst_data[rows_size], dst_remaining, rows_remaining * sizeof(ReturnType));
-            }
+    static void execute_in_iterations(const double* src_data, double* dst_data, size_t size) {
+        for (size_t i = 0; i < size; i++) {
+            Impl::execute(&src_data[i], &dst_data[i]);
         }
-    }
-
-    template <typename T, typename ReturnType>
-    static bool execute(Block& block, const ColumnVector<T>* col, UInt32, UInt32,
-                        const size_t result) {
-        const auto& src_data = col->get_data();
-        const size_t size = src_data.size();
-
-        auto dst = ColumnVector<ReturnType>::create();
-        auto& dst_data = dst->get_data();
-        dst_data.resize(size);
-
-        execute_in_iterations(src_data.data(), dst_data.data(), size);
-
-        block.replace_by_position(result, std::move(dst));
-        return true;
-    }
-
-    template <typename T, typename ReturnType>
-    static bool execute(Block& block, const ColumnDecimal<T>* col, UInt32 from_precision,
-                        UInt32 from_scale, const size_t result) {
-        const auto& src_data = col->get_data();
-        const size_t size = src_data.size();
-        UInt32 scale = src_data.get_scale();
-
-        auto dst = ColumnVector<ReturnType>::create();
-        auto& dst_data = dst->get_data();
-        dst_data.resize(size);
-
-        UInt32 to_precision = NumberTraits::max_ascii_len<ReturnType>();
-        bool narrow_integral = to_precision < (from_precision - from_scale);
-        auto max_result = type_limit<ReturnType>::max();
-        auto min_result = type_limit<ReturnType>::min();
-
-        std::visit(
-                [&](auto narrow_integral) {
-                    for (size_t i = 0; i < size; ++i)
-                        dst_data[i] =
-                                convert_from_decimal<DataTypeDecimal<T>, DataTypeNumber<ReturnType>,
-                                                     narrow_integral>(src_data[i], scale,
-                                                                      min_result, max_result);
-                },
-                make_bool_variant(narrow_integral));
-
-        execute_in_iterations(dst_data.data(), dst_data.data(), size);
-
-        block.replace_by_position(result, std::move(dst));
-        return true;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        const ColumnWithTypeAndName& col = block.get_by_position(arguments[0]);
+        const auto* col =
+                assert_cast<const ColumnFloat64*>(block.get_by_position(arguments[0]).column.get());
 
-        auto call = [&](const auto& types) -> bool {
-            using Types = std::decay_t<decltype(types)>;
-            using Type = typename Types::RightType;
-            using ReturnType = std::conditional_t<Impl::always_returns_float64, Float64, Int64>;
-            using ColVecType = std::conditional_t<IsDecimalNumber<Type>, ColumnDecimal<Type>,
-                                                  ColumnVector<Type>>;
+        const auto& src_data = col->get_data();
+        const size_t size = src_data.size();
 
-            UInt32 from_precision = 0;
-            UInt32 from_scale = 0;
-            if constexpr (IsDecimalNumber<Type>) {
-                const auto& from_decimal_type =
-                        assert_cast<const DataTypeDecimal<Type>&>(*col.type);
-                from_precision = from_decimal_type.get_precision();
-                from_scale = from_decimal_type.get_scale();
-            }
-            const auto col_vec = check_and_get_column<ColVecType>(col.column.get());
-            return execute<Type, ReturnType>(block, col_vec, from_precision, from_scale, result);
-        };
+        auto dst = ColumnFloat64::create();
+        auto& dst_data = dst->get_data();
+        dst_data.resize(size);
 
-        if (!call_on_basic_type<void, true, true, true, false>(col.type->get_type_id(), call)) {
-            return Status::InvalidArgument("Illegal column {} of argument of function {}",
-                                           col.column->get_name(), get_name());
-        }
+        execute_in_iterations(col->get_data().data(), dst_data.data(), size);
+
+        block.replace_by_position(result, std::move(dst));
         return Status::OK();
     }
 };
 
-template <typename Name, Float64(Function)(Float64), typename ReturnType = DataTypeFloat64>
+template <typename Name, Float64(Function)(Float64)>
 struct UnaryFunctionPlain {
-    using Type = ReturnType;
+    using Type = DataTypeFloat64;
     static constexpr auto name = Name::name;
-    static constexpr auto rows_per_iteration = 1;
-    static constexpr bool always_returns_float64 = std::is_same_v<Type, DataTypeFloat64>;
 
     template <typename T, typename U>
     static void execute(const T* src, U* dst) {
-        dst[0] = static_cast<Float64>(Function(static_cast<Float64>(src[0])));
+        *dst = static_cast<Float64>(Function(*src));
     }
 };
-
-#define UnaryFunctionVectorized UnaryFunctionPlain
 
 } // namespace doris::vectorized

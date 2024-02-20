@@ -77,4 +77,15 @@ suite("analyze_agg") {
 
     // should not bind g /g in group by again, otherwise will throw exception
     sql "select g / g as nu, sum(c) from t2 group by nu"
+    sql """
+            select
+                1,
+                id / (select max(id) from t2)  as 'x',
+                count(distinct c) as 'y'
+            from
+                t2
+            group by
+                1,
+                x
+        """
 }

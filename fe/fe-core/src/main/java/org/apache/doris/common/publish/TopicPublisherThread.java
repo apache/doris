@@ -59,15 +59,15 @@ public class TopicPublisherThread extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        if (!Config.enable_workload_group) {
-            return;
-        }
         LOG.info("begin publish topic info");
         // step 1: get all publish topic info
         TPublishTopicRequest request = new TPublishTopicRequest();
         for (TopicPublisher topicPublisher : topicPublisherList) {
             topicPublisher.getTopicInfo(request);
         }
+
+        // even request contains no group and schedule policy, we still need to send an empty rpc.
+        // because it may means workload group/policy is dropped
 
         // step 2: publish topic info to all be
         Collection<Backend> nodesToPublish = clusterInfoService.getIdToBackend().values();
@@ -103,16 +103,29 @@ public class TopicPublisherThread extends MasterDaemon {
         @Override
         public void run() {
             long beginTime = System.currentTimeMillis();
+            BackendService.Client client = null;
+            TNetworkAddress address = null;
+            boolean ok = false;
             try {
-                TNetworkAddress addr = new TNetworkAddress(be.getHost(), be.getBePort());
-                BackendService.Client client = ClientPool.backendPool.borrowObject(addr);
+                address = new TNetworkAddress(be.getHost(), be.getBePort());
+                client = ClientPool.backendPool.borrowObject(address);
                 client.publishTopicInfo(request);
+                ok = true;
                 LOG.info("publish topic info to be {} success, time cost={} ms",
                         be.getHost(), (System.currentTimeMillis() - beginTime));
             } catch (Exception e) {
                 LOG.warn("publish topic info to be {} error happens: , time cost={} ms",
                         be.getHost(), (System.currentTimeMillis() - beginTime), e);
             } finally {
+                try {
+                    if (ok) {
+                        ClientPool.backendPool.returnObject(address, client);
+                    } else {
+                        ClientPool.backendPool.invalidateObject(address, client);
+                    }
+                } catch (Throwable e) {
+                    LOG.warn("recycle topic publish client failed. related backend[{}]", be.getHost(), e);
+                }
                 handler.onResponse(be);
             }
         }

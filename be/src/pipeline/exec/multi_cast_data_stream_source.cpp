@@ -17,13 +17,11 @@
 
 #include "multi_cast_data_stream_source.h"
 
-#include <functional>
-
 #include "common/status.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/exec/operator.h"
-#include "runtime/query_statistics.h"
 #include "vec/core/block.h"
+#include "vec/core/materialize_block.h"
 
 namespace doris::pipeline {
 
@@ -108,7 +106,7 @@ Status MultiCastDataStreamerSourceOperator::get_block(RuntimeState* state, vecto
     if (!_output_expr_contexts.empty() && output_block->rows() > 0) {
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
                 _output_expr_contexts, *output_block, block, true));
-        materialize_block_inplace(*block);
+        vectorized::materialize_block_inplace(*block);
     }
     if (eos) {
         source_state = SourceState::FINISHED;
@@ -128,9 +126,13 @@ RuntimeProfile* MultiCastDataStreamerSourceOperator::get_runtime_profile() const
 MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
                                                                          OperatorXBase* parent)
         : Base(state, parent),
-          vectorized::RuntimeFilterConsumer(
-                  static_cast<Parent*>(parent)->dest_id_from_sink(), parent->runtime_filter_descs(),
-                  static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {};
+          vectorized::RuntimeFilterConsumer(static_cast<Parent*>(parent)->dest_id_from_sink(),
+                                            parent->runtime_filter_descs(),
+                                            static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {
+    _filter_dependency = std::make_shared<RuntimeFilterDependency>(
+            parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY",
+            state->get_query_ctx());
+};
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -172,7 +174,7 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
     if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
                 local_state._output_expr_contexts, *output_block, block, true));
-        materialize_block_inplace(*block);
+        vectorized::materialize_block_inplace(*block);
     }
     COUNTER_UPDATE(local_state._rows_returned_counter, block->rows());
     if (eos) {

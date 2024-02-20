@@ -96,7 +96,7 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
         Assertions.assertEquals(2, invertedIndex.getTabletNumByBackendId(backends.get(1).getId()));
 
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1");
         Assertions.assertNotNull(tbl);
         Partition partition = tbl.getPartitions().iterator().next();

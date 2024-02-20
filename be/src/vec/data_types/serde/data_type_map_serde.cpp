@@ -483,29 +483,23 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
                                              const NullMap* null_map,
                                              orc::ColumnVectorBatch* orc_col_batch, int start,
                                              int end, std::vector<StringRef>& buffer_list) const {
-    orc::MapVectorBatch* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
+    auto* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
-    auto& map_column = assert_cast<const ColumnMap&>(column);
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
     const ColumnArray::Offsets64& offsets = map_column.get_offsets();
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
-
-    cur_batch->keys->resize(nested_keys_column.size());
-    cur_batch->elements->resize(nested_values_column.size());
-
     for (size_t row_id = start; row_id < end; row_id++) {
         size_t offset = offsets[row_id - 1];
         size_t next_offset = offsets[row_id];
 
-        if (cur_batch->notNull[row_id] == 1) {
-            static_cast<void>(key_serde->write_column_to_orc(timezone, nested_keys_column, nullptr,
-                                                             cur_batch->keys.get(), offset,
-                                                             next_offset, buffer_list));
-            static_cast<void>(value_serde->write_column_to_orc(timezone, nested_values_column,
-                                                               nullptr, cur_batch->elements.get(),
-                                                               offset, next_offset, buffer_list));
-        }
+        RETURN_IF_ERROR(key_serde->write_column_to_orc(timezone, nested_keys_column, nullptr,
+                                                       cur_batch->keys.get(), offset, next_offset,
+                                                       buffer_list));
+        RETURN_IF_ERROR(value_serde->write_column_to_orc(timezone, nested_values_column, nullptr,
+                                                         cur_batch->elements.get(), offset,
+                                                         next_offset, buffer_list));
 
         cur_batch->offsets[row_id + 1] = next_offset;
     }

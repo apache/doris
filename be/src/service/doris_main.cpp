@@ -39,6 +39,8 @@
 #include <tuple>
 #include <vector>
 
+#include "cloud/cloud_backend_service.h"
+#include "cloud/config.h"
 #include "common/stack_trace.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/utils.h"
@@ -84,6 +86,7 @@ static void help(const char*);
 
 extern "C" {
 void __lsan_do_leak_check();
+int __llvm_profile_write_file();
 }
 
 namespace doris {
@@ -482,7 +485,7 @@ int main(int argc, char** argv) {
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
 
     // init exec env
-    auto exec_env(doris::ExecEnv::GetInstance());
+    auto* exec_env(doris::ExecEnv::GetInstance());
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, broken_paths);
     if (status != Status::OK()) {
         LOG(ERROR) << "failed to init doris storage engine, res=" << status;
@@ -493,8 +496,17 @@ int main(int argc, char** argv) {
     doris::ThriftRpcHelper::setup(exec_env);
     // 1. thrift server with be_port
     std::unique_ptr<doris::ThriftServer> be_server;
-    EXIT_IF_ERROR(
-            doris::BackendService::create_service(exec_env, doris::config::be_port, &be_server));
+
+    if (doris::config::is_cloud_mode()) {
+        EXIT_IF_ERROR(doris::CloudBackendService::create_service(
+                exec_env->storage_engine().to_cloud(), exec_env, doris::config::be_port,
+                &be_server));
+    } else {
+        EXIT_IF_ERROR(doris::BackendService::create_service(exec_env->storage_engine().to_local(),
+                                                            exec_env, doris::config::be_port,
+                                                            &be_server));
+    }
+
     status = be_server->start();
     if (!status.ok()) {
         LOG(ERROR) << "Doris Be server did not start correctly, exiting";
@@ -564,6 +576,10 @@ int main(int argc, char** argv) {
         sleep(3);
     }
     LOG(INFO) << "Doris main exiting.";
+#if defined(LLVM_PROFILE)
+    __llvm_profile_write_file();
+    LOG(INFO) << "Flush profile file.";
+#endif
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
     daemon.stop();

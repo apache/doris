@@ -48,7 +48,7 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
                 "c = d or a = 10");
         assetEquals("a = b and c + d = e and a > 7 and 10 > d",
                 "a = b",
-                "a > 7 and 10 > d",
+                "10 > d and a > 7",
                 "c + d = e");
         assetEquals("a = b and c + d = e or a > 7 and 10 > d",
                 "",
@@ -100,9 +100,9 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
         }
         if (expression instanceof UnboundSlot) {
             String name = ((UnboundSlot) expression).getName();
-            mem.putIfAbsent(name, SlotReference.fromColumn(
+            mem.putIfAbsent(name, SlotReference.fromColumn(null,
                     new Column(name, getType(name.charAt(0)).toCatalogDataType()),
-                    Lists.newArrayList("table")));
+                    Lists.newArrayList("table"), null));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;

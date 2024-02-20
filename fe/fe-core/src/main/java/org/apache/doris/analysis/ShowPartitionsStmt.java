@@ -25,8 +25,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.catalog.external.MaxComputeExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -37,8 +35,10 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.datasource.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -58,7 +58,7 @@ public class ShowPartitionsStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsStmt.class);
 
     private static final String FILTER_PARTITION_ID = "PartitionId";
-    private static final String FILTER_PARTITION_NAME = "PartitionName";
+    public static final String FILTER_PARTITION_NAME = "PartitionName";
     private static final String FILTER_STATE = "State";
     private static final String FILTER_BUCKETS = "Buckets";
     private static final String FILTER_REPLICATION_NUM = "ReplicationNum";
@@ -198,6 +198,11 @@ public class ShowPartitionsStmt extends ShowStmt {
                     throw new AnalysisException("Should order by column");
                 }
                 SlotRef slotRef = (SlotRef) orderByElement.getExpr();
+                if (catalog instanceof HMSExternalCatalog
+                        && !slotRef.getColumnName().equalsIgnoreCase(FILTER_PARTITION_NAME)) {
+                    throw new AnalysisException("External table only support Order By on PartitionName");
+                }
+
                 int index = PartitionsProcDir.analyzeColumn(slotRef.getColumnName());
                 OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
                 orderByPairs.add(orderByPair);
@@ -228,6 +233,10 @@ public class ShowPartitionsStmt extends ShowStmt {
         }
 
         String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName();
+        if (catalog instanceof HMSExternalCatalog && !leftKey.equalsIgnoreCase(FILTER_PARTITION_NAME)) {
+            throw new AnalysisException(String.format("Only %s column supported in where clause for this catalog",
+                FILTER_PARTITION_NAME));
+        }
         if (subExpr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
             if (leftKey.equalsIgnoreCase(FILTER_PARTITION_NAME) || leftKey.equalsIgnoreCase(FILTER_STATE)) {

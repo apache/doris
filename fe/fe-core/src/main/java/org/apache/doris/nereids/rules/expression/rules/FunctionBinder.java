@@ -45,13 +45,16 @@ import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
@@ -60,6 +63,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
@@ -194,6 +198,25 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         return TypeCoercionUtils.processBoundFunction(boundFunction);
     }
 
+    @Override
+    public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
+        Expression boundFunction = visitBoundFunction(elementAt, context);
+        if (PushDownToProjectionFunction.validToPushDown(boundFunction)) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable() != null
+                    && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
+                return boundFunction;
+            }
+            Slot slot = elementAt.getInputSlots().stream().findFirst().get();
+            if (slot.hasUnbound()) {
+                slot = (Slot) super.visit(slot, context);
+            }
+            // rewrite to slot and bound this slot
+            return PushDownToProjectionFunction.rewriteToSlot(elementAt, (SlotReference) slot);
+        }
+        return boundFunction;
+    }
+
     /**
      * gets the method for calculating the time.
      * e.g. YEARS_ADD、YEARS_SUB、DAYS_ADD 、DAYS_SUB
@@ -270,12 +293,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitNot(Not not, ExpressionRewriteContext context) {
         Expression child = not.child().accept(this, context);
-        if (!child.getDataType().isBooleanType() && !child.getDataType().isNullType()) {
-            throw new AnalysisException(String.format(
-                    "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but "
-                            + "returns type '%s'.",
-                    child.toSql(), not.toSql(), child.getDataType()));
-        }
+        child = TypeCoercionUtils.castIfNotSameType(child, BooleanType.INSTANCE);
         return not.withChildren(child);
     }
 
@@ -336,9 +354,11 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         // check child type
         if (!left.getDataType().isStringLikeType()
                 && !(left.getDataType() instanceof ArrayType
-                && ((ArrayType) left.getDataType()).getItemType().isStringLikeType())) {
+                && ((ArrayType) left.getDataType()).getItemType().isStringLikeType())
+                && !left.getDataType().isVariantType()) {
             throw new AnalysisException(String.format(
-                    "left operand '%s' part of predicate " + "'%s' should return type 'STRING' or 'ARRAY<STRING>' but "
+                    "left operand '%s' part of predicate "
+                            + "'%s' should return type 'STRING', 'ARRAY<STRING> or VARIANT' but "
                             + "returns type '%s'.",
                     left.toSql(), match.toSql(), left.getDataType()));
         }
@@ -348,6 +368,10 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                     "right operand '%s' part of predicate " + "'%s' should return type 'STRING' but "
                             + "returns type '%s'.",
                     right.toSql(), match.toSql(), right.getDataType()));
+        }
+
+        if (left.getDataType().isVariantType()) {
+            left = new Cast(left, right.getDataType());
         }
         return match.withChildren(left, right);
     }

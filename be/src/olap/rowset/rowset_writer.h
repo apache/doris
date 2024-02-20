@@ -146,10 +146,6 @@ public:
 
     virtual int32_t allocate_segment_id() = 0;
 
-    virtual bool is_doing_segcompaction() const = 0;
-
-    virtual Status wait_flying_segcompaction() = 0;
-
     virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
 
     virtual int64_t delete_bitmap_ns() { return 0; }
@@ -159,10 +155,17 @@ public:
     virtual std::shared_ptr<PartialUpdateInfo> get_partial_update_info() = 0;
 
     virtual bool is_partial_update() = 0;
-    virtual const RowsetWriterContext& context() const = 0;
+
+    const RowsetWriterContext& context() { return _context; }
+
+    const RowsetMetaSharedPtr& rowset_meta() { return _rowset_meta; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
+
+protected:
+    RowsetWriterContext _context;
+    RowsetMetaSharedPtr _rowset_meta;
 };
 
 } // namespace doris

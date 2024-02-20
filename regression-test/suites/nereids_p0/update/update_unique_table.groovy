@@ -95,10 +95,22 @@ suite('update_unique_table') {
 
     sql '''
         update t1
-        set t1.c1 = t2.c1, t1.c3 = t2.c3 * 100
+        set t1.C1 = t2.c1, t1.c3 = t2.c3 * 100
         from t2 inner join t3 on t2.id = t3.id
         where t1.id = t2.id;
     '''
 
     qt_sql 'select * from t1 order by id'
+
+    test {
+        sql '''update t1 set t.c1 = 1 where t1.c1 = 1;'''
+        exception ""
+    }
+
+    test {
+        sql '''update t1 t set t1.c1 = 1 where t1.c1 = 1;'''
+        exception ""
+    }
+
+
 }

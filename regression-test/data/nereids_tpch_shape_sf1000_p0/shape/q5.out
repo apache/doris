@@ -2,14 +2,14 @@
 -- !select --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------PhysicalDistribute
+----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey) and (customer.c_nationkey = supplier.s_nationkey)) otherCondition=() build RFs:RF4 c_nationkey->[s_nationkey];RF5 c_custkey->[o_custkey]
-------------------PhysicalDistribute
+----------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey) and (customer.c_nationkey = supplier.s_nationkey)) otherCondition=() build RFs:RF4 c_nationkey->[s_nationkey,n_nationkey];RF5 c_custkey->[o_custkey]
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[l_suppkey]
 ------------------------PhysicalProject
@@ -19,19 +19,19 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------filter((orders.o_orderdate < '1995-01-01') and (orders.o_orderdate >= '1994-01-01'))
 --------------------------------PhysicalOlapScan[orders] apply RFs: RF5
-------------------------PhysicalDistribute
+------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[s_nationkey]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[supplier] apply RFs: RF1 RF4
-----------------------------PhysicalDistribute
+----------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF0 r_regionkey->[n_regionkey]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[nation] apply RFs: RF0
---------------------------------PhysicalDistribute
+----------------------------------PhysicalOlapScan[nation] apply RFs: RF0 RF4
+--------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
 ------------------------------------filter((region.r_name = 'ASIA'))
 --------------------------------------PhysicalOlapScan[region]
-------------------PhysicalDistribute
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[customer]
 

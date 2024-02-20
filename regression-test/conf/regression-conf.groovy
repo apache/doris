@@ -122,6 +122,7 @@ enablePaimonTest=false
 hms_port=9183
 hdfs_port=8120
 hiveServerPort=10000
+hive_pg_port=5432
 
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container
@@ -190,6 +191,7 @@ extArrowFlightSqlPassword= ""
 
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
+iceberg_minio_port=19001
 
 // If the failure suite num exceeds this config
 // all following suite will be skipped to fast quit the run.

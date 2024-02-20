@@ -29,9 +29,9 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -71,9 +71,12 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
     public Expression visitOr(Or or, ExpressionRewriteContext ctx) {
         Map<NamedExpression, Set<Literal>> slotNameToLiteral = new HashMap<>();
         List<Expression> expressions = ExpressionUtils.extractDisjunction(or);
+        Map<Expression, NamedExpression> disConjunctToSlot = Maps.newHashMap();
         for (Expression expression : expressions) {
             if (expression instanceof EqualTo) {
-                addSlotToLiteralMap((EqualTo) expression, slotNameToLiteral);
+                handleEqualTo((EqualTo) expression, slotNameToLiteral, disConjunctToSlot);
+            } else if (expression instanceof InPredicate) {
+                handleInPredicate((InPredicate) expression, slotNameToLiteral, disConjunctToSlot);
             }
         }
         List<Expression> rewrittenOr = new ArrayList<>();
@@ -85,42 +88,42 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
             }
         }
         for (Expression expression : expressions) {
-            if (!ableToConvertToIn(expression, slotNameToLiteral)) {
+            if (disConjunctToSlot.get(expression) == null) {
                 rewrittenOr.add(expression.accept(this, null));
+            } else {
+                Set<Literal> literals = slotNameToLiteral.get(disConjunctToSlot.get(expression));
+                if (literals.size() < REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
+                    rewrittenOr.add(expression);
+                }
             }
         }
 
         return ExpressionUtils.or(rewrittenOr);
     }
 
-    private void addSlotToLiteralMap(EqualTo equal, Map<NamedExpression, Set<Literal>> slotNameToLiteral) {
+    private void handleEqualTo(EqualTo equal, Map<NamedExpression, Set<Literal>> slotNameToLiteral,
+                               Map<Expression, NamedExpression> disConjunctToSlot) {
         Expression left = equal.left();
         Expression right = equal.right();
         if (left instanceof NamedExpression && right instanceof Literal) {
             addSlotToLiteral((NamedExpression) left, (Literal) right, slotNameToLiteral);
-        }
-        if (right instanceof NamedExpression && left instanceof Literal) {
+            disConjunctToSlot.put(equal, (NamedExpression) left);
+        } else if (right instanceof NamedExpression && left instanceof Literal) {
             addSlotToLiteral((NamedExpression) right, (Literal) left, slotNameToLiteral);
+            disConjunctToSlot.put(equal, (NamedExpression) right);
         }
     }
 
-    private boolean ableToConvertToIn(Expression expression, Map<NamedExpression, Set<Literal>> slotNameToLiteral) {
-        if (!(expression instanceof EqualTo)) {
-            return false;
+    private void handleInPredicate(InPredicate inPredicate, Map<NamedExpression, Set<Literal>> slotNameToLiteral,
+                                   Map<Expression, NamedExpression> disConjunctToSlot) {
+        // TODO a+b in (1,2,3...) is not supported now
+        if (inPredicate.getCompareExpr() instanceof NamedExpression
+                && inPredicate.getOptions().stream().allMatch(opt -> opt instanceof Literal)) {
+            for (Expression opt : inPredicate.getOptions()) {
+                addSlotToLiteral((NamedExpression) inPredicate.getCompareExpr(), (Literal) opt, slotNameToLiteral);
+            }
+            disConjunctToSlot.put(inPredicate, (NamedExpression) inPredicate.getCompareExpr());
         }
-        EqualTo equalTo = (EqualTo) expression;
-        Expression left = equalTo.left();
-        Expression right = equalTo.right();
-        NamedExpression namedExpression = null;
-        if (left instanceof NamedExpression && right instanceof Literal) {
-            namedExpression = (NamedExpression) left;
-        }
-        if (right instanceof NamedExpression && left instanceof Literal) {
-            namedExpression = (NamedExpression) right;
-        }
-        return namedExpression != null
-                && findSizeOfLiteralThatEqualToSameSlotInOr(namedExpression, slotNameToLiteral)
-                >= REWRITE_OR_TO_IN_PREDICATE_THRESHOLD;
     }
 
     public void addSlotToLiteral(NamedExpression namedExpression, Literal literal,
@@ -129,8 +132,4 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
         literals.add(literal);
     }
 
-    public int findSizeOfLiteralThatEqualToSameSlotInOr(NamedExpression namedExpression,
-            Map<NamedExpression, Set<Literal>> slotNameToLiteral) {
-        return slotNameToLiteral.getOrDefault(namedExpression, Collections.emptySet()).size();
-    }
 }

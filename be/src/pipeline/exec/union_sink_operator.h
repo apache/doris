@@ -48,7 +48,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class UnionSinkOperator final : public StreamingOperator<UnionSinkOperatorBuilder> {
+class UnionSinkOperator final : public StreamingOperator<vectorized::VUnionNode> {
 public:
     UnionSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* node,
                       std::shared_ptr<DataQueue> queue);
@@ -72,7 +72,6 @@ public:
     UnionSinkDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "UnionSinkDependency", true, query_ctx) {}
     ~UnionSinkDependency() override = default;
-    void block() override {}
 };
 
 class UnionSinkOperatorX;

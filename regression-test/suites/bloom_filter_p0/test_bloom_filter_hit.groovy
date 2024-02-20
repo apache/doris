@@ -61,6 +61,7 @@ suite("test_bloom_filter_hit") {
     }
 
     sql """ SET enable_profile = true """
+    sql """ set parallel_scan_min_rows_per_scanner = 2097152; """
 
     sql """ select C_COMMENT from ${tableName} where C_COMMENT='OK' """
 

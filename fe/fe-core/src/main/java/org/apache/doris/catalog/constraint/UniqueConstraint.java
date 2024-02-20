@@ -17,21 +17,30 @@
 
 package org.apache.doris.catalog.constraint;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
+
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableSet;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.Set;
 
 public class UniqueConstraint extends Constraint {
-    private final ImmutableSet<String> columns;
+    @SerializedName(value = "cols")
+    private final Set<String> columns;
 
     public UniqueConstraint(String name, Set<String> columns) {
         super(ConstraintType.UNIQUE, name);
         this.columns = ImmutableSet.copyOf(columns);
     }
 
-    public ImmutableSet<String> getUniqueColumnNames() {
+    public Set<String> getUniqueColumnNames() {
         return columns;
+    }
+
+    public Set<Column> getUniqueKeys(TableIf table) {
+        return columns.stream().map(table::getColumn).collect(ImmutableSet.toImmutableSet());
     }
 
     @Override
@@ -44,6 +53,11 @@ public class UniqueConstraint extends Constraint {
         }
         UniqueConstraint that = (UniqueConstraint) o;
         return columns.equals(that.columns);
+    }
+
+    @Override
+    public String toString() {
+        return "UNIQUE (" + String.join(", ", columns) + ")";
     }
 
     @Override

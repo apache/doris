@@ -18,7 +18,10 @@
 package org.apache.doris.binlog;
 
 import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
@@ -30,6 +33,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -446,6 +450,66 @@ public class DBBinlog {
             tableBinlogMap.remove(tableId);
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    public void getBinlogInfo(BaseProcResult result) {
+        BinlogConfig binlogConfig = binlogConfigCache.getDBBinlogConfig(dbId);
+
+        String dbName = "(dropped)";
+        String dropped = "true";
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db != null) {
+            dbName = db.getFullName();
+            dropped = "false";
+        }
+
+        lock.readLock().lock();
+        try {
+            boolean dbBinlogEnable = binlogConfigCache.isEnableDB(dbId);
+            if (dbBinlogEnable) {
+                List<String> info = new ArrayList<>();
+
+                info.add(dbName);
+                String type = "db";
+                info.add(type);
+                String id = String.valueOf(dbId);
+                info.add(id);
+                info.add(dropped);
+                String binlogLength = String.valueOf(allBinlogs.size());
+                info.add(binlogLength);
+                String firstBinlogCommittedTime = null;
+                String readableFirstBinlogCommittedTime = null;
+                if (!timestamps.isEmpty()) {
+                    long timestamp = timestamps.get(0).second;
+                    firstBinlogCommittedTime = String.valueOf(timestamp);
+                    readableFirstBinlogCommittedTime = BinlogUtils.convertTimeToReadable(timestamp);
+                }
+                info.add(firstBinlogCommittedTime);
+                info.add(readableFirstBinlogCommittedTime);
+                String lastBinlogCommittedTime = null;
+                String readableLastBinlogCommittedTime = null;
+                if (!timestamps.isEmpty()) {
+                    long timestamp = timestamps.get(timestamps.size() - 1).second;
+                    lastBinlogCommittedTime = String.valueOf(timestamp);
+                    readableLastBinlogCommittedTime = BinlogUtils.convertTimeToReadable(timestamp);
+                }
+                info.add(lastBinlogCommittedTime);
+                info.add(readableLastBinlogCommittedTime);
+                String binlogTtlSeconds = null;
+                if (binlogConfig != null) {
+                    binlogTtlSeconds = String.valueOf(binlogConfig.getTtlSeconds());
+                }
+                info.add(binlogTtlSeconds);
+
+                result.addRow(info);
+            } else {
+                for (TableBinlog tableBinlog : tableBinlogMap.values()) {
+                    tableBinlog.getBinlogInfo(db, result);
+                }
+            }
+        } finally {
+            lock.readLock().unlock();
         }
     }
 }

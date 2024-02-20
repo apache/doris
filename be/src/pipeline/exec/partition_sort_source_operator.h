@@ -41,8 +41,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class PartitionSortSourceOperator final
-        : public SourceOperator<PartitionSortSourceOperatorBuilder> {
+class PartitionSortSourceOperator final : public SourceOperator<vectorized::VPartitionSortNode> {
 public:
     PartitionSortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
             : SourceOperator(operator_builder, sort_node) {}
@@ -55,40 +54,6 @@ public:
     PartitionSortSourceDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "PartitionSortSourceDependency", query_ctx) {}
     ~PartitionSortSourceDependency() override = default;
-
-    void block() override {
-        if (_always_ready) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(_always_done_lock);
-        if (_always_ready) {
-            return;
-        }
-        Dependency::block();
-    }
-
-    void set_always_ready() {
-        if (_always_ready) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(_always_done_lock);
-        if (_always_ready) {
-            return;
-        }
-        _always_ready = true;
-        set_ready();
-    }
-
-    std::string debug_string(int indentation_level = 0) override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "{}, _always_ready = {}",
-                       Dependency::debug_string(indentation_level), _always_ready);
-        return fmt::to_string(debug_string_buffer);
-    }
-
-private:
-    bool _always_ready {false};
-    std::mutex _always_done_lock;
 };
 
 class PartitionSortSourceOperatorX;

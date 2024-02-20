@@ -281,7 +281,7 @@ PROPERTIES
 
 If Spark load accesses Hadoop cluster resources with Kerberos authentication, we only need to specify the following parameters when creating Spark resources:
 
-- `spark.hadoop.hadoop.security.authentication` Specify the authentication method as Kerberos for Yarn。
+- `spark.hadoop.hadoop.security.authentication` Specify the authentication method as Kerberos for Yarn.
 - `spark.hadoop.yarn.resourcemanager.principal` Specify the principal of kerberos for Yarn.
 - `spark.hadoop.yarn.resourcemanager.keytab` Specify the path to the keytab file of kerberos for Yarn. The file must be an absolute path to a file on the server where the frontend process is located. And can be accessed by the frontend process.
 - `broker.hadoop.security.authentication`: Specify the authentication method as kerberos.
@@ -785,7 +785,7 @@ The most suitable scenario to use spark load is that the raw data is in the file
 
     If the `JAVA_HOME`  environment variable is not set, the error `yarn application kill failed. app id: xxx, load job id: xxx, msg: which: no xxx/lib/yarn-client/hadoop/bin/yarn in ((null))  Error: JAVA_HOME is not set and could not be found` will be reported.
 
-* When using spark load, the launch log for `SparkLauncher` is not printed.
+* When using spark load, the launch log for `SparkLauncher` is not printed or report an error `start spark app failed. error: Waiting too much time to get appId from handle. spark app state: UNKNOWN, loadJobId:xxx`
 
     In `<`SPARK_HOME`>`/conf, add the log4j.properties configuration file and set the log level to INFO.
 

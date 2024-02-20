@@ -41,7 +41,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTables(
                 "CREATE TABLE IF NOT EXISTS T1 (\n"
                         + "    ID1 bigint,\n"

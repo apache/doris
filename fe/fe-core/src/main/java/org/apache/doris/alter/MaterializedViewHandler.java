@@ -31,6 +31,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -397,7 +398,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 long baseTabletId = baseTablet.getId();
                 long mvTabletId = idGeneratorBuffer.getNextId();
 
-                Tablet newTablet = new Tablet(mvTabletId);
+                Tablet newTablet = EnvFactory.getInstance().createTablet(mvTabletId);
                 mvIndex.addTablet(newTablet, mvTabletMeta);
                 addedTablets.add(newTablet);
 
@@ -445,8 +446,10 @@ public class MaterializedViewHandler extends AlterHandler {
 
             mvJob.addMVIndex(partitionId, mvIndex);
 
-            LOG.debug("create materialized view index {} based on index {} in partition {}",
-                    mvIndexId, baseIndexId, partitionId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("create materialized view index {} based on index {} in partition {}",
+                        mvIndexId, baseIndexId, partitionId);
+            }
         } // end for partitions
 
         LOG.info("finished to create materialized view job: {}", mvJob.getJobId());
@@ -607,7 +610,9 @@ public class MaterializedViewHandler extends AlterHandler {
                 column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
             });
         }
-        LOG.debug("lightSchemaChange:{}, newMVColumns:{}", olapTable.getEnableLightSchemaChange(), newMVColumns);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("lightSchemaChange:{}, newMVColumns:{}", olapTable.getEnableLightSchemaChange(), newMVColumns);
+        }
         return newMVColumns;
     }
 
@@ -851,8 +856,11 @@ public class MaterializedViewHandler extends AlterHandler {
                 column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
             });
         }
-        LOG.debug("lightSchemaChange:{}, rollupSchema:{}, baseSchema:{}",
-                olapTable.getEnableLightSchemaChange(), rollupSchema, olapTable.getSchemaByIndexId(baseIndexId, true));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("lightSchemaChange:{}, rollupSchema:{}, baseSchema:{}",
+                    olapTable.getEnableLightSchemaChange(),
+                    rollupSchema, olapTable.getSchemaByIndexId(baseIndexId, true));
+        }
         return rollupSchema;
     }
 
@@ -1125,9 +1133,11 @@ public class MaterializedViewHandler extends AlterHandler {
                 tableRunningJobSet.add(jobId);
                 shouldJobRun = true;
             } else {
-                LOG.debug("number of running alter job {} in table {} exceed limit {}. job {} is suspended",
-                        tableRunningJobSet.size(), rollupJobV2.getTableId(),
-                        Config.max_running_rollup_job_num_per_table, rollupJobV2.getJobId());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("number of running alter job {} in table {} exceed limit {}. job {} is suspended",
+                            tableRunningJobSet.size(), rollupJobV2.getTableId(),
+                            Config.max_running_rollup_job_num_per_table, rollupJobV2.getJobId());
+                }
                 shouldJobRun = false;
             }
         }
@@ -1209,7 +1219,7 @@ public class MaterializedViewHandler extends AlterHandler {
     }
 
     @Override
-    public void process(String rawSql, List<AlterClause> alterClauses, String clusterName, Database db,
+    public void process(String rawSql, List<AlterClause> alterClauses, Database db,
                         OlapTable olapTable)
             throws DdlException, AnalysisException, MetaNotFoundException {
         if (olapTable.isDuplicateWithoutKey()) {

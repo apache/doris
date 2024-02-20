@@ -43,25 +43,9 @@ Status RemoteFileSystem::batch_upload(const std::vector<Path>& local_files,
     FILESYSTEM_M(batch_upload_impl(local_files, remote_paths));
 }
 
-Status RemoteFileSystem::direct_upload(const Path& remote_file, const std::string& content) {
-    auto remote_path = absolute_path(remote_file);
-    FILESYSTEM_M(direct_upload_impl(remote_path, content));
-}
-
-Status RemoteFileSystem::upload_with_checksum(const Path& local_file, const Path& remote,
-                                              const std::string& checksum) {
-    auto remote_path = absolute_path(remote);
-    FILESYSTEM_M(upload_with_checksum_impl(local_file, remote_path, checksum));
-}
-
 Status RemoteFileSystem::download(const Path& remote_file, const Path& local) {
     auto remote_path = absolute_path(remote_file);
     FILESYSTEM_M(download_impl(remote_path, local));
-}
-
-Status RemoteFileSystem::direct_download(const Path& remote_file, std::string* content) {
-    auto remote_path = absolute_path(remote_file);
-    FILESYSTEM_M(direct_download_impl(remote_path, content));
 }
 
 Status RemoteFileSystem::connect() {

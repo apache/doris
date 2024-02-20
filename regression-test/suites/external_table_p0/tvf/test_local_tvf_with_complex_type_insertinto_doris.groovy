@@ -43,7 +43,7 @@ suite("test_local_tvf_with_complex_type_insertinto_doris", "p0") {
         }
     }
 
-    qt_sql """ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"""
+
 
     // create doris table
     sql """ DROP TABLE IF EXISTS ${table_name} """

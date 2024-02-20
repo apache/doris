@@ -801,7 +801,9 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
         client.shutdown();
       }
     } catch (TException e) {
-      LOG.debug("Unable to shutdown metastore client. Will try closing transport directly.", e);
+      if (LOG.isDebugEnabled()) {
+          LOG.debug("Unable to shutdown metastore client. Will try closing transport directly.", e);
+      }
     }
     // Transport would have got closed via client.shutdown(), so we dont need this, but
     // just in case, we make this call.
@@ -1722,8 +1724,11 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
 
   @Override
   public Database getDatabase(String catalogName, String databaseName) throws TException {
-    Database d = client.get_database(prependCatalogToDbName(catalogName, databaseName, conf));
-    return deepCopy(filterHook.filterDatabase(d));
+    if (hiveVersion == HiveVersion.V1_0 || hiveVersion == HiveVersion.V2_0 || hiveVersion == HiveVersion.V2_3) {
+      return deepCopy(client.get_database(databaseName));
+    } else {
+      return deepCopy(client.get_database(prependCatalogToDbName(catalogName, databaseName, conf)));
+    }
   }
 
   @Override
@@ -1816,12 +1821,19 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
   @Override
   public List<Table> getTableObjectsByName(String catName, String dbName,
                                            List<String> tableNames) throws TException {
-    GetTablesRequest req = new GetTablesRequest(dbName);
-    req.setCatName(catName);
-    req.setTblNames(tableNames);
-    req.setCapabilities(version);
-    List<Table> tabs = client.get_table_objects_by_name_req(req).getTables();
-    return deepCopyTables(filterHook.filterTables(tabs));
+      List<Table> tabs = new ArrayList<>();
+      if (hiveVersion == HiveVersion.V1_0 || hiveVersion == HiveVersion.V2_0) {
+          for (String tableName: tableNames) {
+              tabs.add(client.get_table(dbName, tableName));
+          }
+      } else {
+          GetTablesRequest req = new GetTablesRequest(dbName);
+          req.setCatName(catName);
+          req.setTblNames(tableNames);
+          req.setCapabilities(version);
+          tabs = client.get_table_objects_by_name_req(req).getTables();
+      }
+      return deepCopyTables(filterHook.filterTables(tabs));
   }
 
   @Override
@@ -2956,7 +2968,9 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
     NotificationEventRequest rqst = new NotificationEventRequest(lastEventId);
     rqst.setMaxEvents(maxEvents);
     NotificationEventResponse rsp = client.get_next_notification(rqst);
-    LOG.debug("Got back " + rsp.getEventsSize() + " events");
+    if (LOG.isDebugEnabled()) {
+        LOG.debug("Got back " + rsp.getEventsSize() + " events");
+    }
     NotificationEventResponse filtered = new NotificationEventResponse();
     if (rsp != null && rsp.getEvents() != null) {
       long nextEventId = lastEventId + 1;
@@ -3144,7 +3158,9 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
   public AggrStats getAggrColStatsFor(String catName, String dbName, String tblName,
                                       List<String> colNames, List<String> partNames) throws TException {
     if (colNames.isEmpty() || partNames.isEmpty()) {
-      LOG.debug("Columns is empty or partNames is empty : Short-circuiting stats eval on client side.");
+      if (LOG.isDebugEnabled()) {
+          LOG.debug("Columns is empty or partNames is empty : Short-circuiting stats eval on client side.");
+      }
       return new AggrStats(new ArrayList<>(),0); // Nothing to aggregate
     }
     PartitionsStatsRequest req = new PartitionsStatsRequest(dbName, tblName, colNames, partNames);
@@ -3572,4 +3588,3 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
     return prependCatalogToDbName(catalogName, dbName, conf);
   }
 }
-

@@ -88,11 +88,10 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
         RETURN_IF_ERROR(
                 p._probe_expr_ctxs[i]->clone(state, Base::_shared_state->probe_expr_ctxs[i]));
     }
-    _memory_usage_counter = ADD_LABEL_COUNTER(Base::profile(), "MemoryUsage");
-    _hash_table_memory_usage =
-            ADD_CHILD_COUNTER(Base::profile(), "HashTable", TUnit::BYTES, "MemoryUsage");
+    _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
+                                                            TUnit::BYTES, "MemoryUsage", 1);
     _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
-            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage");
+            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
 
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _build_table_convert_timer = ADD_TIMER(Base::profile(), "BuildConvertToPartitionedTime");
@@ -119,14 +118,10 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
                 Base::_shared_state->agg_profile_arena->alloc(p._total_size_of_aggregate_states));
 
         if (p._is_merge) {
-            _executor.execute =
-                    std::bind<Status>(&Derived::_merge_without_key, this, std::placeholders::_1);
+            _executor = std::make_unique<Executor<true, true>>();
         } else {
-            _executor.execute =
-                    std::bind<Status>(&Derived::_execute_without_key, this, std::placeholders::_1);
+            _executor = std::make_unique<Executor<true, false>>();
         }
-
-        _executor.update_memusage = std::bind<void>(&Derived::_update_memusage_without_key, this);
     } else {
         _init_hash_method(Base::_shared_state->probe_expr_ctxs);
 
@@ -145,15 +140,10 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
                 },
                 _agg_data->method_variant);
         if (p._is_merge) {
-            _executor.execute = std::bind<Status>(&Derived::_merge_with_serialized_key, this,
-                                                  std::placeholders::_1);
+            _executor = std::make_unique<Executor<false, true>>();
         } else {
-            _executor.execute = std::bind<Status>(&Derived::_execute_with_serialized_key, this,
-                                                  std::placeholders::_1);
+            _executor = std::make_unique<Executor<false, false>>();
         }
-
-        _executor.update_memusage =
-                std::bind<void>(&Derived::_update_memusage_with_serialized_key, this);
 
         _should_limit_output = p._limit != -1 &&       // has limit
                                (!p._have_conjuncts) && // no having conjunct
@@ -536,7 +526,7 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
                 agg_method.init_serialized_keys(key_columns, num_rows);
 
                 auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
+                    HashMethodType::try_presis_key_and_origin(key, origin, *_agg_arena_pool);
                     auto mapped =
                             Base::_shared_state->aggregate_data_container->append_data(origin);
                     auto st = _create_agg_status(mapped);
@@ -656,9 +646,8 @@ void AggSinkLocalState<DependencyType, Derived>::_init_hash_method(
                 is_nullable);
     } else {
         if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32,
-                                            vectorized::AggregateDataPtr,
-                                            vectorized::AggregatedMethodVariants>(
-                    _agg_data->method_variant, probe_exprs)) {
+                                            vectorized::AggregateDataPtr>(_agg_data->method_variant,
+                                                                          probe_exprs)) {
             _agg_data->init(Type::serialized);
         }
     }
@@ -686,7 +675,7 @@ Status AggSinkLocalState<DependencyType, Derived>::_reset_hash_table() {
                         ((ss.total_size_of_aggregate_states + ss.align_aggregate_states - 1) /
                          ss.align_aggregate_states) *
                                 ss.align_aggregate_states));
-                hash_table = HashTableType();
+                agg_method.hash_table.reset(new HashTableType());
                 ss.agg_arena_pool.reset(new vectorized::Arena);
                 return Status::OK();
             },
@@ -734,7 +723,8 @@ AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operato
           _limit(tnode.limit),
           _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
           _is_streaming(is_streaming),
-          _partition_exprs(tnode.agg_node.grouping_exprs),
+          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
+                                                               : std::vector<TExpr> {}),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate) {}
 
 template <typename LocalStateType>
@@ -852,9 +842,9 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
-        RETURN_IF_ERROR(local_state._executor.execute(in_block));
+        RETURN_IF_ERROR(local_state._executor->execute(&local_state, in_block));
         RETURN_IF_ERROR(local_state.try_spill_disk());
-        local_state._executor.update_memusage();
+        local_state._executor->update_memusage(&local_state);
     }
     if (source_state == SourceState::FINISHED) {
         if (local_state._shared_state->spill_context.has_data) {
@@ -891,6 +881,7 @@ template class AggSinkOperatorX<BlockingAggSinkLocalState>;
 template class AggSinkOperatorX<StreamingAggSinkLocalState>;
 template class AggSinkOperatorX<DistinctStreamingAggSinkLocalState>;
 template class AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState>;
-template class AggSinkLocalState<AggSinkDependency, StreamingAggSinkLocalState>;
-template class AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>;
+template class AggSinkLocalState<StreamingAggSinkDependency, StreamingAggSinkLocalState>;
+template class AggSinkLocalState<DistinctStreamingAggSinkDependency,
+                                 DistinctStreamingAggSinkLocalState>;
 } // namespace doris::pipeline

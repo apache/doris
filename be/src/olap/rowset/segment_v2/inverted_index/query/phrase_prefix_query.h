@@ -17,38 +17,31 @@
 
 #pragma once
 
-#include <CLucene.h>
-#include <CLucene/index/IndexReader.h>
-
 #include <memory>
 
+// clang-format off
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
 #include "CLucene/search/MultiPhraseQuery.h"
-#include "roaring/roaring.hh"
+// clang-format on
 
-CL_NS_USE(index)
 CL_NS_USE(search)
 
-namespace doris {
+namespace doris::segment_v2 {
 
-namespace segment_v2 {
-
-class PhrasePrefixQuery {
+class PhrasePrefixQuery : public Query {
 public:
-    PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher);
-    ~PhrasePrefixQuery() = default;
+    PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
+                      const TQueryOptions& query_options);
+    ~PhrasePrefixQuery() override = default;
 
-    void set_max_expansions(int32_t max_expansions) { _max_expansions = max_expansions; }
-
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms);
-    void search(roaring::Roaring& roaring);
+    void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
+    void search(roaring::Roaring& roaring) override;
 
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
-    MultiPhraseQuery _query;
 
+    std::unique_ptr<CL_NS(search)::MultiPhraseQuery> _query;
     int32_t _max_expansions = 50;
 };
 
-} // namespace segment_v2
-
-} // namespace doris
+} // namespace doris::segment_v2

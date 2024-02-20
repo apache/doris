@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -46,14 +45,11 @@ public class CreateUserStmtTest {
 
     @Test
     public void testToString(@Injectable Analyzer analyzer,
-            @Mocked AccessControllerManager accessManager) throws UserException, AnalysisException {
+            @Mocked AccessControllerManager accessManager) throws UserException {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "testCluster";
-                accessManager.checkHasPriv((ConnectContext) any, PrivPredicate.GRANT, Auth.PrivLevel.GLOBAL, Auth
-                        .PrivLevel.DATABASE);
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.GRANT);
                 result = true;
             }
         };
@@ -82,12 +78,6 @@ public class CreateUserStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testEmptyUser(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
-        new Expectations() {
-            {
-                analyzer.getClusterName();
-                result = "testCluster";
-            }
-        };
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("", "%"), "passwd", true));
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
@@ -95,12 +85,6 @@ public class CreateUserStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testBadPass(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
-        new Expectations() {
-            {
-                analyzer.getClusterName();
-                result = "testCluster";
-            }
-        };
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("", "%"), "passwd", false));
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");

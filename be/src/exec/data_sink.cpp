@@ -29,20 +29,30 @@
 #include <ostream>
 #include <string>
 
-#include "common/config.h"
+#include "cloud/config.h"
+#include "runtime/query_context.h"
+#include "runtime/query_statistics.h"
 #include "vec/sink/async_writer_sink.h"
 #include "vec/sink/group_commit_block_sink.h"
 #include "vec/sink/multi_cast_data_stream_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vmemory_scratch_sink.h"
+#include "vec/sink/volap_table_sink.h"
+#include "vec/sink/volap_table_sink_v2.h"
 #include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vresult_sink.h"
-#include "vec/sink/vtablet_sink.h"
-#include "vec/sink/vtablet_sink_v2.h"
 
 namespace doris {
 class DescriptorTbl;
 class TExpr;
+
+DataSink::DataSink(const RowDescriptor& desc) : _row_desc(desc) {
+    _query_statistics = std::make_shared<QueryStatistics>();
+}
+
+std::shared_ptr<QueryStatistics> DataSink::get_query_statistics_ptr() {
+    return _query_statistics;
+}
 
 Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                                   const std::vector<TExpr>& output_exprs,
@@ -54,14 +64,10 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.stream_sink) {
             return Status::InternalError("Missing data stream sink.");
         }
-        bool send_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
         // TODO: figure out good buffer size based on size of output row
         sink->reset(new vectorized::VDataStreamSender(state, pool, params.sender_id, row_desc,
-                                                      thrift_sink.stream_sink, params.destinations,
-                                                      send_query_statistics_with_every_batch));
+                                                      thrift_sink.stream_sink,
+                                                      params.destinations));
         // RETURN_IF_ERROR(sender->prepare(state->obj_pool(), thrift_sink.stream_sink));
         break;
     }
@@ -82,16 +88,11 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         }
 
         // TODO: figure out good buffer size based on size of output row
-        bool send_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
         // Result file sink is not the top sink
         if (params.__isset.destinations && params.destinations.size() > 0) {
             sink->reset(new doris::vectorized::VResultFileSink(
                     state, pool, params.sender_id, row_desc, thrift_sink.result_file_sink,
-                    params.destinations, send_query_statistics_with_every_batch, output_exprs,
-                    desc_tbl));
+                    params.destinations, output_exprs, desc_tbl));
         } else {
             sink->reset(new doris::vectorized::VResultFileSink(row_desc, output_exprs));
         }
@@ -145,21 +146,19 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         RETURN_ERROR_IF_NON_VEC;
         break;
     }
+    case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
-            sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, false));
+            if (config::is_cloud_mode()) {
+                return Status::InternalError(
+                        "memtable on sink node is not supported in cloud mode");
+            }
+            sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs));
         } else {
-            sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, false));
+            sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs));
         }
-        break;
-    }
-    case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK: {
-        Status status = Status::OK();
-        DCHECK(thrift_sink.__isset.olap_table_sink);
-        sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, true));
-        RETURN_IF_ERROR(status);
         break;
     }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
@@ -190,6 +189,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
 
     if (*sink != nullptr) {
         RETURN_IF_ERROR((*sink)->init(thrift_sink));
+        if (state->get_query_ctx()) {
+            state->get_query_ctx()->register_query_statistics((*sink)->get_query_statistics_ptr());
+        }
     }
 
     return Status::OK();
@@ -207,14 +209,10 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.stream_sink) {
             return Status::InternalError("Missing data stream sink.");
         }
-        bool send_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
         // TODO: figure out good buffer size based on size of output row
-        sink->reset(new vectorized::VDataStreamSender(state, pool, local_params.sender_id, row_desc,
-                                                      thrift_sink.stream_sink, params.destinations,
-                                                      send_query_statistics_with_every_batch));
+        *sink = std::make_unique<vectorized::VDataStreamSender>(state, pool, local_params.sender_id,
+                                                                row_desc, thrift_sink.stream_sink,
+                                                                params.destinations);
         // RETURN_IF_ERROR(sender->prepare(state->obj_pool(), thrift_sink.stream_sink));
         break;
     }
@@ -235,16 +233,11 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         }
 
         // TODO: figure out good buffer size based on size of output row
-        bool send_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
         // Result file sink is not the top sink
         if (params.__isset.destinations && params.destinations.size() > 0) {
             sink->reset(new doris::vectorized::VResultFileSink(
                     state, pool, local_params.sender_id, row_desc, thrift_sink.result_file_sink,
-                    params.destinations, send_query_statistics_with_every_batch, output_exprs,
-                    desc_tbl));
+                    params.destinations, output_exprs, desc_tbl));
         } else {
             sink->reset(new doris::vectorized::VResultFileSink(row_desc, output_exprs));
         }
@@ -298,13 +291,18 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         RETURN_ERROR_IF_NON_VEC;
         break;
     }
+    case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
-            sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, false));
+            if (config::is_cloud_mode()) {
+                return Status::InternalError(
+                        "memtable on sink node is not supported in cloud mode");
+            }
+            sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs));
         } else {
-            sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, false));
+            sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs));
         }
         break;
     }
@@ -314,13 +312,6 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         auto multi_cast_data_streamer = std::make_shared<pipeline::MultiCastDataStreamer>(
                 row_desc, pool, thrift_sink.multi_cast_stream_sink.sinks.size());
         sink->reset(new vectorized::MultiCastDataStreamSink(multi_cast_data_streamer));
-        break;
-    }
-    case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK: {
-        Status status = Status::OK();
-        DCHECK(thrift_sink.__isset.olap_table_sink);
-        sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, true));
-        RETURN_IF_ERROR(status);
         break;
     }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
@@ -348,6 +339,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     if (*sink != nullptr) {
         RETURN_IF_ERROR((*sink)->init(thrift_sink));
         RETURN_IF_ERROR((*sink)->prepare(state));
+        if (state->get_query_ctx()) {
+            state->get_query_ctx()->register_query_statistics((*sink)->get_query_statistics_ptr());
+        }
     }
 
     return Status::OK();

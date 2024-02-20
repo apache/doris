@@ -88,7 +88,7 @@ public class GrantStmtTest {
         stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new TablePattern("testDb", "*"), privileges);
         stmt.analyze(analyzer);
         Assert.assertEquals("testUser", stmt.getUserIdent().getQualifiedUser());
-        Assert.assertEquals("testCluster:testDb", stmt.getTblPattern().getQualifiedDb());
+        Assert.assertEquals("testDb", stmt.getTblPattern().getQualifiedDb());
 
         privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.READ_ONLY), new AccessPrivilegeWithCols(AccessPrivilege.ALL));
         stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new TablePattern("testDb", "*"), privileges);

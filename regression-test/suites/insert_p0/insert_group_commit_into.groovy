@@ -103,7 +103,7 @@ suite("insert_group_commit_into") {
             """
 
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
-                sql """ set enable_insert_group_commit = true; """
+                sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
@@ -230,9 +230,10 @@ suite("insert_group_commit_into") {
                     def url = "jdbc:mysql://${observer_fe.Host}:${observer_fe.QueryPort}/"
                     logger.info("observer url: " + url)
                     connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = url) {
-                        sql """ set enable_insert_group_commit = true; """
+                        sql """ set group_commit = async_mode; """
                         sql """ set enable_nereids_dml = false; """
                         sql """ set enable_profile= true; """
+                        sql """ set enable_nereids_planner = false; """
 
                         // 1. insert into
                         def server_info = group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
@@ -294,7 +295,7 @@ suite("insert_group_commit_into") {
             """
 
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
-                sql """ set enable_insert_group_commit = true; """
+                sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """

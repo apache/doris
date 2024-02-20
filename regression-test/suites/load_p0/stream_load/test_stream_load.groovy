@@ -1305,7 +1305,7 @@ suite("test_stream_load", "p0") {
         out = process.text
         json2pc = parseJson(out)
         log.info("test chunked transfer result: ${out}".toString())
-
+        sql "sync"
         qt_sql_chunked_transfer_csv "select * from ${tableName16} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
@@ -1333,7 +1333,7 @@ suite("test_stream_load", "p0") {
         out = process.text
         json2pc = parseJson(out)
         log.info("test chunked transfer result: ${out}".toString())
-
+        sql "sync"
         qt_sql_chunked_transfer_json "select * from ${tableName16} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
@@ -1543,7 +1543,7 @@ suite("test_stream_load", "p0") {
                 `c47` varchar(48) NULL,
                 `c48` varchar(48) NULL,
                 `c49` varchar(48) NULL,
-                `c50` varchar(48) NULL,
+                `c50` varchar(48) NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`c1`)
             COMMENT 'OLAP'
@@ -1566,14 +1566,82 @@ suite("test_stream_load", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
-                assertEquals(100, json.NumberTotalRows)
-                assertEquals(100, json.NumberFilteredRows)
-                assertEquals(0, json.NumberUnselectedRows)
+                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]Encountered unqualified data, stop processing"))
             }
         }
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName19} FORCE"""
     }
+
+   def sql_result = sql """ select Host, HttpPort from backends() where alive = true limit 1; """
+  
+   log.info(sql_result[0][0].toString())
+   log.info(sql_result[0][1].toString())
+   log.info(sql_result[0].size.toString())
+
+   def beHost=sql_result[0][0]
+   def beHttpPort=sql_result[0][1]
+   log.info("${beHost}".toString())
+   log.info("${beHttpPort}".toString());
+
+    //test be : chunked transfer + Content Length
+    try {
+       sql """ DROP TABLE IF EXISTS ${tableName16} """
+       sql """
+           CREATE TABLE IF NOT EXISTS ${tableName16} (
+               `k1` bigint(20) NULL DEFAULT "1",
+               `k2` bigint(20) NULL ,
+               `v1` tinyint(4) NULL,
+               `v2` tinyint(4) NULL,
+               `v3` tinyint(4) NULL,
+               `v4` DATETIME NULL
+           ) ENGINE=OLAP
+           DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+           PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+       """
+   
+       def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H ${db}:${tableName16} -H Content-Length:0  -H Transfer-Encoding:chunked -H columns:k1,k2,v1,v2,v3 -T ${context.dataPath}/test_chunked_transfer.csv http://${beHost}:${beHttpPort}/api/${db}/${tableName16}/_stream_load"
+       log.info("test chunked transfer command: ${command}")
+       def process = command.execute()
+       code = process.waitFor()
+       out = process.text
+       log.info("test chunked transfer result: ${out}".toString())
+       def json = parseJson(out)
+       assertEquals("fail", json.Status.toLowerCase())
+       assertTrue(json.Message.contains("[INTERNAL_ERROR]please do not set both content_length and transfer-encoding"))
+    } finally {
+       sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
+    }
+
+
+    //test be : no chunked transfer + no Content Length
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName16} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName16} (
+                `k1` bigint(20) NULL DEFAULT "1",
+                `k2` bigint(20) NULL ,
+                `v1` tinyint(4) NULL,
+                `v2` tinyint(4) NULL,
+                `v3` tinyint(4) NULL,
+                `v4` DATETIME NULL
+            ) ENGINE=OLAP
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+        """
+
+        def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H ${db}:${tableName16} -H Content-Length:  -H Transfer-Encoding: -T ${context.dataPath}/test_chunked_transfer.csv http://${beHost}:${beHttpPort}/api/${db}/${tableName16}/_stream_load"
+        log.info("test chunked transfer command: ${command}")
+        def process = command.execute()
+        code = process.waitFor()
+        out = process.text
+        log.info("test chunked transfer result: ${out}".toString())
+        def json = parseJson(out)
+        assertEquals("fail", json.Status.toLowerCase())
+        assertTrue(json.Message.contains("[INTERNAL_ERROR]content_length is empty and transfer-encoding!=chunked, please set content_length or transfer-encoding=chunked"))
+    } finally {
+        sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
+    }
+
 }
 

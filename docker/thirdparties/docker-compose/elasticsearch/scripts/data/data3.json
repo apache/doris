@@ -27,5 +27,6 @@
   "c_person": [
     {"name": "Andy", "age": 18},
     {"name": "Tim", "age": 28}
-  ]
+  ],
+  "message": "I'm not null or empty"
 }

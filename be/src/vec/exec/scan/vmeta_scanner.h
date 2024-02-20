@@ -79,6 +79,8 @@ private:
                                                    TFetchSchemaTableDataRequest* request);
     Status _build_workload_groups_metadata_request(const TMetaScanRange& meta_scan_range,
                                                    TFetchSchemaTableDataRequest* request);
+    Status _build_workload_sched_policy_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                         TFetchSchemaTableDataRequest* request);
     Status _build_catalogs_metadata_request(const TMetaScanRange& meta_scan_range,
                                             TFetchSchemaTableDataRequest* request);
     Status _build_materialized_views_metadata_request(const TMetaScanRange& meta_scan_range,

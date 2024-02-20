@@ -36,7 +36,7 @@ enum TDataSinkType {
     RESULT_FILE_SINK,
     JDBC_TABLE_SINK,
     MULTI_CAST_DATA_STREAM_SINK,
-    GROUP_COMMIT_OLAP_TABLE_SINK,
+    GROUP_COMMIT_OLAP_TABLE_SINK, // deprecated
     GROUP_COMMIT_BLOCK_SINK,
 }
 
@@ -128,6 +128,7 @@ struct TResultFileSinkOptions {
 
     16: optional bool delete_existing_files;
     17: optional string file_suffix;
+    18: optional bool with_bom;
 }
 
 struct TMemoryScratchSink {
@@ -158,17 +159,21 @@ struct TDataStreamSink {
 
   3: optional bool ignore_not_found
 
-    // per-destination projections
-    4: optional list<Exprs.TExpr> output_exprs
+  // per-destination projections
+  4: optional list<Exprs.TExpr> output_exprs
 
-    // project output tuple id
-    5: optional Types.TTupleId output_tuple_id
+  // project output tuple id
+  5: optional Types.TTupleId output_tuple_id
 
-    // per-destination filters
-    6: optional list<Exprs.TExpr> conjuncts
+  // per-destination filters
+  6: optional list<Exprs.TExpr> conjuncts
 
-    // per-destination runtime filters
-    7: optional list<PlanNodes.TRuntimeFilterDesc> runtime_filters
+  // per-destination runtime filters
+  7: optional list<PlanNodes.TRuntimeFilterDesc> runtime_filters
+
+  // used for partition_type = TABLET_SINK_SHUFFLE_PARTITIONED
+  8: optional Descriptors.TOlapTableSchemaParam schema
+  9: optional Descriptors.TOlapTablePartitionParam partition
 }
 
 struct TMultiCastDataStreamSink {
@@ -235,6 +240,12 @@ struct TExportSink {
     7: optional string header
 }
 
+enum TGroupCommitMode {
+    SYNC_MODE,
+    ASYNC_MODE,
+    OFF_MODE
+}
+
 struct TOlapTableSink {
     1: required Types.TUniqueId load_id
     2: required i64 txn_id
@@ -256,7 +267,11 @@ struct TOlapTableSink {
     18: optional Descriptors.TOlapTableLocationParam slave_location
     19: optional i64 txn_timeout_s // timeout of load txn in second
     20: optional bool write_file_cache
+
+    // used by GroupCommitBlockSink
     21: optional i64 base_schema_version
+    22: optional TGroupCommitMode group_commit_mode
+    23: optional double max_filter_ratio
 }
 
 struct TDataSink {

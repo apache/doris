@@ -30,9 +30,9 @@ RuntimeFilterConsumer::RuntimeFilterConsumer(const int32_t filter_id,
     _blocked_by_rf = std::make_shared<std::atomic_bool>(false);
 }
 
-Status RuntimeFilterConsumer::init(RuntimeState* state) {
+Status RuntimeFilterConsumer::init(RuntimeState* state, bool is_global) {
     _state = state;
-    RETURN_IF_ERROR(_register_runtime_filter());
+    RETURN_IF_ERROR(_register_runtime_filter(is_global));
     return Status::OK();
 }
 
@@ -45,7 +45,7 @@ void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
     profile->add_info_string("RuntimeFilters: ", ss.str());
 }
 
-Status RuntimeFilterConsumer::_register_runtime_filter() {
+Status RuntimeFilterConsumer::_register_runtime_filter(bool is_global) {
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.reserve(filter_size);
     _runtime_filter_ready_flag.reserve(filter_size);
@@ -53,19 +53,19 @@ Status RuntimeFilterConsumer::_register_runtime_filter() {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
         if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf) {
-            DCHECK(filter_desc.type == TRuntimeFilterType::BLOOM && filter_desc.has_remote_targets);
-            // Optimize merging phase iff:
-            // 1. All BE and FE has been upgraded (e.g. opt_remote_rf)
-            // 2. This filter is bloom filter (only bloom filter should be used for merging)
+            DCHECK(filter_desc.has_remote_targets);
             RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), _filter_id, false));
-            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, _filter_id, &runtime_filter));
+                    filter_desc, _state->query_options(), _filter_id, &runtime_filter, false,
+                    is_global));
+        } else if (is_global) {
+            // For pipelineX engine, runtime filter is global iff data distribution is ignored.
+            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
+                    filter_desc, _state->query_options(), _filter_id, &runtime_filter, false,
+                    is_global));
         } else {
             RETURN_IF_ERROR(_state->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), _filter_id, false));
-            RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, _filter_id, &runtime_filter));
+                    filter_desc, _state->query_options(), _filter_id, &runtime_filter, false,
+                    is_global));
         }
         _runtime_filter_ctxs.emplace_back(runtime_filter);
         _runtime_filter_ready_flag.emplace_back(false);

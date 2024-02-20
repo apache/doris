@@ -167,9 +167,8 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
     _agg_functions_size = p._agg_functions.size();
 
-    _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
     _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage");
+            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
     _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
 
     _agg_functions.resize(p._agg_functions.size());
@@ -391,8 +390,8 @@ Status AnalyticLocalState::_get_next_for_range(size_t current_block_rows) {
            _window_end_position < current_block_rows) {
         if (_shared_state->current_row_position >= _order_by_end.pos) {
             _update_order_by_range();
-            _executor.execute(_order_by_start.pos, _order_by_end.pos, _order_by_start.pos,
-                              _order_by_end.pos);
+            _executor.execute(_partition_by_start.pos, _shared_state->partition_by_end.pos,
+                              _order_by_start.pos, _order_by_end.pos);
         }
         _executor.insert_result(current_block_rows);
     }
@@ -558,9 +557,6 @@ Status AnalyticLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
-    }
-    for (auto* agg_function : _agg_functions) {
-        agg_function->close(state);
     }
 
     static_cast<void>(_destroy_agg_status());

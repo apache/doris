@@ -67,11 +67,6 @@ Status HdfsFileWriter::close() {
     return Status::OK();
 }
 
-Status HdfsFileWriter::abort() {
-    // TODO: should delete remote file
-    return Status::OK();
-}
-
 Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
     DCHECK(!_closed);
     if (!_opened) {
@@ -104,6 +99,14 @@ Status HdfsFileWriter::finalize() {
     DCHECK(!_closed);
     if (_opened) {
         RETURN_IF_ERROR(close());
+    }
+    return Status::OK();
+}
+
+Status HdfsFileWriter::open() {
+    if (!_opened) {
+        RETURN_IF_ERROR(_open());
+        _opened = true;
     }
     return Status::OK();
 }

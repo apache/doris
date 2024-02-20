@@ -292,9 +292,6 @@ void VAnalyticEvalNode::release_resource(RuntimeState* state) {
     if (is_closed()) {
         return;
     }
-    for (auto* agg_function : _agg_functions) {
-        agg_function->close(state);
-    }
 
     static_cast<void>(_destroy_agg_status());
     _release_mem();
@@ -356,7 +353,7 @@ Status VAnalyticEvalNode::_get_next_for_range(size_t current_block_rows) {
            _window_end_position < current_block_rows) {
         if (_current_row_position >= _order_by_end.pos) {
             _update_order_by_range();
-            _executor.execute(_order_by_start.pos, _order_by_end.pos, _order_by_start.pos,
+            _executor.execute(_partition_by_start.pos, _partition_by_end.pos, _order_by_start.pos,
                               _order_by_end.pos);
         }
         _executor.insert_result(current_block_rows);

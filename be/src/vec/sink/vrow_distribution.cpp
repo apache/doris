@@ -21,6 +21,8 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 
+#include <memory>
+
 #include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -308,10 +310,10 @@ Status VRowDistribution::generate_rows_distribution(
 
     // batching block rows which need new partitions. deal together at finish.
     if (!_batching_block) [[unlikely]] {
-        _batching_block = MutableBlock::create_unique(block->create_same_struct_block(0).release());
+        std::unique_ptr<Block> tmp_block = block->create_same_struct_block(0);
+        _batching_block = MutableBlock::create_unique(std::move(*tmp_block));
     }
 
-    _row_distribution_watch.start();
     auto num_rows = block->rows();
     _tablet_finder->filter_bitmap().Reset(num_rows);
 
@@ -345,7 +347,7 @@ Status VRowDistribution::generate_rows_distribution(
         RETURN_IF_ERROR(_generate_rows_distribution_for_non_auto_partition(
                 block.get(), has_filtered_rows, row_part_tablet_ids));
     }
-    _row_distribution_watch.stop();
+
     filtered_rows = _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() -
                     prev_filtered_rows;
     return Status::OK();

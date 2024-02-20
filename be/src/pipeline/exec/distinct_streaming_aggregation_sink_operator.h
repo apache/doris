@@ -54,7 +54,7 @@ private:
 };
 
 class DistinctStreamingAggSinkOperator final
-        : public StreamingOperator<DistinctStreamingAggSinkOperatorBuilder> {
+        : public StreamingOperator<vectorized::DistinctAggregationNode> {
 public:
     DistinctStreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
                                      std::shared_ptr<DataQueue>);
@@ -77,11 +77,21 @@ private:
 
 class DistinctStreamingAggSinkOperatorX;
 
+class DistinctStreamingAggSinkDependency final : public Dependency {
+public:
+    using SharedState = AggSharedState;
+    DistinctStreamingAggSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "DistinctStreamingAggSinkDependency", true, query_ctx) {}
+    ~DistinctStreamingAggSinkDependency() override = default;
+};
+
 class DistinctStreamingAggSinkLocalState final
-        : public AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState> {
+        : public AggSinkLocalState<DistinctStreamingAggSinkDependency,
+                                   DistinctStreamingAggSinkLocalState> {
 public:
     using Parent = DistinctStreamingAggSinkOperatorX;
-    using Base = AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>;
+    using Base = AggSinkLocalState<DistinctStreamingAggSinkDependency,
+                                   DistinctStreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(DistinctStreamingAggSinkLocalState);
     DistinctStreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 
@@ -110,6 +120,15 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+
+    DataDistribution required_data_distribution() const override {
+        if (_needs_finalize) {
+            return _is_colocate
+                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        }
+        return DataSinkOperatorX<DistinctStreamingAggSinkLocalState>::required_data_distribution();
+    }
 };
 
 } // namespace pipeline

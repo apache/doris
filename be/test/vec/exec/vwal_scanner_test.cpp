@@ -23,7 +23,7 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/fs/local_file_system.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
@@ -41,7 +41,6 @@ public:
         _profile = _runtime_state.runtime_profile();
         _runtime_state.init_mem_trackers();
         static_cast<void>(_runtime_state.init(unique_id, query_options, query_globals, _env));
-        _runtime_state.set_query_ctx(query_ctx);
     }
     void init();
 
@@ -57,10 +56,12 @@ private:
     void init_desc_table();
 
     ExecEnv* _env = nullptr;
-    std::string wal_dir = "./wal_test";
+    std::string wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
     int64_t db_id = 1;
     int64_t tb_id = 2;
     int64_t txn_id = 789;
+    int64_t version = 0;
+    int64_t backend_id = 1001;
     std::string label = "test";
 
     TupleId _dst_tuple_id = 0;
@@ -75,7 +76,6 @@ private:
     TUniqueId unique_id;
     TQueryOptions query_options;
     TQueryGlobals query_globals;
-    QueryContext* query_ctx = nullptr;
 };
 
 void VWalScannerTest::init_desc_table() {
@@ -195,13 +195,10 @@ void VWalScannerTest::init_desc_table() {
 }
 
 void VWalScannerTest::init() {
+    config::group_commit_wal_max_disk_limit = "100M";
     init_desc_table();
     static_cast<void>(io::global_local_filesystem()->create_directory(
             wal_dir + "/" + std::to_string(db_id) + "/" + std::to_string(tb_id)));
-    std::string src = "./be/test/exec/test_data/wal_scanner/wal";
-    std::string dst = wal_dir + "/" + std::to_string(db_id) + "/" + std::to_string(tb_id) + "/" +
-                      std::to_string(txn_id) + "_" + label;
-    std::filesystem::copy(src, dst);
 
     // Node Id
     _tnode.node_id = 0;
@@ -214,8 +211,19 @@ void VWalScannerTest::init() {
     _tnode.__isset.file_scan_node = true;
 
     _env = ExecEnv::GetInstance();
+    _env->_master_info = new TMasterInfo();
+    _env->_master_info->network_address.hostname = "host name";
+    _env->_master_info->network_address.port = backend_id;
+    _env->_master_info->backend_id = 1001;
     _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
-    auto st = _env->_wal_manager->add_wal_path(db_id, tb_id, txn_id, label);
+    std::string base_path;
+    auto st = _env->_wal_manager->_init_wal_dirs_info();
+    st = _env->_wal_manager->create_wal_path(db_id, tb_id, txn_id, label, base_path);
+    std::string src = "./be/test/exec/test_data/wal_scanner/wal";
+    std::string dst = wal_dir + "/" + std::to_string(db_id) + "/" + std::to_string(tb_id) + "/" +
+                      std::to_string(version) + "_" + std::to_string(backend_id) + "_" +
+                      std::to_string(txn_id) + "_" + label;
+    std::filesystem::copy(src, dst);
 }
 
 TEST_F(VWalScannerTest, normal) {
@@ -223,7 +231,6 @@ TEST_F(VWalScannerTest, normal) {
     index_vector.emplace_back(0);
     index_vector.emplace_back(1);
     index_vector.emplace_back(2);
-    _env->_wal_manager->add_wal_column_index(txn_id, index_vector);
     //    config::group_commit_replay_wal_dir = wal_dir;
     NewFileScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node._output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);

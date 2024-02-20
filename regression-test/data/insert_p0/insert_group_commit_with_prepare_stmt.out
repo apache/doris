@@ -19,8 +19,12 @@
 -- !sql --
 1	a	10
 2	NULL	20
+2	NULL	20
+3	c	\N
 3	c	\N
 4	d	40
+4	d	40
+5	e	\N
 5	e	\N
 6	f	40
 
@@ -28,8 +32,12 @@
 1	a	-1
 1	a	10
 2	NULL	20
+2	NULL	20
+3	c	\N
 3	c	\N
 4	d	40
+4	d	40
+5	e	\N
 5	e	\N
 6	f	40
 7	e	-1

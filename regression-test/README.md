@@ -42,7 +42,7 @@ under the License.
 3. 如果必须要设置 global，或者要改集群配置，可以指定 case 以 nonConcurrent 的方式运行。
 
     [示例](https://github.com/apache/doris/blob/master/regression-test/suites/query_p0/sql_functions/cast_function/test_cast_string_to_array.groovy#L18)
-5. case 中涉及时间相关的，最好固定时间，不要用类似 now() 函数这种动态值，避免过一段时间后 case 就跑不过了。
+4. case 中涉及时间相关的，最好固定时间，不要用类似 now() 函数这种动态值，避免过一段时间后 case 就跑不过了。
 
     Problematic code:
     ```
@@ -51,4 +51,17 @@ under the License.
     Correct code:
     ```
     sql """select count(*) from table where created < '2023-11-13';"""
+    ```
+5. case 中 streamload 后请加上 sync 一下，避免在多 FE 环境中执行不稳定。
+
+    Problematic code:
+    ```
+    streamLoad { ... }
+    sql """select count(*) from table """
+    ```
+    Correct code:
+    ```
+    streamLoad { ... }
+    sql """sync"""
+    sql """select count(*) from table """
     ```

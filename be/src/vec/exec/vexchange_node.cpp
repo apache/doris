@@ -63,12 +63,11 @@ Status VExchangeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_TIMER(_exec_timer);
     DCHECK_GT(_num_senders, 0);
-    _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
     CHECK(state->exec_env() != nullptr);
     CHECK(state->exec_env()->vstream_mgr() != nullptr);
     _stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, _input_row_desc, state->fragment_instance_id(), _id, _num_senders,
-            _runtime_profile.get(), _is_merging, _sub_plan_query_statistics_recvr);
+            _runtime_profile.get(), _is_merging);
 
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _row_descriptor, _row_descriptor));
@@ -145,20 +144,6 @@ void VExchangeNode::release_resource(RuntimeState* state) {
     ExecNode::release_resource(state);
 }
 
-Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
-    if (!statistics->collect_dml_statistics()) {
-        statistics->merge(_sub_plan_query_statistics_recvr.get());
-    }
-    return Status::OK();
-}
-Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics, int sender_id) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
-    if (!statistics->collect_dml_statistics()) {
-        statistics->merge(_sub_plan_query_statistics_recvr.get(), sender_id);
-    }
-    return Status::OK();
-}
 Status VExchangeNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();

@@ -55,6 +55,7 @@
 namespace doris {
 
 class ObjectPool;
+class MatchPredicate;
 
 namespace vectorized {
 class VExpr;
@@ -187,8 +188,6 @@ private:
             std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
             bool* continue_apply);
     [[nodiscard]] Status _apply_index_except_leafnode_of_andnode();
-    [[nodiscard]] Status _apply_bitmap_index_except_leafnode_of_andnode(
-            ColumnPredicate* pred, roaring::Roaring* output_result);
     [[nodiscard]] Status _apply_inverted_index_except_leafnode_of_andnode(
             ColumnPredicate* pred, roaring::Roaring* output_result);
     bool _column_has_fulltext_index(int32_t cid);
@@ -250,8 +249,8 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            vectorized::DataTypePtr storage_type =
-                    _segment->get_data_type_of(*_schema->column(cid), false);
+            vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
+                    _schema->column(cid)->path(), _schema->column(cid)->is_nullable(), false);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 vectorized::MutableColumnPtr tmp = storage_type->create_column();
@@ -285,9 +284,6 @@ private:
 
     void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
 
-    void _update_max_row(const vectorized::Block* block);
-
-    bool _check_apply_by_bitmap_index(ColumnPredicate* pred);
     bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
 
     std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
@@ -361,7 +357,25 @@ private:
         return 0;
     }
 
+    bool _is_match_predicate_and_not_remaining(
+            ColumnPredicate* pred, const std::vector<ColumnPredicate*>& remaining_predicates) {
+        return pred->type() == PredicateType::MATCH &&
+               std::find(remaining_predicates.begin(), remaining_predicates.end(), pred) ==
+                       remaining_predicates.end();
+    }
+
+    void _delete_expr_from_conjunct_roots(const vectorized::VExprSPtr& expr,
+                                          vectorized::VExprSPtrs& conjunct_roots) {
+        conjunct_roots.erase(std::remove(conjunct_roots.begin(), conjunct_roots.end(), expr),
+                             conjunct_roots.end());
+    }
+
+    bool _is_target_expr_match_predicate(const vectorized::VExprSPtr& expr,
+                                         const MatchPredicate* match_pred, const Schema* schema);
+
     Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
+
+    bool _need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column, size_t nrows_read);
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
@@ -423,9 +437,6 @@ private:
     // the actual init process is delayed to the first call to next_batch()
     bool _lazy_inited;
     bool _inited;
-    bool _estimate_row_size;
-    // Read up to 100 rows at a time while waiting for the estimated row size.
-    int _wait_times_estimate_row_size;
 
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes

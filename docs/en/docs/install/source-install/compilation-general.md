@@ -64,7 +64,7 @@ This topic is about how to compile Doris from source.
 | apache/doris:build-env-for-2.0| | 2.0.x |
 | apache/doris:build-env-for-2.0-no-avx2| | 2.0.x |
 | apache/doris:build-env-ldb-toolchain-latest | | master |
-| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | mater |
+| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | master |
 
 **Note**:
 
