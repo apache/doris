@@ -137,7 +137,7 @@ namespace doris::vectorized {
                 } else {                                                                          \
                     const auto& col_data =                                                        \
                             assert_cast<const ColumnBitmap*>(argument_columns[col].get())         \
-                                    ->get_data();                                                \
+                                    ->get_data();                                                 \
                     for (size_t row = 0; row < input_rows_count; ++row) {                         \
                         vals[row] OP col_data[row];                                               \
                     }                                                                             \
