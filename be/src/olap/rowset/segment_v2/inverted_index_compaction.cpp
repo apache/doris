@@ -17,11 +17,7 @@
 
 #include "inverted_index_compaction.h"
 
-#include <CLucene.h>
-
 #include "inverted_index_compound_directory.h"
-#include "inverted_index_compound_reader.h"
-#include "inverted_index_file_reader.h"
 #include "inverted_index_file_writer.h"
 #include "olap/tablet_schema.h"
 #include "util/debug_points.h"
@@ -49,22 +45,6 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
     lucene::analysis::SimpleAnalyzer<char> analyzer;
     auto* index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
                                                            true /* closeDirOnShutdown */);
-
-    // get compound directory src_index_dirs
-    /*std::vector<lucene::store::Directory*> src_index_dirs(src_segment_num);
-    for (int i = 0; i < src_segment_num; ++i) {
-        auto reader = DORIS_TRY(inverted_index_file_reader->open(index_meta));
-        src_index_dirs[i] = reader.release();
-    }
-
-    // get dest idx file paths
-    std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
-    for (int i = 0; i < dest_segment_num; ++i) {
-        // format: rowsetId_segmentId_columnId
-
-        auto writer = DORIS_TRY(inverted_index_file_writer->open(index_meta));
-        dest_index_dirs[i] = writer;
-    }*/
 
     DCHECK_EQ(src_index_dirs.size(), trans_vec.size());
     index_writer->indexCompaction(src_index_dirs, dest_index_dirs, trans_vec,
