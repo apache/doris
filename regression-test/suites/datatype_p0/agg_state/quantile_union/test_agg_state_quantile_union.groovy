@@ -38,4 +38,5 @@ suite("test_agg_state_quantile_union") {
              """
     qt_select """ select quantile_percent(quantile_union_merge(tmp),0.5) from (select k1,quantile_union_union(k2) tmp from a_table group by k1)t;
              """
+    qt_select "select * from a_table;"
 }

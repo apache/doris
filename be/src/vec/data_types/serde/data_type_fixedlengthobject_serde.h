@@ -62,7 +62,14 @@ public:
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
-        return Status::NotSupported("write_column_to_pb with type " + column.get_name());
+        result.mutable_bytes_value()->Reserve(end - start);
+        auto* ptype = result.mutable_type();
+        ptype->set_id(PGenericType::STRING);
+        for (size_t row_num = start; row_num < end; ++row_num) {
+            StringRef data = column.get_data_at(row_num);
+            result.add_string_value(data.to_string());
+        }
+        return Status::OK();
     }
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
         return Status::NotSupported("read_column_from_pb with type " + column.get_name());
