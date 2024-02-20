@@ -46,6 +46,19 @@
 
 class SipHash;
 
+#define SIP_HASHES_FUNCTION_COLUMN_IMPL()                                \
+    auto s = hashes.size();                                              \
+    DCHECK(s == size());                                                 \
+    if (null_data == nullptr) {                                          \
+        for (size_t i = 0; i < s; i++) {                                 \
+            update_hash_with_value(i, hashes[i]);                        \
+        }                                                                \
+    } else {                                                             \
+        for (size_t i = 0; i < s; i++) {                                 \
+            if (null_data[i] == 0) update_hash_with_value(i, hashes[i]); \
+        }                                                                \
+    }
+
 #define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
     if (null_data == nullptr) {                                                      \
         for (size_t i = 0; i < s; i++) {                                             \
@@ -373,7 +386,10 @@ public:
                                         const uint8_t* __restrict null_data = nullptr) const {
         LOG(FATAL) << get_name() << "update_crcs_with_value not supported";
     }
-
+    
+    virtual void update_hashes_with_value(uint64_t* __restrict hashes,const uint8_t* __restrict null_data = nullptr) const {
+        LOG(FATAL) << get_name() << " update_hashes_with_value xxhash not supported";
+    }
     // use range for one hash value to avoid virtual function call in loop
     virtual void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                        const uint8_t* __restrict null_data) const {

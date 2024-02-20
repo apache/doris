@@ -459,7 +459,27 @@ public:
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
-
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override {
+        auto s = size();
+        if (null_data) {
+            for (int i = 0; i < s; i++) {
+                if (null_data[i] == 0) {
+                    size_t string_size = size_at(i);
+                    size_t offset = offset_at(i);
+                    hashes[i] = HashUtil::xxHash64WithSeed(
+                            reinterpret_cast<const char*>(&chars[offset]), string_size, hashes[i]);
+                }
+            }
+        } else {
+            for (int i = 0; i < s; i++) {
+                size_t string_size = size_at(i);
+                size_t offset = offset_at(i);
+                hashes[i] = HashUtil::xxHash64WithSeed(
+                        reinterpret_cast<const char*>(&chars[offset]), string_size, hashes[i]);
+            }
+        }
+    }
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
 

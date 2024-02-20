@@ -353,6 +353,22 @@ void ColumnArray::update_crc_with_value(size_t start, size_t end, uint32_t& hash
     }
 }
 
+void ColumnArray::update_hashes_with_value(uint64_t* __restrict hashes,
+                                           const uint8_t* __restrict null_data) const {
+    auto s = size();
+    if (null_data) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_data[i] == 0) {
+                update_xxHash_with_value(i, i + 1, hashes[i], nullptr);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            update_xxHash_with_value(i, i + 1, hashes[i], nullptr);
+        }
+    }
+}
+
 void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
                                          uint32_t rows, uint32_t offset,
                                          const uint8_t* __restrict null_data) const {

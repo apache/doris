@@ -126,6 +126,22 @@ MutableColumns ColumnConst::scatter(ColumnIndex num_columns, const Selector& sel
     return res;
 }
 
+void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
+                                           const uint8_t* __restrict null_data) const {
+    DCHECK(null_data == nullptr);
+    auto real_data = data->get_data_at(0);
+    auto real_size = size();
+    if (real_data.data == nullptr) {
+        for (int i = 0; i < real_size; ++i) {
+            hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
+        }
+    } else {
+        for (int i = 0; i < real_size; ++i) {
+            hashes[i] = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hashes[i]);
+        }
+    }
+}
+
 void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
                                   Permutation& res) const {
     res.resize(s);

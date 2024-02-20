@@ -66,6 +66,12 @@ void Crc32HashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column,
 }
 
 template <typename ChannelIds>
+void XXHashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column, uint64_t* __restrict result,
+                                             int /*idx*/) const {
+    column->update_hashes_with_value(result);
+}
+
+template <typename ChannelIds>
 Status XXHashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                             std::unique_ptr<PartitionerBase>& partitioner) {
     auto* new_partitioner = new XXHashPartitioner(Base::_partition_count);

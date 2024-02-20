@@ -116,7 +116,8 @@ public:
     void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
                                 uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
-
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override;
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
