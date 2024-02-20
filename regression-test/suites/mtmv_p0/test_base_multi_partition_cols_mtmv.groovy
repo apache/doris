@@ -88,8 +88,8 @@ suite("test_base_multi_partition_cols_mtmv") {
             REFRESH MATERIALIZED VIEW ${mvName};
         """
     waitingMTMVTaskFinished(jobName)
-    order_qt_task_other "select NeedRefreshPartitions from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
-    order_qt_select_other "SELECT * FROM ${mvName} order by k1,k2,k3"
+    order_qt_task_data_change "select NeedRefreshPartitions from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
+    order_qt_select_data_change "SELECT * FROM ${mvName} order by k1,k2,k3"
 
     // partition change
     //add partition k3
@@ -116,6 +116,29 @@ suite("test_base_multi_partition_cols_mtmv") {
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(showPartitionsResult.size(),4)
 
-    // sql """drop table if exists `${tableName}`"""
-    // sql """drop materialized view if exists ${mvName};"""
+    // drop partition
+    sql """
+        alter table ${tableName} DROP PARTITION `p1_bj`
+        """
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName};
+        """
+    waitingMTMVTaskFinished(jobName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertTrue(showPartitionsResult.toString().contains("p_1"))
+
+    sql """
+        alter table ${tableName} DROP PARTITION `p1_sh`
+        """
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName};
+        """
+    waitingMTMVTaskFinished(jobName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertFalse(showPartitionsResult.toString().contains("p_1"))
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
 }
