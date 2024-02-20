@@ -1467,7 +1467,6 @@ int CreateTabletIdxCache::get_index(const std::string& key) {
     if (lru_handle) {
         Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
         auto value = (CacheValue*)cache()->value(lru_handle);
-        value->last_visit_time = UnixMillis();
         VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
         return value->idx;
     }
@@ -1477,7 +1476,6 @@ int CreateTabletIdxCache::get_index(const std::string& key) {
 void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
     assert(next_idx >= 0);
     CacheValue* value = new CacheValue;
-    value->last_visit_time = UnixMillis();
     value->idx = next_idx;
     auto deleter = [](const doris::CacheKey& key, void* value) {
         CacheValue* cache_value = (CacheValue*)value;

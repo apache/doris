@@ -14,6 +14,7 @@
 #include "gutil/bits.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
+#include "util/time.h"
 
 using std::string;
 using std::stringstream;
@@ -173,7 +174,7 @@ LRUCache::LRUCache(LRUCacheType type) : _type(type) {
 }
 
 LRUCache::~LRUCache() {
-    prune();
+    prune(nullptr);
 }
 
 bool LRUCache::_unref(LRUHandle* e) {
@@ -243,6 +244,7 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
         }
         e->refs++;
         ++_hit_count;
+        e->last_visit_time = UnixMillis();
     }
     return reinterpret_cast<Cache::Handle*>(e);
 }
@@ -371,6 +373,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     e->mem_tracker = tracker;
     e->type = _type;
     memcpy(e->key_data, key.data(), key.size());
+    e->last_visit_time = UnixMillis();
     // The memory of the parameter value should be recorded in the tls mem tracker,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
     THREAD_MEM_TRACKER_TRANSFER_TO(e->bytes, tracker);
@@ -440,7 +443,7 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash) {
     }
 }
 
-int64_t LRUCache::prune() {
+int64_t LRUCache::prune(int64_t* freed_size) {
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
@@ -458,23 +461,28 @@ int64_t LRUCache::prune() {
         }
     }
     int64_t pruned_count = 0;
+    int64_t size = 0;
     while (to_remove_head != nullptr) {
         ++pruned_count;
+        size += to_remove_head->bytes;
         LRUHandle* next = to_remove_head->next;
         to_remove_head->free();
         to_remove_head = next;
     }
+    if (freed_size) {
+        *freed_size = size;
+    }
     return pruned_count;
 }
 
-int64_t LRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
+int64_t LRUCache::prune_if(CachePrunePredicate pred, int64_t* freed_size, bool lazy_mode) {
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
         LRUHandle* p = _lru_normal.next;
         while (p != &_lru_normal) {
             LRUHandle* next = p->next;
-            if (pred(p->value)) {
+            if (pred(p)) {
                 _evict_one_entry(p);
                 p->next = to_remove_head;
                 to_remove_head = p;
@@ -487,7 +495,7 @@ int64_t LRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
         p = _lru_durable.next;
         while (p != &_lru_durable) {
             LRUHandle* next = p->next;
-            if (pred(p->value)) {
+            if (pred(p)) {
                 _evict_one_entry(p);
                 p->next = to_remove_head;
                 to_remove_head = p;
@@ -498,11 +506,16 @@ int64_t LRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
         }
     }
     int64_t pruned_count = 0;
+    int64_t size = 0;
     while (to_remove_head != nullptr) {
         ++pruned_count;
+        size += to_remove_head->bytes;
         LRUHandle* next = to_remove_head->next;
         to_remove_head->free();
         to_remove_head = next;
+    }
+    if (freed_size) {
+        *freed_size = size;
     }
     return pruned_count;
 }
@@ -622,18 +635,18 @@ uint64_t ShardedLRUCache::new_id() {
     return _last_id.fetch_add(1, std::memory_order_relaxed);
 }
 
-int64_t ShardedLRUCache::prune() {
+int64_t ShardedLRUCache::prune(int64_t* freed_size) {
     int64_t num_prune = 0;
     for (int s = 0; s < _num_shards; s++) {
-        num_prune += _shards[s]->prune();
+        num_prune += _shards[s]->prune(freed_size);
     }
     return num_prune;
 }
 
-int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
+int64_t ShardedLRUCache::prune_if(CachePrunePredicate pred, int64_t* freed_size, bool lazy_mode) {
     int64_t num_prune = 0;
     for (int s = 0; s < _num_shards; s++) {
-        num_prune += _shards[s]->prune_if(pred, lazy_mode);
+        num_prune += _shards[s]->prune_if(pred, freed_size, lazy_mode);
     }
     return num_prune;
 }
