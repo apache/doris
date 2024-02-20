@@ -46,7 +46,7 @@ public:
 
     OperatorPtr build_operator() override;
 
-    const RowDescriptor& row_desc() override { return _row_descriptor; }
+    const RowDescriptor& row_desc() const override { return _row_descriptor; }
 
 private:
     RowDescriptor _row_descriptor;

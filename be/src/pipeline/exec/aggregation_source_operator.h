@@ -72,8 +72,6 @@ public:
 
 protected:
     friend class AggSourceOperatorX;
-    friend class StreamingAggSourceOperatorX;
-    friend class StreamingAggSinkOperatorX;
     friend class DistinctStreamingAggSourceOperatorX;
     friend class DistinctStreamingAggSinkOperatorX;
 

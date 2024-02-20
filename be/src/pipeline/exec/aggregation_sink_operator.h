@@ -344,9 +344,6 @@ public:
     ~BlockingAggSinkLocalState() override = default;
 };
 
-class StreamingAggSinkDependency;
-class StreamingAggSinkLocalState;
-
 template <typename LocalStateType = BlockingAggSinkLocalState>
 class AggSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
@@ -385,7 +382,6 @@ protected:
     using LocalState = LocalStateType;
     template <typename DependencyType, typename Derived>
     friend class AggSinkLocalState;
-    friend class StreamingAggSinkLocalState;
     friend class DistinctStreamingAggSinkLocalState;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;

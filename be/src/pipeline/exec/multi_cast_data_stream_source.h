@@ -48,7 +48,7 @@ public:
 
     OperatorPtr build_operator() override;
 
-    const RowDescriptor& row_desc() override;
+    const RowDescriptor& row_desc() const override;
 
 private:
     const int _consumer_id;

@@ -874,14 +874,11 @@ Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state, St
     return Base::close(state, exec_status);
 }
 
-class StreamingAggSinkLocalState;
 class DistinctStreamingAggSinkLocalState;
 
 template class AggSinkOperatorX<BlockingAggSinkLocalState>;
-template class AggSinkOperatorX<StreamingAggSinkLocalState>;
 template class AggSinkOperatorX<DistinctStreamingAggSinkLocalState>;
 template class AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState>;
-template class AggSinkLocalState<StreamingAggSinkDependency, StreamingAggSinkLocalState>;
 template class AggSinkLocalState<DistinctStreamingAggSinkDependency,
                                  DistinctStreamingAggSinkLocalState>;
 } // namespace doris::pipeline
