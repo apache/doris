@@ -249,6 +249,7 @@ public class StatisticsRepository {
         String min = alterColumnStatsStmt.getValue(StatsType.MIN_VALUE);
         String max = alterColumnStatsStmt.getValue(StatsType.MAX_VALUE);
         String dataSize = alterColumnStatsStmt.getValue(StatsType.DATA_SIZE);
+        long indexId = alterColumnStatsStmt.getIndexId();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder();
         String colName = alterColumnStatsStmt.getColumnName();
         Column column = objects.table.getColumn(colName);
@@ -284,10 +285,10 @@ public class StatisticsRepository {
 
         ColumnStatistic columnStatistic = builder.build();
         Map<String, String> params = new HashMap<>();
-        params.put("id", constructId(objects.table.getId(), -1, colName));
+        params.put("id", constructId(objects.table.getId(), indexId, colName));
         params.put("catalogId", String.valueOf(objects.catalog.getId()));
         params.put("dbId", String.valueOf(objects.db.getId()));
-        params.put("idxId", "-1");
+        params.put("idxId", String.valueOf(indexId));
         params.put("tblId", String.valueOf(objects.table.getId()));
         params.put("colId", String.valueOf(colName));
         params.put("count", String.valueOf(columnStatistic.count));
@@ -301,8 +302,10 @@ public class StatisticsRepository {
             // update table granularity statistics
             params.put("partId", "NULL");
             StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
-            Env.getCurrentEnv().getStatisticsCache()
-                    .updateColStatsCache(objects.table.getId(), -1, colName, columnStatistic);
+            ColStatsData data = new ColStatsData(constructId(objects.table.getId(), indexId, colName),
+                    objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
+                    null, columnStatistic);
+            Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
             AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
                     .setTblUpdateTime(System.currentTimeMillis())
                     .setColName("")
