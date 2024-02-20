@@ -255,7 +255,7 @@ Status StorageEngine::_init_store_map() {
 Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_record_path) {
     LOG(INFO) << "stream load record path: " << stream_load_record_path;
     // init stream load record rocksdb
-    _stream_load_recorder = StreamLoadRecorder::create_unique(stream_load_record_path);
+    _stream_load_recorder = StreamLoadRecorder::create_shared(stream_load_record_path);
     if (_stream_load_recorder == nullptr) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::MemoryAllocFailed("allocate memory for StreamLoadRecorder failed"),
