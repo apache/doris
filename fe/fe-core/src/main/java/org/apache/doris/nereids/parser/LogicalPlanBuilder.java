@@ -436,6 +436,7 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -2247,9 +2248,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public List<String> visitMultipartIdentifier(MultipartIdentifierContext ctx) {
-        return ctx.parts.stream()
+        List<String> ori = ctx.parts.stream()
             .map(RuleContext::getText)
             .collect(ImmutableList.toImmutableList());
+        List<String> parts = Lists.newArrayList();
+        for (String part : ori) {
+            if (part.contains(".")) {
+                parts.addAll(Arrays.asList(part.split("\\.")));
+            } else {
+                parts.add(part);
+            }
+        }
+        return parts;
     }
 
     /**
