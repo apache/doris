@@ -209,7 +209,7 @@ public class DbsProcDirTest {
         Assert.assertTrue(result instanceof BaseProcResult);
 
         Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
-                "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "TransactionNum", "TransactionQuota",
+                "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "RunningTransactionNum", "TransactionQuota",
                 "LastUpdateTime"), result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
         rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "0.000 ", "1024.000 TB",
@@ -246,7 +246,7 @@ public class DbsProcDirTest {
         dir = new DbsProcDir(env, catalog);
         result = dir.fetchResult();
         Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
-                "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "TransactionNum", "TransactionQuota",
+                "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "RunningTransactionNum", "TransactionQuota",
                 "LastUpdateTime"),
                 result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
