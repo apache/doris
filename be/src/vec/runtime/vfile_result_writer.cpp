@@ -434,8 +434,10 @@ std::string VFileResultWriter::gen_types() {
 
 Status VFileResultWriter::write_csv_header() {
     if (!_bom_sent && _file_opts->with_bom) {
-        RETURN_IF_ERROR(_file_writer_impl->append(bom));
+        RETURN_IF_ERROR(_file_writer_impl->append(reinterpret_cast<const char*>(bom)));
         _bom_sent = true;
+        _current_written_bytes += 3;
+        COUNTER_UPDATE(_written_data_bytes, 3);
     }
     if (!_header_sent && _header.size() > 0) {
         std::string tmp_header = _header;
@@ -444,6 +446,8 @@ Status VFileResultWriter::write_csv_header() {
         }
         RETURN_IF_ERROR(_file_writer_impl->append(tmp_header));
         _header_sent = true;
+        _current_written_bytes += tmp_header.length();
+        COUNTER_UPDATE(_written_data_bytes, tmp_header.length());
     }
     return Status::OK();
 }

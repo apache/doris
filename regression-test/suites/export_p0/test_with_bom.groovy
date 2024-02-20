@@ -76,8 +76,8 @@ suite("test_with_bom", "p0") {
                 def json = parseJson(res[0][11])
                 assert json instanceof List
                 assertEquals("1", json.fileNumber[0][0])
-                log.info("outfile_path: ${json.url[0][0]}")
-                return json.url[0][0];
+                log.info("outfile_path: ${json.url[0]}")
+                return json.url[0];
             } else if (res[0][2] == "CANCELLED") {
                 throw new IllegalStateException("""export failed: ${res[0][10]}""")
             } else {
@@ -90,7 +90,7 @@ suite("test_with_bom", "p0") {
         def show_export_res = sql_return_maparray """ show export where label = "${export_label}"; """
         def export_job = show_export_res[0]
         def outfile_json = parseJson(export_job.OutfileInfo)
-        assertEquals(except_bytes, outfile_json[0][0].fileSize)
+        assertEquals(except_bytes, outfile_json[0].fileSize)
     }
 
     // 1. exec export without bom
@@ -115,7 +115,7 @@ suite("test_with_bom", "p0") {
         def outfile_url = waiting_export.call(label)
         
         order_qt_select_load1 """ select * from s3(
-                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${file_format}",
+                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.${file_format}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "csv",
@@ -152,7 +152,7 @@ suite("test_with_bom", "p0") {
         def outfile_url = waiting_export.call(label)
         
         order_qt_select_load1 """ select * from s3(
-                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${file_format}",
+                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.${file_format}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "csv",
@@ -189,7 +189,7 @@ suite("test_with_bom", "p0") {
         def outfile_url = waiting_export.call(label)
         
         order_qt_select_load1 """ select * from s3(
-                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${file_format}",
+                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.${file_format}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "csv_with_names",
@@ -226,7 +226,7 @@ suite("test_with_bom", "p0") {
         def outfile_url = waiting_export.call(label)
         
         order_qt_select_load1 """ select * from s3(
-                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${file_format}",
+                                    "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.${file_format}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "csv_with_names_and_types",

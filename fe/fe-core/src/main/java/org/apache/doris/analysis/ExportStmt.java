@@ -80,6 +80,7 @@ public class ExportStmt extends StatementBase {
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
             .add(PropertyAnalyzer.PROPERTIES_LINE_DELIMITER)
             .add("format")
+            .add(OutFileClause.PROP_WITH_BOM)
             .build();
 
     private TableName tblName;

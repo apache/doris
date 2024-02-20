@@ -581,6 +581,10 @@ public class ExportJob implements Writable {
         return tableName;
     }
 
+    public String getWithBom() {
+        return withBom;
+    }
+
     public SessionVariable getSessionVariables() {
         return sessionVariables;
     }
