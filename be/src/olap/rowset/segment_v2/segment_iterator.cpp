@@ -799,7 +799,7 @@ bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
     }
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
         if (_not_apply_index_pred.count(pred->column_id()) ||
-            (!_check_apply_by_bitmap_index(pred) && !_check_apply_by_inverted_index(pred, true))) {
+            (!_check_apply_by_inverted_index(pred, true))) {
             return false;
         }
         // all predicates are evaluated by index, then true, else false
@@ -807,14 +807,6 @@ bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
         if (_rowid_result_for_index.count(pred_result_sign) == 0) {
             return false;
         }
-    }
-    return true;
-}
-
-bool SegmentIterator::_check_apply_by_bitmap_index(ColumnPredicate* pred) {
-    if (_bitmap_index_iterators[pred->column_id()] == nullptr) {
-        // no bitmap index for this column
-        return false;
     }
     return true;
 }
@@ -860,13 +852,6 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
     return true;
 }
 
-Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(
-        ColumnPredicate* pred, roaring::Roaring* output_result) {
-    RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[pred->column_id()].get(),
-                                   _segment->num_rows(), output_result));
-    return Status::OK();
-}
-
 Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
         ColumnPredicate* pred, roaring::Roaring* output_result) {
     RETURN_IF_ERROR(pred->evaluate(_storage_name_and_type[pred->column_id()],
@@ -886,13 +871,10 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             continue;
         }
 
-        bool can_apply_by_bitmap_index = _check_apply_by_bitmap_index(pred);
         bool can_apply_by_inverted_index = _check_apply_by_inverted_index(pred, true);
         roaring::Roaring bitmap = _row_bitmap;
         Status res = Status::OK();
-        if (can_apply_by_bitmap_index) {
-            res = _apply_bitmap_index_except_leafnode_of_andnode(pred, &bitmap);
-        } else if (can_apply_by_inverted_index) {
+        if (can_apply_by_inverted_index) {
             res = _apply_inverted_index_except_leafnode_of_andnode(pred, &bitmap);
         } else {
             continue;
@@ -1106,8 +1088,8 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
-    // for safety reason, only support DUP_KEYS
-    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
+    // if there is delete predicate, we always need to read data
+    if (_opts.delete_condition_predicates->num_of_column_predicate() > 0) {
         return true;
     }
     if (_output_columns.count(-1)) {
@@ -1544,21 +1526,21 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         std::set<ColumnId> short_cir_pred_col_id_set; // using set for distinct cid
         std::set<ColumnId> vec_pred_col_id_set;
 
-        for (auto predicate : _col_predicates) {
+        for (auto* predicate : _col_predicates) {
             auto cid = predicate->column_id();
             _is_pred_column[cid] = true;
             pred_column_ids.insert(cid);
 
             // check pred using short eval or vec eval
             if (_can_evaluated_by_vectorized(predicate)) {
-                vec_pred_col_id_set.insert(predicate->column_id());
+                vec_pred_col_id_set.insert(cid);
                 _pre_eval_block_predicate.push_back(predicate);
             } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
-                if (predicate->is_filter()) {
-                    _filter_info_id.push_back(predicate);
-                }
+            }
+            if (predicate->is_filter()) {
+                _filter_info_id.push_back(predicate);
             }
         }
 
@@ -1977,17 +1959,17 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     bool ret_flags[original_size];
     DCHECK(!_pre_eval_block_predicate.empty());
     bool is_first = true;
-    for (int i = 0; i < _pre_eval_block_predicate.size(); i++) {
-        if (_pre_eval_block_predicate[i]->always_true()) {
+    for (auto& pred : _pre_eval_block_predicate) {
+        if (pred->always_true()) {
             continue;
         }
-        auto column_id = _pre_eval_block_predicate[i]->column_id();
+        auto column_id = pred->column_id();
         auto& column = _current_return_columns[column_id];
         if (is_first) {
-            _pre_eval_block_predicate[i]->evaluate_vec(*column, original_size, ret_flags);
+            pred->evaluate_vec(*column, original_size, ret_flags);
             is_first = false;
         } else {
-            _pre_eval_block_predicate[i]->evaluate_and_vec(*column, original_size, ret_flags);
+            pred->evaluate_and_vec(*column, original_size, ret_flags);
         }
     }
 

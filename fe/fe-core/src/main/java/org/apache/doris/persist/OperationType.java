@@ -317,7 +317,7 @@ public class OperationType {
     public static final short OP_ALTER_WORKLOAD_SCHED_POLICY = 414;
     public static final short OP_DROP_WORKLOAD_SCHED_POLICY = 415;
 
-    // query stats 440 ~ 424
+    // query stats 420 ~ 424
     public static final short OP_CLEAN_QUERY_STATS = 420;
 
     // update binlog config
@@ -372,6 +372,15 @@ public class OperationType {
     public static final short OP_LOG_ALTER_COLUMN_STATS = 464;
 
     public static final short OP_ADD_META_ID_MAPPINGS = 470;
+
+    // plsql 471 ~ 479
+    public static final short OP_ADD_PLSQL_STORED_PROCEDURE = 471;
+
+    public static final short OP_DROP_PLSQL_STORED_PROCEDURE = 472;
+
+    public static final short OP_ADD_PLSQL_PACKAGE = 473;
+
+    public static final short OP_DROP_PLSQL_PACKAGE = 474;
 
     /**
      * Get opcode name by op code.

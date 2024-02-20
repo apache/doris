@@ -75,9 +75,7 @@ public:
 
     TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 
-    RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
-        return _runtime_state.get();
-    }
+    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
     virtual RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId /*fragment_instance_id*/) {
         return _runtime_state->runtime_filter_mgr();
@@ -195,6 +193,8 @@ protected:
 
     std::shared_ptr<QueryContext> _query_ctx;
 
+    // This shared ptr is never used. It is just a reference to hold the object.
+    // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     MonotonicStopWatch _fragment_watcher;

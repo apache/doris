@@ -220,7 +220,9 @@ public class LocationPath {
      * @return metadata location path. just convert when storage is compatible with s3 client.
      */
     private static String convertToS3(String location) {
-        LOG.debug("try convert location to s3 prefix: " + location);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try convert location to s3 prefix: " + location);
+        }
         int pos = findDomainPos(location);
         return "s3" + location.substring(pos);
     }

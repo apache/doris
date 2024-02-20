@@ -116,7 +116,7 @@ public:
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] virtual Dependency* is_blocked_by(PipelineXTask* task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
-    virtual void set_ready();
+    void set_ready();
     void set_ready_to_read() {
         DCHECK(_is_write_dependency) << debug_string();
         DCHECK(_shared_state->source_dep != nullptr) << debug_string();
@@ -341,7 +341,7 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
-    std::unique_ptr<DataQueue> data_queue = std::make_unique<DataQueue>(1);
+    std::unique_ptr<DataQueue> data_queue = std::make_unique<DataQueue>(1, true);
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
@@ -402,7 +402,8 @@ public:
 
 struct UnionSharedState : public BasicSharedState {
 public:
-    UnionSharedState(int child_count = 1) : data_queue(child_count), _child_count(child_count) {};
+    UnionSharedState(int child_count = 1)
+            : data_queue(child_count, false), _child_count(child_count) {};
     int child_count() const { return _child_count; }
     DataQueue data_queue;
     const int _child_count;

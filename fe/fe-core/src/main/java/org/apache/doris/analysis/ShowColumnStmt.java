@@ -173,4 +173,3 @@ public class ShowColumnStmt extends ShowStmt {
         return metaData;
     }
 }
-

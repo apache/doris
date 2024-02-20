@@ -20,7 +20,6 @@ package org.apache.doris.cloud.common.util;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 
 import com.google.common.collect.ImmutableList;
 
@@ -45,9 +44,7 @@ public class CloudPropertyAnalyzer extends PropertyAnalyzer {
                 RewriteProperty.replace(DynamicPartitionProperty.REPLICATION_NUM,
                         String.valueOf(ReplicaAllocation.DEFAULT_ALLOCATION.getTotalReplicaNum())),
                 RewriteProperty.replace(DynamicPartitionProperty.REPLICATION_ALLOCATION,
-                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt()),
-                // FIXME: MOW is not supported in cloud mode yet.
-                RewriteProperty.replace(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false")
+                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt())
                 );
     }
 

@@ -127,7 +127,9 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 currentQueryQueue.resetQueueProperty(newPropQq.getMaxConcurrency(), newPropQq.getMaxQueueSize(),
                         newPropQq.getQueueTimeout(), newPropQq.getPropVersion());
             }
-            LOG.debug(currentQueryQueue.debugString()); // for test debug
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(currentQueryQueue.debugString()); // for test debug
+            }
         }
     }
 
@@ -333,6 +335,10 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             checkGlobalUnlock(newWorkloadGroup, currentWorkloadGroup);
             nameToWorkloadGroup.put(workloadGroupName, newWorkloadGroup);
             idToWorkloadGroup.put(newWorkloadGroup.getId(), newWorkloadGroup);
+            // NOTE: used for regression test query queue
+            if (Config.enable_alter_queue_prop_sync) {
+                resetQueryQueueProp();
+            }
             Env.getCurrentEnv().getEditLog().logAlterWorkloadGroup(newWorkloadGroup);
         } finally {
             writeUnlock();

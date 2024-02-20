@@ -41,7 +41,6 @@ class HashJoinBuildSink final : public StreamingOperator<vectorized::HashJoinNod
 public:
     HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return _node->can_sink_write(); }
-    bool is_pending_finish() const override { return !_node->ready_for_finish(); }
 };
 
 class HashJoinBuildSinkOperatorX;
@@ -71,7 +70,6 @@ public:
     void init_short_circuit_for_probe();
 
     bool build_unique() const;
-    std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const;
     std::shared_ptr<vectorized::Arena> arena() { return _shared_state->arena; }
 
     void add_hash_buckets_info(const std::string& info) const {
@@ -102,7 +100,6 @@ protected:
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
 
-    std::vector<IRuntimeFilter*> _runtime_filters;
     bool _should_build_hash_table = true;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
@@ -191,7 +188,6 @@ private:
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller;
 
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
-    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     const std::vector<TExpr> _partition_exprs;
 
     const bool _use_global_rf;

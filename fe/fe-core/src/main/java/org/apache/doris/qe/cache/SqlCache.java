@@ -51,7 +51,9 @@ public class SqlCache extends Cache {
     public String getSqlWithViewStmt() {
         String originSql = selectStmt != null ? selectStmt.toSql() : this.originSql;
         String cacheKey = originSql + "|" + allViewExpandStmtListStr;
-        LOG.debug("Cache key: {}", cacheKey);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Cache key: {}", cacheKey);
+        }
         return cacheKey;
     }
 
@@ -121,4 +123,3 @@ public class SqlCache extends Cache {
         }
     }
 }
-

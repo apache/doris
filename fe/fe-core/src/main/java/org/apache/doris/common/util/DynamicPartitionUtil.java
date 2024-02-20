@@ -574,22 +574,22 @@ public class DynamicPartitionUtil {
         // If create_history_partition is true, will pre-create history partition according the valid value from
         // start and history_partition_num.
         //
-        int expectCreatePartitionNum = 0;
+        long expectCreatePartitionNum = 0;
         if (!createHistoryPartition) {
             start = 0;
-            expectCreatePartitionNum = end - start;
+            expectCreatePartitionNum = (long) end - start;
         } else {
             int historyPartitionNum = Integer.parseInt(analyzedProperties.getOrDefault(
                     DynamicPartitionProperty.HISTORY_PARTITION_NUM,
                     String.valueOf(DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM)));
             if (historyPartitionNum != DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM) {
-                expectCreatePartitionNum = end - Math.max(start, -historyPartitionNum);
+                expectCreatePartitionNum = (long) end - Math.max(start, -historyPartitionNum);
             } else {
                 if (start == Integer.MIN_VALUE) {
                     throw new DdlException("Provide start or history_partition_num property"
-                            + " when creating history partition");
+                            + " when create_history_partition=true. Otherwise set create_history_partition=false");
                 }
-                expectCreatePartitionNum = end - start;
+                expectCreatePartitionNum = (long) end - start;
             }
         }
         if (hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)

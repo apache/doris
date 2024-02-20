@@ -141,11 +141,13 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
             _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
             _file_writer_impl));
+    RETURN_IF_ERROR(_file_writer_impl->open());
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
-        _vfile_writer.reset(new VCSVTransformer(
-                _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _output_object_data,
-                _header_type, _header, _file_opts->column_separator, _file_opts->line_delimiter));
+        _vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),
+                                                _vec_output_expr_ctxs, _output_object_data,
+                                                _header_type, _header, _file_opts->column_separator,
+                                                _file_opts->line_delimiter, _file_opts->with_bom));
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetTransformer(

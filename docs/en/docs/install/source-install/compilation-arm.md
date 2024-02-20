@@ -50,7 +50,7 @@ $> cat /proc/cpuinfo
 model name  : Phytium,FT-2000+/64
 ```
 
-2. CentOS 8.4
+2. CentOS 7.9 or higher
 
 ```shell
 $> lsb_release -a
@@ -79,7 +79,7 @@ Codename:	AltArch
 ### Software Environment Installation Command
 
 <Tabs>
-  <TabItem value="CentOS 8.4" label="CentOS 8.4" default>
+  <TabItem value="CentOS 7.9" label="CentOS 7.9" default>
     <p>
 
 1. Create root directories for pacakges

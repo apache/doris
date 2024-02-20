@@ -20,9 +20,9 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.external.FederationBackendPolicy;
-import org.apache.doris.planner.external.FileSplit;
-import org.apache.doris.planner.external.NodeSelectionStrategy;
+import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.FileSplit;
+import org.apache.doris.datasource.NodeSelectionStrategy;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -724,4 +724,3 @@ public class FederationBackendPolicyTest {
         return entries1.containsAll(entries2) && entries2.containsAll(entries1);
     }
 }
-

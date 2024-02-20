@@ -80,4 +80,3 @@ public class DateType extends DateLikeType {
         }
     }
 }
-
