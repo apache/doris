@@ -131,7 +131,7 @@ Status InvertedIndexFileWriter::close() {
                 // delete index path, which contains separated inverted index files
                 if (std::string(dir->getObjectName()) == "DorisCompoundDirectory") {
                     auto temp_dir = InvertedIndexDescriptor::get_temporary_index_path(
-                            _index_file_dir / _index_file_name, index_id, index_suffix);
+                            _index_file_dir / _segment_file_name, index_id, index_suffix);
                     auto* compound_dir = static_cast<DorisCompoundDirectory*>(dir.get());
                     if (compound_dir->getDirName() == temp_dir) {
                         compound_dir->deleteDirectory();
@@ -152,7 +152,7 @@ Status InvertedIndexFileWriter::close() {
                 // delete index path, which contains separated inverted index files
                 if (std::string(dir->getObjectName()) == "DorisCompoundDirectory") {
                     auto temp_dir = InvertedIndexDescriptor::get_temporary_index_path(
-                            _index_file_dir / _index_file_name, index_id, index_suffix);
+                            _index_file_dir / _segment_file_name, index_id, index_suffix);
                     auto* compound_dir = static_cast<DorisCompoundDirectory*>(dir.get());
                     if (compound_dir->getDirName() == temp_dir) {
                         compound_dir->deleteDirectory();
@@ -167,7 +167,8 @@ Status InvertedIndexFileWriter::close() {
     } catch (CLuceneError& err) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occur when close idx file {}, error msg: {}",
-                (_index_file_dir / _segment_file_name).native(), err.what());
+                InvertedIndexDescriptor::get_index_file_name(_index_file_dir / _segment_file_name),
+                err.what());
     }
     return Status::OK();
 }
