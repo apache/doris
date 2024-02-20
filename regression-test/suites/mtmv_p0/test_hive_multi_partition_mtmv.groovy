@@ -44,14 +44,13 @@ suite("test_hive_multi_partition_mtmv", "p0,external,hive,external_docker,extern
                                 partition(year=2022,region="bj")
                                 partition(year=2022,region="sh")
                             """
-    def insert_str = """
-                    insert into ${hive_database}.${hive_table} PARTITION(year=2020,region="bj") values(1);
-                    insert into ${hive_database}.${hive_table} PARTITION(year=2020,region="sh") values(2);
-                    insert into ${hive_database}.${hive_table} PARTITION(year=2021,region="bj") values(3);
-                    insert into ${hive_database}.${hive_table} PARTITION(year=2021,region="sh") values(4);
-                    insert into ${hive_database}.${hive_table} PARTITION(year=2022,region="bj") values(5);
-                    insert into ${hive_database}.${hive_table} PARTITION(year=2022,region="sh") values(6);
-                    """
+    def insert_str1 = """insert into ${hive_database}.${hive_table} PARTITION(year=2020,region="bj") values(1)"""
+    def insert_str2 = """insert into ${hive_database}.${hive_table} PARTITION(year=2020,region="sh") values(2)"""
+    def insert_str3 = """insert into ${hive_database}.${hive_table} PARTITION(year=2021,region="bj") values(3)"""
+    def insert_str4 = """insert into ${hive_database}.${hive_table} PARTITION(year=2021,region="sh") values(4)"""
+    def insert_str5 = """insert into ${hive_database}.${hive_table} PARTITION(year=2022,region="bj") values(5)"""
+    def insert_str6 = """insert into ${hive_database}.${hive_table} PARTITION(year=2022,region="sh") values(6)"""
+
     logger.info("hive sql: " + drop_table_str)
     hive_docker """ ${drop_table_str} """
     logger.info("hive sql: " + drop_database_str)
@@ -62,8 +61,18 @@ suite("test_hive_multi_partition_mtmv", "p0,external,hive,external_docker,extern
     hive_docker """ ${create_table_str} """
     logger.info("hive sql: " + add_partition_str)
     hive_docker """ ${add_partition_str} """
-    logger.info("hive sql: " + insert_str)
-    hive_docker """ ${insert_str} """
+    logger.info("hive sql: " + insert_str1)
+    hive_docker """ ${insert_str1} """
+    logger.info("hive sql: " + insert_str2)
+    hive_docker """ ${insert_str2} """
+    logger.info("hive sql: " + insert_str3)
+    hive_docker """ ${insert_str3} """
+    logger.info("hive sql: " + insert_str4)
+    hive_docker """ ${insert_str4} """
+    logger.info("hive sql: " + insert_str5)
+    hive_docker """ ${insert_str5} """
+    logger.info("hive sql: " + insert_str6)
+    hive_docker """ ${insert_str6} """
 
 
     // prepare catalog
@@ -148,11 +157,11 @@ suite("test_hive_multi_partition_mtmv", "p0,external,hive,external_docker,extern
      order_qt_mtmv_region_complete "SELECT * FROM ${mvName} order by k1,year,region"
 
     // hive data change
-    insert_str = """
+    def insert_str7 = """
                 insert into ${hive_database}.${hive_table} PARTITION(year=2020,region="bj") values(7);
                 """
-    logger.info("hive sql: " + insert_str)
-    hive_docker """ ${insert_str} """
+    logger.info("hive sql: " + insert_str7)
+    hive_docker """ ${insert_str7} """
     sql """
             REFRESH catalog ${catalog_name}
         """
