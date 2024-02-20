@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -14,9 +15,3 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-
-tables:
-  small_data_high_concurrent_load_range:
-    col1:
-      range: {min: "2020-01-01 00:00:00", max: "2023-12-31 23:59:59"}
-      force_not_null: true
