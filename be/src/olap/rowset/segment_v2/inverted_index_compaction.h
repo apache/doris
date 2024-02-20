@@ -28,13 +28,10 @@ namespace segment_v2 {
 class InvertedIndexFileWriter;
 class InvertedIndexFileReader;
 
-Status compact_column(const TabletIndex* index_meta, int src_segment_num, int dest_segment_num,
-                      std::vector<std::string> src_index_files,
-                      std::vector<std::string> dest_index_files, const io::FileSystemSPtr& fs,
-                      std::string segment_path, std::string tablet_path,
+Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& src_index_dirs,
+                      std::vector<lucene::store::Directory*>& dest_index_dirs,
+                      const io::FileSystemSPtr& fs, std::string tmp_path,
                       std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec,
-                      std::vector<uint32_t> dest_segment_num_rows,
-                      InvertedIndexFileWriter* inverted_index_file_writer,
-                      const InvertedIndexFileReader* inverted_index_file_reader);
+                      std::vector<uint32_t> dest_segment_num_rows);
 } // namespace segment_v2
 } // namespace doris

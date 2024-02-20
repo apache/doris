@@ -23,9 +23,9 @@
 #include "olap/olap_common.h"
 
 namespace doris::segment_v2 {
-const std::string segment_suffix = ".dat";
-const std::string index_suffix = ".idx";
-const std::string index_name_separator = "_";
+const std::string InvertedIndexDescriptor::segment_suffix = ".dat";
+const std::string InvertedIndexDescriptor::index_suffix = ".idx";
+const std::string InvertedIndexDescriptor::index_name_separator = "_";
 
 std::string InvertedIndexDescriptor::get_temporary_index_path(
         const std::string& segment_path, uint32_t uuid, const std::string& index_suffix_path) {

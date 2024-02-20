@@ -39,6 +39,8 @@
 #pragma clang diagnostic pop
 #endif
 
+#include "common/config.h"
+#include "gutil/strings/strip.h"
 #include "olap/field.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
@@ -112,10 +114,12 @@ public:
                 auto mem_tracker =
                         std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
                 auto index_file_path = _index_file_writer->get_index_file_path(_index_meta);
+                auto index_tmp_dir =
+                        StripSuffixString(index_file_path, InvertedIndexDescriptor::index_suffix);
                 InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_path);
 
                 auto* dir = DorisCompoundDirectoryFactory::getDirectory(
-                        _index_file_writer->get_fs(), index_file_path.c_str());
+                        _index_file_writer->get_fs(), index_tmp_dir.c_str());
                 IndexSearcherPtr searcher;
                 auto st = InvertedIndexReader::create_index_searcher(
                         dir, &searcher, mem_tracker.get(), InvertedIndexReaderType::FULLTEXT);
