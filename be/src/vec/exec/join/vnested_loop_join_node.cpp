@@ -118,8 +118,16 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     std::vector<TExpr> filter_src_exprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         filter_src_exprs.push_back(_runtime_filter_descs[i].src_expr);
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                _runtime_filter_descs[i], state->query_options(), &_runtime_filters[i]));
+        if (_runtime_filter_descs[i].has_remote_targets) {
+            RETURN_IF_ERROR(state->get_query_ctx()
+                                    ->runtime_filter_mgr()
+                                    ->register_local_merge_producer_filter(_runtime_filter_descs[i],
+                                                                           state->query_options(),
+                                                                           &_runtime_filters[i]));
+        } else {
+            RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
+                    _runtime_filter_descs[i], state->query_options(), &_runtime_filters[i]));
+        }
     }
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(filter_src_exprs, _filter_src_expr_ctxs));
     return Status::OK();

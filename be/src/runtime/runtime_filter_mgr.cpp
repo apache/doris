@@ -177,7 +177,19 @@ Status RuntimeFilterMgr::update_filter(const PPublishFilterRequest* request,
     UpdateRuntimeFilterParams params(request, data, &_pool);
     int filter_id = request->filter_id();
     std::vector<IRuntimeFilter*> filters;
-    RETURN_IF_ERROR(get_consume_filters(filter_id, filters));
+    // The code is organized for upgrade compatibility to prevent infinite waiting
+    // old way update filter the code should be deleted after the upgrade is complete.
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        auto iter = _consumer_map.find(filter_id);
+        if (iter == _consumer_map.end()) {
+            return Status::InvalidArgument("unknown filter: {}, role: CONSUMER.", filter_id);
+        }
+        for (auto& holder : iter->second) {
+            filters.emplace_back(holder.filter);
+        }
+        iter->second.clear();
+    }
     for (auto filter : filters) {
         RETURN_IF_ERROR(filter->update_filter(&params));
     }
