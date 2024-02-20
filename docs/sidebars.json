@@ -216,6 +216,13 @@
                         "query-acceleration/async-materialized-view/async-materialized-view",
                         "query-acceleration/async-materialized-view/query-async-materialized-view"
                     ]
+                },
+                {
+                    "type": "category",
+                    "label": "Hint",
+                    "items": [
+                        "query-acceleration/hint/joinHint"
+                    ]
                 }
             ]
         },
