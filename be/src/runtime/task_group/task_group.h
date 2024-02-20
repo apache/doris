@@ -134,6 +134,7 @@ private:
     std::atomic<uint64_t> _cpu_share;
     std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
     std::atomic<int> _cpu_hard_limit;
+    std::atomic<int> _scan_thread_num;
 
     // means task group is mark dropped
     // new query can not submit
@@ -153,6 +154,7 @@ struct TaskGroupInfo {
     int64_t version;
     int cpu_hard_limit;
     bool enable_cpu_hard_limit;
+    int scan_thread_num;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;
