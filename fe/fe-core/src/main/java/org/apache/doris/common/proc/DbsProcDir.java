@@ -43,7 +43,7 @@ public class DbsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("DbId").add("DbName").add("TableNum").add("Size").add("Quota")
             .add("LastConsistencyCheckTime").add("ReplicaCount").add("ReplicaQuota")
-            .add("TransactionNum").add("TransactionQuota").add("LastUpdateTime")
+            .add("RunningTransactionNum").add("TransactionQuota").add("LastUpdateTime")
             .build();
 
     private Env env;
