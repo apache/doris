@@ -386,8 +386,9 @@ public:
                                         const uint8_t* __restrict null_data = nullptr) const {
         LOG(FATAL) << get_name() << "update_crcs_with_value not supported";
     }
-    
-    virtual void update_hashes_with_value(uint64_t* __restrict hashes,const uint8_t* __restrict null_data = nullptr) const {
+
+    virtual void update_hashes_with_value(uint64_t* __restrict hashes,
+                                          const uint8_t* __restrict null_data = nullptr) const {
         LOG(FATAL) << get_name() << " update_hashes_with_value xxhash not supported";
     }
     // use range for one hash value to avoid virtual function call in loop

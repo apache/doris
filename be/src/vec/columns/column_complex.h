@@ -225,7 +225,7 @@ public:
             const uint8_t* __restrict null_data = nullptr) const override {
         // TODO add hash function
     }
-    
+
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

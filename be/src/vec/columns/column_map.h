@@ -186,7 +186,7 @@ public:
                                 uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
     void update_hashes_with_value(uint64_t* __restrict hashes,
-                                const uint8_t* __restrict null_data = nullptr) const override;
+                                  const uint8_t* __restrict null_data = nullptr) const override;
     /******************** keys and values ***************/
     const ColumnPtr& get_keys_ptr() const { return keys_column; }
     ColumnPtr& get_keys_ptr() { return keys_column; }
