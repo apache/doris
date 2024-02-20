@@ -115,7 +115,7 @@ suite("add_table_policy_by_modify_partition_hdfs") {
     """
 
     sql """
-    CREATE TABLE create_table_partion_use_created_policy_test
+    CREATE TABLE create_table_partion_use_created_policy_test_hdfs
     (
     k1 DATE,
     k2 INT,
@@ -132,7 +132,7 @@ suite("add_table_policy_by_modify_partition_hdfs") {
 
     // Test that the partition's specified policy would be covered by the table's policy
     def partitions = sql """
-    show partitions from create_table_partion_use_created_policy_test
+    show partitions from create_table_partion_use_created_policy_test_hdfs
     """
 
     for (par in partitions) {
@@ -143,7 +143,7 @@ suite("add_table_policy_by_modify_partition_hdfs") {
     DROP TABLE IF EXISTS create_table_partition;
     """
     sql """
-    DROP TABLE IF EXISTS create_table_partion_use_created_policy_test;
+    DROP TABLE IF EXISTS create_table_partion_use_created_policy_test_hdfs;
     """
     sql """
     DROP STORAGE POLICY created_create_table_partition_alter_policy
