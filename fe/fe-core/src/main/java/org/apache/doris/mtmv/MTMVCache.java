@@ -43,7 +43,7 @@ public class MTMVCache {
     // this should be shuttle expression with lineage
     private final List<NamedExpression> mvOutputExpressions;
 
-    public MTMVCache(MTMV materializedView, Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
+    public MTMVCache(Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
         this.logicalPlan = logicalPlan;
         this.mvOutputExpressions = mvOutputExpressions;
     }
@@ -56,11 +56,6 @@ public class MTMVCache {
         return mvOutputExpressions;
     }
 
-    public MTMVCache(Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
-        this.logicalPlan = logicalPlan;
-        this.mvOutputExpressions = mvOutputExpressions;
-    }
-
     public static MTMVCache from(MTMV mtmv, ConnectContext connectContext) {
         LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
         // this will be removed in the future when support join derivation
@@ -68,14 +63,16 @@ public class MTMVCache {
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
                 new OriginStatement(mtmv.getQuerySql(), 0));
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
-
+        if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
+            mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
+        }
         Plan mvRewrittenPlan =
                 planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
         Plan mvPlan = mvRewrittenPlan instanceof LogicalResultSink
                 ? (Plan) ((LogicalResultSink) mvRewrittenPlan).child() : mvRewrittenPlan;
         // use rewritten plan output expression currently, if expression rewrite fail,
         // consider to use the analyzed plan for output expressions only
-        List<NamedExpression> mvOutputExpressions = mvPlan.getExpressions().stream()
+        List<NamedExpression> mvOutputExpressions = mvPlan.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
         return new MTMVCache(mvPlan, mvOutputExpressions);

@@ -21,7 +21,16 @@
                         "install/construct-docker/run-docker-cluster"
                     ]
                 },
-                "install/k8s-deploy",
+                {
+                    "type": "category",
+                    "label": "Deploy Doris on Kubernetes",
+                    "items": [
+                        "install/k8s-deploy/operator-deploy",
+                        "install/k8s-deploy/helm-chart-deploy",
+                        "install/k8s-deploy/network",
+                        "install/k8s-deploy/persistent-volume"
+                    ]
+                },
                 {
                     "type": "category",
                     "label": "Source Code Compilation",
@@ -176,7 +185,8 @@
                 "advanced/small-file-mgr",
                 "advanced/cold-hot-separation",
                 "advanced/compute-node",
-                "advanced/lateral-view"
+                "advanced/lateral-view",
+                "advanced/auto-increment"
             ]
         },
         {
@@ -184,6 +194,7 @@
             "label": "Query Acceleration",
             "items": [
                 "query-acceleration/pipeline-execution-engine",
+                "query-acceleration/pipeline-x-execution-engine",
                 "query-acceleration/nereids",
                 "query-acceleration/hight-concurrent-point-query",
                 "query-acceleration/materialized-view",
@@ -227,9 +238,17 @@
                         "lakehouse/multi-catalog/jdbc"
                     ]
                 },
+                {
+                    "type": "category",
+                    "label": "Cloud Service Authentication",
+                    "items": [
+                        "lakehouse/cloud-auth/cloud-auth"
+                    ]
+                },
                 "lakehouse/file",
                 "lakehouse/filecache",
                 "lakehouse/external-statistics",
+                "lakehouse/sql-dialect",
                 "lakehouse/fs-benchmark-tool",
                 "lakehouse/faq"
             ]
@@ -240,6 +259,7 @@
             "items": [
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
+                "ecosystem/doris-streamloader",
                 "ecosystem/datax",
                 "ecosystem/seatunnel",
                 "ecosystem/kyuubi",
@@ -449,7 +469,6 @@
                                 "sql-manual/sql-functions/string-functions/char",
                                 "sql-manual/sql-functions/string-functions/concat",
                                 "sql-manual/sql-functions/string-functions/concat-ws",
-                                "sql-manual/sql-functions/string-functions/substr",
                                 "sql-manual/sql-functions/string-functions/substring",
                                 "sql-manual/sql-functions/string-functions/sub-replace",
                                 "sql-manual/sql-functions/string-functions/append-trailing-char-if-absent",
@@ -468,8 +487,6 @@
                                 "sql-manual/sql-functions/string-functions/field",
                                 "sql-manual/sql-functions/string-functions/find-in-set",
                                 "sql-manual/sql-functions/string-functions/replace",
-                                "sql-manual/sql-functions/string-functions/left",
-                                "sql-manual/sql-functions/string-functions/right",
                                 "sql-manual/sql-functions/string-functions/strleft",
                                 "sql-manual/sql-functions/string-functions/strright",
                                 "sql-manual/sql-functions/string-functions/split-part",
@@ -477,6 +494,7 @@
                                 "sql-manual/sql-functions/string-functions/substring-index",
                                 "sql-manual/sql-functions/string-functions/money-format",
                                 "sql-manual/sql-functions/string-functions/parse-url",
+                                "sql-manual/sql-functions/string-functions/url-decode",
                                 "sql-manual/sql-functions/string-functions/convert-to",
                                 "sql-manual/sql-functions/string-functions/extract-url-parameter",
                                 "sql-manual/sql-functions/string-functions/uuid",
@@ -695,10 +713,13 @@
                                 "sql-manual/sql-functions/numeric-functions/bin",
                                 "sql-manual/sql-functions/numeric-functions/sin",
                                 "sql-manual/sql-functions/numeric-functions/cos",
+                                "sql-manual/sql-functions/numeric-functions/cosh",
                                 "sql-manual/sql-functions/numeric-functions/tan",
+                                "sql-manual/sql-functions/numeric-functions/tanh",
                                 "sql-manual/sql-functions/numeric-functions/asin",
                                 "sql-manual/sql-functions/numeric-functions/acos",
                                 "sql-manual/sql-functions/numeric-functions/atan",
+                                "sql-manual/sql-functions/numeric-functions/atan2",
                                 "sql-manual/sql-functions/numeric-functions/e",
                                 "sql-manual/sql-functions/numeric-functions/pi",
                                 "sql-manual/sql-functions/numeric-functions/exp",
@@ -762,7 +783,7 @@
                                 "sql-manual/sql-functions/table-functions/workload-group",
                                 "sql-manual/sql-functions/table-functions/catalogs",
                                 "sql-manual/sql-functions/table-functions/frontends_disks",
-                                "sql-manual/sql-functions/table-functions/queries",
+                                "sql-manual/sql-functions/table-functions/active_queries",
                                 "sql-manual/sql-functions/table-functions/jobs",
                                 "sql-manual/sql-functions/table-functions/mv_infos",
                                 "sql-manual/sql-functions/table-functions/tasks"
@@ -801,11 +822,23 @@
                                 "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-null",
                                 "sql-manual/sql-functions/ip-functions/ipv6-num-to-string",
                                 "sql-manual/sql-functions/ip-functions/inet6-ntoa",
-                                "sql-manual/sql-functions/ip-functions/ipv6-num-to-string",
+                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num",
                                 "sql-manual/sql-functions/ip-functions/inet6-aton",
                                 "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-default",
-                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-null"
-
+                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-null",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-compat",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-mapped",
+                                "sql-manual/sql-functions/ip-functions/ipv4-cidr-to-range",
+                                "sql-manual/sql-functions/ip-functions/ipv6-cidr-to-range",
+                                "sql-manual/sql-functions/ip-functions/is-ip-address-in-range",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-string",
+                                "sql-manual/sql-functions/ip-functions/is-ipv6-string",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4-or-default",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4-or-null",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6-or-default",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6-or-null"
                             ]
                         },
                         {
@@ -864,7 +897,7 @@
                             "type": "category",
                             "label": "Database Administration",
                             "items": [
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG",
+                                "sql-manual/sql-reference/Database-Administration-Statements/SHOW-CONFIG",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-CONFIG",
                                 "sql-manual/sql-reference/Database-Administration-Statements/SET-VARIABLE",
                                 "sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN",
@@ -873,14 +906,14 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-REPLICA-VERSION",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-PARTITION-VERSION",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-TABLE-STATUS",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-DISTRIBUTION",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-STATUS",
+                                "sql-manual/sql-reference/Database-Administration-Statements/SHOW-REPLICA-DISTRIBUTION",
+                                "sql-manual/sql-reference/Database-Administration-Statements/SHOW-REPLICA-STATUS",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REPAIR-TABLE",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REPAIR",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CHECK-TABLET",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-DIAGNOSE-TABLET",
+                                "sql-manual/sql-reference/Database-Administration-Statements/SHOW-TABLET-DIAGNOSIS",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-COPY-TABLET",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-TABLET-STORAGE-FORMAT",
+                                "sql-manual/sql-reference/Database-Administration-Statements/SHOW-TABLET-STORAGE-FORMAT",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CLEAN-TRASH",
                                 "sql-manual/sql-reference/Database-Administration-Statements/RECOVER",
                                 "sql-manual/sql-reference/Database-Administration-Statements/KILL",
@@ -914,7 +947,10 @@
                                 "sql-manual/sql-reference/Data-Types/MAP",
                                 "sql-manual/sql-reference/Data-Types/STRUCT",
                                 "sql-manual/sql-reference/Data-Types/JSON",
-                                "sql-manual/sql-reference/Data-Types/AGG_STATE"
+                                "sql-manual/sql-reference/Data-Types/AGG_STATE",
+                                "sql-manual/sql-reference/Data-Types/VARIANT",
+                                "sql-manual/sql-reference/Data-Types/IPV4",
+                                "sql-manual/sql-reference/Data-Types/IPV6"
                             ]
                         },
                         {
@@ -1227,7 +1263,8 @@
                     "label": "User Privilege and Ldap",
                     "items": [
                         "admin-manual/privilege-ldap/user-privilege",
-                        "admin-manual/privilege-ldap/ldap"
+                        "admin-manual/privilege-ldap/ldap",
+                        "admin-manual/privilege-ldap/ranger"
                     ]
                 },
                 {
@@ -1351,6 +1388,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.4",
                 "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",

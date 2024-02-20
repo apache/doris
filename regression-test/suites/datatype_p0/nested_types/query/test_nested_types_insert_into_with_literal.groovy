@@ -25,7 +25,6 @@ suite("test_nested_types_insert_into_with_literal", "p0") {
     // old planner does not support cast empty
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    sql """ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"""
 
     def table_names = [
             "two_level_array_array_a",

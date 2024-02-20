@@ -75,8 +75,11 @@ public class SystemInfoService {
 
     public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG = "There is no scanNode Backend available.";
 
-    private volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
-    private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
+    public static final String NOT_USING_VALID_CLUSTER_MSG = "Not using valid cloud clusters, "
+            + "please use a cluster before issuing any queries";
+
+    protected volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
+    protected volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
 
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDiskInfoRef = ImmutableMap.of();
 
@@ -414,6 +417,19 @@ public class SystemInfoService {
 
     public List<Backend> getCnBackends() {
         return idToBackendRef.values().stream().filter(backend -> backend.isComputeNode()).collect(Collectors.toList());
+    }
+
+    // return num of backends that from different hosts
+    public int getBackendNumFromDiffHosts(boolean aliveOnly) {
+        Set<String> hosts = Sets.newHashSet();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        for (Backend backend : idToBackend.values()) {
+            if (aliveOnly && !backend.isAlive()) {
+                continue;
+            }
+            hosts.add(backend.getHost());
+        }
+        return hosts.size();
     }
 
     class BeIdComparator implements Comparator<Backend> {

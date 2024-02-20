@@ -313,7 +313,7 @@ void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
         uint32_t string_size(size_at(i));
 
         auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-        memcpy(ptr, &string_size, sizeof(string_size));
+        memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
         memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
         keys[i].size += sizeof(string_size) + string_size;
     }
@@ -327,7 +327,7 @@ void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
             uint32_t string_size(size_at(i));
 
             auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-            memcpy(ptr, &string_size, sizeof(string_size));
+            memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
             memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
             keys[i].size += sizeof(string_size) + string_size;
         }

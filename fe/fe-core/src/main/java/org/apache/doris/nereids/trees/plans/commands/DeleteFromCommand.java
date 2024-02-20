@@ -26,6 +26,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -114,6 +116,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
         PhysicalOlapScan scan = optScan.get();
         UnboundRelation relation = optRelation.get();
         PhysicalFilter<?> filter = optFilter.get();
+
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), scan.getDatabase().getFullName(),
+                scan.getTable().getName(), PrivPredicate.LOAD)) {
+            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    scan.getDatabase().getFullName() + ": " + scan.getTable().getName());
+            throw new AnalysisException(message);
+        }
 
         // predicate check
         OlapTable olapTable = scan.getTable();

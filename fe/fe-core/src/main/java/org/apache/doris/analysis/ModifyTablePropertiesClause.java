@@ -267,6 +267,21 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
+            long groupCommitDataBytes;
+            String groupCommitDataBytesStr = properties.get(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            try {
+                groupCommitDataBytes = Long.parseLong(groupCommitDataBytesStr);
+                if (groupCommitDataBytes < 0) {
+                    throw new AnalysisException("group_commit_data_bytes can not be less than 0:"
+                        + groupCommitDataBytesStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid group_commit_data_bytes format: "
+                    + groupCommitDataBytesStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

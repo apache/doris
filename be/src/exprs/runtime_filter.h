@@ -140,7 +140,9 @@ public:
         }
     }
 
-    [[nodiscard]] int get_filter_id() const { return _filter_id; }
+    int get_filter_id() const { return _filter_id; }
+
+    bool is_runtime_filter() const { return _filter_id != -1; }
 
 private:
     int _filter_id = -1;
@@ -218,8 +220,7 @@ public:
                          bool build_bf_exactly = false, bool is_global = false,
                          int parallel_tasks = 0);
 
-    void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
-    Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
+    vectorized::SharedRuntimeFilterContext& get_shared_context_ref();
 
     void copy_from_other(IRuntimeFilter* other);
 
@@ -366,6 +367,9 @@ protected:
     // serialize _wrapper to protobuf
     void to_protobuf(PInFilter* filter);
     void to_protobuf(PMinMaxFilter* filter);
+
+    template <class T>
+    Status _update_filter(const T* param);
 
     template <class T>
     Status serialize_impl(T* request, void** data, int* len);

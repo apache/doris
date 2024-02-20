@@ -29,7 +29,8 @@ suite("query18") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
-    sql 'set dump_nereids_memo=true'
+    sql 'set runtime_filter_type=8'
+    sql 'set dump_nereids_memo=false'
     def ds = """select  i_item_id,
         ca_country,
         ca_state, 

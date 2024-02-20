@@ -314,7 +314,7 @@ public class EsScanNode extends ExternalScanNode {
         return output.toString();
     }
 
-    private void buildQuery() {
+    private void buildQuery() throws UserException {
         if (conjuncts.isEmpty()) {
             queryBuilder = QueryBuilders.matchAllQuery();
         } else {

@@ -488,7 +488,7 @@ void ColumnObject::Subcolumn::finalize() {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        st.to_string() + ", real_code:{}", st.code());
             }
-            part = ptr;
+            part = ptr->convert_to_full_column_if_const();
         }
         result_column->insert_range_from(*part, 0, part_size);
     }
@@ -584,6 +584,11 @@ ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
     if (create_root_) {
         subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
     }
+}
+
+ColumnObject::ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column)
+        : is_nullable(is_nullable_) {
+    add_sub_column({}, std::move(column), type);
 }
 
 ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)

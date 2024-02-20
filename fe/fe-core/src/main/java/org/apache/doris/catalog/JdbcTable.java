@@ -51,6 +51,7 @@ public class JdbcTable extends Table {
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static final String CATALOG_ID = "catalog_id";
     private static final String TABLE = "table";
     private static final String REAL_DATABASE = "real_database";
     private static final String REAL_TABLE = "real_table";
@@ -80,6 +81,14 @@ public class JdbcTable extends Table {
     private String driverClass;
     private String driverUrl;
     private String checkSum;
+
+    private long catalogId = -1;
+
+    private int connectionPoolMinSize;
+    private int connectionPoolMaxSize;
+    private int connectionPoolMaxWaitTime;
+    private int connectionPoolMaxLifeTime;
+    private boolean connectionPoolKeepAlive;
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
@@ -163,6 +172,35 @@ public class JdbcTable extends Table {
         return getFromJdbcResourceOrDefault(JdbcResource.DRIVER_URL, driverUrl);
     }
 
+    public long getCatalogId() {
+        return catalogId;
+    }
+
+    public int getConnectionPoolMinSize() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_MIN_SIZE,
+                String.valueOf(connectionPoolMinSize)));
+    }
+
+    public int getConnectionPoolMaxSize() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_MAX_SIZE,
+                String.valueOf(connectionPoolMaxSize)));
+    }
+
+    public int getConnectionPoolMaxWaitTime() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_MAX_WAIT_TIME,
+                String.valueOf(connectionPoolMaxWaitTime)));
+    }
+
+    public int getConnectionPoolMaxLifeTime() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_MAX_LIFE_TIME,
+                String.valueOf(connectionPoolMaxLifeTime)));
+    }
+
+    public boolean isConnectionPoolKeepAlive() {
+        return Boolean.parseBoolean(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_KEEP_ALIVE,
+                String.valueOf(connectionPoolKeepAlive)));
+    }
+
     private String getFromJdbcResourceOrDefault(String key, String defaultVal) {
         if (Strings.isNullOrEmpty(resourceName)) {
             return defaultVal;
@@ -177,6 +215,7 @@ public class JdbcTable extends Table {
     @Override
     public TTableDescriptor toThrift() {
         TJdbcTable tJdbcTable = new TJdbcTable();
+        tJdbcTable.setCatalogId(catalogId);
         tJdbcTable.setJdbcUrl(getJdbcUrl());
         tJdbcTable.setJdbcUser(getJdbcUser());
         tJdbcTable.setJdbcPassword(getJdbcPasswd());
@@ -185,6 +224,11 @@ public class JdbcTable extends Table {
         tJdbcTable.setJdbcDriverUrl(getDriverUrl());
         tJdbcTable.setJdbcResourceName(resourceName);
         tJdbcTable.setJdbcDriverChecksum(checkSum);
+        tJdbcTable.setConnectionPoolMinSize(getConnectionPoolMinSize());
+        tJdbcTable.setConnectionPoolMaxSize(getConnectionPoolMaxSize());
+        tJdbcTable.setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime());
+        tJdbcTable.setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime());
+        tJdbcTable.setConnectionPoolKeepAlive(isConnectionPoolKeepAlive());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.JDBC_TABLE, fullSchema.size(), 0,
                 getName(), "");
         tTableDescriptor.setJdbcTable(tJdbcTable);
@@ -195,6 +239,7 @@ public class JdbcTable extends Table {
     public void write(DataOutput out) throws IOException {
         super.write(out);
         Map<String, String> serializeMap = Maps.newHashMap();
+        serializeMap.put(CATALOG_ID, String.valueOf(catalogId));
         serializeMap.put(TABLE, externalTableName);
         serializeMap.put(RESOURCE, resourceName);
         serializeMap.put(TABLE_TYPE, jdbcTypeName);
@@ -232,6 +277,7 @@ public class JdbcTable extends Table {
             String value = Text.readString(in);
             serializeMap.put(key, value);
         }
+        catalogId = serializeMap.get(CATALOG_ID) != null ? Long.parseLong(serializeMap.get(CATALOG_ID)) : -1;
         externalTableName = serializeMap.get(TABLE);
         resourceName = serializeMap.get(RESOURCE);
         jdbcTypeName = serializeMap.get(TABLE_TYPE);
@@ -362,6 +408,14 @@ public class JdbcTable extends Table {
         driverClass = jdbcResource.getProperty(DRIVER_CLASS);
         driverUrl = jdbcResource.getProperty(DRIVER_URL);
         checkSum = jdbcResource.getProperty(CHECK_SUM);
+        connectionPoolMinSize = Integer.parseInt(jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MIN_SIZE));
+        connectionPoolMaxSize = Integer.parseInt(jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MAX_SIZE));
+        connectionPoolMaxWaitTime = Integer.parseInt(
+                jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MAX_WAIT_TIME));
+        connectionPoolMaxLifeTime = Integer.parseInt(
+                jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MAX_LIFE_TIME));
+        connectionPoolKeepAlive = Boolean.parseBoolean(
+                jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_KEEP_ALIVE));
 
         String urlType = jdbcUrl.split(":")[1];
         if (!jdbcTypeName.equalsIgnoreCase(urlType)) {

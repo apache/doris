@@ -33,8 +33,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -48,7 +50,9 @@ import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.plsql.Exec;
+import org.apache.doris.plsql.executor.PlSqlOperation;
+import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -77,7 +81,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nullable;
+
 
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
@@ -135,7 +141,10 @@ public class ConnectContext {
     protected volatile long currentDbId = -1;
     // Transaction
     protected volatile TransactionEntry txnEntry = null;
-
+    // cluster name
+    protected volatile String clusterName = "";
+    // used for ShowSqlAction which don't allow a user account
+    protected volatile boolean noAuth = false;
     // username@host of current login user
     protected volatile String qualifiedUser;
     // LDAP authenticated but the Doris account does not exist,
@@ -176,6 +185,9 @@ public class ConnectContext {
     // So in the query planning stage, do not use any value in this attribute.
     protected QueryDetail queryDetail = null;
 
+    // cloud cluster name
+    protected volatile String cloudCluster = null;
+
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
     // The resource tag is used to limit the node resources that the user can use for query.
@@ -186,6 +198,8 @@ public class ConnectContext {
     // If set to true, the resource tags set in resourceTags will be used to limit the query resources.
     // If set to false, the system will not restrict query resources.
     private boolean isResourceTagsSet = false;
+
+    private PlSqlOperation plSqlOperation = null;
 
     private String sqlHash;
 
@@ -216,6 +230,8 @@ public class ConnectContext {
     // but the internal implementation will call the logic of `AlterTable`.
     // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
     private boolean skipAuth = false;
+    private Exec exec;
+    private boolean runProcedure = false;
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -332,6 +348,18 @@ public class ConnectContext {
             mysqlChannel = new DummyMysqlChannel();
         }
         init();
+    }
+
+    public ConnectContext cloneContext() {
+        ConnectContext context = new ConnectContext();
+        context.mysqlChannel = mysqlChannel;
+        context.setSessionVariable(VariableMgr.cloneSessionVariable(sessionVariable)); // deep copy
+        context.setEnv(env);
+        context.setDatabase(currentDb);
+        context.setQualifiedUser(qualifiedUser);
+        context.setCurrentUserIdentity(currentUserIdentity);
+        context.setProcedureExec(exec);
+        return context;
     }
 
     public boolean isTxnModel() {
@@ -523,6 +551,14 @@ public class ConnectContext {
 
     public Env getEnv() {
         return env;
+    }
+
+    public boolean getNoAuth() {
+        return noAuth;
+    }
+
+    public void setNoAuth(boolean noAuth) {
+        this.noAuth = noAuth;
     }
 
     public String getQualifiedUser() {
@@ -758,6 +794,13 @@ public class ConnectContext {
         return executor;
     }
 
+    public PlSqlOperation getPlSqlOperation() {
+        if (plSqlOperation == null) {
+            plSqlOperation = new PlSqlOperation();
+        }
+        return plSqlOperation;
+    }
+
     protected void closeChannel() {
         if (mysqlChannel != null) {
             mysqlChannel.close();
@@ -796,6 +839,14 @@ public class ConnectContext {
 
     public TUniqueId queryId() {
         return queryId;
+    }
+
+    public String getClusterName() {
+        return clusterName;
+    }
+
+    public void setCluster(String clusterName) {
+        this.clusterName = clusterName;
     }
 
     public String getSqlHash() {
@@ -1002,6 +1053,81 @@ public class ConnectContext {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
 
+    // maybe user set cluster by SQL hint of session variable: cloud_cluster
+    // so first check it and then get from connect context.
+    public String getCurrentCloudCluster() {
+        String cluster = getSessionVariable().getCloudCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = getCloudCluster();
+        }
+        return cluster;
+    }
+
+    public void setCloudCluster(String cluster) {
+        this.cloudCluster = cluster;
+    }
+
+    /**
+     * @return Returns an available cluster in the following order
+     *         1 Use an explicitly specified cluster
+     *         2 If no cluster is specified, the user's default cluster is used
+     *         3 If the user does not have a default cluster, select a cluster with permissions for the user
+     *         Returns null when there is no available cluster
+     */
+    public String getCloudCluster() {
+        String cluster = null;
+        if (!Strings.isNullOrEmpty(this.cloudCluster)) {
+            cluster = this.cloudCluster;
+        }
+
+        String defaultCluster = getDefaultCloudCluster();
+        if (!Strings.isNullOrEmpty(defaultCluster)) {
+            cluster = defaultCluster;
+        }
+
+        String authorizedCluster = getAuthorizedCloudCluster();
+        if (!Strings.isNullOrEmpty(authorizedCluster)) {
+            cluster = authorizedCluster;
+        }
+
+        if (Strings.isNullOrEmpty(cluster)) {
+            LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
+            getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
+                    "Cant get a Valid cluster for you to use, plz connect admin");
+        } else {
+            this.cloudCluster = cluster;
+            LOG.info("finally set context cluster name {}", cloudCluster);
+        }
+
+        return cluster;
+    }
+
+    // TODO implement this function
+    public String getDefaultCloudCluster() {
+        return null;
+    }
+
+    public String getAuthorizedCloudCluster() {
+        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+        // get all available cluster of the user
+        for (String cloudClusterName : cloudClusterNames) {
+            // find a cluster has more than one alive be
+            List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getBackendsByClusterName(cloudClusterName);
+            AtomicBoolean hasAliveBe = new AtomicBoolean(false);
+            bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
+                LOG.debug("get a clusterName {}, it's has more than one alive be {}", clusterName, backend);
+                hasAliveBe.set(true);
+            });
+            if (hasAliveBe.get()) {
+                LOG.debug("set context cluster name {}", cloudClusterName);
+                return cloudClusterName;
+            }
+        }
+
+        return null;
+    }
+
     public StatsErrorEstimator getStatsErrorEstimator() {
         return statsErrorEstimator;
     }
@@ -1032,6 +1158,22 @@ public class ConnectContext {
 
     public void setSkipAuth(boolean skipAuth) {
         this.skipAuth = skipAuth;
+    }
+
+    public boolean isRunProcedure() {
+        return runProcedure;
+    }
+
+    public void setRunProcedure(boolean runProcedure) {
+        this.runProcedure = runProcedure;
+    }
+
+    public void setProcedureExec(Exec exec) {
+        this.exec = exec;
+    }
+
+    public Exec getProcedureExec() {
+        return exec;
     }
 
     public int getNetReadTimeout() {

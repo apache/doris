@@ -21,6 +21,7 @@
 
 #include "pipeline/exec/operator.h"
 #include "vec/common/hash_table/hash_table_set_build.h"
+#include "vec/core/materialize_block.h"
 #include "vec/exec/vset_operation_node.h"
 
 namespace doris {
@@ -93,7 +94,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
             if (_child_quantity == 1) {
-                local_state._shared_state->source_dep->set_ready();
+                local_state._dependency->set_ready_to_read();
             }
         }
     }
@@ -139,10 +140,10 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        auto column = block.get_by_position(result_col_id).column.get();
+        const auto* column = block.get_by_position(result_col_id).column.get();
 
-        if (auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
-            auto& col_nested = nullable->get_nested_column();
+        if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
+            const auto& col_nested = nullable->get_nested_column();
             if (local_state._shared_state->build_not_ignore_null[i]) {
                 raw_ptrs[i] = nullable;
             } else {
@@ -165,7 +166,7 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     SCOPED_TIMER(_open_timer);
     _build_timer = ADD_TIMER(_profile, "BuildTime");
 
-    Parent& parent = _parent->cast<Parent>();
+    auto& parent = _parent->cast<Parent>();
     _dependency->set_cur_child_id(parent._cur_child_id);
     _child_exprs.resize(parent._child_exprs.size());
     for (size_t i = 0; i < _child_exprs.size(); i++) {
@@ -175,16 +176,15 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     _shared_state->child_quantity = parent._child_quantity;
 
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
-    DCHECK(child_exprs_lists.size() == 0 || child_exprs_lists.size() == parent._child_quantity);
-    if (child_exprs_lists.size() == 0) {
+    DCHECK(child_exprs_lists.empty() || child_exprs_lists.size() == parent._child_quantity);
+    if (child_exprs_lists.empty()) {
         child_exprs_lists.resize(parent._child_quantity);
     }
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
 
-    _shared_state->hash_table_variants = std::make_unique<vectorized::HashTableVariants>();
+    _shared_state->hash_table_variants = std::make_unique<vectorized::SetHashTableVariants>();
 
-    for (int i = 0; i < child_exprs_lists[0].size(); ++i) {
-        const auto& ctx = child_exprs_lists[0][i];
+    for (const auto& ctx : child_exprs_lists[0]) {
         _shared_state->build_not_ignore_null.push_back(ctx->root()->is_nullable());
     }
     _shared_state->hash_table_init();

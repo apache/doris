@@ -520,4 +520,10 @@ size_t ColumnMap::allocated_bytes() const {
            get_offsets().allocated_bytes();
 }
 
+ColumnPtr ColumnMap::convert_to_full_column_if_const() const {
+    return ColumnMap::create(keys_column->convert_to_full_column_if_const(),
+                             values_column->convert_to_full_column_if_const(),
+                             offsets_column->convert_to_full_column_if_const());
+}
+
 } // namespace doris::vectorized

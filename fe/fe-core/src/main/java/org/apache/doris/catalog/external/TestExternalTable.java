@@ -44,11 +44,6 @@ public class TestExternalTable extends ExternalTable {
     }
 
     @Override
-    public String getMysqlType() {
-        return type.name();
-    }
-
-    @Override
     public TTableDescriptor toThrift() {
         makeSureInitialized();
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.TEST_EXTERNAL_TABLE,

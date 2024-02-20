@@ -17,6 +17,8 @@
 
 #include "olap/wal/wal_dirs_info.h"
 
+#include <string>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
@@ -24,7 +26,7 @@
 
 namespace doris {
 
-std::string WalDirInfo::get_wal_dir() {
+const std::string& WalDirInfo::get_wal_dir() const {
     return _wal_dir;
 }
 
@@ -38,9 +40,19 @@ void WalDirInfo::set_limit(size_t limit) {
     _limit = limit;
 }
 
+size_t WalDirInfo::get_used() {
+    std::shared_lock rlock(_lock);
+    return _used;
+}
+
 void WalDirInfo::set_used(size_t used) {
     std::unique_lock wlock(_lock);
     _used = used;
+}
+
+size_t WalDirInfo::get_pre_allocated() {
+    std::shared_lock rlock(_lock);
+    return _pre_allocated;
 }
 
 void WalDirInfo::set_pre_allocated(size_t increase_pre_allocated, size_t decrease_pre_allocated) {
@@ -95,6 +107,12 @@ void WalDirInfo::update_wal_dir_pre_allocated(size_t increase_pre_allocated,
     set_pre_allocated(increase_pre_allocated, decrease_pre_allocated);
 }
 
+std::string WalDirInfo::get_wal_dir_info_string() {
+    return "[" + _wal_dir + ": limit " + std::to_string(_limit) + " Bytes, used " +
+           std::to_string(_used) + " Bytes, pre allocated " + std::to_string(_pre_allocated) +
+           " Bytes, available " + std::to_string(available()) + "Bytes.]";
+}
+
 Status WalDirsInfo::add(const std::string& wal_dir, size_t limit, size_t used,
                         size_t pre_allocated) {
     for (const auto& it : _wal_dirs_info_vec) {
@@ -102,7 +120,7 @@ Status WalDirsInfo::add(const std::string& wal_dir, size_t limit, size_t used,
 #ifdef BE_TEST
             return Status::OK();
 #endif
-            return Status::InternalError("wal dir {} exists!", wal_dir);
+            return Status::InternalError<false>("wal dir {} exists!", wal_dir);
         }
     }
     std::unique_lock wlock(_lock);
@@ -122,14 +140,15 @@ std::string WalDirsInfo::get_available_random_wal_dir() {
             }
         }
         if (available_wal_dirs.empty()) {
-            return (*std::min_element(_wal_dirs_info_vec.begin(), _wal_dirs_info_vec.end(),
+            // if all wal dirs used space > wal dir limit * 80%, we use the max available wal dir.
+            return (*std::max_element(_wal_dirs_info_vec.begin(), _wal_dirs_info_vec.end(),
                                       [](const auto& info1, const auto& info2) {
                                           return info1->available() < info2->available();
                                       }))
                     ->get_wal_dir();
         } else {
-            return (*std::next(_wal_dirs_info_vec.begin(), rand() % _wal_dirs_info_vec.size()))
-                    ->get_wal_dir();
+            // if there are wal dirs used space < wal dir limit * 80%, we use random wal dir.
+            return (*std::next(available_wal_dirs.begin(), rand() % available_wal_dirs.size()));
         }
     }
 }
@@ -144,14 +163,22 @@ size_t WalDirsInfo::get_max_available_size() {
                              ->available();
 }
 
-Status WalDirsInfo::update_wal_dir_limit(std::string wal_dir, size_t limit) {
+std::string WalDirsInfo::get_wal_dirs_info_string() {
+    std::string wal_dirs_info_string;
     for (const auto& wal_dir_info : _wal_dirs_info_vec) {
-        LOG(INFO) << "wal_dir_info:" << wal_dir_info->get_wal_dir();
+        wal_dirs_info_string += wal_dir_info->get_wal_dir_info_string() + "\n";
+    }
+    return wal_dirs_info_string;
+}
+
+Status WalDirsInfo::update_wal_dir_limit(const std::string& wal_dir, size_t limit) {
+    for (const auto& wal_dir_info : _wal_dirs_info_vec) {
         if (wal_dir_info->get_wal_dir() == wal_dir) {
             return wal_dir_info->update_wal_dir_limit(limit);
         }
     }
-    return Status::InternalError("Can not find wal dir in wal disks info.");
+    return Status::InternalError<false>("Can not find wal dir {} when update wal dir limit",
+                                        wal_dir);
 }
 
 Status WalDirsInfo::update_all_wal_dir_limit() {
@@ -161,13 +188,14 @@ Status WalDirsInfo::update_all_wal_dir_limit() {
     return Status::OK();
 }
 
-Status WalDirsInfo::update_wal_dir_used(std::string wal_dir, size_t used) {
+Status WalDirsInfo::update_wal_dir_used(const std::string& wal_dir, size_t used) {
     for (const auto& wal_dir_info : _wal_dirs_info_vec) {
         if (wal_dir_info->get_wal_dir() == wal_dir) {
             return wal_dir_info->update_wal_dir_used(used);
         }
     }
-    return Status::InternalError("Can not find wal dir in wal disks info.");
+    return Status::InternalError<false>("Can not find wal dir {} when update wal dir used",
+                                        wal_dir);
 }
 
 Status WalDirsInfo::update_all_wal_dir_used() {
@@ -177,7 +205,8 @@ Status WalDirsInfo::update_all_wal_dir_used() {
     return Status::OK();
 }
 
-Status WalDirsInfo::update_wal_dir_pre_allocated(std::string wal_dir, size_t increase_pre_allocated,
+Status WalDirsInfo::update_wal_dir_pre_allocated(const std::string& wal_dir,
+                                                 size_t increase_pre_allocated,
                                                  size_t decrease_pre_allocated) {
     for (const auto& wal_dir_info : _wal_dirs_info_vec) {
         if (wal_dir_info->get_wal_dir() == wal_dir) {
@@ -186,7 +215,8 @@ Status WalDirsInfo::update_wal_dir_pre_allocated(std::string wal_dir, size_t inc
             return Status::OK();
         }
     }
-    return Status::InternalError("Can not find wal dir in wal disks info.");
+    return Status::InternalError<false>("Can not find wal dir {} when update wal dir pre allocated",
+                                        wal_dir);
 }
 
 Status WalDirsInfo::get_wal_dir_available_size(const std::string& wal_dir,
@@ -198,7 +228,22 @@ Status WalDirsInfo::get_wal_dir_available_size(const std::string& wal_dir,
             return Status::OK();
         }
     }
-    return Status::InternalError("can not find wal dir!");
+    return Status::InternalError<false>("Can not find wal dir {} when get wal dir available size",
+                                        wal_dir);
+}
+
+Status WalDirsInfo::get_wal_dir_info(const std::string& wal_dir,
+                                     std::shared_ptr<WalDirInfo>& wal_dir_info) {
+    std::shared_lock l(_lock);
+    auto it = std::find_if(_wal_dirs_info_vec.begin(), _wal_dirs_info_vec.end(),
+                           [&wal_dir](auto w) { return w->get_wal_dir() == wal_dir; });
+    if (it != _wal_dirs_info_vec.end()) {
+        wal_dir_info = *it;
+    } else {
+        wal_dir_info = nullptr;
+        return Status::InternalError<false>("Can not find wal dir {}", wal_dir);
+    }
+    return Status::OK();
 }
 
 } // namespace doris

@@ -29,7 +29,8 @@ suite("query60") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
-    sql 'set dump_nereids_memo=true'
+    sql 'set runtime_filter_type=8'
+    sql 'set dump_nereids_memo=false'
     def ds = """with ss as (
  select
           i_item_id,sum(ss_ext_sales_price) total_sales

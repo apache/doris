@@ -398,7 +398,6 @@ If you want to know the detailed information about materialized view candidates,
 | SET enable_nereids_planner = true;                                        | Asynchronous materialized views are only supported under the new optimizer, so the new optimizer needs to be enabled.       |
 | SET enable_materialized_view_rewrite = true;                              | Enable or disable query transparent rewriting, default is disabled                     |
 | SET materialized_view_rewrite_enable_contain_external_table = true;       | Whether materialized views participating in transparent rewriting are allowed to contain external tables, default is not allowed           |
-| SET disable_nereids_rules = 'ELIMINATE_OUTER_JOIN';                       | Currently, outer join elimination has an impact on transparent  |
 
 
 ## Limitations

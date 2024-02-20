@@ -164,13 +164,13 @@ public class JdbcMySQLClient extends JdbcClient {
                 field.setRemarks(rs.getString("REMARKS"));
                 field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
                 String isAutoincrement = rs.getString("IS_AUTOINCREMENT");
-                field.setAutoincrement("YES".equalsIgnoreCase(isAutoincrement));
+                field.setAutoIncInitValue("YES".equalsIgnoreCase(isAutoincrement) ? 1 : -1);
                 field.setDefaultValue(rs.getString("COLUMN_DEF"));
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
-                Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for table %.%s: %s",
+                    e, dbName, tableName, Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }
@@ -197,7 +197,7 @@ public class JdbcMySQLClient extends JdbcClient {
             }
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), field.isKey(), null,
-                    field.isAllowNull(), field.isAutoincrement(), field.getDefaultValue(), field.getRemarks(),
+                    field.isAllowNull(), field.getAutoIncInitValue(), field.getDefaultValue(), field.getRemarks(),
                     true, defaultValueExprDef, -1, null));
         }
         return dorisTableSchema;
@@ -312,7 +312,6 @@ public class JdbcMySQLClient extends JdbcClient {
                     return ScalarType.createStringType();
                 }
             case "JSON":
-                return ScalarType.createJsonbType();
             case "TIME":
             case "TINYTEXT":
             case "TEXT":
@@ -430,9 +429,8 @@ public class JdbcMySQLClient extends JdbcClient {
             }
             case "STRING":
             case "TEXT":
-                return ScalarType.createStringType();
             case "JSON":
-                return ScalarType.createJsonbType();
+                return ScalarType.createStringType();
             case "HLL":
                 return ScalarType.createHllType();
             case "BITMAP":

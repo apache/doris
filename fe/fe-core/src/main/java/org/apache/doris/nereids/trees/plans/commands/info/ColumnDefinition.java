@@ -24,7 +24,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -62,7 +62,7 @@ public class ColumnDefinition {
     private final String comment;
     private final boolean isVisible;
     private boolean aggTypeImplicit = false;
-    private boolean isAutoInc = false;
+    private long autoIncInitValue = -1;
     private int clusterKeyId = -1;
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
@@ -71,9 +71,9 @@ public class ColumnDefinition {
     }
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
-            boolean isNullable, boolean isAutoInc, Optional<DefaultValue> defaultValue,
+            boolean isNullable, long autoIncInitValue, Optional<DefaultValue> defaultValue,
             Optional<DefaultValue> onUpdateDefaultValue, String comment) {
-        this(name, type, isKey, aggType, isNullable, isAutoInc, defaultValue, onUpdateDefaultValue,
+        this(name, type, isKey, aggType, isNullable, autoIncInitValue, defaultValue, onUpdateDefaultValue,
                 comment, true);
     }
 
@@ -96,14 +96,14 @@ public class ColumnDefinition {
      * constructor
      */
     private ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
-            boolean isNullable, boolean isAutoInc, Optional<DefaultValue> defaultValue,
+            boolean isNullable, long autoIncInitValue, Optional<DefaultValue> defaultValue,
             Optional<DefaultValue> onUpdateDefaultValue, String comment, boolean isVisible) {
         this.name = name;
         this.type = type;
         this.isKey = isKey;
         this.aggType = aggType;
         this.isNullable = isNullable;
-        this.isAutoInc = isAutoInc;
+        this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
         this.onUpdateDefaultValue = onUpdateDefaultValue;
         this.comment = comment;
@@ -150,10 +150,6 @@ public class ColumnDefinition {
         this.clusterKeyId = clusterKeyId;
     }
 
-    public boolean isAutoInc() {
-        return isAutoInc;
-    }
-
     private DataType updateCharacterTypeLength(DataType dataType) {
         if (dataType instanceof ArrayType) {
             return ArrayType.of(updateCharacterTypeLength(((ArrayType) dataType).getItemType()));
@@ -182,6 +178,11 @@ public class ColumnDefinition {
      * validate column definition and analyze
      */
     public void validate(boolean isOlap, Set<String> keysSet, boolean isEnableMergeOnWrite, KeysType keysType) {
+        try {
+            FeNameFormat.checkColumnName(name);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
         validateDataType(type.toCatalogDataType());
         type = updateCharacterTypeLength(type);
         if (type.isArrayType()) {
@@ -392,21 +393,11 @@ public class ColumnDefinition {
                 Type itemType = ((org.apache.doris.catalog.ArrayType) catalogType).getItemType();
                 if (itemType instanceof ScalarType) {
                     validateNestedType(catalogType, (ScalarType) itemType);
-                } else if (Config.disable_nested_complex_type
-                        && !(itemType instanceof org.apache.doris.catalog.ArrayType)) {
-                    // now we can array nesting array
-                    throw new AnalysisException(
-                            "Unsupported data type: ARRAY<" + itemType.toSql() + ">");
                 }
             }
             if (catalogType.isMapType()) {
                 org.apache.doris.catalog.MapType mt =
                         (org.apache.doris.catalog.MapType) catalogType;
-                if (Config.disable_nested_complex_type && (!(mt.getKeyType() instanceof ScalarType)
-                        || !(mt.getValueType() instanceof ScalarType))) {
-                    throw new AnalysisException("Unsupported data type: MAP<"
-                            + mt.getKeyType().toSql() + "," + mt.getValueType().toSql() + ">");
-                }
                 if (mt.getKeyType() instanceof ScalarType) {
                     validateNestedType(catalogType, (ScalarType) mt.getKeyType());
                 }
@@ -426,9 +417,6 @@ public class ColumnDefinition {
                             throw new AnalysisException("Duplicate field name " + field.getName()
                                     + " in struct " + catalogType.toSql());
                         }
-                    } else if (Config.disable_nested_complex_type) {
-                        throw new AnalysisException(
-                                "Unsupported field type: " + fieldType.toSql() + " for STRUCT");
                     }
                 }
             }
@@ -460,7 +448,6 @@ public class ColumnDefinition {
                 } else {
                     name = "CHAR";
                     maxLen = ScalarType.MAX_CHAR_LENGTH;
-                    return;
                 }
                 int len = scalarType.getLength();
                 // len is decided by child, when it is -1.
@@ -628,7 +615,7 @@ public class ColumnDefinition {
      */
     public Column translateToCatalogStyle() {
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
-                isAutoInc, defaultValue.map(DefaultValue::getRawValue).orElse(null), comment, isVisible,
+                autoIncInitValue, defaultValue.map(DefaultValue::getRawValue).orElse(null), comment, isVisible,
                 defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
                 defaultValue.map(DefaultValue::getValue).orElse(null), onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId);

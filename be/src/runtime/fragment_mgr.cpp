@@ -65,6 +65,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
@@ -220,14 +221,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
     DCHECK(req.runtime_state != nullptr);
 
-    if (req.query_statistics) {
-        // use to report 'insert into select'
-        TQueryStatistics queryStatistics;
-        DCHECK(req.query_statistics->collect_dml_statistics());
-        req.query_statistics->to_thrift(&queryStatistics);
-        params.__set_query_statistics(queryStatistics);
-    }
-
     if (req.runtime_state->query_type() == TQueryType::LOAD && !req.done && req.status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
@@ -322,11 +315,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
         params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
         params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
-        LOG(INFO) << "execute coordinator callback, query id: " << print_id(req.query_id)
-                  << ", instance id: " << print_id(req.fragment_instance_id)
-                  << ", num_rows_load_success: " << num_rows_load_success
-                  << ", num_rows_load_filtered: " << num_rows_load_filtered
-                  << ", num_rows_load_unselected: " << num_rows_load_unselected;
 
         if (!req.runtime_state->get_error_log_file_path().empty()) {
             params.__set_tracking_url(
@@ -612,15 +600,13 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
         query_ctx = search->second;
     } else {
-        {
-            // Find _query_ctx_map, in case some other request has already
-            // create the query fragments context.
-            std::lock_guard<std::mutex> lock(_lock);
-            auto search = _query_ctx_map.find(query_id);
-            if (search != _query_ctx_map.end()) {
-                query_ctx = search->second;
-                return Status::OK();
-            }
+        // Find _query_ctx_map, in case some other request has already
+        // create the query fragments context.
+        std::lock_guard<std::mutex> lock(_lock);
+        auto search = _query_ctx_map.find(query_id);
+        if (search != _query_ctx_map.end()) {
+            query_ctx = search->second;
+            return Status::OK();
         }
 
         // This may be a first fragment request of the query.
@@ -648,88 +634,38 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
 
         query_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(pipeline);
-        query_ctx->timeout_second = params.query_options.execution_timeout;
         _set_scan_concurrency(params, query_ctx.get());
 
-        bool has_query_mem_tracker =
-                params.query_options.__isset.mem_limit && (params.query_options.mem_limit > 0);
-        int64_t bytes_limit = has_query_mem_tracker ? params.query_options.mem_limit : -1;
-        if (bytes_limit > MemInfo::mem_limit()) {
-            VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
-                        << " exceeds process memory limit of "
-                        << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
-                        << ". Using process memory limit instead";
-            bytes_limit = MemInfo::mem_limit();
-        }
-        if (params.query_options.query_type == TQueryType::SELECT) {
-            query_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
-                    MemTrackerLimiter::Type::QUERY,
-                    fmt::format("Query#Id={}", print_id(query_ctx->query_id())), bytes_limit);
-        } else if (params.query_options.query_type == TQueryType::LOAD) {
-            query_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
-                    MemTrackerLimiter::Type::LOAD,
-                    fmt::format("Load#Id={}", print_id(query_ctx->query_id())), bytes_limit);
-        } else { // EXTERNAL
-            query_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
-                    MemTrackerLimiter::Type::LOAD,
-                    fmt::format("External#Id={}", print_id(query_ctx->query_id())), bytes_limit);
-        }
-        if (params.query_options.__isset.is_report_success &&
-            params.query_options.is_report_success) {
-            query_ctx->query_mem_tracker->enable_print_log_usage();
-        }
-
+        bool is_pipeline = false;
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
-            if (params.__isset.workload_groups && !params.workload_groups.empty()) {
-                uint64_t tg_id = params.workload_groups[0].id;
-                auto* tg_mgr = _exec_env->task_group_manager();
-                if (auto task_group_ptr = tg_mgr->get_task_group_by_id(tg_id)) {
-                    task_group_ptr->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                    // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
-                    query_ctx->set_task_group(task_group_ptr);
-                    stringstream ss;
-                    ss << "Query/load id: " << print_id(query_ctx->query_id())
-                       << ", use task group:" << task_group_ptr->debug_string()
-                       << ", enable cpu hard limit:"
-                       << (tg_mgr->enable_cpu_hard_limit() ? "true" : "false");
-                    bool ret = false;
-                    if (tg_mgr->enable_cgroup()) {
-                        ret = tg_mgr->set_cg_task_sche_for_query_ctx(tg_id, query_ctx.get());
-                        if (ret) {
-                            ss << ", use cgroup for cpu limit.";
-                        } else {
-                            ss << ", not found cgroup sche, no limit for cpu.";
-                        }
-                    } else {
-                        ss << ", use doris sche for cpu limit.";
-                        query_ctx->use_task_group_for_cpu_limit.store(true);
-                    }
-                    LOG(INFO) << ss.str();
-                } else {
-                    VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
-                               << " no task group found, does not use task group.";
-                }
-            } else {
-                VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
-                           << " does not use task group.";
-            }
+            is_pipeline = true;
         }
 
-        {
-            // Find _query_ctx_map again, in case some other request has already
-            // create the query fragments context.
-            std::lock_guard<std::mutex> lock(_lock);
-            auto search = _query_ctx_map.find(query_id);
-            if (search == _query_ctx_map.end()) {
-                _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
-                LOG(INFO) << "Register query/load memory tracker, query/load id: "
-                          << print_id(query_ctx->query_id())
-                          << " limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
+        if (params.__isset.workload_groups && !params.workload_groups.empty()) {
+            uint64_t tg_id = params.workload_groups[0].id;
+            taskgroup::TaskGroupPtr task_group_ptr =
+                    _exec_env->task_group_manager()->get_task_group_by_id(tg_id);
+            if (task_group_ptr != nullptr) {
+                RETURN_IF_ERROR(query_ctx->set_task_group(task_group_ptr));
+                _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
+                                                                                 tg_id);
+
+                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
+                          << ", use task group: " << task_group_ptr->debug_string()
+                          << ", is pipeline: " << ((int)is_pipeline)
+                          << ", enable cgroup soft limit: "
+                          << ((int)config::enable_cgroup_cpu_soft_limit);
             } else {
-                // Already has a query fragments context, use it
-                query_ctx = search->second;
+                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
+                          << " carried group info but can not find group in be";
             }
         }
+        // There is some logic in query ctx's dctor, we could not check if exists and delete the
+        // temp query ctx now. For example, the query id maybe removed from task group's queryset.
+        _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
+        LOG(INFO) << "Register query/load memory tracker, query/load id: "
+                  << print_id(query_ctx->query_id())
+                  << " limit: " << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
     }
     return Status::OK();
 }
@@ -786,7 +722,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     // TODO need check the status, but when I add return_if_error the P0 will not pass
     static_cast<void>(_runtimefilter_controller.add_entity(
-            params, &handler,
+            params.params, params.params.query_id, params.query_options, &handler,
             RuntimeFilterParamsContext::create(fragment_executor->runtime_state())));
     fragment_executor->set_merge_controller_handler(handler);
     {
@@ -795,7 +731,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                 std::make_pair(params.params.fragment_instance_id, fragment_executor));
         _cv.notify_all();
     }
-    auto st = _thread_pool->submit_func(
+
+    auto* current_thread_pool = query_ctx->get_non_pipe_exec_thread_pool();
+    if (!current_thread_pool) {
+        current_thread_pool = _thread_pool.get();
+    }
+    auto st = current_thread_pool->submit_func(
             [this, fragment_executor, cb] { _exec_actual(fragment_executor, cb); });
     if (!st.ok()) {
         {
@@ -869,7 +810,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         for (size_t i = 0; i < params.local_params.size(); i++) {
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
             static_cast<void>(_runtimefilter_controller.add_entity(
-                    params, params.local_params[i], &handler,
+                    params.local_params[i], params.query_id, params.query_options, &handler,
                     RuntimeFilterParamsContext::create(context->get_runtime_state(UniqueId()))));
             context->set_merge_controller_handler(handler);
             const TUniqueId& fragment_instance_id = params.local_params[i].fragment_instance_id;
@@ -949,7 +890,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
             static_cast<void>(_runtimefilter_controller.add_entity(
-                    params, local_params, &handler,
+                    local_params, params.query_id, params.query_options, &handler,
                     RuntimeFilterParamsContext::create(context->get_runtime_state(UniqueId()))));
             context->set_merge_controller_handler(handler);
 
@@ -1485,8 +1426,9 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         // when filter_controller->merge is still in progress
         fragment_executor = iter->second;
     }
-    RETURN_IF_ERROR(filter_controller->merge(request, attach_data, opt_remote_rf));
-    return Status::OK();
+    auto merge_status = filter_controller->merge(request, attach_data, opt_remote_rf);
+    DCHECK(merge_status.ok());
+    return merge_status;
 }
 
 void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,

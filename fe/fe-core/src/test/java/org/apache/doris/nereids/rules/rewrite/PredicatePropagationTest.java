@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -34,6 +35,7 @@ import java.util.Set;
 class PredicatePropagationTest {
     private final SlotReference a = new SlotReference("a", SmallIntType.INSTANCE);
     private final SlotReference b = new SlotReference("b", BigIntType.INSTANCE);
+    private final SlotReference c = new SlotReference("c", BigIntType.INSTANCE);
 
     @Test
     void equal() {
@@ -45,6 +47,20 @@ class PredicatePropagationTest {
     @Test
     void in() {
         Set<Expression> exprs = ImmutableSet.of(new EqualTo(a, b), new InPredicate(a, ImmutableList.of(Literal.of(1))));
+        Set<Expression> inferExprs = PredicatePropagation.infer(exprs);
+        System.out.println(inferExprs);
+    }
+
+    @Test
+    void inferSlotEqual() {
+        Set<Expression> exprs = ImmutableSet.of(new EqualTo(a, b), new EqualTo(a, c));
+        Set<Expression> inferExprs = PredicatePropagation.infer(exprs);
+        System.out.println(inferExprs);
+    }
+
+    @Test
+    void inferComplex0() {
+        Set<Expression> exprs = ImmutableSet.of(new EqualTo(a, b), new EqualTo(a, c), new GreaterThan(a, Literal.of(1)));
         Set<Expression> inferExprs = PredicatePropagation.infer(exprs);
         System.out.println(inferExprs);
     }

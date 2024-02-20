@@ -454,7 +454,7 @@ public class MetastoreEventFactoryTest {
             for (int j = 0; j < 1000; j++) {
                 events.add(producer.produceOneEvent(j));
             }
-            List<MetastoreEvent> mergedEvents = factory.createBatchEvents(testCtl, events);
+            List<MetastoreEvent> mergedEvents = factory.mergeEvents(testCtl, events);
 
             for (MetastoreEvent event : events) {
                 processEvent(validateCatalog, event);

@@ -29,7 +29,7 @@ import com.google.common.collect.ImmutableList;
 // show proc "/cluster_balance/cluster_load_stat/location_default/HDD";
 public class ClusterLoadStatisticProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BeId").add("Available").add("UsedCapacity").add("Capacity")
+            .add("BeId").add("Available").add("UsedCapacity").add("Capacity").add("MaxDisk")
             .add("UsedPercent").add("ReplicaNum").add("CapCoeff").add("ReplCoeff").add("Score")
             .add("Class")
             .build();

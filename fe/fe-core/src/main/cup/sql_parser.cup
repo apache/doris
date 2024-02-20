@@ -345,6 +345,7 @@ terminal String
     KW_DESC,
     KW_DESCRIBE,
     KW_DIAGNOSE,
+    KW_DIAGNOSIS,
     KW_DISK,
     KW_DISTINCT,
     KW_DISTINCTPC,
@@ -833,6 +834,7 @@ nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
 nonterminal String opt_job_starts;
 nonterminal String opt_job_ends;
+nonterminal String job_at_time;
 nonterminal ColocateGroupName colocate_group_name;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
@@ -913,7 +915,7 @@ nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local, opt_is_auto_inc;
+nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -970,6 +972,7 @@ nonterminal StorageBackend storage_backend;
 
 nonterminal ArrayList<LockTable> opt_lock_tables_list;
 nonterminal LockTable lock_table;
+nonterminal Long opt_auto_inc_init_value;
 
 // workload policy/group
 nonterminal String policy_condition_op, policy_condition_value;
@@ -1061,6 +1064,11 @@ import_column_descs ::=
         RESULT = Lists.newArrayList(column);
     :}
     | import_column_descs:columns COMMA import_column_desc:column
+    {:
+        columns.add(column);
+        RESULT = columns;
+    :}
+    | import_column_descs:columns COMMA LPAREN import_column_desc:column RPAREN
     {:
         columns.add(column);
         RESULT = columns;
@@ -2590,7 +2598,7 @@ create_job_stmt ::=
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.STREAMING,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
     :}   */ 
-    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE job_at_time:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.ONE_TIME,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
@@ -2604,8 +2612,22 @@ create_job_stmt ::=
      {: 
         RESULT = startTime;    
      :}
+     |KW_STARTS KW_CURRENT_TIMESTAMP
+     {: 
+        RESULT = CreateJobStmt.CURRENT_TIMESTAMP_STRING;
+     :}   
      ;
- 
+     
+ job_at_time ::= 
+     | KW_AT STRING_LITERAL:atTime 
+     {: 
+        RESULT = atTime;    
+     :}
+     |KW_AT KW_CURRENT_TIMESTAMP
+     {: 
+        RESULT = CreateJobStmt.CURRENT_TIMESTAMP_STRING;
+     :}   
+     ;
  opt_job_ends ::= 
      {:
          RESULT = null;
@@ -2623,9 +2645,9 @@ pause_job_stmt ::=
     ;
 
 stop_job_stmt ::=
-    KW_DROP KW_JOB opt_wild_where
+    KW_DROP KW_JOB opt_if_exists:ifExists opt_wild_where 
     {:
-      RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.STOPPED);
+      RESULT = new AlterJobStatusStmt(parser.where,true,ifExists);
     :}
     ;    
 resume_job_stmt ::=
@@ -3697,21 +3719,21 @@ opt_is_key ::=
     ;
 
 column_definition ::=
-    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
+    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, isAutoInc, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, false, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
         columnDef.setGenericAggregationName(fnName);
         columnDef.setGenericAggregationArguments(list);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_auto_inc_init_value:autoIncInitValue opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, isAutoInc, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, autoIncInitValue, defaultValue, comment);
         RESULT = columnDef;
     :}
     | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
@@ -3751,15 +3773,23 @@ opt_is_allow_null ::=
     :}
     ;
 
-opt_is_auto_inc ::=
+opt_auto_inc_init_value ::=
     {:
-        RESULT = false;
+        RESULT = Long.valueOf(-1);
     :}
     | KW_AUTO_INCREMENT
     {:
-        RESULT = true;
+        RESULT = Long.valueOf(1);
+    :}
+    | KW_AUTO_INCREMENT LPAREN INTEGER_LITERAL:auto_inc_initial_value RPAREN
+    {:
+        if (auto_inc_initial_value.longValue() < 0) {
+            throw new AnalysisException("AUTO_INCREMENT start value can not be negative.");
+        }
+        RESULT = auto_inc_initial_value.longValue();
     :}
     ;
+
 opt_comment ::=
     /* empty */
     {:
@@ -3988,11 +4018,11 @@ show_param ::=
     /* Database */
     | KW_DATABASES opt_wild_where
     {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, null);
     :}
-    | KW_DATABASES KW_FROM ident:catalogName
+    | KW_DATABASES KW_FROM ident:catalogName opt_wild_where
     {:
-        RESULT = new ShowDbStmt(null, null, catalogName);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, catalogName);
     :}
     /* show database id */
     | KW_DATABASE INTEGER_LITERAL:dbId
@@ -4006,11 +4036,11 @@ show_param ::=
     :}
     | KW_SCHEMAS opt_wild_where
     {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, null);
     :}
-    | KW_SCHEMAS KW_FROM ident:catalogName
+    | KW_SCHEMAS KW_FROM ident:catalogName opt_wild_where
     {:
-        RESULT = new ShowDbStmt(null, null, catalogName);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, catalogName);
     :}
     /* Catalog */
     | KW_CATALOGS opt_wild_where
@@ -4029,6 +4059,10 @@ show_param ::=
     :}
     /* Columns */
     | opt_full KW_COLUMNS from_or_in table_name:table opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowColumnStmt(table, db, parser.wild, parser.isVerbose, parser.where);
+    :}
+    | opt_full KW_FIELDS from_or_in table_name:table opt_db:db opt_wild_where
     {:
         RESULT = new ShowColumnStmt(table, db, parser.wild, parser.isVerbose, parser.where);
     :}
@@ -4162,11 +4196,11 @@ show_param ::=
     :}
     | KW_RESOURCES opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowResourcesStmt(parser.where, orderByClause, limitClause);
+        RESULT = new ShowResourcesStmt(parser.wild, parser.where, orderByClause, limitClause);
     :}
-    | KW_WORKLOAD KW_GROUPS
+    | KW_WORKLOAD KW_GROUPS opt_wild_where
     {:
-        RESULT = new ShowWorkloadGroupsStmt();
+        RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
     :}
     | KW_WORKLOAD KW_SCHEDULE KW_POLICY
     {:
@@ -4340,6 +4374,30 @@ show_param ::=
     {:
         RESULT = new ShowConvertLSCStmt(db);
     :}
+    | KW_REPLICA KW_STATUS KW_FROM base_table_ref:table_ref opt_wild_where
+    {:
+        RESULT = new ShowReplicaStatusStmt(table_ref, parser.where);
+    :}
+    | KW_REPLICA KW_DISTRIBUTION KW_FROM base_table_ref:table_ref
+    {:
+        RESULT = new ShowReplicaDistributionStmt(table_ref);
+    :}
+    | KW_FRONTEND KW_CONFIG opt_wild_where
+    {:
+        RESULT = new ShowConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, parser.wild);
+    :}
+    | KW_TABLET KW_STORAGE KW_FORMAT
+    {:
+        RESULT = new ShowTabletStorageFormatStmt(false);
+    :}
+    | KW_TABLET KW_STORAGE KW_FORMAT KW_VERBOSE
+    {:
+        RESULT = new ShowTabletStorageFormatStmt(true);
+    :}
+    | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
+    {:
+        RESULT = new DiagnoseTabletStmt(tabletId);
+    :}
     ;
 
 opt_tmp ::=
@@ -4444,6 +4502,10 @@ opt_full ::=
     {:
         parser.isVerbose = true;
     :}
+    | KW_EXTENDED
+    {:
+        parser.isVerbose = true;
+    :}
     ;
 
 opt_wild_where ::=
@@ -4518,27 +4580,11 @@ describe_stmt ::=
     {:
         RESULT = new DescribeStmt(table, false, partitionNames);
     :}
-    | KW_SHOW KW_FIELDS KW_FROM table_name:table
-    {:
-        RESULT = new DescribeStmt(table, false);
-    :}
-    | KW_SHOW KW_COLUMNS KW_FROM table_name:table
-    {:
-        RESULT = new DescribeStmt(table, false);
-    :}
     | describe_command KW_FUNCTION table_valued_function_ref:tvf
     {:
         RESULT = new DescribeStmt(tvf);
     :}
     | describe_command table_name:table KW_ALL
-    {:
-        RESULT = new DescribeStmt(table, true);
-    :}
-    | KW_SHOW KW_EXTENDED KW_FIELDS KW_FROM table_name:table
-    {:
-        RESULT = new DescribeStmt(table, true);
-    :}
-    | KW_SHOW KW_EXTENDED KW_COLUMNS KW_FROM table_name:table
     {:
         RESULT = new DescribeStmt(table, true);
     :}
@@ -7364,13 +7410,15 @@ integer_list ::=
     ;
 
 admin_stmt ::=
+    // deprecated
     KW_ADMIN KW_SHOW KW_REPLICA KW_STATUS KW_FROM base_table_ref:table_ref opt_wild_where
     {:
-        RESULT = new AdminShowReplicaStatusStmt(table_ref, parser.where);
+        RESULT = new ShowReplicaStatusStmt(table_ref, parser.where);
     :}
+    // deprecated
     | KW_ADMIN KW_SHOW KW_REPLICA KW_DISTRIBUTION KW_FROM base_table_ref:table_ref
     {:
-        RESULT = new AdminShowReplicaDistributionStmt(table_ref);
+        RESULT = new ShowReplicaDistributionStmt(table_ref);
     :}
     | KW_ADMIN KW_SET KW_REPLICA KW_STATUS KW_PROPERTIES LPAREN key_value_map:prop RPAREN
     {:
@@ -7396,9 +7444,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs);
     :}
+    // deprecated
     | KW_ADMIN KW_SHOW KW_FRONTEND KW_CONFIG opt_wild_where
     {:
-        RESULT = new AdminShowConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, parser.wild);
+        RESULT = new ShowConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, parser.wild);
     :}
     | KW_ADMIN KW_CHECK KW_TABLET LPAREN integer_list:tabletIds RPAREN opt_properties:properties
     {:
@@ -7432,17 +7481,20 @@ admin_stmt ::=
     {:
         RESULT = new AdminSetPartitionVersionStmt(name, properties);
     :}
+    // deprecated
     | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
     {:
-        RESULT = new AdminDiagnoseTabletStmt(tabletId);
+        RESULT = new DiagnoseTabletStmt(tabletId);
     :}
+    // deprecated
     | KW_ADMIN KW_SHOW KW_TABLET KW_STORAGE KW_FORMAT
     {:
-        RESULT = new AdminShowTabletStorageFormatStmt(false);
+        RESULT = new ShowTabletStorageFormatStmt(false);
     :}
+    // deprecated
     | KW_ADMIN KW_SHOW KW_TABLET KW_STORAGE KW_FORMAT KW_VERBOSE
     {:
-        RESULT = new AdminShowTabletStorageFormatStmt(true);
+        RESULT = new ShowTabletStorageFormatStmt(true);
     :}
     | KW_ADMIN KW_COPY KW_TABLET INTEGER_LITERAL:tabletId opt_properties:properties
     {:
@@ -7666,6 +7718,8 @@ keyword ::=
     | KW_DECIMALV3:id
     {: RESULT = id; :}
     | KW_DIAGNOSE:id
+    {: RESULT = id; :}
+    | KW_DIAGNOSIS:id
     {: RESULT = id; :}
     | KW_DISTINCTPC:id
     {: RESULT = id; :}

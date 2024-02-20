@@ -29,7 +29,8 @@ suite("query23") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
-    sql 'set dump_nereids_memo=true'
+    sql 'set runtime_filter_type=8'
+    sql 'set dump_nereids_memo=false'
     def ds = """with frequent_ss_items as 
  (select substr(i_item_desc,1,30) itemdesc,i_item_sk item_sk,d_date solddate,count(*) cnt
   from store_sales

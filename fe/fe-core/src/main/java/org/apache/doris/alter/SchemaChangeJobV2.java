@@ -48,7 +48,6 @@ import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.load.GroupCommitManager.SchemaChangeStatus;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -56,6 +55,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -205,7 +205,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * 3. Get a new transaction id, then set job's state to WAITING_TXN
      */
     @Override
-    protected void runPendingJob() throws AlterCancelException {
+    protected void runPendingJob() throws Exception {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
         LOG.info("begin to send create replica tasks. job: {}", jobId);
         Database db = Env.getCurrentInternalCatalog()
@@ -235,7 +235,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         tbl.readLock();
         try {
-
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
             for (long partitionId : partitionIndexMap.rowKeySet()) {
@@ -343,8 +342,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.writeUnlock();
         }
 
-        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionIDGenerator().getNextTransactionId();
+        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
         this.jobState = JobState.WAITING_TXN;
 
         // write edit log
@@ -408,7 +406,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         tbl.readLock();
-
+        Map<Object, List<TColumn>> tcloumnsPool  = Maps.newHashMap();
         try {
             Map<String, Column> indexColumnMap = Maps.newHashMap();
             for (Map.Entry<Long, List<Column>> entry : indexSchemaMap.entrySet()) {
@@ -471,7 +469,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             AlterReplicaTask rollupTask = new AlterReplicaTask(shadowReplica.getBackendId(), dbId,
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
-                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, null);
+                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, tcloumnsPool,
+                                    null);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
@@ -537,9 +536,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
             return;
         }
-        long maxWalId = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionIDGenerator().getNextTransactionId();
-        waitWalFinished(maxWalId);
+        waitWalFinished();
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
@@ -602,33 +599,32 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
     }
 
-    private void waitWalFinished(long maxWalId) {
+    private void waitWalFinished() {
         // wait wal done here
-        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.BLOCK);
-        LOG.info("block table {}", tableId);
+        Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
+        LOG.info("block group commit for table={} when schema change", tableId);
         List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
         long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
-        boolean walFinished = false;
-        while (System.currentTimeMillis() < expireTime) {
-            LOG.info("wai for wal queue size to be empty");
-            walFinished = Env.getCurrentEnv().getGroupCommitManager()
-                    .isPreviousWalFinished(tableId, maxWalId, aliveBeIds);
+        while (true) {
+            LOG.info("wait for wal queue size to be empty");
+            boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
+                    .isPreviousWalFinished(tableId, aliveBeIds);
             if (walFinished) {
-                LOG.info("all wal is finished");
+                LOG.info("all wal is finished for table={}", tableId);
+                break;
+            } else if (System.currentTimeMillis() > expireTime) {
+                LOG.warn("waitWalFinished time out for table={}", tableId);
                 break;
             } else {
                 try {
                     Thread.sleep(100);
                 } catch (InterruptedException ie) {
-                    LOG.info("schema change job sleep wait for wal InterruptedException: ", ie);
+                    LOG.warn("failed to wait for wal for table={} when schema change", tableId, ie);
                 }
             }
         }
-        if (!walFinished) {
-            LOG.warn("waitWalFinished time out");
-        }
-        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.NORMAL);
-        LOG.info("release table {}", tableId);
+        Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
+        LOG.info("unblock group commit for table={} when schema change", tableId);
     }
 
     private void onFinished(OlapTable tbl) {

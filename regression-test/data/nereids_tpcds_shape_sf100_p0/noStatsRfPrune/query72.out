@@ -21,9 +21,9 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF1 cd_demo_sk->[cs_bill_cdemo_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF0 cs_item_sk->[inv_item_sk]
+------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity))
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF3
+----------------------------------------------PhysicalOlapScan[inventory] apply RFs: RF3
 --------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=()
 ------------------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=()

@@ -49,11 +49,10 @@ The following two time zone related parameters exist within Doris:
 
 The time zone data contains the name of the time zone, the corresponding time offset, and the change of daylight saving time. On the machine where the BE is located, the sources of the data are as follows:
 
-1. the directory returned by the `TZDIR` command
-2. the `/usr/share/zoneinfo` directory
-3. the `zoneinfo` directory generated under the doris BE deployment directory. The `resource/zoneinfo.tar.gz` directory from the doris repository.
+1. the directory returned by command `TZDIR`. If was not supported, the directory `/usr/share/zoneinfo`.
+2. the `zoneinfo` directory generated under the doris BE deployment directory. The `resource/zoneinfo.tar.gz` directory from the doris repository.
 
-Look up the above data sources in order and use the current item if found. If none of the three are found, the doris BE will fail to start, please rebuild the BE correctly or get the distribution.
+Look up the above data sources in order and use the current item if found. If neither is found, the doris BE will fail to start, please rebuild the BE correctly or get the distribution.
 
 ## Impact of time zone
 

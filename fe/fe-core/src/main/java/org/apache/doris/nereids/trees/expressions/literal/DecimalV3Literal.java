@@ -31,7 +31,7 @@ import java.util.Objects;
 /**
  * Literal for DecimalV3 Type
  */
-public class DecimalV3Literal extends Literal {
+public class DecimalV3Literal extends FractionalLiteral {
 
     private final BigDecimal value;
 
@@ -93,7 +93,7 @@ public class DecimalV3Literal extends Literal {
         int realScale = value.scale();
         boolean valid = true;
         if (precision != -1 && scale != -1) {
-            if (precision < realPrecision || scale < realScale) {
+            if (precision < realPrecision || scale < realScale || precision - scale < realPrecision - realScale) {
                 valid = false;
             }
         } else {

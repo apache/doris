@@ -380,7 +380,6 @@ WHERE o_orderkey > 5 AND o_orderkey <= 10;
 | SET enable_nereids_planner = true;                                     | 异步物化视图只有在新优化器下才支持，所以需要开启新优化器           |
 | SET enable_materialized_view_rewrite = true;                           | 开启或者关闭查询透明改写，默认关闭                      |
 | SET materialized_view_rewrite_enable_contain_external_table = true;    | 参与透明改写的物化视图是否允许包含外表，默认不允许              |
-| SET disable_nereids_rules = 'ELIMINATE_OUTER_JOIN';                    | 目前 outer join 消除会对透明改写有影响，暂时需要关闭，后面会优化 |
 
 
 ## 限制

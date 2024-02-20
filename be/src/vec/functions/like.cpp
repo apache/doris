@@ -350,7 +350,7 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
             for (int i = 0; i < input_rows_count; i++) {
                 const auto pattern_val = str_patterns->get_data_at(i);
                 const auto value_val = values->get_data_at(i);
-                static_cast<void>((state->scalar_function)(
+                RETURN_IF_ERROR((state->scalar_function)(
                         const_cast<vectorized::LikeSearchState*>(&state->search_state), value_val,
                         pattern_val, &vec_res[i]));
             }

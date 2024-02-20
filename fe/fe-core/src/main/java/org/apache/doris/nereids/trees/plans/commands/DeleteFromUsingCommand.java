@@ -19,10 +19,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -91,7 +91,7 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
         for (Column column : targetTable.getFullSchema()) {
             if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                selectLists.add(new Alias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
+                selectLists.add(new UnboundAlias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
             } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)) {
                 selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
             } else if (column.isKey()) {

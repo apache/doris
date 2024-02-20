@@ -28,6 +28,7 @@
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/runtime_filter_consumer.h"
 #include "vec/exec/scan/pip_scanner_context.h"
 #include "vec/exec/scan/scanner_context.h"
@@ -74,7 +75,7 @@ std::string ScanOperator::debug_string() const {
     fmt::format_to(debug_string_buffer, "{}, scanner_ctx is null: {} ",
                    SourceOperator::debug_string(), _node->_scanner_ctx == nullptr);
     if (_node->_scanner_ctx) {
-        fmt::format_to(debug_string_buffer, ", num_running_scanners = {}",
+        fmt::format_to(debug_string_buffer, ", scanner ctx detail = {}",
                        _node->_scanner_ctx->debug_string());
     }
     return fmt::to_string(debug_string_buffer);
@@ -118,7 +119,6 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
 
     _scan_dependency = dependency_sptr();
 
-    set_scan_ranges(state, info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
     for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
         RETURN_IF_ERROR(
@@ -137,17 +137,11 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
     // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
     RETURN_IF_ERROR(_init_profile());
+    set_scan_ranges(state, info.scan_ranges);
     // if you want to add some profile in scan node, even it have not new VScanner object
     // could add here, not in the _init_profile() function
     _prepare_rf_timer(_runtime_profile.get());
 
-    static const std::string timer_name = "WaitForDependencyTime";
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
-    _wait_for_data_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, "WaitForData", timer_name, 1);
-    _wait_for_scanner_done_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, "WaitForScannerDone", timer_name, 1);
-    _wait_for_eos_timer = ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, "WaitForEos", timer_name, 1);
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     return Status::OK();
 }
@@ -166,7 +160,6 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     if (_scanner_ctx) {
         DCHECK(!_eos && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
-        RETURN_IF_ERROR(state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
     }
     _opened = true;
     return status;
@@ -557,14 +550,7 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
                    _eos.load());
     if (_scanner_ctx) {
         fmt::format_to(debug_string_buffer, "");
-        fmt::format_to(debug_string_buffer,
-                       ", Scanner Context: (_is_finished = {}, _should_stop = {}, "
-                       "_num_running_scanners={}, "
-                       " _num_unfinished_scanners = {}, status = {})",
-                       _scanner_ctx->is_finished(), _scanner_ctx->should_stop(),
-                       _scanner_ctx->get_num_running_scanners(),
-                       _scanner_ctx->get_num_unfinished_scanners(),
-                       _scanner_ctx->status().to_string());
+        fmt::format_to(debug_string_buffer, ", Scanner Context: {}", _scanner_ctx->debug_string());
     }
 
     return fmt::to_string(debug_string_buffer);
@@ -1220,6 +1206,9 @@ Status ScanLocalState<Derived>::_prepare_scanners() {
         _eos = true;
         _scan_dependency->set_ready();
     } else {
+        for (auto& scanner : scanners) {
+            scanner->set_query_statistics(_query_statistics.get());
+        }
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(_scanners));
     }
@@ -1233,6 +1222,19 @@ Status ScanLocalState<Derived>::_start_scanners(
     _scanner_ctx = PipXScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
             state()->scan_queue_mem_limit(), _scan_dependency);
+    if constexpr (std::is_same_v<OlapScanLocalState, Derived>) {
+        /**
+         * If `use_topn_opt` is true,
+         * we let 1/4 scanners run first to update the value of runtime predicate,
+         * and the other 3/4 scanners could then read fewer rows.
+         */
+        if (static_cast<OlapScanLocalState*>(this)->olap_scan_node().use_topn_opt) {
+            int32_t max_thread_num = std::max<int32_t>(4, scanners.size() / 4);
+            if (max_thread_num < _scanner_ctx->get_max_thread_num()) {
+                _scanner_ctx->set_max_thread_num(max_thread_num);
+            }
+        }
+    }
     return Status::OK();
 }
 
@@ -1284,17 +1286,15 @@ Status ScanLocalState<Derived>::_init_profile() {
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     profile()->add_child(_scanner_profile.get(), true, nullptr);
 
-    _memory_usage_counter = ADD_LABEL_COUNTER(_scanner_profile, "MemoryUsage");
-    _queued_blocks_memory_usage =
-            _scanner_profile->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES, "MemoryUsage");
+    _memory_usage_counter = ADD_LABEL_COUNTER_WITH_LEVEL(_scanner_profile, "MemoryUsage", 1);
     _free_blocks_memory_usage =
-            _scanner_profile->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES, "MemoryUsage");
+            _scanner_profile->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES, "MemoryUsage", 1);
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
+    _scale_up_scanners_counter = ADD_COUNTER(_scanner_profile, "NumScaleUpScanners", TUnit::UNIT);
     // time of transfer thread to wait for block from scan thread
     _scanner_wait_batch_timer = ADD_TIMER(_scanner_profile, "ScannerBatchWaitTime");
     _scanner_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerSchedCount", TUnit::UNIT);
-    _scanner_ctx_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerCtxSchedCount", TUnit::UNIT);
     _scanner_ctx_sched_time = ADD_TIMER(_scanner_profile, "ScannerCtxSchedTime");
 
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
@@ -1453,14 +1453,10 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     }};
 
     if (state->is_cancelled()) {
-        // ISSUE: https://github.com/apache/doris/issues/16360
-        // _scanner_ctx may be null here, see: `VScanNode::alloc_resource` (_eos == null)
         if (local_state._scanner_ctx) {
-            local_state._scanner_ctx->set_status_on_error(Status::Cancelled("query cancelled"));
-            return local_state._scanner_ctx->status();
-        } else {
-            return Status::Cancelled("query cancelled");
+            local_state._scanner_ctx->stop_scanners(state);
         }
+        return Status::Cancelled("Query cancelled in ScanOperator");
     }
 
     if (local_state._eos) {
@@ -1468,21 +1464,11 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         return Status::OK();
     }
 
-    vectorized::BlockUPtr scan_block = nullptr;
     bool eos = false;
-    RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, &scan_block, &eos, 0));
-    if (eos) {
-        source_state = SourceState::FINISHED;
-        DCHECK(scan_block == nullptr);
-        return Status::OK();
-    }
-
-    // get scanner's block memory
-    block->swap(*scan_block);
-    local_state._scanner_ctx->return_free_block(std::move(scan_block));
+    RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, &eos, 0));
 
     local_state.reached_limit(block, source_state);
-    if (eos) {
+    if (eos || source_state == SourceState::FINISHED) {
         source_state = SourceState::FINISHED;
         // reach limit, stop the scanners.
         local_state._scanner_ctx->stop_scanners(state);

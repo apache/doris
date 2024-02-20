@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.EsExternalDatabase;
@@ -36,6 +37,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -102,6 +104,10 @@ public abstract class ExternalCatalog
 
     private ExternalSchemaCache schemaCache;
     private String comment;
+    // A cached and being converted properties for external catalog.
+    // generated from catalog properties.
+    private byte[] propLock = new byte[0];
+    private Map<String, String> convertedProperties = null;
 
     public ExternalCatalog() {
     }
@@ -253,16 +259,21 @@ public abstract class ExternalCatalog
         InitCatalogLog initCatalogLog = new InitCatalogLog();
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(logType);
-        List<String> allDatabases = listDatabaseNames();
+        List<String> allDatabases = Lists.newArrayList(listDatabaseNames());
+
+        allDatabases.remove(InfoSchemaDb.DATABASE_NAME);
+        allDatabases.add(InfoSchemaDb.DATABASE_NAME);
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
         for (String dbName : allDatabases) {
-            // Exclude database map take effect with higher priority over include database map
-            if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
-                continue;
-            }
-            if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
-                continue;
+            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
+                // Exclude database map take effect with higher priority over include database map
+                if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
+                    continue;
+                }
+                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
+                    continue;
+                }
             }
             long dbId;
             if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
@@ -280,6 +291,7 @@ public abstract class ExternalCatalog
                 initCatalogLog.addCreateDb(dbId, dbName);
             }
         }
+
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
         lastUpdateTime = System.currentTimeMillis();
@@ -290,6 +302,9 @@ public abstract class ExternalCatalog
     public void onRefresh(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
+        synchronized (this.propLock) {
+            this.convertedProperties = null;
+        }
         this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
@@ -379,10 +394,18 @@ public abstract class ExternalCatalog
             return null;
         }
         String realDbName = ClusterNamespace.getNameFromFullName(dbName);
-        if (!dbNameToId.containsKey(realDbName)) {
-            return null;
+        if (dbNameToId.containsKey(realDbName)) {
+            return idToDb.get(dbNameToId.get(realDbName));
+        } else {
+            // This maybe a information_schema db request, and information_schema db name is case insensitive.
+            // So, we first extract db name to check if it is information_schema.
+            // Then we reassemble the origin cluster name with lower case db name,
+            // and finally get information_schema db from the name map.
+            if (realDbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+                return idToDb.get(dbNameToId.get(InfoSchemaDb.DATABASE_NAME));
+            }
         }
-        return idToDb.get(dbNameToId.get(realDbName));
+        return null;
     }
 
     @Nullable
@@ -405,7 +428,17 @@ public abstract class ExternalCatalog
 
     @Override
     public Map<String, String> getProperties() {
-        return PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
+        // convert properties may be a heavy operation, so we cache the result.
+        if (convertedProperties != null) {
+            return convertedProperties;
+        }
+        synchronized (propLock) {
+            if (convertedProperties != null) {
+                return convertedProperties;
+            }
+            convertedProperties = PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
+            return convertedProperties;
+        }
     }
 
     @Override
@@ -479,6 +512,9 @@ public abstract class ExternalCatalog
 
     protected ExternalDatabase<? extends ExternalTable> getDbForInit(String dbName, long dbId,
                                                                      InitCatalogLog.Type logType) {
+        if (dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
+            return new ExternalInfoSchemaDatabase(this, dbId);
+        }
         switch (logType) {
             case HMS:
                 return new HMSExternalDatabase(this, dbId, dbName);
@@ -502,13 +538,6 @@ public abstract class ExternalCatalog
         return null;
     }
 
-    /**
-     * External catalog has no cluster semantics.
-     */
-    protected static String getRealTableName(String tableName) {
-        return ClusterNamespace.getNameFromFullName(tableName);
-    }
-
     public static ExternalCatalog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ExternalCatalog.class);
@@ -527,9 +556,6 @@ public abstract class ExternalCatalog
             db.setTableExtCatalog(this);
         }
         objectCreated = false;
-        if (this instanceof HMSExternalCatalog) {
-            ((HMSExternalCatalog) this).setLastSyncedEventId(-1L);
-        }
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrate to the new version.
         if (logType == null) {
@@ -543,6 +569,7 @@ public abstract class ExternalCatalog
                 }
             }
         }
+        this.propLock = new byte[0];
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
@@ -550,11 +577,11 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
-    public void dropDatabaseForReplay(String dbName) {
+    public void dropDatabase(String dbName) {
         throw new NotImplementedException("dropDatabase not implemented");
     }
 
-    public void createDatabaseForReplay(long dbId, String dbName) {
+    public void createDatabase(long dbId, String dbName) {
         throw new NotImplementedException("createDatabase not implemented");
     }
 
@@ -581,16 +608,6 @@ public abstract class ExternalCatalog
             }
         }
         return specifiedDatabaseMap;
-    }
-
-    public boolean useSelfSplitter() {
-        Map<String, String> properties = catalogProperty.getProperties();
-        boolean ret = true;
-        if (properties.containsKey(HMSExternalCatalog.ENABLE_SELF_SPLITTER)
-                && properties.get(HMSExternalCatalog.ENABLE_SELF_SPLITTER).equalsIgnoreCase("false")) {
-            ret = false;
-        }
-        return ret;
     }
 
     public String bindBrokerName() {
@@ -625,3 +642,4 @@ public abstract class ExternalCatalog
         return new ConcurrentHashMap<>(idToDb);
     }
 }
+

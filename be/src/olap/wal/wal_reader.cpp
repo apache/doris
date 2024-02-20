@@ -29,7 +29,14 @@ namespace doris {
 
 WalReader::WalReader(const std::string& file_name) : _file_name(file_name), _offset(0) {}
 
-WalReader::~WalReader() {}
+WalReader::~WalReader() = default;
+
+static Status _deserialize(PBlock& block, const std::string& buf) {
+    if (UNLIKELY(!block.ParseFromString(buf))) {
+        return Status::InternalError("failed to deserialize row");
+    }
+    return Status::OK();
+}
 
 Status WalReader::init() {
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(_file_name, &file_reader));
@@ -39,7 +46,7 @@ Status WalReader::init() {
 Status WalReader::finalize() {
     auto st = file_reader->close();
     if (!st.ok()) {
-        LOG(WARNING) << "fail to close file " << _file_name;
+        LOG(WARNING) << "fail to close wal " << _file_name;
     }
     return Status::OK();
 }
@@ -70,7 +77,7 @@ Status WalReader::read_block(PBlock& block) {
     return Status::OK();
 }
 
-Status WalReader::read_header(uint32_t& version, std::string& col_ids) {
+Status WalReader::read_header(std::string& col_ids) {
     size_t bytes_read = 0;
     std::string magic_str;
     magic_str.resize(k_wal_magic_length);
@@ -83,7 +90,7 @@ Status WalReader::read_header(uint32_t& version, std::string& col_ids) {
     RETURN_IF_ERROR(
             file_reader->read_at(_offset, {version_buf, WalWriter::VERSION_SIZE}, &bytes_read));
     _offset += WalWriter::VERSION_SIZE;
-    version = decode_fixed32_le(version_buf);
+    _version = decode_fixed32_le(version_buf);
     uint8_t len_buf[WalWriter::LENGTH_SIZE];
     RETURN_IF_ERROR(file_reader->read_at(_offset, {len_buf, WalWriter::LENGTH_SIZE}, &bytes_read));
     _offset += WalWriter::LENGTH_SIZE;
@@ -94,13 +101,6 @@ Status WalReader::read_header(uint32_t& version, std::string& col_ids) {
     if (len != bytes_read) {
         return Status::InternalError("failed to read header expected= " + std::to_string(len) +
                                      ",actually=" + std::to_string(bytes_read));
-    }
-    return Status::OK();
-}
-
-Status WalReader::_deserialize(PBlock& block, std::string& buf) {
-    if (UNLIKELY(!block.ParseFromString(buf))) {
-        return Status::InternalError("failed to deserialize row");
     }
     return Status::OK();
 }

@@ -3,7 +3,7 @@
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
-------filter((if((mean = 0), 0, (stdev / mean)) > 1))
+------filter((if((mean = 0.0), 0.0, (stdev / mean)) > 1.0))
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]

@@ -17,7 +17,7 @@
 
 #include "prefix_query.h"
 
-namespace doris {
+namespace doris::segment_v2 {
 
 void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
                                    const std::string& prefix,
@@ -77,4 +77,4 @@ void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& fiel
     });
 }
 
-} // namespace doris
+} // namespace doris::segment_v2

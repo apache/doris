@@ -73,7 +73,7 @@ private:
     double _max_filter_ratio = 0.0;
 
     // used for find_partition
-    VOlapTablePartitionParam* _vpartition = nullptr;
+    std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
     // reuse for find_tablet.
     std::vector<VOlapTablePartition*> _partitions;
     Bitmap _filter_bitmap;

@@ -119,7 +119,7 @@ public:
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     Status create_from_file(const std::string& file_path);
     Status save(const std::string& file_path);
-    Status save_as_json(const string& file_path, DataDir* dir);
+    Status save_as_json(const string& file_path);
     static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
                                                   int64_t tablet_id);
@@ -128,8 +128,6 @@ public:
     Status serialize(std::string* meta_binary);
     Status deserialize(const std::string& meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
-    // Init `RowsetMeta._fs` if rowset is local.
-    void init_rs_metas_fs(const io::FileSystemSPtr& fs);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
@@ -143,6 +141,7 @@ public:
     TabletUid tablet_uid() const;
     void set_tablet_uid(TabletUid uid) { _tablet_uid = uid; }
     int64_t table_id() const;
+    int64_t index_id() const;
     int64_t partition_id() const;
     int64_t tablet_id() const;
     int64_t replica_id() const;
@@ -203,6 +202,12 @@ public:
 
     // used for after tablet cloned to clear stale rowset
     void clear_stale_rowset() { _stale_rs_metas.clear(); }
+
+    void clear_rowsets() { _rs_metas.clear(); }
+
+    // MUST hold EXCLUSIVE `_meta_lock` in belonged Tablet
+    // `to_add` MUST NOT have overlapped version with `_rs_metas` in tablet meta.
+    void add_rowsets_unchecked(const std::vector<RowsetSharedPtr>& to_add);
 
     bool all_beta() const;
 
@@ -268,6 +273,7 @@ private:
 
 private:
     int64_t _table_id = 0;
+    int64_t _index_id = 0;
     int64_t _partition_id = 0;
     int64_t _tablet_id = 0;
     int64_t _replica_id = 0;
@@ -520,6 +526,10 @@ inline TabletUid TabletMeta::tablet_uid() const {
 
 inline int64_t TabletMeta::table_id() const {
     return _table_id;
+}
+
+inline int64_t TabletMeta::index_id() const {
+    return _index_id;
 }
 
 inline int64_t TabletMeta::partition_id() const {

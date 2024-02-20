@@ -17,50 +17,73 @@
 
 #include "s3_file_bufferpool.h"
 
+#include <chrono>
+#include <memory>
+
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
+#include "common/status.h"
+#include "common/sync_point.h"
+#include "io/cache/block/block_file_cache_fwd.h"
 #include "io/cache/block/block_file_segment.h"
 #include "io/fs/s3_common.h"
 #include "runtime/exec_env.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 namespace io {
 
 bvar::Adder<uint64_t> s3_file_buffer_allocated("s3_file_buffer_allocated");
-bvar::Adder<uint64_t> s3_file_buffer_allocating("s3_file_buffer_allocating");
 
-/**
- * 0. check if the inner memory buffer is empty or not
- * 1. relcaim the memory buffer if it's mot empty
- */
-void FileBuffer::on_finish() {
-    if (_buffer.empty()) {
-        return;
+template <typename Allocator = Allocator<false>>
+struct Memory : boost::noncopyable, Allocator {
+    Memory() = default;
+    explicit Memory(size_t size) : _size(size) {
+        alloc(size);
+        s3_file_buffer_allocated << 1;
     }
-    S3FileBufferPool::GetInstance()->reclaim(Slice {_buffer.get_data(), _capacity});
-    _buffer.clear();
+    ~Memory() {
+        dealloc();
+        s3_file_buffer_allocated << -1;
+    }
+    void alloc(size_t size) { _data = static_cast<char*>(Allocator::alloc(size, 0)); }
+    void dealloc() {
+        if (_data == nullptr) {
+            return;
+        }
+        Allocator::free(_data, _size);
+        _data = nullptr;
+    }
+    size_t _size;
+    char* _data;
+};
+
+struct FileBuffer::PartData {
+    Memory<> _memory;
+    PartData() : _memory(config::s3_write_buffer_size) {}
+    ~PartData() = default;
+    [[nodiscard]] Slice data() const { return Slice {_memory._data, _memory._size}; }
+    [[nodiscard]] size_t size() const { return _memory._size; }
+};
+
+Slice FileBuffer::get_slice() const {
+    return _inner_data->data();
 }
 
-/**
- * take other buffer's memory space and refresh capacity
- */
-void FileBuffer::swap_buffer(Slice& other) {
-    _buffer = other;
-    _capacity = _buffer.get_size();
-    other.clear();
-}
-
-FileBuffer::FileBuffer(std::function<FileBlocksHolderPtr()> alloc_holder, size_t offset,
-                       OperationState state, bool reserve)
-        : _alloc_holder(std::move(alloc_holder)),
-          _buffer(S3FileBufferPool::GetInstance()->allocate(reserve)),
+FileBuffer::FileBuffer(BufferType type, std::function<FileBlocksHolderPtr()> alloc_holder,
+                       size_t offset, OperationState state)
+        : _type(type),
+          _alloc_holder(std::move(alloc_holder)),
           _offset(offset),
           _size(0),
           _state(std::move(state)),
-          _capacity(_buffer.get_size()) {}
+          _inner_data(std::make_unique<FileBuffer::PartData>()),
+          _capacity(_inner_data->size()) {}
 
+FileBuffer::~FileBuffer() = default;
 /**
  * 0. check if file cache holder allocated
  * 1. update the cache's type to index cache
@@ -86,136 +109,69 @@ void UploadFileBuffer::set_index_offset(size_t offset) {
  * 1. write to file cache otherwise, then we'll wait for free buffer and to rob it
  */
 Status UploadFileBuffer::append_data(const Slice& data) {
-    Defer defer {[&] { _size += data.get_size(); }};
-    while (true) {
-        // if buf is not empty, it means there is memory preserved for this buf
-        if (!_buffer.empty()) {
-            std::memcpy((void*)(_buffer.get_data() + _size), data.get_data(), data.get_size());
-            break;
-        }
-        // if the buf has no memory reserved, then write to disk first
-        if (!_is_cache_allocated && config::enable_file_cache && _alloc_holder != nullptr) {
-            _holder = _alloc_holder();
-            bool cache_is_not_enough = false;
-            for (auto& segment : _holder->file_segments) {
-                DCHECK(segment->state() == FileBlock::State::SKIP_CACHE ||
-                       segment->state() == FileBlock::State::EMPTY);
-                if (segment->state() == FileBlock::State::SKIP_CACHE) [[unlikely]] {
-                    cache_is_not_enough = true;
-                    break;
-                }
-                if (_index_offset != 0) {
-                    RETURN_IF_ERROR(segment->change_cache_type_self(CacheType::INDEX));
-                }
-            }
-            // if cache_is_not_enough, cannot use it !
-            _cur_file_segment = _holder->file_segments.begin();
-            _append_offset = (*_cur_file_segment)->range().left;
-            _holder = cache_is_not_enough ? nullptr : std::move(_holder);
-            if (_holder) {
-                (*_cur_file_segment)->get_or_set_downloader();
-            }
-            _is_cache_allocated = true;
-        }
-        if (_holder) [[likely]] {
-            size_t data_remain_size = data.get_size();
-            size_t pos = 0;
-            while (data_remain_size != 0) {
-                auto range = (*_cur_file_segment)->range();
-                size_t segment_remain_size = range.right - _append_offset + 1;
-                size_t append_size = std::min(data_remain_size, segment_remain_size);
-                Slice append_data(data.get_data() + pos, append_size);
-                // When there is no available free memory buffer, the data will be written to the cache first
-                // and then uploaded to S3 when there is an available free memory buffer.
-                // However, if an error occurs during the write process to the local cache,
-                // continuing to upload the dirty data from the cache to S3 will result in erroneous data(Bad segment).
-                // Considering that local disk write failures are rare, a simple approach is chosen here,
-                // which is to treat the import as a failure directly when a local write failure occurs
-                RETURN_IF_ERROR((*_cur_file_segment)->append(append_data));
-                if (segment_remain_size == append_size) {
-                    RETURN_IF_ERROR((*_cur_file_segment)->finalize_write());
-                    if (++_cur_file_segment != _holder->file_segments.end()) {
-                        (*_cur_file_segment)->get_or_set_downloader();
-                    }
-                }
-                data_remain_size -= append_size;
-                _append_offset += append_size;
-                pos += append_size;
-            }
-            break;
-        } else {
-            // wait allocate buffer pool
-            auto tmp = S3FileBufferPool::GetInstance()->allocate(true);
-            if (tmp.empty()) [[unlikely]] {
-                return Status::InternalError("Failed to allocate S3 buffer for {} seconds",
-                                             config::s3_writer_buffer_allocation_timeout);
-            }
-            swap_buffer(tmp);
-        }
-    }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("UploadFileBuffer::append_data", Status::OK());
+    std::memcpy((void*)(_inner_data->data().get_data() + _size), data.get_data(), data.get_size());
+    _size += data.get_size();
+    _crc_value = crc32c::Extend(_crc_value, data.get_data(), data.get_size());
     return Status::OK();
-}
-
-/**
- * 0. allocate one memory buffer
- * 1. read the content from the cache and then write
- * it into memory buffer
- */
-void UploadFileBuffer::read_from_cache() {
-    auto tmp = S3FileBufferPool::GetInstance()->allocate(true);
-    if (tmp.empty()) [[unlikely]] {
-        set_val(Status::InternalError("Failed to allocate S3 buffer for {} seconds",
-                                      config::s3_writer_buffer_allocation_timeout));
-        return;
-    }
-    swap_buffer(tmp);
-
-    DCHECK(_holder != nullptr);
-    DCHECK(_capacity >= _size);
-    size_t pos = 0;
-    for (auto& segment : _holder->file_segments) {
-        if (pos == _size) {
-            break;
-        }
-        if (auto s = segment->finalize_write(); !s.ok()) [[unlikely]] {
-            set_val(std::move(s));
-            return;
-        }
-        size_t segment_size = segment->range().size();
-        Slice s(_buffer.get_data() + pos, segment_size);
-        if (auto st = segment->read_at(s, 0); !st.ok()) [[unlikely]] {
-            set_val(std::move(st));
-            return;
-        }
-        pos += segment_size;
-    }
-
-    // the real lenght should be the buf.get_size() in this situation(consider it's the last part,
-    // size of it could be less than 5MB)
-    _stream_ptr = std::make_shared<StringViewStream>(_buffer.get_data(), _size);
 }
 
 /**
  * 0. constrcut the stream ptr if the buffer is not empty
  * 1. submit the on_upload() callback to executor
  */
-void UploadFileBuffer::submit() {
-    if (!_buffer.empty()) [[likely]] {
-        _stream_ptr = std::make_shared<StringViewStream>(_buffer.get_data(), _size);
+static Status submit_upload_buffer(std::shared_ptr<FileBuffer> buffer) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("UploadFileBuffer::submit", Status::OK(), buffer.get());
+    return ExecEnv::GetInstance()->s3_file_upload_thread_pool()->submit_func(
+            [buf = std::move(buffer)]() { buf->execute_async(); });
+}
+
+std::ostream& operator<<(std::ostream& os, const BufferType& value) {
+    switch (value) {
+    case BufferType::UPLOAD:
+        os << "upload";
+        break;
+    case BufferType::DOWNLOAD:
+        os << "download";
+        break;
+    default:
+        auto cast_value = static_cast<uint32_t>(value);
+        os << cast_value;
     }
-    // If the data is written into file cache
-    if (_holder && _cur_file_segment != _holder->file_segments.end()) {
-        if (auto s = (*_cur_file_segment)->finalize_write(); !s.ok()) [[unlikely]] {
-            set_val(std::move(s));
-            return;
-        }
+    return os;
+}
+
+Status FileBuffer::submit(std::shared_ptr<FileBuffer> buf) {
+    switch (buf->_type) {
+    case BufferType::UPLOAD:
+        return submit_upload_buffer(std::move(buf));
+        break;
+    default:
+        CHECK(false) << "should never come here, the illegal type is " << buf->_type;
+    };
+    return Status::InternalError("should never come here");
+}
+
+void UploadFileBuffer::on_upload() {
+    _stream_ptr = std::make_shared<StringViewStream>(_inner_data->data().get_data(), _size);
+    if (_crc_value != crc32c::Value(_inner_data->data().get_data(), _size)) {
+        DCHECK(false);
+        set_status(Status::IOError("Buffer checksum not match"));
+        return;
     }
-    static_cast<void>(S3FileBufferPool::GetInstance()->thread_pool()->submit_func(
-            [buf = this->shared_from_this(), this]() {
-                // to extend buf's lifetime
-                // (void)buf;
-                on_upload();
-            }));
+    _upload_to_remote(*this);
+    if (config::enable_flush_file_cache_async) {
+        // If we call is_cancelled() after _state.set_status() then there might one situation where
+        // s3 file writer is already destructed
+        bool cancelled = is_cancelled();
+        _state.set_status();
+        // this control flow means the buf and the stream shares one memory
+        // so we can directly use buf here
+        upload_to_local_file_cache(cancelled);
+    } else {
+        upload_to_local_file_cache(is_cancelled());
+        _state.set_status();
+    }
 }
 
 /**
@@ -231,6 +187,7 @@ void UploadFileBuffer::upload_to_local_file_cache(bool is_cancelled) {
     if (is_cancelled) {
         return;
     }
+    TEST_INJECTION_POINT_CALLBACK("UploadFileBuffer::upload_to_local_file_cache");
     // the data is already written to S3 in this situation
     // so i didn't handle the file cache write error
     _holder = _alloc_holder();
@@ -244,20 +201,26 @@ void UploadFileBuffer::upload_to_local_file_cache(bool is_cancelled) {
         size_t append_size = std::min(data_remain_size, segment_size);
         if (segment->state() == FileBlock::State::EMPTY) {
             if (_index_offset != 0 && segment->range().right >= _index_offset) {
-                // segment->change_cache_type_self(CacheType::INDEX);
+                static_cast<void>(segment->change_cache_type_self(CacheType::INDEX));
             }
             segment->get_or_set_downloader();
             // Another thread may have started downloading due to a query
             // Just skip putting to cache from UploadFileBuffer
             if (segment->is_downloader()) {
-                Slice s(_buffer.get_data() + pos, append_size);
-                if (auto st = segment->append(s); !st.ok()) [[unlikely]] {
-                    LOG_WARNING("append data to cache segmetn failed due to {}", st);
-                    return;
+                Slice s(_inner_data->data().get_data() + pos, append_size);
+                Status st = segment->append(s);
+                TEST_INJECTION_POINT_CALLBACK("UploadFileBuffer::upload_to_local_file_cache_inject",
+                                              &st);
+                if (st.ok()) {
+                    st = segment->finalize_write();
                 }
-                if (auto st = segment->finalize_write(); !st.ok()) [[unlikely]] {
-                    LOG_WARNING("finalize write to cache segmetn failed due to {}", st);
-                    return;
+                if (!st.ok()) {
+                    {
+                        [[maybe_unused]] bool ret = false;
+                        TEST_SYNC_POINT_CALLBACK("UploadFileBuffer::upload_to_local_file_cache",
+                                                 &ret);
+                    }
+                    LOG_WARNING("failed to append data to file cache").error(st);
                 }
             }
         }
@@ -287,82 +250,17 @@ FileBufferBuilder& FileBufferBuilder::set_allocate_file_segments_holder(
     return *this;
 }
 
-std::shared_ptr<FileBuffer> FileBufferBuilder::build() {
+Status FileBufferBuilder::build(std::shared_ptr<FileBuffer>* buf) {
     OperationState state(_sync_after_complete_task, _is_cancelled);
+
     if (_type == BufferType::UPLOAD) {
-        return std::make_shared<UploadFileBuffer>(std::move(_upload_cb), std::move(state), _offset,
-                                                  std::move(_alloc_holder_cb), _index_offset);
+        RETURN_IF_CATCH_EXCEPTION(*buf = std::make_shared<UploadFileBuffer>(
+                                          std::move(_upload_cb), std::move(state), _offset,
+                                          std::move(_alloc_holder_cb), _index_offset));
+        return Status::OK();
     }
     // should never come here
-    return nullptr;
-}
-
-void S3FileBufferPool::reclaim(Slice buf) {
-    {
-        std::unique_lock<std::mutex> lck {_lock};
-        _free_raw_buffers.emplace_back(buf);
-        // only works when not set file cache
-        _cv.notify_all();
-    }
-    s3_file_buffer_allocated << -1;
-}
-
-void S3FileBufferPool::init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size,
-                            ThreadPool* thread_pool) {
-    // the nums could be one configuration
-    size_t buf_num = s3_write_buffer_whole_size / s3_write_buffer_size;
-    DCHECK((s3_write_buffer_size >= 5 * 1024 * 1024) &&
-           (s3_write_buffer_whole_size > s3_write_buffer_size))
-            << "s3 write buffer size " << s3_write_buffer_size << " whole s3 write buffer size "
-            << s3_write_buffer_whole_size;
-    LOG_INFO("S3 file buffer pool with {} buffers, each with {}", buf_num, s3_write_buffer_size);
-    _whole_mem_buffer = std::make_unique<char[]>(s3_write_buffer_whole_size);
-    for (size_t i = 0; i < buf_num; i++) {
-        Slice s {_whole_mem_buffer.get() + i * s3_write_buffer_size,
-                 static_cast<size_t>(s3_write_buffer_size)};
-        _free_raw_buffers.emplace_back(s);
-    }
-    _thread_pool = thread_pool;
-}
-
-Slice S3FileBufferPool::allocate(bool reserve) {
-    Slice buf;
-    Defer defer {[&]() {
-        if (!buf.empty()) {
-            s3_file_buffer_allocated << 1;
-        }
-        s3_file_buffer_allocating << -1;
-    }};
-    s3_file_buffer_allocating << 1;
-    // if need reserve or no cache then we must ensure return buf with memory preserved
-    if (reserve || !config::enable_file_cache) {
-        {
-            std::unique_lock<std::mutex> lck {_lock};
-            _cv.wait_for(lck, std::chrono::seconds(config::s3_writer_buffer_allocation_timeout),
-                         [this]() { return !_free_raw_buffers.empty(); });
-            if (!_free_raw_buffers.empty()) {
-                buf = _free_raw_buffers.front();
-                _free_raw_buffers.pop_front();
-            }
-        }
-        return buf;
-    }
-    // try to get one memory reserved buffer
-    {
-        std::unique_lock<std::mutex> lck {_lock};
-        if (!_free_raw_buffers.empty()) {
-            buf = _free_raw_buffers.front();
-            _free_raw_buffers.pop_front();
-        }
-    }
-    if (!buf.empty()) {
-        return buf;
-    }
-    // if there is no free buffer and no need to reserve memory, we could return one empty buffer
-    buf = Slice();
-    // if the buf has no memory reserved, it would try to write the data to file cache first
-    // or it would try to rob buffer from other S3FileBuffer
-    return buf;
+    return Status::InternalError("unsupport buffer type {}", _type);
 }
 } // namespace io
 } // namespace doris

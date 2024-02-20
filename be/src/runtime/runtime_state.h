@@ -128,7 +128,13 @@ public:
                                                         : _query_options.query_timeout;
     }
     int max_io_buffers() const { return _query_options.max_io_buffers; }
-    int num_scanner_threads() const { return _query_options.num_scanner_threads; }
+    int num_scanner_threads() const {
+        return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
+    }
+    double scanner_scale_up_ratio() const {
+        return _query_options.__isset.scanner_scale_up_ratio ? _query_options.scanner_scale_up_ratio
+                                                             : 0;
+    }
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
@@ -235,11 +241,6 @@ public:
     // If 'msg' is non-nullptr, it will be appended to query_status_ in addition to the
     // generic "Memory limit exceeded" error.
     Status set_mem_limit_exceeded(const std::string& msg = "Memory limit exceeded");
-
-    // Returns a non-OK status if query execution should stop (e.g., the query was cancelled
-    // or a mem limit was exceeded). Exec nodes should check this periodically so execution
-    // doesn't continue if the query terminates abnormally.
-    Status check_query_state(const std::string& msg);
 
     std::vector<std::string>& output_files() { return _output_files; }
 
@@ -553,15 +554,18 @@ public:
 
     Result<SinkLocalState*> get_sink_local_state_result(int id);
 
-    void resize_op_id_to_local_state(int operator_size, int sink_size);
+    void resize_op_id_to_local_state(int operator_size);
 
     auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
 
     void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
+        _task_execution_context_inited = true;
         _task_execution_context = context;
     }
 
     std::weak_ptr<TaskExecutionContext> get_task_execution_context() {
+        CHECK(_task_execution_context_inited)
+                << "_task_execution_context_inited == false, the ctx is not inited";
         return _task_execution_context;
     }
 
@@ -572,6 +576,10 @@ private:
 
     std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 
+    // Could not find a better way to record if the weak ptr is inited, use a bool to record
+    // it. In some unit test cases, the runtime state's task ctx is not inited, then the test
+    // hang, it is very hard to debug.
+    bool _task_execution_context_inited = false;
     // Hold execution context for other threads
     std::weak_ptr<TaskExecutionContext> _task_execution_context;
 

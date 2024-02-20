@@ -30,7 +30,7 @@ suite("test_agg_state_max") {
 
     test {
         sql "insert into a_table values(100,max_state(null));"
-        exception "State function meet input nullable column"
+        exception "which is illegal for non_nullable"
     }
 
     sql """insert into a_table

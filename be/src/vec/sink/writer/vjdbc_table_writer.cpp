@@ -35,6 +35,7 @@ JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink
 
     JdbcConnectorParam jdbc_param;
 
+    jdbc_param.catalog_id = t_jdbc_sink.jdbc_table.catalog_id;
     jdbc_param.jdbc_url = t_jdbc_sink.jdbc_table.jdbc_url;
     jdbc_param.user = t_jdbc_sink.jdbc_table.jdbc_user;
     jdbc_param.passwd = t_jdbc_sink.jdbc_table.jdbc_password;
@@ -46,6 +47,11 @@ JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink
     jdbc_param.query_string = t_jdbc_sink.insert_sql;
     jdbc_param.table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
     jdbc_param.use_transaction = t_jdbc_sink.use_transaction;
+    jdbc_param.connection_pool_min_size = t_jdbc_sink.jdbc_table.connection_pool_min_size;
+    jdbc_param.connection_pool_max_size = t_jdbc_sink.jdbc_table.connection_pool_max_size;
+    jdbc_param.connection_pool_max_wait_time = t_jdbc_sink.jdbc_table.connection_pool_max_wait_time;
+    jdbc_param.connection_pool_max_life_time = t_jdbc_sink.jdbc_table.connection_pool_max_life_time;
+    jdbc_param.connection_pool_keep_alive = t_jdbc_sink.jdbc_table.connection_pool_keep_alive;
 
     return jdbc_param;
 }
@@ -54,7 +60,7 @@ VJdbcTableWriter::VJdbcTableWriter(const TDataSink& t_sink,
                                    const VExprContextSPtrs& output_expr_ctxs)
         : AsyncResultWriter(output_expr_ctxs), JdbcConnector(create_connect_param(t_sink)) {}
 
-Status VJdbcTableWriter::append_block(vectorized::Block& block) {
+Status VJdbcTableWriter::write(vectorized::Block& block) {
     Block output_block;
     RETURN_IF_ERROR(_projection_block(block, &output_block));
     auto num_rows = output_block.rows();

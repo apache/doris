@@ -38,7 +38,7 @@ PhysicalResultSink
 ----------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------filter((d1.d_year = 2002))
-----------------------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF5
+----------------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------filter((customer_demographics.cd_marital_status = 'W'))

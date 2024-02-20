@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((ss_items.item_id = ws_items.item_id)) otherCondition=((cast(cs_item_rev as DOUBLE) <= cast((1.1 * ws_item_rev) as DOUBLE)) and (cast(cs_item_rev as DOUBLE) >= cast((0.9 * ws_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) <= cast((1.1 * ws_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) >= cast((0.9 * ws_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) <= cast((1.1 * cs_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) <= cast((1.1 * ss_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) >= cast((0.9 * cs_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) >= cast((0.9 * ss_item_rev) as DOUBLE))) build RFs:RF13 item_id->[i_item_id]
+------------hashJoin[INNER_JOIN] hashCondition=((ss_items.item_id = ws_items.item_id)) otherCondition=((cast(cs_item_rev as DOUBLE) <= cast((1.1 * ws_item_rev) as DOUBLE)) and (cast(cs_item_rev as DOUBLE) >= cast((0.9 * ws_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) <= cast((1.1 * ws_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) >= cast((0.9 * ws_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) <= cast((1.1 * cs_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) <= cast((1.1 * ss_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) >= cast((0.9 * cs_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) >= cast((0.9 * ss_item_rev) as DOUBLE))) build RFs:RF13 item_id->[i_item_id,i_item_id]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((ss_items.item_id = cs_items.item_id)) otherCondition=((cast(cs_item_rev as DOUBLE) <= cast((1.1 * ss_item_rev) as DOUBLE)) and (cast(cs_item_rev as DOUBLE) >= cast((0.9 * ss_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) <= cast((1.1 * cs_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) >= cast((0.9 * cs_item_rev) as DOUBLE))) build RFs:RF12 item_id->[i_item_id]
 ------------------PhysicalProject
@@ -28,10 +28,9 @@ PhysicalResultSink
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF8 d_week_seq->[d_week_seq]
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF8 RF9
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF8 RF9
+------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------PhysicalAssertNumRows
 ----------------------------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------------------------PhysicalProject
@@ -52,17 +51,16 @@ PhysicalResultSink
 ------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF6 RF7
 ----------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[item]
+--------------------------------------PhysicalOlapScan[item] apply RFs: RF13
 ------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF5 d_date->[d_date]
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF4 d_week_seq->[d_week_seq]
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4 RF5
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4 RF5
+------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------PhysicalAssertNumRows
 ----------------------------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------------------------PhysicalProject
@@ -90,10 +88,9 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF0 d_week_seq->[d_week_seq]
---------------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0 RF1
---------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0 RF1
+--------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------PhysicalAssertNumRows
 ------------------------------------------PhysicalDistribute[DistributionSpecGather]
 --------------------------------------------PhysicalProject

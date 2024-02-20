@@ -39,6 +39,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -186,6 +187,7 @@ public class NativeInsertStmt extends InsertStmt {
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
 
+    // Ctor of group commit in sql parser
     public NativeInsertStmt(long tableId, String label, List<String> cols, InsertSource source,
             List<String> hints) {
         this(new InsertTarget(new TableName(null, null, null), null), label, cols, source, hints);
@@ -400,7 +402,7 @@ public class NativeInsertStmt extends InsertStmt {
             boolean isInsertStrict = analyzer.getContext().getSessionVariable().getEnableInsertStrict()
                     && !isFromDeleteOrUpdateStmt;
             sink.init(loadId, transactionId, db.getId(), timeoutSecond,
-                    sendBatchParallelism, false, isInsertStrict);
+                    sendBatchParallelism, false, isInsertStrict, timeoutSecond);
         }
     }
 
@@ -927,10 +929,11 @@ public class NativeInsertStmt extends InsertStmt {
                         && col.getName().equals(Column.SEQUENCE_COL)
                         && ((OlapTable) targetTable).getSequenceMapCol() != null) {
                     if (resultExprByName.stream().map(Pair::key)
-                            .anyMatch(key -> key.equals(((OlapTable) targetTable).getSequenceMapCol()))) {
+                            .anyMatch(key -> key.equalsIgnoreCase(((OlapTable) targetTable).getSequenceMapCol()))) {
                         resultExprByName.add(Pair.of(Column.SEQUENCE_COL,
                                 resultExprByName.stream()
-                                        .filter(p -> p.key().equals(((OlapTable) targetTable).getSequenceMapCol()))
+                                        .filter(p -> p.key()
+                                                .equalsIgnoreCase(((OlapTable) targetTable).getSequenceMapCol()))
                                         .map(Pair::value).findFirst().orElse(null)));
                     }
                     continue;
@@ -1138,10 +1141,11 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         boolean partialUpdate = ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate();
-        if (!partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
+        if (!isExplain() && !partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
                 && ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
                 && targetTable instanceof OlapTable
                 && ((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()
+                && !targetTable.getQualifiedDbName().equalsIgnoreCase(FeConstants.INTERNAL_DB_NAME)
                 && !ConnectContext.get().isTxnModel()
                 && getQueryStmt() instanceof SelectStmt
                 && ((SelectStmt) getQueryStmt()).getTableRefs().isEmpty() && targetPartitionNames == null
@@ -1187,24 +1191,29 @@ public class NativeInsertStmt extends InsertStmt {
 
     public GroupCommitPlanner planForGroupCommit(TUniqueId queryId) throws UserException, TException {
         OlapTable olapTable = (OlapTable) getTargetTable();
-        if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
-            LOG.debug("reuse group commit plan, table={}", olapTable);
-            reuseGroupCommitPlan = true;
+        olapTable.readLock();
+        try {
+            if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+                LOG.debug("reuse group commit plan, table={}", olapTable);
+                reuseGroupCommitPlan = true;
+                return groupCommitPlanner;
+            }
+            reuseGroupCommitPlan = false;
+            if (!targetColumns.isEmpty()) {
+                Analyzer analyzerTmp = analyzer;
+                reset();
+                this.analyzer = analyzerTmp;
+            }
+            analyzeSubquery(analyzer, true);
+            groupCommitPlanner = new GroupCommitPlanner((Database) db, olapTable, targetColumnNames, queryId,
+                    ConnectContext.get().getSessionVariable().getGroupCommit());
+            // save plan message to be reused for prepare stmt
+            loadId = queryId;
+            baseSchemaVersion = olapTable.getBaseSchemaVersion();
             return groupCommitPlanner;
+        } finally {
+            olapTable.readUnlock();
         }
-        reuseGroupCommitPlan = false;
-        if (!targetColumns.isEmpty()) {
-            Analyzer analyzerTmp = analyzer;
-            reset();
-            this.analyzer = analyzerTmp;
-        }
-        analyzeSubquery(analyzer, true);
-        groupCommitPlanner = new GroupCommitPlanner((Database) db, olapTable, targetColumnNames, queryId,
-                ConnectContext.get().getSessionVariable().getGroupCommit());
-        // save plan message to be reused for prepare stmt
-        loadId = queryId;
-        baseSchemaVersion = olapTable.getBaseSchemaVersion();
-        return groupCommitPlanner;
     }
 
     public TUniqueId getLoadId() {

@@ -295,9 +295,9 @@ public class StmtExecutor {
             if (expr instanceof NullLiteral) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
-                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueInFe()));
+                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForStreamLoad()));
             } else {
-                String stringValue = expr.getStringValueInFe();
+                String stringValue = expr.getStringValueForStreamLoad();
                 if (stringValue.equals(NULL_VALUE_FOR_LOAD) || stringValue.startsWith("\"") || stringValue.endsWith(
                         "\"")) {
                     row.addColBuilder().setValue(String.format("\"%s\"", stringValue));
@@ -502,6 +502,11 @@ public class StmtExecutor {
                     LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
                     parsedStmt = null;
                     planner = null;
+                    // Attention: currently exception from nereids does not mean an Exception to user terminal
+                    // unless user does not allow fallback to lagency planner. But state of query
+                    // has already been set to Error in this case, it will have some side effect on profile result
+                    // and audit log. So we need to reset state to OK if query cancel be processd by lagency.
+                    context.getState().reset();
                     context.getState().setNereids(false);
                     executeByLegacy(queryId);
                 }
@@ -750,6 +755,7 @@ public class StmtExecutor {
             } else {
                 analyzer = new Analyzer(context.getEnv(), context);
                 parsedStmt.analyze(analyzer);
+                parsedStmt.checkPriv();
             }
 
             if (prepareStmt instanceof PrepareStmt && !isExecuteStmt) {
@@ -1447,15 +1453,6 @@ public class StmtExecutor {
 
         Queriable queryStmt = (Queriable) parsedStmt;
 
-        QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
-                DebugUtil.printId(context.queryId()),
-                context.getStartTime(), -1, -1,
-                QueryDetail.QueryMemState.RUNNING,
-                context.getDatabase(),
-                originStmt.originStmt);
-        context.setQueryDetail(queryDetail);
-        QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
-
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString, false);
@@ -1528,11 +1525,6 @@ public class StmtExecutor {
             coordBase = new PointQueryExec(planner, analyzer);
         } else {
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-            if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {
-                coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
-            } else {
-                context.setWorkloadGroupName("");
-            }
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
             profile.setExecutionProfile(coord.getExecutionProfile());
@@ -1569,6 +1561,13 @@ public class StmtExecutor {
                 }
                 return;
             }
+
+            if (context.isRunProcedure()) {
+                // plsql will get the returned results without sending them to mysql client.
+                // see org/apache/doris/plsql/executor/DorisRowResult.java
+                return;
+            }
+
             while (true) {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
@@ -1944,6 +1943,8 @@ public class StmtExecutor {
         } else if (insertStmt instanceof NativeInsertStmt && ((NativeInsertStmt) insertStmt).isGroupCommit()) {
             isGroupCommit = true;
             NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) insertStmt;
+            long dbId = nativeInsertStmt.getTargetTable().getDatabase().getId();
+            long tableId = nativeInsertStmt.getTargetTable().getId();
             int maxRetry = 3;
             for (int i = 0; i < maxRetry; i++) {
                 GroupCommitPlanner groupCommitPlanner = nativeInsertStmt.planForGroupCommit(context.queryId);
@@ -1954,10 +1955,11 @@ public class StmtExecutor {
                 ProtocolStringList errorMsgsList = response.getStatus().getErrorMsgsList();
                 if (code == TStatusCode.DATA_QUALITY_ERROR && !errorMsgsList.isEmpty() && errorMsgsList.get(0)
                         .contains("schema version not match")) {
-                    LOG.info("group commit insert failed. stmt: {}, backend id: {}, status: {}, "
-                                    + "schema version: {}, retry: {}", insertStmt.getOrigStmt().originStmt,
-                            groupCommitPlanner.getBackend().getId(),
-                            response.getStatus(), nativeInsertStmt.getBaseSchemaVersion(), i);
+                    LOG.info("group commit insert failed. stmt: {}, query_id: {}, db_id: {}, table_id: {}"
+                                    + ", schema version: {}, backend_id: {}, status: {}, retry: {}",
+                            insertStmt.getOrigStmt().originStmt, DebugUtil.printId(context.queryId()), dbId, tableId,
+                            nativeInsertStmt.getBaseSchemaVersion(), groupCommitPlanner.getBackend().getId(),
+                            response.getStatus(), i);
                     if (i < maxRetry) {
                         List<TableIf> tables = Lists.newArrayList(insertStmt.getTargetTable());
                         MetaLockUtils.readLockTables(tables);
@@ -1970,12 +1972,14 @@ public class StmtExecutor {
                         }
                         continue;
                     } else {
-                        errMsg = "group commit insert failed. backend id: "
+                        errMsg = "group commit insert failed. db_id: " + dbId + ", table_id: " + tableId
+                                + ", query_id: " + DebugUtil.printId(context.queryId()) + ", backend_id: "
                                 + groupCommitPlanner.getBackend().getId() + ", status: " + response.getStatus();
                     }
                 } else if (code != TStatusCode.OK) {
-                    errMsg = "group commit insert failed. backend id: " + groupCommitPlanner.getBackend().getId()
-                            + ", status: " + response.getStatus();
+                    errMsg = "group commit insert failed. db_id: " + dbId + ", table_id: " + tableId + ", query_id: "
+                            + DebugUtil.printId(context.queryId()) + ", backend_id: " + groupCommitPlanner.getBackend()
+                            .getId() + ", status: " + response.getStatus();
                     ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
                 }
                 label = response.getLabel();
@@ -2365,6 +2369,16 @@ public class StmtExecutor {
     }
 
     private void handleLockTablesStmt() {
+    }
+
+    public void handleShowConstraintStmt(List<List<String>> result) throws IOException {
+        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("Name", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Definition", ScalarType.createVarchar(20)))
+                .build();
+        ResultSet resultSet = new ShowResultSet(metaData, result);
+        sendResultSet(resultSet);
     }
 
     public void handleExplainStmt(String result, boolean isNereids) throws IOException {
@@ -2799,7 +2813,7 @@ public class StmtExecutor {
             if (coord != null) {
                 coord.close();
             }
-            AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),
+            AuditLogHelper.logAuditLog(context, originStmt.originStmt, parsedStmt, getQueryStatisticsForAuditLog(),
                     true);
             if (Config.enable_collect_internal_query_profile) {
                 updateProfile(true);
@@ -2824,6 +2838,18 @@ public class StmtExecutor {
             resultRows.add(resultRow);
         }
         return resultRows;
+    }
+
+    public Coordinator getCoord() {
+        return coord;
+    }
+
+    public List<String> getColumns() {
+        return parsedStmt.getColLabels();
+    }
+
+    public List<Type> getReturnTypes() {
+        return exprToType(parsedStmt.getResultExprs());
     }
 
     public SummaryProfile getSummaryProfile() {

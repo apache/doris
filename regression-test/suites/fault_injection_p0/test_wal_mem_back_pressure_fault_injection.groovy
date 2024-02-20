@@ -112,7 +112,7 @@ suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
         processList.each { item ->
             logger.info(item[1].toString())
             logger.info(item[11].toString())
-            if (item[11].toString() == "".toString()){
+            if (item[11].toString() == "group commit is not supported in nereids now".toString()){
                 def res = sql "kill ${item[1]}"
                 logger.info(res.toString())
             }
@@ -122,5 +122,36 @@ suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
     disable_back_pressure()
 
     thread1.join()
+
+    // new test
+ 
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            `k` int ,
+            `v` int ,
+        ) engine=olap
+        DISTRIBUTED BY HASH(`k`) 
+        BUCKETS 5 
+        properties("replication_num" = "1")
+        """
+
+    GetDebugPoint().clearDebugPointsForAllBEs()
+
+    def exception = false;
+    sql """ set group_commit = async_mode; """
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("VWalWriter.write_wal.fail")
+            sql """insert into ${tableName} values(1,1)"""
+            assertFalse(true);
+        } catch (Exception e) {
+            logger.info(e.getMessage())
+            assertTrue(e.getMessage().contains('Failed to write wal!'))
+            exception = true;
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("VWalWriter.write_wal.fail")
+            assertTrue(exception)
+        }
 
 }

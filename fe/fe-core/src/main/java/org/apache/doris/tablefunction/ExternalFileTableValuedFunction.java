@@ -330,8 +330,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             List<Column> fileColumns = new ArrayList<>();
             Table table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
             List<Column> tableColumns = table.getBaseSchema(true);
-            for (int i = 1; i <= tableColumns.size(); i++) {
-                fileColumns.add(new Column("c" + i, tableColumns.get(i - 1).getType(), true));
+            for (int i = 0; i < tableColumns.size(); i++) {
+                Column column = new Column(tableColumns.get(i).getName(), tableColumns.get(i).getType(), true);
+                column.setUniqueId(tableColumns.get(i).getUniqueId());
+                fileColumns.add(column);
             }
             return fileColumns;
         }

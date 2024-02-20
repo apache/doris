@@ -181,12 +181,12 @@ java_version="$(
     jdk_version "${JAVA}"
 )"
 final_java_opt="${JAVA_OPTS}"
-if [[ "${java_version}" -ge 16 ]]; then
-    if [[ -z "${JAVA_OPTS_FOR_JDK_16}" ]]; then
-        echo "JAVA_OPTS_FOR_JDK_16 is not set in fe.conf" >>"${LOG_DIR}/fe.out"
+if [[ "${java_version}" -gt 16 ]]; then
+    if [[ -z "${JAVA_OPTS_FOR_JDK_17}" ]]; then
+        echo "JAVA_OPTS_FOR_JDK_17 is not set in fe.conf" >>"${LOG_DIR}/fe.out"
         exit 1
     fi
-    final_java_opt="${JAVA_OPTS_FOR_JDK_16}"
+    final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
 elif [[ "${java_version}" -gt 8 ]]; then
     if [[ -z "${JAVA_OPTS_FOR_JDK_9}" ]]; then
         echo "JAVA_OPTS_FOR_JDK_9 is not set in fe.conf" >>"${LOG_DIR}/fe.out"
@@ -196,29 +196,6 @@ elif [[ "${java_version}" -gt 8 ]]; then
 fi
 echo "using java version ${java_version}" >>"${LOG_DIR}/fe.out"
 echo "${final_java_opt}" >>"${LOG_DIR}/fe.out"
-
-function check_jvm_xmx() {
-    local os_type
-    local total_mem_byte
-    local total_mem_mb
-    local ninety_percent_mem_mb
-    local jvm_xmx_mb
-    os_type=$(uname -s)
-    if [[ "${os_type}" == "Linux" ]]; then
-        total_mem_byte="$(free -b | grep Mem | awk '{print $2}')"
-        jvm_xmx_byte="$(${JAVA} "${final_java_opt}" -XX:+PrintFlagsFinal -version 2>&1 | awk '/MaxHeapSize/ {print $4}')"
-        total_mem_mb=$(("${total_mem_byte}" / 1024 / 1024))
-        ninety_percent_mem_mb=$(("${total_mem_byte}" * 9 / 10 / 1024 / 1024))
-        jvm_xmx_mb=$(("${jvm_xmx_byte}" / 1024 / 1024))
-
-        if [[ ${jvm_xmx_mb} -gt ${ninety_percent_mem_mb} ]]; then
-            echo "java opt -Xmx is more than 90% of total physical memory"
-            echo "total_mem_mb:${total_mem_mb}MB ninety_percent_mem_mb:${ninety_percent_mem_mb}MB jvm_xmx_mb:${jvm_xmx_mb}MB"
-            exit 1
-        fi
-    fi
-}
-check_jvm_xmx
 
 # add libs to CLASSPATH
 DORIS_FE_JAR=

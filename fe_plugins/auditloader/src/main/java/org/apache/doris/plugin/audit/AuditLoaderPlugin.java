@@ -219,7 +219,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
                     } catch (Exception e) {
                         LOG.error("Failed to get auth token: {}", e);
                     }
-                }  
+                }
                 DorisStreamLoader.LoadResponse response = loader.loadBatch(logBuffer, slowLog, token);
                 LOG.debug("audit loader response: {}", response);
             } catch (Exception e) {

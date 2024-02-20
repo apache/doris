@@ -56,10 +56,12 @@ public class TableProperty implements Writable {
     private Map<String, String> properties;
 
     // the follower variables are built from "properties"
-    private DynamicPartitionProperty dynamicPartitionProperty = new DynamicPartitionProperty(Maps.newHashMap());
+    private DynamicPartitionProperty dynamicPartitionProperty =
+            EnvFactory.getInstance().createDynamicPartitionProperty(Maps.newHashMap());
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
+    private long ttlSeconds = 0L;
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
@@ -179,13 +181,22 @@ public class TableProperty implements Writable {
                 dynamicPartitionProperties.put(entry.getKey(), entry.getValue());
             }
         }
-        dynamicPartitionProperty = new DynamicPartitionProperty(dynamicPartitionProperties);
+        dynamicPartitionProperty = EnvFactory.getInstance().createDynamicPartitionProperty(dynamicPartitionProperties);
         return this;
     }
 
     public TableProperty buildInMemory() {
         isInMemory = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_INMEMORY, "false"));
         return this;
+    }
+
+    public TableProperty buildTTLSeconds() {
+        ttlSeconds = Long.parseLong(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0"));
+        return this;
+    }
+
+    public long getTTLSeconds() {
+        return ttlSeconds;
     }
 
     public TableProperty buildEnableLightSchemaChange() {
@@ -521,6 +532,16 @@ public class TableProperty implements Writable {
         return Integer.parseInt(properties.getOrDefault(
                 PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS,
                 Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE)));
+    }
+
+    public void setGroupCommitDataBytes(int groupCommitDataBytes) {
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES, Integer.toString(groupCommitDataBytes));
+    }
+
+    public int getGroupCommitDataBytes() {
+        return Integer.parseInt(properties.getOrDefault(
+            PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES,
+            Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE)));
     }
 
     public void buildReplicaAllocation() {

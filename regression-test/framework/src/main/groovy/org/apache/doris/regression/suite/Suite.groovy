@@ -26,6 +26,7 @@ import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.action.BenchmarkAction
+import org.apache.doris.regression.action.WaitForAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.CreateMVAction
@@ -399,6 +400,49 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    long getTableId(String dbName, String tableName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for(List<Object> row : dbInfo) {
+            if (row[1].equals(dbName)) {
+                def tbInfo = sql "show proc '/dbs/${row[0]}' "
+                for (List<Object> tb : tbInfo) {
+                    if (tb[1].equals(tableName)) {
+                        return tb[0].toLong()
+                    }
+                }
+            }
+        }
+    }
+
+    long getDbId() {
+        def dbInfo = sql "show proc '/dbs'"
+        for(List<Object> row : dbInfo) {
+            if (row[1].equals(context.dbName)) {
+                println(row[0])
+                return row[0].toLong()
+            }
+        }
+    }
+
+    long getDbId(String dbName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for (List<Object> row : dbInfo) {
+            if (row[1].equals(dbName)) {
+                return row[0].toLong()
+            }
+        }
+    }
+
+    long getTableVersion(long dbId, String tableName) {
+       def result = sql_return_maparray """show proc '/dbs/${dbId}'"""
+        for (def res : result) {
+            if(res.TableName.equals(tableName)) {
+                log.info(res.toString())
+                return res.VisibleVersion.toLong()
+            }
+        }
+    }
+
     List<List<Object>> order_sql(String sqlStr) {
         return sql(sqlStr,  true)
     }
@@ -472,6 +516,10 @@ class Suite implements GroovyInterceptable {
 
     void benchmark(Closure actionSupplier) {
         runAction(new BenchmarkAction(context), actionSupplier)
+    }
+
+    void waitForSchemaChangeDone(Closure actionSupplier) {
+        runAction(new WaitForAction(context), actionSupplier)
     }
 
     String getBrokerName() {
@@ -878,6 +926,27 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals("SUCCESS", status)
     }
 
+    void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {
+        Thread.sleep(2000);
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(4)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+        }
+    }
+
     String getJobName(String dbName, String mtmvName) {
         String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
@@ -890,7 +959,7 @@ class Suite implements GroovyInterceptable {
     }
 
     String getFeConfig(String key) {
-        return sql_return_maparray("ADMIN SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
+        return sql_return_maparray("SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
     }
 
     void setFeConfig(String key, Object value) {
@@ -932,5 +1001,73 @@ class Suite implements GroovyInterceptable {
         }
         Assert.assertEquals(true, !createdTableName.isEmpty())
     }
-}
 
+    String[][] deduplicate_tablets(String[][] tablets) {
+        def result = [:]
+
+        tablets.each { row ->
+            def tablet_id = row[0]
+            if (!result.containsKey(tablet_id)) {
+                result[tablet_id] = row
+            }
+        }
+
+        return result.values().toList()
+    }
+
+    ArrayList deduplicate_tablets(ArrayList tablets) {
+        def result = [:]
+
+        tablets.each { row ->
+            def tablet_id
+            if (row.containsKey("TabletId")) {
+                tablet_id = row.TabletId
+            } else {
+                tablet_id = row[0]
+            }
+            if (!result.containsKey(tablet_id)) {
+                result[tablet_id] = row
+            }
+        }
+
+        return result.values().toList()
+    }
+
+    def check_mv_rewrite_success = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        explain {
+            sql("${query_sql}")
+            contains("${mv_name}(${mv_name})")
+        }
+    }
+
+    def check_mv_rewrite_fail = { db, mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        explain {
+            sql("${query_sql}")
+            notContains("${mv_name}(${mv_name})")
+        }
+    }
+}

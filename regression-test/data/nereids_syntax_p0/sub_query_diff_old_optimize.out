@@ -29,6 +29,9 @@
 -- !alias_not_exist --
 2	5
 
+-- !alias_issue30264 --
+a
+
 -- !exists_subquery_with_limit --
 1	2
 1	3

@@ -57,7 +57,7 @@ public:
                 throw Exception(ErrorCode::INTERNAL_ERROR, "filters empty, filter_id={}",
                                 filter_id);
             }
-            for (auto filter : filters) {
+            for (auto* filter : filters) {
                 filter->set_ignored("");
                 filter->signal();
             }
@@ -91,6 +91,10 @@ public:
         std::sort(sorted_runtime_filter_descs.begin(), sorted_runtime_filter_descs.end(),
                   compare_desc);
 
+        // do not create 'in filter' when hash_table size over limit
+        const auto max_in_num = state->runtime_filter_max_in_num();
+        const bool over_max_in_num = (hash_table_size >= max_in_num);
+
         for (auto& filter_desc : sorted_runtime_filter_descs) {
             IRuntimeFilter* runtime_filter = nullptr;
             RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(filter_desc.filter_id,
@@ -102,10 +106,6 @@ public:
                         "_build_expr_context.size={}",
                         runtime_filter->expr_order(), _build_expr_context.size());
             }
-
-            // do not create 'in filter' when hash_table size over limit
-            auto max_in_num = state->runtime_filter_max_in_num();
-            bool over_max_in_num = (hash_table_size >= max_in_num);
 
             bool is_in_filter = (runtime_filter->type() == RuntimeFilterType::IN_FILTER);
 
@@ -166,7 +166,7 @@ public:
         return Status::OK();
     }
 
-    void insert(const std::unordered_set<const vectorized::Block*>& datas) {
+    void insert(const vectorized::Block* block) {
         for (int i = 0; i < _build_expr_context.size(); ++i) {
             auto iter = _runtime_filters.find(i);
             if (iter == _runtime_filters.end()) {
@@ -174,18 +174,16 @@ public:
             }
 
             int result_column_id = _build_expr_context[i]->get_last_result_column_id();
-            for (const auto* it : datas) {
-                auto column = it->get_by_position(result_column_id).column;
-                for (auto* filter : iter->second) {
-                    filter->insert_batch(column, 1);
-                }
+            const auto& column = block->get_by_position(result_column_id).column;
+            for (auto* filter : iter->second) {
+                filter->insert_batch(column, 1);
             }
         }
     }
 
     bool ready_finish_publish() {
         for (auto& pair : _runtime_filters) {
-            for (auto filter : pair.second) {
+            for (auto* filter : pair.second) {
                 if (!filter->is_finish_rpc()) {
                     return false;
                 }
@@ -196,7 +194,7 @@ public:
 
     void finish_publish() {
         for (auto& pair : _runtime_filters) {
-            for (auto filter : pair.second) {
+            for (auto* filter : pair.second) {
                 static_cast<void>(filter->join_rpc());
             }
         }
@@ -215,8 +213,7 @@ public:
     void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
         for (auto& it : _runtime_filters) {
             for (auto& filter : it.second) {
-                auto& target = context->runtime_filters[filter->filter_id()];
-                filter->copy_to_shared_context(target);
+                context->runtime_filters[filter->filter_id()] = filter->get_shared_context_ref();
             }
         }
     }
@@ -229,7 +226,7 @@ public:
                 if (ret == context->runtime_filters.end()) {
                     return Status::Aborted("invalid runtime filter id: {}", filter_id);
                 }
-                RETURN_IF_ERROR(filter->copy_from_shared_context(ret->second));
+                filter->get_shared_context_ref() = ret->second;
             }
         }
         return Status::OK();
