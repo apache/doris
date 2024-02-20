@@ -98,7 +98,7 @@ suite("test_base_multi_partition_cols_mtmv") {
     // partition change
     //add partition k3
     sql """
-        alter table ${tableName} ADD PARTITION `p1_tj` VALUES IN (("1", "tj")), ;
+        alter table ${tableName} ADD PARTITION `p1_tj` VALUES IN (("1", "tj"))
         """
     sql """
             REFRESH MATERIALIZED VIEW ${mvName};
@@ -110,7 +110,7 @@ suite("test_base_multi_partition_cols_mtmv") {
 
     // add partition k2
     sql """
-        alter table ${tableName} ADD PARTITION `p4_bj` VALUES IN (("4", "bj")), ;
+        alter table ${tableName} ADD PARTITION `p4_bj` VALUES IN (("4", "bj"))
         """
     sql """
             REFRESH MATERIALIZED VIEW ${mvName};
