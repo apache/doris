@@ -101,7 +101,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     _runtime_filter_mgr.reset(new RuntimeFilterMgr(fragment_exec_params.query_id,
                                                    RuntimeFilterParamsContext::create(this)));
     if (fragment_exec_params.__isset.runtime_filter_params) {
-        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+        _query_ctx->global_runtime_filter_mgr()->set_runtime_filter_params(
                 fragment_exec_params.runtime_filter_params);
     }
 }

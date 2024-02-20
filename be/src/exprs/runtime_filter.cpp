@@ -995,7 +995,7 @@ Status IRuntimeFilter::publish(bool publish_local) {
     } else if (_has_local_target) {
         RETURN_IF_ERROR(send_to_local(_wrapper));
     } else if (!publish_local) {
-        if (_is_broadcast_join) {
+        if (_is_broadcast_join || _state->be_exec_version < 3) {
             RETURN_IF_ERROR(send_to_remote(this));
         } else {
             RETURN_IF_ERROR(do_local_merge());

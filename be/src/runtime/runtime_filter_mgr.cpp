@@ -513,7 +513,7 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* sta
     params->runtime_filter_wait_time_ms = state->runtime_filter_wait_time_ms();
     params->enable_pipeline_exec = state->enable_pipeline_exec();
     params->execution_timeout = state->execution_timeout();
-    params->runtime_filter_mgr = state->runtime_filter_mgr();
+    params->runtime_filter_mgr = state->local_runtime_filter_mgr();
     params->exec_env = state->exec_env();
     params->query_id.set_hi(state->query_id().hi);
     params->query_id.set_lo(state->query_id().lo);
@@ -531,7 +531,7 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(QueryContext* que
     params->runtime_filter_wait_time_ms = query_ctx->runtime_filter_wait_time_ms();
     params->enable_pipeline_exec = query_ctx->enable_pipeline_exec();
     params->execution_timeout = query_ctx->execution_timeout();
-    params->runtime_filter_mgr = query_ctx->runtime_filter_mgr();
+    params->runtime_filter_mgr = query_ctx->global_runtime_filter_mgr();
     params->exec_env = query_ctx->exec_env();
     params->query_id.set_hi(query_ctx->query_id().hi);
     params->query_id.set_lo(query_ctx->query_id().lo);

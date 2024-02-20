@@ -452,7 +452,10 @@ public:
     // if load mem limit is not set, or is zero, using query mem limit instead.
     int64_t get_load_mem_limit();
 
-    RuntimeFilterMgr* runtime_filter_mgr() {
+    // local runtime filter mgr, the runtime filter do not have remote target or
+    // not need local merge should regist here. the instance exec finish, the local
+    // runtime filter mgr can release the memory of local runtime filter
+    RuntimeFilterMgr* local_runtime_filter_mgr() {
         if (_pipeline_x_runtime_filter_mgr) {
             return _pipeline_x_runtime_filter_mgr;
         } else {

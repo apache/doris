@@ -187,7 +187,10 @@ public:
         return _query_options.__isset.fe_process_uuid ? _query_options.fe_process_uuid : 0;
     }
 
-    RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
+    // global runtime filter mgr, the runtime filter have remote target or
+    // need local merge should regist here. before publish() or push_to_remote()
+    // the runtime filter should do the local merge work
+    RuntimeFilterMgr* global_runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
     TUniqueId query_id() const { return _query_id; }
 

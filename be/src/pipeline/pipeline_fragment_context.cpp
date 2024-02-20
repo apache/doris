@@ -231,7 +231,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             local_params.fragment_instance_id, request.query_id, request.fragment_id,
             request.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
     if (idx == 0 && local_params.__isset.runtime_filter_params) {
-        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+        _query_ctx->global_runtime_filter_mgr()->set_runtime_filter_params(
                 local_params.runtime_filter_params);
     }
 

@@ -101,12 +101,12 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         if (p._runtime_filter_descs[i].has_remote_targets || p._need_local_merge) {
             RETURN_IF_ERROR(state->get_query_ctx()
-                                    ->runtime_filter_mgr()
+                                    ->global_runtime_filter_mgr()
                                     ->register_local_merge_producer_filter(
                                             p._runtime_filter_descs[i], state->query_options(),
                                             &_runtime_filters[i], _build_expr_ctxs.size() == 1));
         } else {
-            RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
+            RETURN_IF_ERROR(state->local_runtime_filter_mgr()->register_producer_filter(
                     p._runtime_filter_descs[i], state->query_options(), &_runtime_filters[i],
                     _build_expr_ctxs.size() == 1));
         }

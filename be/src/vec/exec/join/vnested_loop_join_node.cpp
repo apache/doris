@@ -120,12 +120,12 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         filter_src_exprs.push_back(_runtime_filter_descs[i].src_expr);
         if (_runtime_filter_descs[i].has_remote_targets) {
             RETURN_IF_ERROR(state->get_query_ctx()
-                                    ->runtime_filter_mgr()
+                                    ->global_runtime_filter_mgr()
                                     ->register_local_merge_producer_filter(_runtime_filter_descs[i],
                                                                            state->query_options(),
                                                                            &_runtime_filters[i]));
         } else {
-            RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
+            RETURN_IF_ERROR(state->local_runtime_filter_mgr()->register_producer_filter(
                     _runtime_filter_descs[i], state->query_options(), &_runtime_filters[i]));
         }
     }

@@ -1304,7 +1304,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
         pip_context = iter->second;
 
         DCHECK(pip_context != nullptr);
-        runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
+        runtime_filter_mgr = pip_context->get_query_ctx()->global_runtime_filter_mgr();
     } else {
         std::unique_lock<std::mutex> lock(_lock);
         auto iter = _fragment_instance_map.find(tfragment_instance_id);
@@ -1316,7 +1316,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
 
         DCHECK(fragment_executor != nullptr);
         runtime_filter_mgr =
-                fragment_executor->runtime_state()->get_query_ctx()->runtime_filter_mgr();
+                fragment_executor->runtime_state()->get_query_ctx()->global_runtime_filter_mgr();
     }
 
     return runtime_filter_mgr->update_filter(request, attach_data);
@@ -1347,7 +1347,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             pip_context = iter->second;
 
             DCHECK(pip_context != nullptr);
-            runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
+            runtime_filter_mgr = pip_context->get_query_ctx()->global_runtime_filter_mgr();
             pool = &pip_context->get_query_ctx()->obj_pool;
         } else {
             std::unique_lock<std::mutex> lock(_lock);
@@ -1361,7 +1361,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             fragment_executor = iter->second;
 
             DCHECK(fragment_executor != nullptr);
-            runtime_filter_mgr = fragment_executor->get_query_ctx()->runtime_filter_mgr();
+            runtime_filter_mgr = fragment_executor->get_query_ctx()->global_runtime_filter_mgr();
             pool = &fragment_executor->get_query_ctx()->obj_pool;
         }
 

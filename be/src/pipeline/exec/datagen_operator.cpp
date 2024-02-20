@@ -101,10 +101,12 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     for (const auto& filter_desc : p._runtime_filter_descs) {
         IRuntimeFilter* runtime_filter = nullptr;
         if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf) {
-            RETURN_IF_ERROR(state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, state->query_options(), p.node_id(), &runtime_filter, false));
+            RETURN_IF_ERROR(
+                    state->get_query_ctx()->global_runtime_filter_mgr()->register_consumer_filter(
+                            filter_desc, state->query_options(), p.node_id(), &runtime_filter,
+                            false));
         } else {
-            RETURN_IF_ERROR(state->runtime_filter_mgr()->register_consumer_filter(
+            RETURN_IF_ERROR(state->local_runtime_filter_mgr()->register_consumer_filter(
                     filter_desc, state->query_options(), p.node_id(), &runtime_filter, false));
         }
         runtime_filter->init_profile(_runtime_profile.get());
