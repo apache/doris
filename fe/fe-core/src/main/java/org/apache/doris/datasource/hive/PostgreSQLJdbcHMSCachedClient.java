@@ -20,7 +20,6 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.thrift.TOdbcTableType;
