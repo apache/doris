@@ -54,17 +54,6 @@ public:
     AggSourceDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AggSourceDependency", query_ctx) {}
     ~AggSourceDependency() override = default;
-
-    void block() override {
-        if (_is_streaming_agg_state()) {
-            Dependency::block();
-        }
-    }
-
-private:
-    bool _is_streaming_agg_state() {
-        return ((SharedState*)Dependency::_shared_state)->data_queue != nullptr;
-    }
 };
 
 class AggSourceOperatorX;
