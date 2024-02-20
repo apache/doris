@@ -810,8 +810,17 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             throw new DdlException("Can not recover partition[" + partitionName + "]. Partition item conflict.");
         }
 
-        // check if partition name exists
+        // check if schema change
         Partition recoverPartition = recoverPartitionInfo.getPartition();
+        Set<Long> tableIndex = table.getIndexIdToMeta().keySet();
+        Set<Long> partitionIndex = recoverPartition.getMaterializedIndices(IndexExtState.ALL).stream()
+                .map(i -> i.getId()).collect(Collectors.toSet());
+        if (!tableIndex.equals(partitionIndex)) {
+            throw new DdlException("table's index not equal with partition's index. table's index=" + tableIndex
+                    + ", partition's index=" + partitionIndex);
+        }
+
+        // check if partition name exists
         Preconditions.checkState(recoverPartition.getName().equalsIgnoreCase(partitionName));
         if (!Strings.isNullOrEmpty(newPartitionName)) {
             if (table.checkPartitionNameExist(newPartitionName)) {
