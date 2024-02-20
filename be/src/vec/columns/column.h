@@ -366,10 +366,6 @@ public:
     /// null_data to mark whether need to do hash compute, null_data == nullptr
     /// means all element need to do hash function, else only *null_data != 0 need to do hash func
     /// do xxHash here, faster than other hash method
-    virtual void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                          const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << get_name() << " update_hashes_with_value siphash not supported";
-    }
 
     /// Update state of hash function with value of n elements to avoid the virtual function call
     /// null_data to mark whether need to do hash compute, null_data == nullptr
