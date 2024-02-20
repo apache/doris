@@ -100,11 +100,11 @@ public abstract class ExternalCatalog
     protected CatalogProperty catalogProperty;
     @SerializedName(value = "initialized")
     private volatile boolean initialized = false;
-    protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
+    protected volatile Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected volatile long lastUpdateTime;
     // db name does not contains "default_cluster"
-    protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
+    protected volatile Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private volatile boolean objectCreated = false;
     protected boolean invalidCacheInInit = true;
     protected ExternalMetadataOps metadataOps;
