@@ -118,14 +118,10 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
                 Base::_shared_state->agg_profile_arena->alloc(p._total_size_of_aggregate_states));
 
         if (p._is_merge) {
-            _executor.execute =
-                    std::bind<Status>(&Derived::_merge_without_key, this, std::placeholders::_1);
+            _executor = std::make_unique<Executor<true, true>>();
         } else {
-            _executor.execute =
-                    std::bind<Status>(&Derived::_execute_without_key, this, std::placeholders::_1);
+            _executor = std::make_unique<Executor<true, false>>();
         }
-
-        _executor.update_memusage = std::bind<void>(&Derived::_update_memusage_without_key, this);
     } else {
         _init_hash_method(Base::_shared_state->probe_expr_ctxs);
 
@@ -144,15 +140,10 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
                 },
                 _agg_data->method_variant);
         if (p._is_merge) {
-            _executor.execute = std::bind<Status>(&Derived::_merge_with_serialized_key, this,
-                                                  std::placeholders::_1);
+            _executor = std::make_unique<Executor<false, true>>();
         } else {
-            _executor.execute = std::bind<Status>(&Derived::_execute_with_serialized_key, this,
-                                                  std::placeholders::_1);
+            _executor = std::make_unique<Executor<false, false>>();
         }
-
-        _executor.update_memusage =
-                std::bind<void>(&Derived::_update_memusage_with_serialized_key, this);
 
         _should_limit_output = p._limit != -1 &&       // has limit
                                (!p._have_conjuncts) && // no having conjunct
@@ -851,9 +842,9 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
-        RETURN_IF_ERROR(local_state._executor.execute(in_block));
+        RETURN_IF_ERROR(local_state._executor->execute(&local_state, in_block));
         RETURN_IF_ERROR(local_state.try_spill_disk());
-        local_state._executor.update_memusage();
+        local_state._executor->update_memusage(&local_state);
     }
     if (source_state == SourceState::FINISHED) {
         if (local_state._shared_state->spill_context.has_data) {
@@ -890,6 +881,7 @@ template class AggSinkOperatorX<BlockingAggSinkLocalState>;
 template class AggSinkOperatorX<StreamingAggSinkLocalState>;
 template class AggSinkOperatorX<DistinctStreamingAggSinkLocalState>;
 template class AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState>;
-template class AggSinkLocalState<AggSinkDependency, StreamingAggSinkLocalState>;
-template class AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>;
+template class AggSinkLocalState<StreamingAggSinkDependency, StreamingAggSinkLocalState>;
+template class AggSinkLocalState<DistinctStreamingAggSinkDependency,
+                                 DistinctStreamingAggSinkLocalState>;
 } // namespace doris::pipeline

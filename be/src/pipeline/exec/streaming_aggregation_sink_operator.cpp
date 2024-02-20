@@ -157,7 +157,7 @@ Status StreamingAggSinkLocalState::do_pre_agg(vectorized::Block* input_block,
     _num_rows_returned += output_block->rows();
     _make_nullable_output_key(output_block);
     //    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-    _executor.update_memusage();
+    _executor->update_memusage(this);
     return Status::OK();
 }
 
