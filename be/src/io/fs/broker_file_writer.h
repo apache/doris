@@ -45,7 +45,6 @@ public:
                      int64_t start_offset, FileSystemSPtr fs);
     virtual ~BrokerFileWriter();
 
-    Status open() override;
     Status close() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
     Status finalize() override;

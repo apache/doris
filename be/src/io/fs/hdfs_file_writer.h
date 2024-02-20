@@ -36,7 +36,6 @@ public:
     HdfsFileWriter(Path file, FileSystemSPtr fs);
     ~HdfsFileWriter();
 
-    Status open() override;
     Status close() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
     Status finalize() override;
