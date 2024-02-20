@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 
 #include "olap/olap_common.h"
@@ -30,30 +31,30 @@ namespace vectorized {
 class Arena;
 } // namespace vectorized
 
-TabletColumn create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false,
-                            bool has_bitmap_index = false);
+TabletColumnPtr create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false,
+                               bool has_bitmap_index = false);
 
-TabletColumn create_int_value(
+TabletColumnPtr create_int_value(
         int32_t id,
         FieldAggregationMethod agg_method = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
         bool is_nullable = true, const std::string default_value = "", bool is_bf_column = false,
         bool has_bitmap_index = false);
 
-TabletColumn create_char_key(int32_t id, bool is_nullable = true);
+TabletColumnPtr create_char_key(int32_t id, bool is_nullable = true);
 
-TabletColumn create_varchar_key(int32_t id, bool is_nullable = true);
+TabletColumnPtr create_varchar_key(int32_t id, bool is_nullable = true);
 
-TabletColumn create_string_key(int32_t id, bool is_nullable = true);
+TabletColumnPtr create_string_key(int32_t id, bool is_nullable = true);
 
 template <FieldType type>
-TabletColumn create_with_default_value(std::string default_value) {
-    TabletColumn column;
-    column._type = type;
-    column._is_nullable = true;
-    column._aggregation = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE;
-    column._has_default_value = true;
-    column._default_value = default_value;
-    column._length = 4;
+TabletColumnPtr create_with_default_value(std::string default_value) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_type = type;
+    column->_is_nullable = true;
+    column->_aggregation = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE;
+    column->_has_default_value = true;
+    column->_default_value = default_value;
+    column->_length = 4;
     return column;
 }
 
