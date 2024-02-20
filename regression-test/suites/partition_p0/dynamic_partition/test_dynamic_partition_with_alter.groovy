@@ -38,14 +38,19 @@ suite("test_dynamic_partition_with_alter") {
     result = sql "show partitions from ${tbl}"
     assertEquals(7, result.size())
 
-    test {
-        sql "alter table ${tbl} set ('dynamic_partition.start' = '-2147483648')"
-        exception "Provide start or history_partition_num property"
-    }
+    try {
+        test {
+            sql "alter table ${tbl} set ('dynamic_partition.start' = '-2147483648')"
+            exception "Provide start or history_partition_num property"
+        }
 
-    test {
-        sql "alter table ${tbl} set ('dynamic_partition.start' = '-2147483647')"
-        exception "Too many dynamic partitions"
+        test {
+            sql "alter table ${tbl} set ('dynamic_partition.start' = '-2147483647')"
+            exception "Too many dynamic partitions"
+        }
+    } catch (Exception e) {
+        sql "drop table if exists ${tbl}"
+        throw e
     }
 
     // modify distributed column comment, then try to add too more dynamic partition
