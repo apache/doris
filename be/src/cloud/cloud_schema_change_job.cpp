@@ -1,10 +1,28 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 #include "cloud/cloud_schema_change_job.h"
 
 #include <gen_cpp/cloud.pb.h>
+
 #include <memory>
 
-#include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_tablet_mgr.h"
 #include "common/status.h"
 #include "olap/delete_handler.h"
 #include "olap/rowset/beta_rowset.h"
@@ -31,8 +49,11 @@ static std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& change
     return std::make_unique<VSchemaChangeDirectly>(changer);
 }
 
-CloudSchemaChangeJob::CloudSchemaChangeJob(CloudStorageEngine& cloud_storage_engine, std::string job_id, int64_t expiration)
-        : _cloud_storage_engine(cloud_storage_engine), _job_id(std::move(job_id)), _expiration(expiration) {}
+CloudSchemaChangeJob::CloudSchemaChangeJob(CloudStorageEngine& cloud_storage_engine,
+                                           std::string job_id, int64_t expiration)
+        : _cloud_storage_engine(cloud_storage_engine),
+          _job_id(std::move(job_id)),
+          _expiration(expiration) {}
 
 CloudSchemaChangeJob::~CloudSchemaChangeJob() = default;
 
@@ -50,7 +71,8 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         return Status::OK();
     }
 
-    _base_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.base_tablet_id));;
+    _base_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.base_tablet_id));
+    ;
     std::unique_lock<std::mutex> schema_change_lock(_base_tablet->get_schema_change_lock(),
                                                     std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
@@ -155,8 +177,8 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
 
 Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc_params) {
     LOG(INFO) << "Begin to convert historical rowsets for new_tablet from base_tablet. base_tablet="
-              << _base_tablet->tablet_id()
-              << ", new_tablet=" << _new_tablet->tablet_id() << ", job_id=" << _job_id;
+              << _base_tablet->tablet_id() << ", new_tablet=" << _new_tablet->tablet_id()
+              << ", job_id=" << _job_id;
 
     // Add filter information in change, and filter column information will be set in _parse_request
     // And filter some data every time the row block changes
@@ -166,9 +188,9 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     bool sc_directly = false;
 
     // 1. Parse the Alter request and convert it into an internal representation
-    RETURN_IF_ERROR(
-            SchemaChangeJob::parse_request(sc_params, _base_tablet_schema.get(), _new_tablet_schema.get(),
-                     &changer, &sc_sorting, &sc_directly));
+    RETURN_IF_ERROR(SchemaChangeJob::parse_request(sc_params, _base_tablet_schema.get(),
+                                                   _new_tablet_schema.get(), &changer, &sc_sorting,
+                                                   &sc_directly));
     if (!sc_sorting && !sc_directly && sc_params.alter_tablet_type == AlterTabletType::ROLLUP) {
         LOG(INFO) << "Don't support to add materialized view by linked schema change";
         return Status::InternalError(
@@ -224,8 +246,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
 
         RowsetMetaSharedPtr existed_rs_meta;
-        auto st = _cloud_storage_engine.meta_mgr().prepare_rowset(*rowset_writer->rowset_meta(), true,
-                                             &existed_rs_meta);
+        auto st = _cloud_storage_engine.meta_mgr().prepare_rowset(*rowset_writer->rowset_meta(),
+                                                                  true, &existed_rs_meta);
         if (!st.ok()) {
             if (st.is<ALREADY_EXIST>()) {
                 LOG(INFO) << "Rowset " << rs_reader->version() << " has already existed in tablet "
@@ -235,7 +257,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
                 RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, _new_tablet->tablet_path(),
-                                             existed_rs_meta, &rowset));
+                                                             existed_rs_meta, &rowset));
                 _output_rowsets.push_back(std::move(rowset));
                 continue;
             } else {
@@ -244,7 +266,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         }
 
         RETURN_IF_ERROR(sc_procedure->process(rs_reader, rowset_writer.get(), _new_tablet,
-                                              _base_tablet, _base_tablet_schema, _new_tablet_schema));
+                                              _base_tablet, _base_tablet_schema,
+                                              _new_tablet_schema));
 
         RowsetSharedPtr new_rowset;
         st = rowset_writer->build(new_rowset);
@@ -254,7 +277,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                                          st.to_string());
         }
 
-        st = _cloud_storage_engine.meta_mgr().commit_rowset(*rowset_writer->rowset_meta(), true, &existed_rs_meta);
+        st = _cloud_storage_engine.meta_mgr().commit_rowset(*rowset_writer->rowset_meta(), true,
+                                                            &existed_rs_meta);
         if (!st.ok()) {
             if (st.is<ALREADY_EXIST>()) {
                 LOG(INFO) << "Rowset " << rs_reader->version() << " has already existed in tablet "
@@ -264,7 +288,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
                 RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, _new_tablet->tablet_path(),
-                                             existed_rs_meta, &rowset));
+                                                             existed_rs_meta, &rowset));
                 _output_rowsets.push_back(std::move(rowset));
                 continue;
             } else {
@@ -321,12 +345,13 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         DCHECK(_new_tablet->tablet_state() == TABLET_NOTREADY);
         if (_new_tablet->tablet_state() != TABLET_NOTREADY) [[unlikely]] {
             LOG(ERROR) << "invalid tablet state, tablet_id=" << _new_tablet->tablet_id();
-            return Status::InternalError("invalid tablet state, tablet_id={}", _new_tablet->tablet_id());
+            return Status::InternalError("invalid tablet state, tablet_id={}",
+                                         _new_tablet->tablet_id());
         }
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
-                                            stats.num_rows(), stats.data_size());
+                                             stats.num_rows(), stats.data_size());
         RETURN_IF_ERROR(_new_tablet->set_tablet_state(TABLET_RUNNING));
     }
     return Status::OK();

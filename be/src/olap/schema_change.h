@@ -86,8 +86,8 @@ public:
     bool has_where() const { return _where_expr != nullptr; }
 
 private:
-    static Status _check_cast_valid(vectorized::ColumnPtr ref_column, vectorized::ColumnPtr new_column,
-                             AlterTabletType type);
+    static Status _check_cast_valid(vectorized::ColumnPtr ref_column,
+                                    vectorized::ColumnPtr new_column, AlterTabletType type);
 
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
@@ -117,8 +117,9 @@ public:
 
         _filtered_rows = 0;
         _merged_rows = 0;
-        LOG_INFO("lightman SchemaChange::process").tag("base_tablet id", base_tablet->tablet_id())
-            .tag("new_tablet id", new_tablet->tablet_id());
+        LOG_INFO("lightman SchemaChange::process")
+                .tag("base_tablet id", base_tablet->tablet_id())
+                .tag("new_tablet id", new_tablet->tablet_id());
         RETURN_IF_ERROR(_inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema,
                                        new_tablet_schema));
 
@@ -236,10 +237,10 @@ private:
 // Mixin for local StorageEngine
 class VLocalSchemaChangeWithSorting final : public VBaseSchemaChangeWithSorting {
 public:
-    VLocalSchemaChangeWithSorting(const BlockChanger& changer, size_t memory_limitation
-            , StorageEngine& local_storage_engine) : 
-            VBaseSchemaChangeWithSorting(changer, memory_limitation),
-            _local_storage_engine(local_storage_engine) {}
+    VLocalSchemaChangeWithSorting(const BlockChanger& changer, size_t memory_limitation,
+                                  StorageEngine& local_storage_engine)
+            : VBaseSchemaChangeWithSorting(changer, memory_limitation),
+              _local_storage_engine(local_storage_engine) {}
     ~VLocalSchemaChangeWithSorting() override = default;
 
     Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
@@ -251,6 +252,7 @@ public:
             const Version& temp_delta_versions, int64_t newest_write_timestamp,
             BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
             SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema) override;
+
 private:
     StorageEngine& _local_storage_engine;
     std::vector<PendingRowsetGuard> _pending_rs_guards;
@@ -279,11 +281,12 @@ public:
     SchemaChangeJob(StorageEngine& local_storage_engine, const TAlterTabletReqV2& request);
     Status process_alter_tablet(const TAlterTabletReqV2& request);
 
-    std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer,
-                                                          bool sc_sorting, bool sc_directly) {
+    std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer, bool sc_sorting,
+                                                   bool sc_directly) {
         if (sc_sorting) {
-            return std::make_unique<VLocalSchemaChangeWithSorting>(changer,
-                    config::memory_limitation_per_thread_for_schema_change_bytes, _local_storage_engine);
+            return std::make_unique<VLocalSchemaChangeWithSorting>(
+                    changer, config::memory_limitation_per_thread_for_schema_change_bytes,
+                    _local_storage_engine);
         }
 
         if (sc_directly) {
@@ -295,21 +298,20 @@ public:
 
     bool tablet_in_converting(int64_t tablet_id);
 
-    static Status parse_request(const SchemaChangeParams& sc_params, TabletSchema* base_tablet_schema,
-                                 TabletSchema* new_tablet_schema, BlockChanger* changer,
-                                 bool* sc_sorting, bool* sc_directly);
+    static Status parse_request(const SchemaChangeParams& sc_params,
+                                TabletSchema* base_tablet_schema, TabletSchema* new_tablet_schema,
+                                BlockChanger* changer, bool* sc_sorting, bool* sc_directly);
 
 private:
     Status _get_versions_to_be_changed(std::vector<Version>* versions_to_be_changed,
-                                              RowsetSharedPtr* max_rowset);
-
+                                       RowsetSharedPtr* max_rowset);
 
     Status _do_process_alter_tablet(const TAlterTabletReqV2& request);
 
     Status _validate_alter_result(const TAlterTabletReqV2& request);
 
     Status _convert_historical_rowsets(const SchemaChangeParams& sc_params,
-                                              int64_t* real_alter_version);
+                                       int64_t* real_alter_version);
 
     // Initialization Settings for creating a default value
     static Status _init_column_mapping(ColumnMapping* column_mapping,
