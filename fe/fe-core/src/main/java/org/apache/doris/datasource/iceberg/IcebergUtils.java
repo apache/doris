@@ -36,11 +36,11 @@ import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
