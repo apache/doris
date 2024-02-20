@@ -61,7 +61,7 @@ suite("test_partition_refresh_mtmv") {
     sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
 
-    // base table has two partition col
+    // base table has two partition col(range)
      sql """
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
@@ -79,21 +79,56 @@ suite("test_partition_refresh_mtmv") {
         """
 
     try {
-            sql """
-                CREATE MATERIALIZED VIEW ${mvName}
-                    BUILD DEFERRED REFRESH AUTO ON MANUAL
-                    partition by(`date`)
-                    DISTRIBUTED BY RANDOM BUCKETS 2
-                    PROPERTIES ('replication_num' = '1')
-                    AS
-                    SELECT * FROM ${tableNameNum};
-            """
-            Assert.fail();
-        } catch (Exception e) {
-            log.info(e.getMessage())
-        }
-        sql """drop table if exists `${tableNameNum}`"""
-        sql """drop materialized view if exists ${mvName};"""
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by(`date`)
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES ('replication_num' = '1')
+                AS
+                SELECT * FROM ${tableNameNum};
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+    sql """drop table if exists `${tableNameNum}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
+    // base table has two partition col(list)
+     sql """
+        CREATE TABLE `${tableNameNum}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `date`, `num`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`date`,`num`)
+        (
+        PARTITION p201701_1000 VALUES IN (('2017-01-01',1), ('2017-01-01',2)),
+        PARTITION p201702_2000 VALUES IN (('2017-02-01',3), ('2017-02-01',4))
+        )
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by(`date`)
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES ('replication_num' = '1')
+                AS
+                SELECT * FROM ${tableNameNum};
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
+    sql """drop table if exists `${tableNameNum}`"""
+    sql """drop materialized view if exists ${mvName};"""
 
     // range date partition
     sql """

@@ -31,6 +31,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeNameFormat;
@@ -304,8 +305,9 @@ public class CreateMTMVInfo {
                 if (!partitionColumnNames.contains(relatedTableInfo.get().getColumn())) {
                     throw new AnalysisException("error related column: " + relatedTableInfo.get().getColumn());
                 }
-                if (mtmvBaseRealtedTable.getPartitionType() != PartitionType.LIST && partitionColumnNames.size() != 1) {
-                    throw new AnalysisException("only list partition support multi column.");
+                if (!(mtmvBaseRealtedTable instanceof HMSExternalTable)
+                        && partitionColumnNames.size() != 1) {
+                    throw new AnalysisException("only hms table support multi column partition.");
                 }
                 mvPartitionInfo.setRelatedTable(relatedTableInfo.get().getTableInfo());
                 mvPartitionInfo.setRelatedCol(relatedTableInfo.get().getColumn());
