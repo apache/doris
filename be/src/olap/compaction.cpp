@@ -402,9 +402,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     RETURN_IF_ERROR(check_correctness(stats));
 
     if (_input_row_num > 0 && stats.rowid_conversion && config::inverted_index_compaction_enable &&
-        !ctx.skip_inverted_index.empty() &&
-        (!(_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-           !_tablet->enable_unique_key_merge_on_write()))) {
+        !ctx.skip_inverted_index.empty()) {
         OlapStopWatch inverted_watch;
 
         // check rowid_conversion correctness
@@ -604,8 +602,10 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+    // only do index compaction for dup_keys and unique_keys with mow enabled
     if (config::inverted_index_compaction_enable &&
-        ((_tablet->keys_type() == KeysType::UNIQUE_KEYS ||
+        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+           _tablet->enable_unique_key_merge_on_write()) ||
           _tablet->keys_type() == KeysType::DUP_KEYS))) {
         for (const auto& index : _cur_tablet_schema->indexes()) {
             if (index.index_type() == IndexType::INVERTED) {
