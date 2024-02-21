@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
@@ -59,15 +60,16 @@ import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import org.apache.hadoop.hive.metastore.txn.TxnUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
 import java.security.PrivilegedExceptionAction;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 
@@ -144,7 +146,6 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         }
     }
 
-    @NotNull
     private static Database toHiveDatabase(HiveDatabaseMetadata hiveDb) {
         Database database = new Database();
         database.setName(hiveDb.getDbName());
@@ -163,12 +164,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         }
         try (ThriftHMSClient client = getClient()) {
             try {
-                // sd: List<FieldSchema> cols,
                 // String location,
-                // String inputFormat,
-                // String outputFormat,
-                // Map<String, String> parameters
-                // parameters.put("", "doris created")
                 if (tbl instanceof HiveTableMetadata) {
                     ugiDoAs(() -> {
                         client.client.createTable(toHiveTable((HiveTableMetadata) tbl));
@@ -185,6 +181,8 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     private static Table toHiveTable(HiveTableMetadata hiveTable) {
+        Objects.requireNonNull(hiveTable.getDbName(), "Hive database name should be not null");
+        Objects.requireNonNull(hiveTable.getTableName(), "Hive table name should be not null");
         Table table = new Table();
         table.setDbName(hiveTable.getDbName());
         table.setTableName(hiveTable.getTableName());
@@ -193,20 +191,45 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         table.setCreateTime(createTime);
         table.setLastAccessTime(createTime);
         // table.setRetention(0);
-        StorageDescriptor sd = new StorageDescriptor();
-        // sd.setCols(toHiveColumns(hiveTable.getColumns()));
-        sd.setInputFormat(hiveTable.getInputFormat());
-        sd.setOutputFormat(hiveTable.getOutputFormat());
-        Map<String, String> parameters = new HashMap<>();
-        parameters.put("tag", "doris created");
-        sd.setParameters(parameters);
-        table.setSd(sd);
+        String location = hiveTable.getProperties().get("external_location");
+        table.setSd(toHiveStorageDesc(hiveTable.getColumns(),
+                hiveTable.getInputFormat(),
+                hiveTable.getOutputFormat(),
+                location));
         table.setPartitionKeys(hiveTable.getPartitionKeys());
         // table.setViewOriginalText(hiveTable.getViewSql());
         // table.setViewExpandedText(hiveTable.getViewSql());
         table.setTableType("MANAGED_TABLE");
         table.setParameters(hiveTable.getProperties());
         return table;
+    }
+
+    private static StorageDescriptor toHiveStorageDesc(List<Column> columns, String inputFormat, String outputFormat,
+                                                       String location) {
+        StorageDescriptor sd = new StorageDescriptor();
+        sd.setCols(toHiveColumns(columns));
+        sd.setInputFormat(inputFormat);
+        sd.setOutputFormat(outputFormat);
+        if (StringUtils.isNotEmpty(location)) {
+            sd.setLocation(location);
+        }
+        Map<String, String> parameters = new HashMap<>();
+        parameters.put("tag", "doris external hive talbe");
+        sd.setParameters(parameters);
+        return sd;
+    }
+
+    private static List<FieldSchema> toHiveColumns(List<Column> columns) {
+        List<FieldSchema> result = new ArrayList<>();
+        for (Column column : columns) {
+            FieldSchema hiveFieldSchema = new FieldSchema();
+            // TODO: refactor atlr4 file to support hive column type
+            hiveFieldSchema.setType(HiveMetaStoreClientHelper.dorisTypeToHiveType(column.getType()));
+            hiveFieldSchema.setName(column.getName());
+            hiveFieldSchema.setComment(column.getComment());
+            result.add(hiveFieldSchema);
+        }
+        return result;
     }
 
     @Override

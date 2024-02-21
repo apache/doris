@@ -2201,6 +2201,17 @@ public class Config extends ConfigBase {
         "Sample size for hive row count estimation."})
     public static int hive_stats_partition_sample_size = 3000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Hive创建外部表默认指定的input format",
+            "Default hive input format for creating table."})
+    public static String hive_default_input_format = "org.apache.hadoop.mapred.TextInputFormat";
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Hive创建外部表默认指定的output format",
+            "Default hive output format for creating table."})
+    public static String hive_default_output_format = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat";
+
+
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
 

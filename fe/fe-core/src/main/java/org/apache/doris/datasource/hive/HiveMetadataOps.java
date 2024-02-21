@@ -118,17 +118,15 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             Map<String, String> props = stmt.getExtProperties();
-            String inputFormat = props.getOrDefault("input_format",
-                    "org.apache.hadoop.mapred.TextInputFormat"); // 定义成可配置的常量
-            String outputFormat = props.getOrDefault("output_format",
-                    "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"); // 定义成可配置的常量
+            String inputFormat = props.getOrDefault("input_format", Config.hive_default_input_format);
+            String outputFormat = props.getOrDefault("output_format", Config.hive_default_output_format);
             HiveTableMetadata catalogTable = HiveTableMetadata.of(dbName,
                     tblName,
                     stmt.getColumns(),
                     parsePartitionKeys(props),
                     props,
                     inputFormat,
-                    outputFormat); // use HiveCatalogTable.of
+                    outputFormat);
 
             client.createTable(catalogTable, stmt.isSetIfNotExists());
             // TODO: need add first, use increased id

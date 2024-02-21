@@ -745,7 +745,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public void unloadExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)
+    public void unregisterExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)
             throws DdlException {
         CatalogIf<?> catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -814,7 +814,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
-        // TODO：avoid tableID conflict when use event or catalog to create table
         long tblId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tableName);
         // -1L means it will be dropped later, ignore
         if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
@@ -831,7 +830,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public void removeExternalDatabase(String dbName, String catalogName, boolean ignoreIfNotExists)
+    public void unregisterExternalDatabase(String dbName, String catalogName, boolean ignoreIfNotExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -850,7 +849,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
     }
 
-    public void addExternalDatabase(String dbName, String catalogName, boolean ignoreIfExists)
+    public void registerExternalDatabase(String dbName, String catalogName, boolean ignoreIfExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
