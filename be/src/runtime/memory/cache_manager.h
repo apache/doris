@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <string>
+
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_policy.h"
 #include "util/runtime_profile.h"
@@ -55,21 +57,17 @@ public:
 
     void clear_once(CachePolicy::CacheType type);
 
-    template <bool prune_stale>
-    bool need_prune() {
+    bool need_prune(int64_t* last_timestamp, const std::string& type) {
         int64_t now = UnixSeconds();
         std::lock_guard<std::mutex> l(_caches_lock);
-        int64_t& last_timestamp =
-                prune_stale ? _last_prune_stale_timestamp : _last_prune_all_timestamp;
-        if (now - last_timestamp > config::cache_prune_interval_sec) {
-            last_timestamp = now;
+        if (now - *last_timestamp > config::cache_prune_interval_sec) {
+            *last_timestamp = now;
             return true;
         }
         LOG(INFO) << fmt::format(
                 "[MemoryGC] cache no prune {}, last prune less than interval {}, now {}, last "
                 "timestamp {}",
-                prune_stale ? "stale" : "all", config::cache_prune_interval_sec, now,
-                last_timestamp);
+                type, config::cache_prune_interval_sec, now, *last_timestamp);
         return false;
     }
 

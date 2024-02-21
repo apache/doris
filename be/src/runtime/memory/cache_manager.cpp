@@ -40,7 +40,7 @@ int64_t CacheManager::for_each_cache_prune_stale_wrap(
 }
 
 int64_t CacheManager::for_each_cache_prune_stale(RuntimeProfile* profile) {
-    if (need_prune<true>()) {
+    if (need_prune(&_last_prune_stale_timestamp, "stale")) {
         return for_each_cache_prune_stale_wrap(
                 [](CachePolicy* cache_policy) { cache_policy->prune_stale(); }, profile);
     }
@@ -48,7 +48,7 @@ int64_t CacheManager::for_each_cache_prune_stale(RuntimeProfile* profile) {
 }
 
 int64_t CacheManager::for_each_cache_prune_all(RuntimeProfile* profile) {
-    if (need_prune<false>()) {
+    if (need_prune(&_last_prune_all_timestamp, "all")) {
         return for_each_cache_prune_stale_wrap(
                 [](CachePolicy* cache_policy) { cache_policy->prune_all(false); }, profile);
     }
