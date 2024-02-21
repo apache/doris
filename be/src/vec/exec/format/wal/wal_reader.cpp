@@ -62,11 +62,13 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     vectorized::Block dst_block;
     int index = 0;
     auto columns = block->get_columns_with_type_and_name();
-    if (_column_id_count != columns.size() || columns.size() != _tuple_descriptor->slots().size()) {
+    if (_column_id_count != src_block.columns() ||
+        columns.size() != _tuple_descriptor->slots().size()) {
         return Status::InternalError(
-                "not equal _column_id_count={} vs columns size={} vs tuple_descriptor size={}",
-                std::to_string(_column_id_count), std::to_string(columns.size()),
-                std::to_string(_tuple_descriptor->slots().size()));
+                "not equal _column_id_count={} vs src block columns size={}, "
+                "columns size={} vs tuple_descriptor size={}",
+                std::to_string(_column_id_count), std::to_string(src_block.columns()),
+                std::to_string(columns.size()), std::to_string(_tuple_descriptor->slots().size()));
     }
     for (auto slot_desc : _tuple_descriptor->slots()) {
         auto pos = _column_pos_map[slot_desc->col_unique_id()];

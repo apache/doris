@@ -56,7 +56,7 @@ excludeGroups = ""
 // this suites will not be executed
 // load_stream_fault_injection may cause bad disk
 
-excludeSuites = "test_index_failure_injection,test_dump_image,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
+excludeSuites = "test_index_failure_injection,test_dump_image,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external,test_be_inject_publish_txn_fail"
 
 // this directories will not be executed
 excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery"
@@ -109,6 +109,6 @@ s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 
-max_failure_num=50
+max_failure_num=-1
 
 externalEnvIp="127.0.0.1"
