@@ -445,8 +445,11 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     int ret;
     if (_context.tablet_schema->get_inverted_index_storage_format() !=
         InvertedIndexStorageFormatPB::V1) {
-        auto src_seg_path = BetaRowset::local_segment_path_segcompacted(
-                _context.rowset_dir, _context.rowset_id, begin, end);
+        auto src_seg_path = begin < 0
+                                    ? BetaRowset::segment_file_path(_context.rowset_dir,
+                                                                    _context.rowset_id, seg_id)
+                                    : BetaRowset::local_segment_path_segcompacted(
+                                              _context.rowset_dir, _context.rowset_id, begin, end);
         auto dst_seg_path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id,
                                                           _num_segcompacted);
         auto src_idx_path = InvertedIndexDescriptor::get_index_file_name(src_seg_path);
