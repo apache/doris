@@ -130,32 +130,18 @@ public class JdbcExecutor {
                     LOG.error("Error cancelling statement", e);
                 }
             }
-            if (conn != null && resultSet != null) {
+
+            boolean shouldAbort = conn != null && resultSet != null
+                    && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER);
+            if (shouldAbort) {
                 abortReadConnection(conn, resultSet, tableType);
-                try {
-                    resultSet.close();
-                } catch (SQLException e) {
-                    LOG.error("Error closing resultSet", e);
-                }
-                try {
-                    stmt.close();
-                } catch (SQLException e) {
-                    LOG.error("Error closing statement", e);
-                }
+            }
+
+            if (!shouldAbort) {
+                closeResources(resultSet, stmt, conn);
             }
         } finally {
-            if (conn != null && !conn.isClosed()) {
-                try {
-                    conn.close();
-                } catch (SQLException e) {
-                    LOG.error("Error closing connection", e);
-                }
-            }
-        }
-
-        if (config.getConnectionPoolMinSize() == 0) {
-            // Close and remove the datasource if necessary
-            if (druidDataSource != null) {
+            if (config.getConnectionPoolMinSize() == 0 && druidDataSource != null) {
                 druidDataSource.close();
                 JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
                 druidDataSource = null;
@@ -163,10 +149,28 @@ public class JdbcExecutor {
         }
     }
 
+    private void closeResources(AutoCloseable... closeables) {
+        for (AutoCloseable closeable : closeables) {
+            if (closeable != null) {
+                try {
+                    if (closeable instanceof Connection) {
+                        if (!((Connection) closeable).isClosed()) {
+                            closeable.close();
+                        }
+                    } else {
+                        closeable.close();
+                    }
+                } catch (Exception e) {
+                    LOG.error("Cannot close resource: ", e);
+                }
+            }
+        }
+    }
+
     public void abortReadConnection(Connection connection, ResultSet resultSet, TOdbcTableType tableType)
             throws SQLException {
         if (!resultSet.isAfterLast() && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER)) {
-            // Abort connection before closing. Without this, the MySQL driver
+            // Abort connection before closing. Without this, the MySQL/SQLServer driver
             // attempts to drain the connection by reading all the results.
             connection.abort(MoreExecutors.directExecutor());
         }
