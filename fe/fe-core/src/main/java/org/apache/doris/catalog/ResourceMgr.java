@@ -95,6 +95,7 @@ public class ResourceMgr implements Writable {
     }
 
     public void replayCreateResource(Resource resource) {
+        resource.applyDefaultProperties();
         nameToResource.put(resource.getName(), resource);
     }
 

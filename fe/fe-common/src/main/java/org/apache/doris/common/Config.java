@@ -140,26 +140,6 @@ public class Config extends ConfigBase {
                     + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
     public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
-    @ConfField(description = {"JDBC Catalog FE 连接池的最小连接数",
-            "The minimum number of JDBC Catalog FE connection pool"})
-    public static int jdbc_min_pool_size = 1;
-
-    @ConfField(description = {"JDBC Catalog FE 连接池的最大连接数",
-            "The maximum number of JDBC Catalog FE connection pool"})
-    public static int jdbc_max_pool_size = 100;
-
-    @ConfField(description = {"JDBC Catalog FE 连接池的最大空闲连接时间",
-            "The maximum idle time of JDBC Catalog FE connection pool"})
-    public static int jdbc_max_idle_time = 300000;
-
-    @ConfField(description = {"JDBC Catalog FE 连接池的最大等待时间",
-            "The maximum wait time of JDBC Catalog FE connection pool"})
-    public static int jdbc_max_wait_time = 5000;
-
-    @ConfField(description = {"JDBC Catalog FE 连接池的 KeepAlive 策略",
-            "The keep alive strategy of JDBC Catalog FE connection pool"})
-    public static boolean jdbc_keep_alive = false;
-
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 1;

@@ -47,6 +47,7 @@ Status VJdbcTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(VTableSink::init(t_sink));
     const TJdbcTableSink& t_jdbc_sink = t_sink.jdbc_table_sink;
 
+    _jdbc_param.catalog_id = t_jdbc_sink.jdbc_table.catalog_id;
     _jdbc_param.jdbc_url = t_jdbc_sink.jdbc_table.jdbc_url;
     _jdbc_param.user = t_jdbc_sink.jdbc_table.jdbc_user;
     _jdbc_param.passwd = t_jdbc_sink.jdbc_table.jdbc_password;
@@ -56,6 +57,13 @@ Status VJdbcTableSink::init(const TDataSink& t_sink) {
     _jdbc_param.resource_name = t_jdbc_sink.jdbc_table.jdbc_resource_name;
     _jdbc_param.table_type = t_jdbc_sink.table_type;
     _jdbc_param.query_string = t_jdbc_sink.insert_sql;
+    _jdbc_param.connection_pool_min_size = t_jdbc_sink.jdbc_table.connection_pool_min_size;
+    _jdbc_param.connection_pool_max_size = t_jdbc_sink.jdbc_table.connection_pool_max_size;
+    _jdbc_param.connection_pool_max_wait_time =
+            t_jdbc_sink.jdbc_table.connection_pool_max_wait_time;
+    _jdbc_param.connection_pool_max_life_time =
+            t_jdbc_sink.jdbc_table.connection_pool_max_life_time;
+    _jdbc_param.connection_pool_keep_alive = t_jdbc_sink.jdbc_table.connection_pool_keep_alive;
     _table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
     _use_transaction = t_jdbc_sink.use_transaction;
 
