@@ -59,6 +59,27 @@ DataTypes create_scala_data_types() {
     return dataTypes;
 }
 
+TEST(HashFuncTest, ArrayTypeTest) {
+    DataTypes dataTypes = create_scala_data_types();
+
+    std::vector<uint64_t> xx_hash_vals(1);
+    std::vector<uint32_t> crc_hash_vals(1);
+    auto* __restrict xx_hashes = xx_hash_vals.data();
+    auto* __restrict crc_hashes = crc_hash_vals.data();
+
+    for (auto d : dataTypes) {
+        DataTypePtr a = std::make_shared<DataTypeArray>(d);
+        ColumnPtr col_a = a->create_column_const_with_default_value(1);
+        // xxHash
+        EXPECT_NO_FATAL_FAILURE(col_a->update_hashes_with_value(xx_hashes));
+        std::cout << xx_hashes[0] << std::endl;
+        // crcHash
+        EXPECT_NO_FATAL_FAILURE(
+                col_a->update_crcs_with_value(crc_hashes, PrimitiveType::TYPE_ARRAY, 1));
+        std::cout << crc_hashes[0] << std::endl;
+    }
+}
+
 TEST(HashFuncTest, ArraySimpleBenchmarkTest) {
     DataTypes dataTypes = create_scala_data_types();
 
