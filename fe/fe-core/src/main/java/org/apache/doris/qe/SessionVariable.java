@@ -650,20 +650,20 @@ public class SessionVariable implements Serializable, Writable {
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
-    public String charsetClient = "utf8";
+    public String charsetClient = "utf8mb4";
     @VariableMgr.VarAttr(name = CHARACTER_SET_CONNNECTION)
-    public String charsetConnection = "utf8";
+    public String charsetConnection = "utf8mb4";
     @VariableMgr.VarAttr(name = CHARACTER_SET_RESULTS)
-    public String charsetResults = "utf8";
+    public String charsetResults = "utf8mb4";
     @VariableMgr.VarAttr(name = CHARACTER_SET_SERVER)
-    public String charsetServer = "utf8";
+    public String charsetServer = "utf8mb4";
     @VariableMgr.VarAttr(name = COLLATION_CONNECTION)
-    public String collationConnection = "utf8_general_ci";
+    public String collationConnection = "utf8mb4_0900_bin";
     @VariableMgr.VarAttr(name = COLLATION_DATABASE)
-    public String collationDatabase = "utf8_general_ci";
+    public String collationDatabase = "utf8mb4_0900_bin";
 
     @VariableMgr.VarAttr(name = COLLATION_SERVER)
-    public String collationServer = "utf8_general_ci";
+    public String collationServer = "utf8mb4_0900_bin";
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)

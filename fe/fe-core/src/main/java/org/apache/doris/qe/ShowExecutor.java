@@ -1035,7 +1035,7 @@ public class ShowExecutor {
             }
 
             if (table instanceof View) {
-                rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8", "utf8_general_ci"));
+                rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8mb4", "utf8mb4_0900_bin"));
                 resultSet = new ShowResultSet(ShowCreateTableStmt.getViewMetaData(), rows);
             } else {
                 if (showStmt.isView()) {
@@ -1661,10 +1661,10 @@ public class ShowExecutor {
         ShowCollationStmt showStmt = (ShowCollationStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
-        // | utf8_general_ci | utf8 | 33 | Yes | Yes | 1 |
-        row.add("utf8_general_ci");
-        row.add("utf8");
-        row.add("33");
+        // | utf8mb4_0900_bin | utf8mb4 | 309 | Yes | Yes | 1 |
+        row.add("utf8mb4_0900_bin");
+        row.add("utf8mb4");
+        row.add("309");
         row.add("Yes");
         row.add("Yes");
         row.add("1");
