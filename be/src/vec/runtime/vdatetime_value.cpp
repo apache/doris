@@ -36,7 +36,6 @@
 #include "common/compiler_util.h"
 #include "common/config.h"
 #include "common/exception.h"
-#include "common/logging.h"
 #include "common/status.h"
 #include "util/timezone_utils.h"
 #include "vec/common/int_exp.h"
@@ -2040,7 +2039,6 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         if (field_idx == 6) {
             // Microsecond
             const auto ms_part = ptr - start;
-            LOG_INFO("ms str {}", std::string_view(start, ptr));
             temp_val *= int_exp10(std::max(0L, 6 - ms_part));
             if constexpr (is_datetime) {
                 if (scale >= 0) {

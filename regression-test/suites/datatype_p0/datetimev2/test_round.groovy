@@ -28,7 +28,10 @@ suite("test_time_round") {
             AS generated_string)
             select generated_string, cast(generated_string as DateTime(6)) from tmp
     """
-    qt_rount """
+    sql """
+        DROP TABLE IF EXISTS test_time_round;
+    """
+    sql """
         CREATE TABLE test_time_round (`rowid` int, str varchar)
         ENGINE=OLAP
         UNIQUE KEY(`rowid`)
