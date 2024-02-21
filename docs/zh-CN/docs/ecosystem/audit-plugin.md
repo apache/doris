@@ -105,7 +105,7 @@ Doris 2.1 版本之前的用户，请参阅如下方式使用审计日志插件�
     * database：审计日志库名。
     * audit_log_table：审计日志表名。
     * slow_log_table：慢查询日志表名。
-    * enable_slow_log：是否开启慢查询日志导入功能。默认值为 false。
+    * enable_slow_log：是否开启慢查询日志导入功能。默认值为 false。可以在FE配置项中配置慢查询的阈值，参数为 qe_slow_log_ms ，默认5s。
     * user：集群用户名。该用户必须具有对应表的 INSERT 权限。
     * password：集群用户密码。
 
