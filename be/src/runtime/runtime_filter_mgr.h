@@ -53,6 +53,12 @@ class QueryContext;
 struct RuntimeFilterParamsContext;
 class ExecEnv;
 
+struct LocalMergeFilters {
+    std::unique_ptr<std::mutex> lock = std::make_unique<std::mutex>();
+    int merge_time = 0;
+    std::vector<IRuntimeFilter*> filters;
+};
+
 /// producer:
 /// Filter filter;
 /// get_filter(filter_id, &filter);
@@ -76,10 +82,18 @@ public:
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     int node_id, IRuntimeFilter** consumer_filter,
-                                    bool build_bf_exactly = false, bool is_global = false);
+                                    bool build_bf_exactly = false, bool need_local_merge = false);
+
+    Status register_local_merge_producer_filter(const TRuntimeFilterDesc& desc,
+                                                const TQueryOptions& options,
+                                                IRuntimeFilter** producer_filter,
+                                                bool build_bf_exactly = false);
+
+    Status get_local_merge_producer_filters(int filter_id, LocalMergeFilters** local_merge_filters);
+
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    IRuntimeFilter** producer_filter, bool build_bf_exactly = false,
-                                    bool is_global = false, int parallel_tasks = 0);
+                                    IRuntimeFilter** producer_filter,
+                                    bool build_bf_exactly = false);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request,
@@ -100,6 +114,7 @@ private:
     /// TODO: should it need protected by a mutex?
     std::map<int32_t, std::vector<ConsumerFilterHolder>> _consumer_map;
     std::map<int32_t, IRuntimeFilter*> _producer_map;
+    std::map<int32_t, LocalMergeFilters> _local_merge_producer_map;
 
     RuntimeFilterParamsContext* _state = nullptr;
     std::unique_ptr<MemTracker> _tracker;
@@ -257,15 +272,6 @@ struct RuntimeFilterParamsContext {
     int be_exec_version;
     QueryContext* query_ctx;
     QueryContext* get_query_ctx() const { return query_ctx; }
-    ObjectPool* _obj_pool;
-    bool _is_global = false;
-    PUniqueId fragment_instance_id() const {
-        DCHECK(!_is_global);
-        return _fragment_instance_id;
-    }
-    ObjectPool* obj_pool() const {
-        DCHECK(_is_global);
-        return _obj_pool;
-    }
+    PUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 };
 } // namespace doris
