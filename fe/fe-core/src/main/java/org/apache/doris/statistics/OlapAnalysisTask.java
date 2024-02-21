@@ -26,6 +26,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -181,14 +182,23 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     tbl.getName(), col.getName());
             return null;
         }
+        long startTime = System.currentTimeMillis();
         Map<String, String> params = new HashMap<>();
         params.put("dbName", db.getFullName());
         params.put("colName", StatisticsUtil.escapeColumnName(info.colName));
         params.put("tblName", tbl.getName());
         params.put("index", getIndex());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        stmtExecutor = new StmtExecutor(context.connectContext, stringSubstitutor.replace(BASIC_STATS_TEMPLATE));
-        return stmtExecutor.executeInternalQuery().get(0);
+        String sql = stringSubstitutor.replace(BASIC_STATS_TEMPLATE);
+        stmtExecutor = new StmtExecutor(context.connectContext, sql);
+        ResultRow resultRow = stmtExecutor.executeInternalQuery().get(0);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Cost time in millisec: " + (System.currentTimeMillis() - startTime)
+                    + " Min max SQL: " + sql + " QueryId: " + DebugUtil.printId(stmtExecutor.getContext().queryId()));
+        }
+        // Release the reference to stmtExecutor, reduce memory usage.
+        stmtExecutor = null;
+        return resultRow;
     }
 
     /**
