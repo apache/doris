@@ -21,6 +21,7 @@ suite("test_mark_join", "nereids_p0") {
 
     sql "drop table if exists `test_mark_join_t1`;"
     sql "drop table if exists `test_mark_join_t2`;"
+    sql "drop table if exists table_7_undef_partitions2_keys3_properties4_distributed_by5;"
 
     sql """
         CREATE TABLE IF NOT EXISTS `test_mark_join_t1` (
@@ -61,6 +62,16 @@ suite("test_mark_join", "nereids_p0") {
     """
 
     sql """
+        create table table_7_undef_partitions2_keys3_properties4_distributed_by5 (
+            col_int_undef_signed int/*agg_type_placeholder*/   ,
+            col_varchar_10__undef_signed varchar(10)/*agg_type_placeholder*/   ,
+            pk int/*agg_type_placeholder*/
+        ) engine=olap
+        distributed by hash(pk) buckets 10
+        properties("replication_num" = "1");
+    """
+
+    sql """
         insert into `test_mark_join_t1` values
             (1,     1,      1,      'abc',      'efg',      'hjk'),
             (2,     2,      2,      'aabb',     'eeff',     'ccdd'),
@@ -79,6 +90,8 @@ suite("test_mark_join", "nereids_p0") {
             (4,     4,   null,   'oepeld',   null,       'kkkkk'
         );
     """
+
+    sql """insert into table_7_undef_partitions2_keys3_properties4_distributed_by5(pk,col_int_undef_signed,col_varchar_10__undef_signed) values (0,1,'p'),(1,9,''),(2,null,null),(3,null,null),(4,3,''),(5,2,'q'),(6,0,'');"""
 
     qt_mark_join1 """
         select
@@ -122,5 +135,9 @@ suite("test_mark_join", "nereids_p0") {
         from test_mark_join_t1 order by 1, 2, 3;
     """
 
-
+    qt_mark_join7 """
+        SELECT *  FROM table_7_undef_partitions2_keys3_properties4_distributed_by5 AS t1 
+            WHERE EXISTS ( SELECT MIN(`pk`) FROM table_7_undef_partitions2_keys3_properties4_distributed_by5 AS t2 WHERE t1.pk = 6 ) 
+            OR EXISTS ( SELECT `pk` FROM table_7_undef_partitions2_keys3_properties4_distributed_by5 AS t2 WHERE t1.pk = 5 ) order by pk ;
+    """
 }

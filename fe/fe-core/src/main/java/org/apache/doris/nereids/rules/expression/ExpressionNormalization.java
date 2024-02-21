@@ -60,4 +60,3 @@ public class ExpressionNormalization extends ExpressionRewrite {
         super(new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES));
     }
 }
-

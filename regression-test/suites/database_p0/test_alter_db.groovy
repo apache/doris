@@ -43,7 +43,7 @@ suite("test_alter_db") {
     assertTrue(found)
     assertEquals("100.000 KB", result[4])
     assertEquals("1024", result[7])
-    assertEquals("1024", result[8])
+    assertEquals("1024", result[9])
 
     sql """use ${dbName};"""
     sql """

@@ -570,4 +570,3 @@ public class PropertyConverter {
         return props;
     }
 }
-

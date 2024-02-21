@@ -122,7 +122,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
         }
         expr_result_map->insert({m.first, pexpr_result_map});
     }
-
+    //TODO: will be delete the debug log after find problem of timeout.
+    LOG(INFO) << "finish fold_query_id: " << query_id_string();
     return Status::OK();
 }
 

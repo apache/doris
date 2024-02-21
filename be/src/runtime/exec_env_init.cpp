@@ -548,7 +548,11 @@ void ExecEnv::destroy() {
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
     _load_stream_stub_pool.reset();
-    SAFE_STOP(_storage_engine);
+
+    // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
+    // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
+    _storage_engine.reset();
+
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
@@ -572,10 +576,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
-
-    // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset
-    // StorageEngine must be destoried before _cache_manager destory
-    _storage_engine.reset();
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
@@ -602,7 +602,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_task_group_manager);
-    SAFE_DELETE(_without_group_task_scheduler);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
@@ -638,6 +637,9 @@ void ExecEnv::destroy() {
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     SAFE_DELETE(_runtime_query_statistics_mgr);
+
+    // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
+    SAFE_DELETE(_without_group_task_scheduler);
 
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }

@@ -220,6 +220,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql_7_19 """select message from test1 where message != ''"""
         order_qt_sql_7_20 """select message from test1 where message is not null"""
         order_qt_sql_7_21 """select message from test1 where not_null_or_empty(message)"""
+        order_qt_sql_7_22 """select * from test1 where esquery(my_wildcard, '{ "wildcard": { "my_wildcard": { "value":"*quite*lengthy" } } }');"""
+        order_qt_sql_7_23 """select * from test1 where level = 'debug'"""
 
         List<List<String>> tables7N = sql """show tables"""
         boolean notContainHide7 = true
@@ -262,5 +264,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql_8_17 """select message from test1 where message != ''"""
         order_qt_sql_8_18 """select message from test1 where message is not null"""
         order_qt_sql_8_19 """select message from test1 where not_null_or_empty(message)"""
+        order_qt_sql_8_20 """select * from test1 where esquery(my_wildcard, '{ "wildcard": { "my_wildcard": { "value":"*quite*lengthy" } } }');"""
+        order_qt_sql_8_21 """select * from test1 where level = 'debug'"""
     }
 }

@@ -73,7 +73,8 @@ public class RefreshCatalogStmt extends DdlStmt {
         }
 
         // Set to false only if user set the property "invalid_cache"="false"
-        invalidCache = !(properties != null && properties.get(INVALID_CACHE).equalsIgnoreCase("false"));
+        invalidCache = !(properties.get(INVALID_CACHE) != null && properties.get(INVALID_CACHE)
+                .equalsIgnoreCase("false"));
     }
 
     @Override

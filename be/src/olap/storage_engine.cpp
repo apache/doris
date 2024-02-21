@@ -101,6 +101,10 @@ extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>&
                                    std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
+namespace {
+bvar::Adder<uint64_t> unused_rowsets_counter("ununsed_rowsets_counter");
+};
+
 BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
         : _type(type),
           _rowset_id_generator(std::make_unique<UniqueRowsetIdGenerator>(backend_uid)),
@@ -255,7 +259,7 @@ Status StorageEngine::_init_store_map() {
 Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_record_path) {
     LOG(INFO) << "stream load record path: " << stream_load_record_path;
     // init stream load record rocksdb
-    _stream_load_recorder = StreamLoadRecorder::create_unique(stream_load_record_path);
+    _stream_load_recorder = StreamLoadRecorder::create_shared(stream_load_record_path);
     if (_stream_load_recorder == nullptr) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::MemoryAllocFailed("allocate memory for StreamLoadRecorder failed"),
@@ -1115,6 +1119,7 @@ void StorageEngine::start_delete_unused_rowset() {
                                                           {rs->rowset_id(), UINT32_MAX, 0});
         }
         Status status = rs->remove();
+        unused_rowsets_counter << -1;
         VLOG_NOTICE << "remove rowset:" << rs->rowset_id() << " finished. status:" << status;
     }
     LOG(INFO) << "removed all collected unused rowsets";
@@ -1132,6 +1137,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
         rowset->set_need_delete_file();
         rowset->close();
         _unused_rowsets[rowset->rowset_id()] = std::move(rowset);
+        unused_rowsets_counter << 1;
     }
 }
 
@@ -1467,7 +1473,6 @@ int CreateTabletIdxCache::get_index(const std::string& key) {
     if (lru_handle) {
         Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
         auto value = (CacheValue*)cache()->value(lru_handle);
-        value->last_visit_time = UnixMillis();
         VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
         return value->idx;
     }
@@ -1477,7 +1482,6 @@ int CreateTabletIdxCache::get_index(const std::string& key) {
 void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
     assert(next_idx >= 0);
     CacheValue* value = new CacheValue;
-    value->last_visit_time = UnixMillis();
     value->idx = next_idx;
     auto deleter = [](const doris::CacheKey& key, void* value) {
         CacheValue* cache_value = (CacheValue*)value;

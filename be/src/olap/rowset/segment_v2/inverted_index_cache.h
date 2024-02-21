@@ -81,8 +81,10 @@ public:
 
     // The cache value of index_searcher lru cache.
     // Holding an opened index_searcher.
-    struct CacheValue : public LRUCacheValueBase {
+    struct CacheValue {
         IndexSearcherPtr index_searcher;
+        size_t size = 0;
+        int64_t last_visit_time;
 
         CacheValue() = default;
         explicit CacheValue(IndexSearcherPtr searcher, size_t mem_size, int64_t visit_time)
@@ -230,7 +232,7 @@ public:
         }
     };
 
-    struct CacheValue : public LRUCacheValueBase {
+    struct CacheValue {
         std::shared_ptr<roaring::Roaring> bitmap;
     };
 

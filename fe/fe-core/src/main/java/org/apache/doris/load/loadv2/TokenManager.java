@@ -86,7 +86,9 @@ public class TokenManager {
 
         FrontendService.Client client = getClient(thriftAddress);
 
-        LOG.debug("Send acquire token to Master {}", thriftAddress);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Send acquire token to Master {}", thriftAddress);
+        }
 
         boolean isReturnToPool = false;
         try {

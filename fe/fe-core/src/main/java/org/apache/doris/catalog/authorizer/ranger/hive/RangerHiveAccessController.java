@@ -118,8 +118,10 @@ public class RangerHiveAccessController extends RangerAccessController {
         request.setResource(resource);
         RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
 
-        LOG.debug(String.format("maskType: %s, maskTypeDef: %s, maskedValue: %s", result.getMaskType(),
-                result.getMaskTypeDef(), result.getMaskedValue()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(String.format("maskType: %s, maskTypeDef: %s, maskedValue: %s", result.getMaskType(),
+                    result.getMaskTypeDef(), result.getMaskedValue()));
+        }
     }
 
     private HiveAccessType convertToAccessType(PrivPredicate predicate) {

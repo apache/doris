@@ -75,7 +75,7 @@ public class MysqlChannel {
     protected boolean isSslHandshaking;
     private SSLEngine sslEngine;
 
-    protected volatile MysqlSerializer serializer;
+    protected volatile MysqlSerializer serializer = MysqlSerializer.newInstance();
 
     // mysql flag CLIENT_DEPRECATE_EOF
     private boolean clientDeprecatedEOF;
@@ -111,8 +111,6 @@ public class MysqlChannel {
             remoteHostPortString = connection.getPeerAddress().toString();
             remoteIp = connection.getPeerAddress().toString();
         }
-        // The serializer and buffers should only be created if this is a real MysqlChannel
-        this.serializer = MysqlSerializer.newInstance();
         this.defaultBuffer = ByteBuffer.allocate(16 * 1024);
         this.headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
         this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
@@ -210,7 +208,9 @@ public class MysqlChannel {
             }
             decryptData(dstBuf, isHeader);
         } catch (IOException e) {
-            LOG.debug("Read channel exception, ignore.", e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Read channel exception, ignore.", e);
+            }
             return 0;
         }
         return readLen;
@@ -258,7 +258,9 @@ public class MysqlChannel {
                 readLen = readAll(sslHeaderByteBuffer, true);
                 if (readLen != SSL_PACKET_HEADER_LEN) {
                     // remote has close this channel
-                    LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                    }
                     return null;
                 }
                 // when handshaking and ssl mode, sslengine unwrap need a packet with header.
@@ -269,7 +271,9 @@ public class MysqlChannel {
                 readLen = readAll(headerByteBuffer, true);
                 if (readLen != PACKET_HEADER_LEN) {
                     // remote has close this channel
-                    LOG.debug("Receive packet header failed, remote may close the channel.");
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Receive packet header failed, remote may close the channel.");
+                    }
                     return null;
                 }
                 if (packetId() != sequenceId) {
@@ -302,7 +306,9 @@ public class MysqlChannel {
                     readLen = readAll(sslHeaderByteBuffer, true);
                     if (readLen != SSL_PACKET_HEADER_LEN) {
                         // remote has close this channel
-                        LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                        }
                         return null;
                     }
                     tempBuffer.clear();

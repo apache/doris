@@ -110,7 +110,7 @@ PROPERTIES (
 1. AUTO RANGE PARTITION
 
   ```sql
-  CREATE TABLE `${tblDate}` (
+  CREATE TABLE `date_table` (
       `TIME_STAMP` datev2 NOT NULL COMMENT '采集日期'
   ) ENGINE=OLAP
   DUPLICATE KEY(`TIME_STAMP`)
@@ -126,7 +126,7 @@ PROPERTIES (
 2. AUTO LIST PARTITION
 
   ```sql
-  CREATE TABLE `${tblName1}` (
+  CREATE TABLE `str_table` (
       `str` varchar not null
   ) ENGINE=OLAP
   DUPLICATE KEY(`str`)
@@ -141,11 +141,11 @@ PROPERTIES (
 
 ### 约束
 
-1. 当前自动分区功能仅支持一个分区列；
-2. 在AUTO RANGE PARTITION中，分区函数仅支持 `date_trunc`，分区列仅支持 `DATE` 或者 `DATETIME` 格式；
-3. 在AUTO LIST PARTITION中，不支持函数调用，分区列支持 `BOOLEAN`, `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `LARGEINT`, `DATE`, `DATETIME`, `CHAR`, `VARCHAR` 数据类型，分区值为枚举值。
-4. 在AUTO LIST PARTITION中，分区列的每个当前不存在对应分区的取值，都会创建一个独立的新PARTITION。
-5. 自动分区的分区列必须为 NOT NULL 列。
+1. 自动分区的分区列必须为 NOT NULL 列。
+2. 在AUTO LIST PARTITION中，**分区名长度不得超过 50**. 该长度来自于对应数据行上各分区列内容的拼接与转义，因此实际容许长度可能更短。
+3. 在AUTO RANGE PARTITION中，分区函数仅支持 `date_trunc`，分区列仅支持 `DATE` 或者 `DATETIME` 格式；
+4. 在AUTO LIST PARTITION中，不支持函数调用，分区列支持 `BOOLEAN`, `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `LARGEINT`, `DATE`, `DATETIME`, `CHAR`, `VARCHAR` 数据类型，分区值为枚举值。
+5. 在AUTO LIST PARTITION中，分区列的每个当前不存在对应分区的取值，都会创建一个独立的新PARTITION。
 
 ## 场景示例
 
@@ -252,6 +252,7 @@ ERROR 1105 (HY000): errCode = 2, detailMessage = errCode = 2, detailMessage = If
 
 ## 注意事项
 
+- 如同普通分区表一样，AUTO PARTITION支持多列分区，语法并无区别。
 - 在数据的插入或导入过程中如果创建了分区，而整个导入过程没有完成（失败或被取消），被创建的分区不会被自动删除。
 - 使用AUTO PARTITION的表，只是分区创建方式上由手动转为了自动。表及其所创建分区的原本使用方法都与非AUTO PARTITION的表或分区相同。
 - 为防止意外创建过多分区，我们通过[FE配置项](../../admin-manual/config/fe-config)中的`max_auto_partition_num`控制了一个AUTO PARTITION表最大容纳分区数。如有需要可以调整该值

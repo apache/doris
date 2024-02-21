@@ -45,7 +45,7 @@ process=doris_cloud
 if [[ -f "${DORIS_HOME}/bin/${process}.pid" ]]; then
     pid=$(cat "${DORIS_HOME}/bin/${process}.pid")
     if [[ "${pid}" != "" ]]; then
-        if ! pgrep -f "${pid}" 2>&1 | grep doris_cloud >/dev/null 2>&1; then
+        if kill -0 "$(cat "${DORIS_HOME}/bin/${process}.pid")" >/dev/null 2>&1; then
             echo "pid file existed, ${process} have already started, pid=${pid}"
             exit 1
         fi

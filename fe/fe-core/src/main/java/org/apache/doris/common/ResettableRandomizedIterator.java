@@ -60,4 +60,3 @@ public class ResettableRandomizedIterator<T>
         return result;
     }
 }
-

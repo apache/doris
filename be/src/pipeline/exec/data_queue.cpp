@@ -73,8 +73,9 @@ void DataQueue::push_free_block(std::unique_ptr<vectorized::Block> block, int ch
 }
 
 //use sink to check can_write
-bool DataQueue::has_enough_space_to_push(int child_idx) {
-    return _cur_bytes_in_queue[child_idx].load() < MAX_BYTE_OF_QUEUE / 2;
+bool DataQueue::has_enough_space_to_push() {
+    DCHECK(_cur_bytes_in_queue.size() == 1);
+    return _cur_bytes_in_queue[0].load() < MAX_BYTE_OF_QUEUE / 2;
 }
 
 //use source to check can_read
@@ -144,7 +145,6 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
         _cur_blocks_total_nums++;
         if (_source_dependency) {
             set_source_ready();
-            _sink_dependencies[child_idx]->block();
         }
         //this only use to record the queue[0] for profile
         _max_bytes_in_queue = std::max(_max_bytes_in_queue, _cur_bytes_in_queue[0].load());

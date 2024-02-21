@@ -38,7 +38,9 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     protected void runAfterCatalogReady() {
         try {
             Cloud.GetInstanceResponse response = cloudSystemInfoService.getCloudInstance();
-            LOG.debug("get from ms response {}", response);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get from ms response {}", response);
+            }
             if (!response.hasStatus() || !response.getStatus().hasCode()
                     || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("failed to get cloud instance due to incomplete response, "

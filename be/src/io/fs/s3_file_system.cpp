@@ -71,6 +71,7 @@
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"
+#include "util/bvar_helper.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -166,8 +167,8 @@ Status S3FileSystem::delete_file_impl(const Path& file) {
     GET_KEY(key, file);
     request.WithBucket(_s3_conf.bucket).WithKey(key);
 
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_latency);
     auto outcome = client->DeleteObject(request);
-    s3_bvar::s3_delete_total << 1;
     if (outcome.IsSuccess() ||
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return Status::OK();
@@ -190,8 +191,11 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
     delete_request.SetBucket(_s3_conf.bucket);
     bool is_trucated = false;
     do {
-        auto outcome = client->ListObjectsV2(request);
-        s3_bvar::s3_list_total << 1;
+        Aws::S3::Model::ListObjectsV2Outcome outcome;
+        {
+            SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+            outcome = client->ListObjectsV2(request);
+        }
         if (!outcome.IsSuccess()) {
             return s3fs_error(
                     outcome.GetError(),
@@ -207,8 +211,8 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
             Aws::S3::Model::Delete del;
             del.WithObjects(std::move(objects)).SetQuiet(true);
             delete_request.SetDelete(std::move(del));
+            SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_latency);
             auto delete_outcome = client->DeleteObjects(delete_request);
-            s3_bvar::s3_delete_total << 1;
             if (!delete_outcome.IsSuccess()) {
                 return s3fs_error(delete_outcome.GetError(),
                                   fmt::format("failed to delete dir {}", full_path(prefix)));
@@ -249,8 +253,8 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
         }
         del.WithObjects(std::move(objects)).SetQuiet(true);
         delete_request.SetDelete(std::move(del));
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_latency);
         auto delete_outcome = client->DeleteObjects(delete_request);
-        s3_bvar::s3_delete_total << 1;
         if (UNLIKELY(!delete_outcome.IsSuccess())) {
             return s3fs_error(
                     delete_outcome.GetError(),
@@ -276,8 +280,8 @@ Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(_s3_conf.bucket).WithKey(key);
 
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
     auto outcome = client->HeadObject(request);
-    s3_bvar::s3_head_total << 1;
     if (outcome.IsSuccess()) {
         *res = true;
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
@@ -297,8 +301,8 @@ Status S3FileSystem::file_size_impl(const Path& file, int64_t* file_size) const 
     GET_KEY(key, file);
     request.WithBucket(_s3_conf.bucket).WithKey(key);
 
+    SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
     auto outcome = client->HeadObject(request);
-    s3_bvar::s3_head_total << 1;
     if (!outcome.IsSuccess()) {
         return s3fs_error(outcome.GetError(),
                           fmt::format("failed to get file size {}", full_path(key)));
@@ -324,8 +328,11 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
     request.WithBucket(_s3_conf.bucket).WithPrefix(prefix);
     bool is_trucated = false;
     do {
-        auto outcome = client->ListObjectsV2(request);
-        s3_bvar::s3_list_total << 1;
+        Aws::S3::Model::ListObjectsV2Outcome outcome;
+        {
+            SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+            outcome = client->ListObjectsV2(request);
+        }
         if (!outcome.IsSuccess()) {
             return s3fs_error(outcome.GetError(),
                               fmt::format("failed to list {}", full_path(prefix)));
@@ -374,11 +381,10 @@ Status S3FileSystem::upload_impl(const Path& local_file, const Path& remote_file
                                                               local_file.native(), full_path(key)));
     }
 
-    auto file_size = std::filesystem::file_size(local_file);
+    auto size = handle->GetBytesTransferred();
     LOG(INFO) << "Upload " << local_file.native() << " to s3, endpoint=" << _s3_conf.endpoint
               << ", bucket=" << _s3_conf.bucket << ", key=" << key
-              << ", duration=" << duration.count() << ", capacity=" << file_size
-              << ", tp=" << (file_size) / duration.count();
+              << ", duration=" << duration.count() << ", bytes=" << size;
 
     return Status::OK();
 }
@@ -425,8 +431,11 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     GET_KEY(key, remote_file);
     Aws::S3::Model::GetObjectRequest request;
     request.WithBucket(_s3_conf.bucket).WithKey(key);
-    Aws::S3::Model::GetObjectOutcome response = _client->GetObject(request);
-    s3_bvar::s3_get_total << 1;
+    Aws::S3::Model::GetObjectOutcome response;
+    {
+        SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
+        response = _client->GetObject(request);
+    }
     if (response.IsSuccess()) {
         Aws::OFStream local_file_s;
         local_file_s.open(local_file, std::ios::out | std::ios::binary);
