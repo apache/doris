@@ -200,7 +200,7 @@ Status UserFunctionCache::_load_cached_lib() {
             path = io::global_local_filesystem()->root_path() / path;
         }
         bool exists = true;
-        io::FsListGeneratorPtr files;
+        io::FileListIteratorPtr files;
         RETURN_IF_ERROR(io::global_local_filesystem()->list(path, false, &files, &exists));
         while (files->has_next()) {
             const auto& file = DORIS_TRY(files->next());

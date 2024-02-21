@@ -582,7 +582,7 @@ bool DorisCompoundDirectory::list(std::vector<std::string>* names) const {
     CND_PRECONDITION(!directory.empty(), "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, "");
-    io::FsListGeneratorPtr files_iter;
+    io::FileListIteratorPtr files_iter;
     bool exists;
     LOG_AND_THROW_IF_ERROR(fs->list(fl, true, &files_iter, &exists), "List file IO error");
     std::vector<io::FileInfo> files;

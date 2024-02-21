@@ -631,7 +631,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     }
 
     // check all files in /clone and /tablet
-    io::FsListGeneratorPtr clone_files;
+    io::FileListIteratorPtr clone_files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(clone_dir, true, &clone_files, &exists));
     std::unordered_set<std::string> clone_file_names;
     while (clone_files->has_next()) {
@@ -639,7 +639,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
         clone_file_names.insert(file.file_name);
     }
 
-    io::FsListGeneratorPtr local_files;
+    io::FileListIteratorPtr local_files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));
     std::unordered_set<std::string> local_file_names;
     while (local_files->has_next()) {

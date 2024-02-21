@@ -312,26 +312,23 @@ Status S3FileSystem::file_size_impl(const Path& file, int64_t* file_size) const 
     return Status::OK();
 }
 
-struct S3FsListGenerator final : public FsListGenerator {
+class S3FileListIterator final : public FileListIterator {
 public:
-    S3FsListGenerator(std::shared_ptr<Aws::S3::S3Client> client,
-                      Aws::S3::Model::ListObjectsV2Request request, bool only_file,
-                      std::string_view prefix, std::string full_path)
+    S3FileListIterator(std::shared_ptr<Aws::S3::S3Client> client,
+                       Aws::S3::Model::ListObjectsV2Request request, bool only_file,
+                       std::string_view prefix, std::string full_path)
             : client(std::move(client)),
               request(std::move(request)),
               only_file(only_file),
               prefix(prefix),
               full_path(std::move(full_path)) {}
-    ~S3FsListGenerator() override = default;
+    ~S3FileListIterator() override = default;
 
     bool has_next() const override {
         return !is_trucated && iter != outcome.GetResult().GetContents().end();
     }
-
-    Status init() override { return Status::OK(); }
-
-private:
-    void generateNext() override {
+    Result<FileInfo> next() override {
+        FileInfo file_info;
         while (!is_trucated && iter != outcome.GetResult().GetContents().end()) {
             for (; iter != outcome.GetResult().GetContents().end(); iter++) {
                 const auto& obj = *iter;
@@ -343,13 +340,17 @@ private:
                 file_info.file_name = obj.GetKey().substr(prefix.size());
                 file_info.file_size = obj.GetSize();
                 file_info.is_file = !is_dir;
-                return;
+                return file_info;
             }
-            get_list_outcome();
+            if (auto st = get_list_outcome(); !st.ok()) [[unlikely]] {
+                return ResultError(std::move(st));
+            }
         }
+        return ResultError(Status::InternalError("Unable to iterate"));
     }
 
-    void get_list_outcome() {
+private:
+    Status get_list_outcome() {
         do {
             Aws::S3::Model::ListObjectsV2Outcome outcome;
             {
@@ -357,12 +358,11 @@ private:
                 outcome = client->ListObjectsV2(request);
             }
             if (!outcome.IsSuccess()) {
-                st = s3fs_error(outcome.GetError(), fmt::format("failed to list {}", full_path));
-                return;
+                return s3fs_error(outcome.GetError(), fmt::format("failed to list {}", full_path));
             }
             is_trucated = outcome.GetResult().GetIsTruncated();
             request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
-            return;
+            return Status::OK();
         } while (is_trucated);
     }
 
@@ -376,7 +376,7 @@ private:
     decltype(outcome.GetResult().GetContents().begin()) iter;
 };
 
-Status S3FileSystem::list_impl(const Path& dir, bool only_file, FsListGeneratorPtr* files,
+Status S3FileSystem::list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files,
                                bool* exists) {
     // For object storage, this path is always not exist.
     // So we ignore this property and set exists to true.
@@ -390,9 +390,9 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, FsListGeneratorP
 
     Aws::S3::Model::ListObjectsV2Request request;
     request.WithBucket(_s3_conf.bucket).WithPrefix(prefix);
-    *files = std::make_unique<S3FsListGenerator>(std::move(client), std::move(request), only_file,
-                                                 prefix, full_path(prefix));
-    return (*files)->init();
+    *files = std::make_unique<S3FileListIterator>(std::move(client), std::move(request), only_file,
+                                                  prefix, full_path(prefix));
+    return Status::OK();
 }
 
 Status S3FileSystem::rename_impl(const Path& orig_name, const Path& new_name) {

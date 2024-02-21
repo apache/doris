@@ -526,7 +526,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
             }
 
             // check all files in /clone and /tablet
-            io::FsListGeneratorPtr clone_files;
+            io::FileListIteratorPtr clone_files;
             RETURN_IF_ERROR(
                     io::global_local_filesystem()->list(clone_dir, true, &clone_files, &exists));
             std::unordered_set<std::string> clone_file_names;
@@ -535,7 +535,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
                 clone_file_names.insert(file.file_name);
             }
 
-            io::FsListGeneratorPtr local_files;
+            io::FileListIteratorPtr local_files;
             const auto& tablet_dir = _tablet->tablet_path();
             RETURN_IF_ERROR(
                     io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));

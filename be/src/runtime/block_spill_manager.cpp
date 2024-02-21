@@ -75,7 +75,7 @@ void BlockSpillManager::gc(int64_t max_file_count) {
         if (ec || !exists) {
             continue;
         }
-        io::FsListGeneratorPtr dirs_iter;
+        io::FileListIteratorPtr dirs_iter;
         auto st = io::global_local_filesystem()->list(gc_root_dir, false, &dirs_iter, &exists);
         if (!st.ok()) {
             continue;
@@ -87,7 +87,7 @@ void BlockSpillManager::gc(int64_t max_file_count) {
                 continue;
             }
             std::string abs_dir = fmt::format("{}/{}", gc_root_dir, dir.file_name);
-            io::FsListGeneratorPtr files_iter;
+            io::FileListIteratorPtr files_iter;
             st = io::global_local_filesystem()->list(abs_dir, true, &files_iter, &exists);
             if (!st.ok()) {
                 continue;

@@ -846,7 +846,7 @@ Status SnapshotLoader::_check_local_snapshot_paths(
 Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_path,
                                                       std::vector<std::string>* local_files) {
     bool exists = true;
-    io::FsListGeneratorPtr files;
+    io::FileListIteratorPtr files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(local_path, true, &files, &exists));
     while (files->has_next()) {
         const auto& file = DORIS_TRY(files->next());
@@ -939,7 +939,7 @@ Status SnapshotLoader::_report_every(int report_threshold, int* counter, int32_t
 Status SnapshotLoader::_list_with_checksum(const std::string& dir,
                                            std::map<std::string, FileStat>* md5_files) {
     bool exists = true;
-    io::FsListGeneratorPtr files;
+    io::FileListIteratorPtr files;
     RETURN_IF_ERROR(_remote_fs->list(dir, true, &files, &exists));
     while (files->has_next()) {
         const auto& tmp_file = DORIS_TRY(files->next());

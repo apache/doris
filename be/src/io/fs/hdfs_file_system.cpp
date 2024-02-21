@@ -262,18 +262,16 @@ Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) cons
     return Status::OK();
 }
 
-struct HdfsFsListGenerator final : public FsListGenerator {
+struct HdfsFileListIterator final : public FileListIterator {
 public:
-    HdfsFsListGenerator(int numEntries, hdfsFileInfo* hdfs_file_info, bool only_file)
+    HdfsFileListIterator(int numEntries, hdfsFileInfo* hdfs_file_info, bool only_file)
             : numEntries(numEntries), hdfs_file_info(hdfs_file_info), only_file(only_file) {}
-    ~HdfsFsListGenerator() override { hdfsFreeFileInfo(hdfs_file_info, numEntries); }
+    ~HdfsFileListIterator() override { hdfsFreeFileInfo(hdfs_file_info, numEntries); }
 
     bool has_next() const override { return idx < numEntries; }
-
-    Status init() override { return Status::OK(); }
-
 private:
-    void generateNext() override {
+    Result<FileInfo> next() override {
+        FileInfo file_info;
         for (; idx < numEntries; idx++) {
             auto& file = hdfs_file_info[idx];
             if (only_file && file.mKind == kObjectKindDirectory) {
@@ -282,8 +280,9 @@ private:
             file_info.file_name = file.mName;
             file_info.file_size = file.mSize;
             file_info.is_file = (file.mKind != kObjectKindDirectory);
-            return;
+            break;
         }
+        return file_info;
     }
 
     int numEntries;
@@ -292,7 +291,7 @@ private:
     size_t idx;
 };
 
-Status HdfsFileSystem::list_impl(const Path& path, bool only_file, FsListGeneratorPtr* files,
+Status HdfsFileSystem::list_impl(const Path& path, bool only_file, FileListIteratorPtr* files,
                                  bool* exists) {
     RETURN_IF_ERROR(exists_impl(path, exists));
     if (!(*exists)) {
@@ -308,8 +307,8 @@ Status HdfsFileSystem::list_impl(const Path& path, bool only_file, FsListGenerat
         return Status::IOError("failed to list files/directors {}: {}", path.native(),
                                hdfs_error());
     }
-    *files = std::make_unique<HdfsFsListGenerator>(numEntries, hdfs_file_info, only_file);
-    return (*files)->init();
+    *files = std::make_unique<HdfsFileListIterator>(numEntries, hdfs_file_info, only_file);
+    return Status::OK();
 }
 
 Status HdfsFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {

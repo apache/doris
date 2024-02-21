@@ -175,7 +175,7 @@ void do_file_response(const std::string& file_path, HttpRequest* req,
 
 void do_dir_response(const std::string& dir_path, HttpRequest* req) {
     bool exists = true;
-    io::FsListGeneratorPtr files_iter;
+    io::FileListIteratorPtr files_iter;
     std::vector<io::FileInfo> files;
     Status st = io::global_local_filesystem()->list(dir_path, true, &files_iter, &exists);
     if (!st.ok()) {

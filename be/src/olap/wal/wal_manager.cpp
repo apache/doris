@@ -298,7 +298,7 @@ Status WalManager::_load_wals() {
 
 Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalInfo>& res) {
     bool exists = false;
-    io::FsListGeneratorPtr dbs_iter;
+    io::FileListIteratorPtr dbs_iter;
     Status st = io::global_local_filesystem()->list(wal_path, false, &dbs_iter, &exists);
     if (!st.ok()) {
         LOG(WARNING) << "failed list files for wal_dir=" << wal_path << ", st=" << st.to_string();
@@ -309,7 +309,7 @@ Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalIn
         if (database_id.is_file || database_id.file_name == _tmp) {
             continue;
         }
-        io::FsListGeneratorPtr tables;
+        io::FileListIteratorPtr tables;
         auto db_path = wal_path + "/" + database_id.file_name;
         st = io::global_local_filesystem()->list(db_path, false, &tables, &exists);
         if (!st.ok()) {
@@ -322,7 +322,7 @@ Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalIn
             if (table_id.is_file) {
                 continue;
             }
-            io::FsListGeneratorPtr wals;
+            io::FileListIteratorPtr wals;
             auto table_path = db_path + "/" + table_id.file_name;
             st = io::global_local_filesystem()->list(table_path, false, &wals, &exists);
             if (!st.ok()) {

@@ -35,6 +35,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/broker_file_writer.h"
 #include "io/fs/file_reader.h"
@@ -249,33 +250,32 @@ Status BrokerFileSystem::file_size_impl(const Path& path, int64_t* file_size) co
     }
 }
 
-struct BrokerFsListGenerator final : public FsListGenerator {
+class BrokerFileListIterator final : public FileListIterator {
 public:
-    BrokerFsListGenerator(std::vector<TBrokerFileStatus> files, bool only_file)
+    BrokerFileListIterator(std::vector<TBrokerFileStatus> files, bool only_file)
             : files(std::move(files)), only_file(only_file) {}
-    ~BrokerFsListGenerator() override = default;
+    ~BrokerFileListIterator() override = default;
 
     bool has_next() const override { return iter != files.end(); }
-
-    Status init() override { return Status::OK(); }
-
-private:
-    void generateNext() override {
+    Result<FileInfo> next() override {
         if (iter != files.end()) {
-            while (iter != files.end()) {
-                iter++;
-                auto file = *iter;
-                if (only_file && file.isDir) {
-                    // this is not a file
-                    continue;
-                }
-                file_info.file_name = file.path;
-                file_info.file_size = file.size;
-                file_info.is_file = !file.isDir;
-                file_size++;
-                return;
-            }
+            return ResultError(Status::InternalError("out"));
         }
+        FileInfo file_info;
+        while (iter != files.end()) {
+            iter++;
+            auto file = *iter;
+            if (only_file && file.isDir) {
+                // this is not a file
+                continue;
+            }
+            file_info.file_name = file.path;
+            file_info.file_size = file.size;
+            file_info.is_file = !file.isDir;
+            file_size++;
+            break;
+        }
+        return file_info;
     }
 
     std::vector<TBrokerFileStatus> files;
@@ -284,7 +284,7 @@ private:
     size_t file_size;
 };
 
-Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, FsListGeneratorPtr* files,
+Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files,
                                    bool* exists) {
     RETURN_IF_ERROR(exists_impl(dir, exists));
     if (!(*exists)) {
@@ -320,8 +320,7 @@ Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, FsListGenera
         LOG(INFO) << "finished to list files from remote path. file num: " << list_rep.files.size();
         *exists = true;
 
-        *files = std::make_unique<BrokerFsListGenerator>(std::move(list_rep.files), only_file);
-        status = (*files)->init();
+        *files = std::make_unique<BrokerFileListIterator>(std::move(list_rep.files), only_file);
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;
         ss << "failed to list files in remote path: " << dir << ", msg: " << e.what();

@@ -1183,7 +1183,7 @@ void StorageEngine::do_remove_unused_remote_files() {
             return;
         }
 
-        io::FsListGeneratorPtr files_iter;
+        io::FileListIteratorPtr files_iter;
         std::vector<io::FileInfo> files;
         // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
         //  Maybe we should also list files in previously uploaded resources.

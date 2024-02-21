@@ -180,7 +180,7 @@ void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t rese
 
 void LoadPathMgr::clean_one_path(const std::string& path) {
     bool exists = true;
-    io::FsListGeneratorPtr dbs_iter;
+    io::FileListIteratorPtr dbs_iter;
     Status st = io::global_local_filesystem()->list(path, false, &dbs_iter, &exists);
     if (!st) {
         return;
@@ -197,7 +197,7 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
             continue;
         }
         std::string db_dir = path + "/" + db.file_name;
-        io::FsListGeneratorPtr sub_dirs_iter;
+        io::FileListIteratorPtr sub_dirs_iter;
         status = io::global_local_filesystem()->list(db_dir, false, &sub_dirs_iter, &exists);
         if (!status.ok()) {
             LOG(WARNING) << "scan db of trash dir failed: " << status;
@@ -219,7 +219,7 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
             if (sub_dir.file_name.find(SHARD_PREFIX) == 0) {
                 // sub_dir starts with SHARD_PREFIX
                 // process shard sub dir
-                io::FsListGeneratorPtr labels_iter;
+                io::FileListIteratorPtr labels_iter;
                 status =
                         io::global_local_filesystem()->list(sub_path, false, &labels_iter, &exists);
                 if (!status.ok()) {
@@ -254,7 +254,7 @@ void LoadPathMgr::clean() {
 void LoadPathMgr::clean_error_log() {
     time_t now = time(nullptr);
     bool exists = true;
-    io::FsListGeneratorPtr sub_dirs_iter;
+    io::FileListIteratorPtr sub_dirs_iter;
     Status status =
             io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs_iter, &exists);
     if (!status.ok()) {
@@ -275,7 +275,7 @@ void LoadPathMgr::clean_error_log() {
         if (sub_dir.file_name.find(SHARD_PREFIX) == 0) {
             // sub_dir starts with SHARD_PREFIX
             // process shard sub dir
-            io::FsListGeneratorPtr error_log_files_iter;
+            io::FileListIteratorPtr error_log_files_iter;
             std::vector<io::FileInfo> error_log_files;
             Status status = io::global_local_filesystem()->list(sub_path, false,
                                                                 &error_log_files_iter, &exists);

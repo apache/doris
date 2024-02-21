@@ -938,7 +938,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
         auto binlog_dir = fmt::format("{}/_binlog", schema_hash_path);
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(binlog_dir));
 
-        io::FsListGeneratorPtr files_iter;
+        io::FileListIteratorPtr files_iter;
         RETURN_IF_ERROR(
                 io::global_local_filesystem()->list(schema_hash_path, true, &files_iter, &exists));
         while (files_iter->has_next()) {

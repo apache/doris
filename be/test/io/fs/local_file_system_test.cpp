@@ -162,7 +162,7 @@ TEST_F(LocalFileSystemTest, List) {
     st = file_writer->close();
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_TRUE(check_exist(fname));
-    std::unique_ptr<io::FsListGenerator> files_iter;
+    std::unique_ptr<io::FileListIterator> files_iter;
     std::vector<io::FileInfo> files;
     bool exists;
     st = io::global_local_filesystem()->list(fname, false, &files_iter, &exists);

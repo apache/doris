@@ -280,7 +280,7 @@ void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* 
     // path: /root_path/trash/time_label/tablet_id/schema_hash
     auto trash_path = fmt::format("{}/{}", _path, TRASH_PREFIX);
     bool exists = true;
-    io::FsListGeneratorPtr sub_dirs_iter;
+    io::FileListIteratorPtr sub_dirs_iter;
     Status st = io::global_local_filesystem()->list(trash_path, false, &sub_dirs_iter, &exists);
     if (!st) {
         return;
@@ -737,7 +737,7 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
         }
 
         bool exists;
-        io::FsListGeneratorPtr files_iter;
+        io::FileListIteratorPtr files_iter;
         auto st = io::global_local_filesystem()->list(path, true, &files_iter, &exists);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << "[path gc] fail to list tablet path " << path << " : " << st;
@@ -815,7 +815,7 @@ std::vector<std::string> DataDir::_perform_path_scan() {
     if (_stop_bg_worker) return tablet_paths;
     LOG(INFO) << "start to scan data dir " << _path;
     auto data_path = fmt::format("{}/{}", _path, DATA_PREFIX);
-    io::FsListGeneratorPtr shards_iter;
+    io::FileListIteratorPtr shards_iter;
     bool exists = true;
     const auto& fs = io::global_local_filesystem();
     auto st = fs->list(data_path, false, &shards_iter, &exists);
@@ -835,7 +835,7 @@ std::vector<std::string> DataDir::_perform_path_scan() {
             continue;
         }
         auto shard_path = fmt::format("{}/{}", data_path, shard.file_name);
-        io::FsListGeneratorPtr tablet_ids_iter;
+        io::FileListIteratorPtr tablet_ids_iter;
         st = io::global_local_filesystem()->list(shard_path, false, &tablet_ids_iter, &exists);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << "fail to walk dir, shard_path=" << shard_path << " : " << st;
@@ -855,7 +855,7 @@ std::vector<std::string> DataDir::_perform_path_scan() {
                 continue;
             }
             auto tablet_id_path = fmt::format("{}/{}", shard_path, tablet_id.file_name);
-            io::FsListGeneratorPtr schema_hashes_iter;
+            io::FileListIteratorPtr schema_hashes_iter;
             st = io::global_local_filesystem()->list(tablet_id_path, false, &schema_hashes_iter,
                                                      &exists);
             if (!st.ok()) [[unlikely]] {
@@ -976,7 +976,7 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
 
     // 5. check parent dir of source file, delete it when empty
     std::string source_parent_dir = fs_tablet_path.parent_path(); // tablet_id level
-    io::FsListGeneratorPtr sub_files;
+    io::FileListIteratorPtr sub_files;
     RETURN_IF_ERROR(
             io::global_local_filesystem()->list(source_parent_dir, false, &sub_files, &exists));
     std::vector<io::FileInfo> files;
