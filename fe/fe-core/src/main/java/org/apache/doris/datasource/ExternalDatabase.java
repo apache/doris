@@ -260,7 +260,7 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
     @Override
     public Set<String> getTableNamesWithLock() {
         makeSureInitialized();
-        return Sets.newHashSet();
+        return Sets.newHashSet(tableNameToId.keySet());
     }
 
     @Override
