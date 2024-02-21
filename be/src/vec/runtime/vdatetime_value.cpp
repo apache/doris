@@ -2067,6 +2067,12 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             break;
         }
 
+        // digits are truncated if they fall outside the max precision range(currently 6),
+        // so that users can still use doris if migrate from other systems that have a larger precision.
+        while (field_idx == 6 && isdigit(*ptr)) {
+            ++ptr;
+        }
+
         // timezone
         if (UNLIKELY((field_idx > 2 ||
                       !has_bar) /*dont treat xxxx-xx-xx:xx:xx as xxxx-xx(-xx:xx:xx)*/

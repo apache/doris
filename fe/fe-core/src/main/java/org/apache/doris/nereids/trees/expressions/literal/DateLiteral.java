@@ -234,11 +234,15 @@ public class DateLiteral extends Literal {
         }
 
         // parse MicroSecond
-        if (partNumber == 6 && i < s.length() && s.charAt(i) == '.') {
-            sb.append(s.charAt(i));
-            i += 1;
+        if (partNumber == 6 && i < s.length() && s.charAt(i - 1) == '.') {
+            // digits are truncated if they fall outside the max precision range(currently 6),
+            // so that users can still use doris if migrate from other systems that have a larger precision.
+            int idx = 0;
             while (i < s.length() && Character.isDigit(s.charAt(i))) {
-                sb.append(s.charAt(i));
+                if (idx < 6) {
+                    sb.append(s.charAt(i));
+                    idx++;
+                }
                 i += 1;
             }
         }
