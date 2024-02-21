@@ -73,44 +73,5 @@ OperatorPtr StreamingAggSourceOperatorBuilder::build_operator() {
     return std::make_shared<StreamingAggSourceOperator>(this, _node, _data_queue);
 }
 
-StreamingAggSourceOperatorX::StreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                         int operator_id,
-                                                         const DescriptorTbl& descs)
-        : Base(pool, tnode, operator_id, descs, true) {}
-
-Status StreamingAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                              SourceState& source_state) {
-    auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.exec_time_counter());
-    if (!local_state._shared_state->data_queue->data_exhausted()) {
-        std::unique_ptr<vectorized::Block> agg_block = nullptr;
-        DCHECK(local_state._dependency->is_blocked_by() == nullptr);
-        RETURN_IF_ERROR(local_state._shared_state->data_queue->get_block_from_queue(&agg_block));
-
-        if (local_state._shared_state->data_queue->data_exhausted()) {
-            RETURN_IF_ERROR(Base::get_block(state, block, source_state));
-        } else if (agg_block) {
-            block->swap(*agg_block);
-            agg_block->clear_column_data(row_desc().num_materialized_slots());
-            local_state._shared_state->data_queue->push_free_block(std::move(agg_block));
-        } else if (local_state._shared_state->data_queue->is_all_finish()) {
-            source_state = SourceState::FINISHED;
-        } else {
-            return Status::InternalError("Something wrong in StreamingAggSource: {}",
-                                         Base::debug_string(0));
-        }
-    } else {
-        RETURN_IF_ERROR(Base::get_block(state, block, source_state));
-    }
-
-    return Status::OK();
-}
-
-Status StreamingAggSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(Base::init(tnode, state));
-    _op_name = "STREAMING_AGGREGATION_OPERATOR";
-    return Status::OK();
-}
-
 } // namespace pipeline
 } // namespace doris
