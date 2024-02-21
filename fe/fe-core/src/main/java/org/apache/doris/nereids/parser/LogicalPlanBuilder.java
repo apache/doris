@@ -48,8 +48,8 @@ import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.ArrayLiteralContext;
+import org.apache.doris.nereids.DorisParser.ArrayRangeContext;
 import org.apache.doris.nereids.DorisParser.ArraySliceContext;
-import org.apache.doris.nereids.DorisParser.Array_rangeContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
@@ -1679,7 +1679,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitArray_range(Array_rangeContext ctx) {
+    public Expression visitArrayRange(ArrayRangeContext ctx) {
         Expression start = (Expression) visit(ctx.start);
         Expression end = (Expression) visit(ctx.end);
         Expression step = (Expression) visit(ctx.unitsAmount);

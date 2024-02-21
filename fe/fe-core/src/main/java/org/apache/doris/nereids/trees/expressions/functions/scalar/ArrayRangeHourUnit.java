@@ -45,13 +45,6 @@ public class ArrayRangeHourUnit extends ScalarFunction
     );
 
     /**
-     * constructor with 2 arguments.
-     */
-    public ArrayRangeHourUnit(Expression arg0, Expression arg1) {
-        super("array_range_hour_unit", arg0, arg1);
-    }
-
-    /**
      * constructor with 3 arguments.
      */
     public ArrayRangeHourUnit(Expression arg0, Expression arg1, Expression arg2) {
@@ -63,13 +56,8 @@ public class ArrayRangeHourUnit extends ScalarFunction
      */
     @Override
     public ArrayRangeHourUnit withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2
-                || children.size() == 3);
-        if (children.size() == 2) {
-            return new ArrayRangeHourUnit(children.get(0), children.get(1));
-        } else {
-            return new ArrayRangeHourUnit(children.get(0), children.get(1), children.get(2));
-        }
+        Preconditions.checkArgument(children.size() == 3);
+        return new ArrayRangeHourUnit(children.get(0), children.get(1), children.get(2));
     }
 
     @Override

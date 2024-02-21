@@ -669,7 +669,7 @@ primaryExpression
                 end=valueExpression COMMA
                 (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
                 | unitsAmount=valueExpression)
-            RIGHT_PAREN                                                                        #array_range
+            RIGHT_PAREN                                                                        #arrayRange
     | name=CURRENT_DATE                                                                        #currentDate
     | name=CURRENT_TIME                                                                        #currentTime
     | name=CURRENT_TIMESTAMP                                                                   #currentTimestamp
@@ -1140,6 +1140,7 @@ nonReserved
     | SCHEMA
     | SECOND
     | SERIALIZABLE
+    | SEQUENCE
     | SESSION
     | SHAPE
     | SKEW

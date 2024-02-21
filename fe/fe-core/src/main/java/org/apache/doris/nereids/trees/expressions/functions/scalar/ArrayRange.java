@@ -43,7 +43,9 @@ public class ArrayRange extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE))
                     .args(IntegerType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT)
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE)
     );
 
     /**
