@@ -22,9 +22,9 @@
 //#include "cloud/cloud_cumulative_compaction.h"
 //#include "cloud/cloud_base_compaction.h"
 //#include "cloud/cloud_full_compaction.h"
+#include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
 #include "olap/storage_engine.h"
-#include "cloud/cloud_cumulative_compaction_policy.h"
 
 namespace doris {
 namespace cloud {
@@ -69,7 +69,8 @@ public:
         _latest_fs = fs;
     }
 
-    void get_cumu_compaction(int64_t tablet_id, std::vector<std::shared_ptr<CloudCumulativeCompaction>>& res);
+    void get_cumu_compaction(int64_t tablet_id,
+                             std::vector<std::shared_ptr<CloudCumulativeCompaction>>& res);
 
     CloudSizeBasedCumulativeCompactionPolicy* cumu_compaction_policy() const {
         return _cumulative_compaction_policy.get();
@@ -80,7 +81,8 @@ private:
     void _vacuum_stale_rowsets_thread_callback();
     void _sync_tablets_thread_callback();
     void _compaction_tasks_producer_callback();
-    std::vector<CloudTabletSPtr> _generate_cloud_compaction_tasks(CompactionType compaction_type, bool check_score);
+    std::vector<CloudTabletSPtr> _generate_cloud_compaction_tasks(CompactionType compaction_type,
+                                                                  bool check_score);
     void _adjust_compaction_thread_num();
     Status submit_compaction_task(const CloudTabletSPtr& tablet, CompactionType compaction_type);
     Status _submit_base_compaction_task(const CloudTabletSPtr& tablet);
@@ -109,7 +111,8 @@ private:
     // Store tablets which are preparing cumu compaction, guarded by `_compaction_mtx`
     std::unordered_set<int64_t> _tablet_preparing_cumu_compaction;
     // tablet_id -> submitted cumu compactions, guarded by `_compaction_mtx`
-    std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>> _submitted_cumu_compactions;
+    std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>>
+            _submitted_cumu_compactions;
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;

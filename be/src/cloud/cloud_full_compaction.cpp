@@ -22,7 +22,8 @@ using namespace ErrorCode;
 bvar::Adder<uint64_t> full_output_size("full_compaction", "output_size");
 
 CloudFullCompaction::CloudFullCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
-        : CloudCompactionMixin(engine, std::move(tablet), "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
+        : CloudCompactionMixin(engine, std::move(tablet),
+                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
     auto uuid = UUIDGenerator::instance()->next_uuid();
     std::stringstream ss;
     ss << uuid;
@@ -217,7 +218,7 @@ Status CloudFullCompaction::modify_rowsets() {
         }
         if (stats.cumulative_compaction_cnt() >= cloud_tablet()->cumulative_compaction_cnt()) {
             cloud_tablet()->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
-                                             stats.num_rows(), stats.data_size());
+                                                    stats.num_rows(), stats.data_size());
         }
     }
     return Status::OK();

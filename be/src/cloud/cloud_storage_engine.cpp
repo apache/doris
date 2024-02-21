@@ -56,7 +56,8 @@ CloudStorageEngine::CloudStorageEngine(const UniqueId& backend_uid)
         : BaseStorageEngine(Type::CLOUD, backend_uid),
           _meta_mgr(std::make_unique<cloud::CloudMetaMgr>()),
           _tablet_mgr(std::make_unique<CloudTabletMgr>(*this)),
-          _cumulative_compaction_policy(std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>()) {}
+          _cumulative_compaction_policy(
+                  std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>()) {}
 
 CloudStorageEngine::~CloudStorageEngine() = default;
 
@@ -144,13 +145,13 @@ Status CloudStorageEngine::start_bg_threads() {
     int base_thread_num = get_base_thread_num();
     int cumu_thread_num = get_cumu_thread_num();
     RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-            .set_min_threads(base_thread_num)
-            .set_max_threads(base_thread_num)
-            .build(&_base_compaction_thread_pool));
+                            .set_min_threads(base_thread_num)
+                            .set_max_threads(base_thread_num)
+                            .build(&_base_compaction_thread_pool));
     RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-            .set_min_threads(cumu_thread_num)
-            .set_max_threads(cumu_thread_num)
-            .build(&_cumu_compaction_thread_pool));
+                            .set_min_threads(cumu_thread_num)
+                            .set_max_threads(cumu_thread_num)
+                            .build(&_cumu_compaction_thread_pool));
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "compaction_tasks_producer_thread",
             [this]() { this->_compaction_tasks_producer_callback(); },
@@ -411,7 +412,8 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
                    t->tablet_state() != TABLET_RUNNING;
         };
     } else {
-        filter_out = [&tablet_preparing_cumu_compaction, &submitted_cumu_compactions](CloudTablet* t) {
+        filter_out = [&tablet_preparing_cumu_compaction,
+                      &submitted_cumu_compactions](CloudTablet* t) {
             return !!tablet_preparing_cumu_compaction.count(t->tablet_id()) ||
                    !!submitted_cumu_compactions.count(t->tablet_id()) ||
                    t->tablet_state() != TABLET_RUNNING;
@@ -422,8 +424,8 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     // So that we can update the max_compaction_score metric.
     do {
         std::vector<CloudTabletSPtr> tablets;
-        auto st = tablet_mgr().get_topn_tablets_to_compact(n, compaction_type, filter_out,
-                                                                   &tablets, &max_compaction_score);
+        auto st = tablet_mgr().get_topn_tablets_to_compact(n, compaction_type, filter_out, &tablets,
+                                                           &max_compaction_score);
         if (!st.ok()) {
             LOG(WARNING) << "failed to get tablets to compact, err=" << st;
             break;
@@ -601,7 +603,7 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
 }
 
 Status CloudStorageEngine::submit_compaction_task(const CloudTabletSPtr& tablet,
-                                             CompactionType compaction_type) {
+                                                  CompactionType compaction_type) {
     DCHECK(compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
            compaction_type == CompactionType::BASE_COMPACTION ||
            compaction_type == CompactionType::FULL_COMPACTION);

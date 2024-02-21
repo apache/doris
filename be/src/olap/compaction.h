@@ -160,16 +160,15 @@ private:
 
 class CloudCompactionMixin : public Compaction {
 public:
-    CloudCompactionMixin(CloudStorageEngine& engine, CloudTabletSPtr tablet, const std::string& label);
+    CloudCompactionMixin(CloudStorageEngine& engine, CloudTabletSPtr tablet,
+                         const std::string& label);
 
     ~CloudCompactionMixin() override = default;
 
     Status execute_compact() override;
 
 protected:
-    CloudTablet* cloud_tablet() {
-        return static_cast<CloudTablet*>(_tablet.get());
-    }
+    CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 
     CloudStorageEngine& _engine;
 
@@ -188,6 +187,5 @@ private:
 
     int64_t get_compaction_permits();
 };
-
 
 } // namespace doris

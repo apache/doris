@@ -30,7 +30,7 @@ private:
 
     void update_cumulative_point();
 
-    ReaderType compaction_type() const override { return ReaderType::READER_CLOUD_CUMULATIVE_COMPACTION; }
+    ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
     std::string _uuid;
     int64_t _input_segments = 0;

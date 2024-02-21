@@ -33,8 +33,8 @@
 #include <shared_mutex>
 #include <utility>
 
-#include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "common/sync_point.h"
@@ -868,7 +868,7 @@ int64_t CloudCompactionMixin::get_compaction_permits() {
 }
 
 CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabletSPtr tablet,
-                                 const std::string& label)
+                                           const std::string& label)
         : Compaction(tablet, label), _engine(engine) {}
 
 Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
@@ -909,8 +909,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.fs = _engine.latest_fs();
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive
-    ctx.txn_expiration = _expiration;   
-    
+    ctx.txn_expiration = _expiration;
+
     ctx.version = _output_version;
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = NONOVERLAPPING;

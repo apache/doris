@@ -31,7 +31,7 @@ private:
 
     void build_basic_info();
 
-    ReaderType compaction_type() const override { return ReaderType::READER_CLOUD_BASE_COMPACTION; }
+    ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
 
     std::string _uuid;
     int64_t _input_segments = 0;

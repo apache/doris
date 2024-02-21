@@ -24,8 +24,8 @@
 #include <string>
 #include <vector>
 
-#include "common/config.h"
 #include "cloud/cloud_tablet.h"
+#include "common/config.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 
@@ -45,10 +45,10 @@ public:
     ~CloudSizeBasedCumulativeCompactionPolicy() {}
 
     int64_t new_cumulative_point(CloudTablet* tablet, const RowsetSharedPtr& output_rowset,
-                                 Version& last_delete_version,
-                                 int64_t last_cumulative_point);
+                                 Version& last_delete_version, int64_t last_cumulative_point);
 
-    int pick_input_rowsets(CloudTablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
+    int pick_input_rowsets(CloudTablet* tablet,
+                           const std::vector<RowsetSharedPtr>& candidate_rowsets,
                            const int64_t max_compaction_score, const int64_t min_compaction_score,
                            std::vector<RowsetSharedPtr>* input_rowsets,
                            Version* last_delete_version, size_t* compaction_score,

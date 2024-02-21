@@ -108,7 +108,7 @@ public:
     void set_base_compaction_cnt(int64_t cnt) { _base_compaction_cnt = cnt; }
     void set_cumulative_compaction_cnt(int64_t cnt) { _cumulative_compaction_cnt = cnt; }
     void set_cumulative_layer_point(int64_t new_point);
-    
+
     /*
     int64_t base_compaction_cnt() const { return _base_compaction_cnt; }
     void set_base_compaction_cnt(int64_t cnt) { _base_compaction_cnt = cnt; }

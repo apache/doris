@@ -22,10 +22,10 @@
 #include <ostream>
 #include <string>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/sync_point.h"
-#include "cloud/config.h"
 #include "olap/olap_common.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -153,7 +153,8 @@ int CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     *compaction_score = new_compaction_score;
 
     VLOG_CRITICAL << "cumulative compaction size_based policy, compaction_score = "
-                  << *compaction_score << ", total_size = " << total_size
+                  << *compaction_score << ", total_size = "
+                  << total_size
                   //<< ", calc promotion size value = " << promotion_size
                   << ", tablet = " << tablet->tablet_id() << ", input_rowset size "
                   << input_rowsets->size();
