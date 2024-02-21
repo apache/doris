@@ -3182,6 +3182,15 @@ public class SessionVariable implements Serializable, Writable {
         this.dumpNereidsMemo = dumpNereidsMemo;
     }
 
+    public void disableStrictConsistencyDmlOnce() throws DdlException {
+        if (!enableStrictConsistencyDml) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, new StringLiteral("false")));
+    }
+
     public void enableFallbackToOriginalPlannerOnce() throws DdlException {
         if (enableFallbackToOriginalPlanner) {
             return;

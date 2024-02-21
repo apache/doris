@@ -143,7 +143,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         targetTableIf.readLock();
         try {
             // 1. process inline table (default values, empty values)
-            this.logicalQuery = (LogicalPlan) InsertExecutor.normalizePlan(logicalQuery, targetTableIf);
+            this.logicalQuery = (LogicalPlan) InsertExecutor.normalizePlan(ctx, logicalQuery, targetTableIf);
 
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
@@ -270,7 +270,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             }
             throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
         }
-        return InsertExecutor.normalizePlan(this.logicalQuery, InsertExecutor.getTargetTable(this.logicalQuery, ctx));
+        return InsertExecutor.normalizePlan(ctx, this.logicalQuery,
+                InsertExecutor.getTargetTable(this.logicalQuery, ctx));
     }
 
     @Override
