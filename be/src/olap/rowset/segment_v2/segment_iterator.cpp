@@ -453,6 +453,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     }
 
     if (config::enable_index_apply_preds_except_leafnode_of_andnode) {
+        size_t input_rows = _row_bitmap.cardinality();
         RETURN_IF_ERROR(_apply_index_except_leafnode_of_andnode());
         if (_can_filter_by_preds_except_leafnode_of_andnode()) {
             for (auto it = _remaining_conjunct_roots.begin();
@@ -476,6 +477,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 }
             }
         }
+        _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     }
 
     RETURN_IF_ERROR(_apply_bitmap_index());
