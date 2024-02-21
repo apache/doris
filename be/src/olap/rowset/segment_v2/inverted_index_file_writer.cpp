@@ -150,7 +150,7 @@ Status InvertedIndexFileWriter::close() {
                 auto index_suffix = entry.first.second;
                 const auto& dir = entry.second;
                 // delete index path, which contains separated inverted index files
-                if (std::string(dir->getObjectName()) == "DorisCompoundDirectory") {
+                if (std::strcmp(dir->getObjectName(), "DorisCompoundDirectory") == 0) {
                     auto temp_dir = InvertedIndexDescriptor::get_temporary_index_path(
                             _index_file_dir / _segment_file_name, index_id, index_suffix);
                     auto* compound_dir = static_cast<DorisCompoundDirectory*>(dir.get());
@@ -174,12 +174,12 @@ Status InvertedIndexFileWriter::close() {
 }
 size_t InvertedIndexFileWriter::write() {
     // Create the output stream to write the compound file
+    int64_t current_offset = headerLength();
     std::string idx_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name);
     auto* out_dir = DorisCompoundDirectoryFactory::getDirectory(_fs, _index_file_dir.c_str());
 
     auto compound_file_output =
             std::unique_ptr<lucene::store::IndexOutput>(out_dir->createOutput(idx_name.c_str()));
-    int64_t current_offset = headerLength();
 
     // Write the version number
     compound_file_output->writeInt(InvertedIndexStorageFormatPB::V2);

@@ -190,9 +190,16 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::open(
 }
 
 std::string InvertedIndexFileReader::get_index_file_path(const TabletIndex* index_meta) const {
-    return _index_file_dir /
-           InvertedIndexDescriptor::get_index_file_name(_segment_file_name, index_meta->index_id(),
-                                                        index_meta->get_index_suffix());
+    if (_storage_format == InvertedIndexStorageFormatPB::V1) {
+        return _index_file_dir /
+               InvertedIndexDescriptor::get_index_file_name(
+                       _segment_file_name, index_meta->index_id(), index_meta->get_index_suffix());
+    } else {
+        auto index_suffix_path = index_meta->get_index_suffix();
+        std::string index_suffix = index_suffix_path.empty() ? "" : "@" + index_suffix_path;
+        return InvertedIndexDescriptor::get_index_file_name(_index_file_dir / _segment_file_name) +
+               "@" + std::to_string(index_meta->index_id()) + index_suffix;
+    }
 }
 
 Status InvertedIndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* res) const {
