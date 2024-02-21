@@ -40,7 +40,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
@@ -536,7 +535,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
             return;
         }
-        waitWalFinished();
+        Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
+        Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(tableId);
+        Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
@@ -597,34 +598,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
-    }
-
-    private void waitWalFinished() {
-        // wait wal done here
-        Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
-        LOG.info("block group commit for table={} when schema change", tableId);
-        List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-        long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
-        while (true) {
-            LOG.info("wait for wal queue size to be empty");
-            boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
-                    .isPreviousWalFinished(tableId, aliveBeIds);
-            if (walFinished) {
-                LOG.info("all wal is finished for table={}", tableId);
-                break;
-            } else if (System.currentTimeMillis() > expireTime) {
-                LOG.warn("waitWalFinished time out for table={}", tableId);
-                break;
-            } else {
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ie) {
-                    LOG.warn("failed to wait for wal for table={} when schema change", tableId, ie);
-                }
-            }
-        }
-        Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
-        LOG.info("unblock group commit for table={} when schema change", tableId);
     }
 
     private void onFinished(OlapTable tbl) {
