@@ -137,11 +137,13 @@ public class JdbcExecutor {
 
             boolean shouldAbort = conn != null && resultSet != null
                     && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER);
+            boolean aborted = false; // 用于记录是否执行了abort操作
             if (shouldAbort) {
-                abortReadConnection(conn, resultSet, tableType);
+                aborted = abortReadConnection(conn, resultSet, tableType);
             }
 
-            if (!shouldAbort) {
+            // If no abort operation is performed, the resource needs to be closed manually
+            if (!aborted) {
                 closeResources(resultSet, stmt, conn);
             }
         } finally {
@@ -171,13 +173,15 @@ public class JdbcExecutor {
         }
     }
 
-    public void abortReadConnection(Connection connection, ResultSet resultSet, TOdbcTableType tableType)
+    public boolean abortReadConnection(Connection connection, ResultSet resultSet, TOdbcTableType tableType)
             throws SQLException {
         if (!resultSet.isAfterLast() && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER)) {
             // Abort connection before closing. Without this, the MySQL/SQLServer driver
             // attempts to drain the connection by reading all the results.
             connection.abort(MoreExecutors.directExecutor());
+            return true;
         }
+        return false;
     }
 
     public int read() throws UdfRuntimeException {
