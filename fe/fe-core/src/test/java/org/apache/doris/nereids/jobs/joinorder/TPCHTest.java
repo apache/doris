@@ -17,10 +17,17 @@
 
 package org.apache.doris.nereids.jobs.joinorder;
 
+import java.util.List;
+
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class TPCHTest extends TPCHTestBase {
@@ -32,5 +39,35 @@ public class TPCHTest extends TPCHTestBase {
                 .deriveStats()
                 .dpHypOptimize()
                 .printlnBestPlanTree();
+    }
+
+
+    // count(*) projects on children key columns
+    @Test
+    void testCountStarProject() {
+        String sql = "select\n"
+                + "    count(*) as order_count\n"
+                + "from\n"
+                + "    orders\n"
+                + "where\n"
+                + "    o_orderdate >= date '1993-07-01'\n"
+                + "    and o_orderdate < date '1993-07-01' + interval '3' month\n"
+                + "    and exists (\n"
+                + "        select\n"
+                + "            *\n"
+                + "        from\n"
+                + "            lineitem\n"
+                + "        where\n"
+                + "            l_orderkey = o_orderkey\n"
+                + "            and l_commitdate < l_receiptdate\n"
+                + "    );";
+
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite();
+        List<? extends Expression> proj = checker.getPlan().child(0).child(0).getExpressions();
+        Assertions.assertEquals(proj.size(), 1);
+        Assertions.assertTrue(proj.get(0) instanceof SlotReference
+                && "o_orderdate".equals(proj.get(0).toSql()));
     }
 }
