@@ -83,7 +83,15 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     tablet->fetch_add_approximate_num_rowsets(1);
     tablet->fetch_add_approximate_cumu_num_rowsets(1);
 
-    // TODO(liaoxin): set_tablet_txn_info if enable_unique_key_merge_on_write
+    // TODO(liaoxin) delete operator don't send calculate delete bitmap task from fe,
+    //  then we don't need to set_txn_related_delete_bitmap here.
+    if (tablet->enable_unique_key_merge_on_write()) {
+        DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
+        RowsetIdUnorderedSet rowset_ids;
+        engine.txn_delete_bitmap_cache().set_tablet_txn_info(
+                request.transaction_id, tablet->tablet_id(), delete_bitmap, rowset_ids, rowset,
+                request.timeout, nullptr);
+    }
 
     return Status::OK();
 }

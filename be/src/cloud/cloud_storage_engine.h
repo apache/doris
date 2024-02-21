@@ -24,7 +24,9 @@
 //#include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud_txn_delete_bitmap_cache.h"
 #include "olap/storage_engine.h"
+#include "util/threadpool.h"
 
 namespace doris {
 namespace cloud {
@@ -58,6 +60,11 @@ public:
     cloud::CloudMetaMgr& meta_mgr() { return *_meta_mgr; }
 
     CloudTabletMgr& tablet_mgr() { return *_tablet_mgr; }
+
+    CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() { return *_txn_delete_bitmap_cache; }
+    std::unique_ptr<ThreadPool>& calc_tablet_delete_bitmap_task_thread_pool() {
+        return _calc_tablet_delete_bitmap_task_thread_pool;
+    }
 
     io::FileSystemSPtr latest_fs() const {
         std::lock_guard lock(_latest_fs_mtx);
@@ -97,6 +104,8 @@ private:
 
     std::unique_ptr<cloud::CloudMetaMgr> _meta_mgr;
     std::unique_ptr<CloudTabletMgr> _tablet_mgr;
+    std::unique_ptr<CloudTxnDeleteBitmapCache> _txn_delete_bitmap_cache;
+    std::unique_ptr<ThreadPool> _calc_tablet_delete_bitmap_task_thread_pool;
 
     // FileSystem with latest shared storage info, new data will be written to this fs.
     mutable std::mutex _latest_fs_mtx;

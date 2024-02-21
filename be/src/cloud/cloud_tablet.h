@@ -17,7 +17,10 @@
 
 #pragma once
 
+#include <memory>
+
 #include "olap/base_tablet.h"
+#include "olap/partial_update_info.h"
 
 namespace doris {
 
@@ -171,6 +174,16 @@ public:
 
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
+
+    Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
+            const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
+            int64_t txn_expiration = 0) override;
+
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() override;
+
+    Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
+                              DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
+                              const RowsetIdUnorderedSet& cur_rowset_ids) override;
 
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
