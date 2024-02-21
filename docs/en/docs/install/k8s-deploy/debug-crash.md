@@ -50,9 +50,10 @@ When the service is restarted next time, the service will detect the annotation 
 $ kubectl --namespace ${namespace} exec -ti ${pod_name} bash
 ```
 
-**3. Manually start the service under `debug`. When the user enters the pod, manually execute the `start_xx.sh` script by modifying the HTTP port of the corresponding configuration file. The script directory is under `/opt/apache-doris/xx/bin`.**
+**3. Manually start the service under `debug`. When the user enters the pod, manually execute the `start_xx.sh` script by modifying the port of the corresponding configuration file. The script directory is under `/opt/apache-doris/xx/bin`.**
 
-
+FE needs to modify `query_port`, BE needs to modify `heartbeat_service_port`
+The main purpose is to avoid misleading the flow by accessing the crashed node through service in `debug` mode.
 
 ## Exit Debug mode
 

@@ -50,9 +50,10 @@ $ kubectl annotate pod ${pod_name} --namespace ${namespace} selectdb.com.doris/r
 $ kubectl --namespace ${namespace} exec -ti ${pod_name} bash
 ```
 
-**3. `debug` 下手动启动服务，当用户进入 pod 内部，通过修改对应配置文件有关 HTTP 的端口进行手动执行 `start_xx.sh` 脚本，脚本目录为 `/opt/apache-doris/xx/bin` 下。**
+**3. `debug` 下手动启动服务，当用户进入 pod 内部，通过修改对应配置文件有关端口进行手动执行 `start_xx.sh` 脚本，脚本目录为 `/opt/apache-doris/xx/bin` 下。**
 
-
+FE 需要修改 `query_port`，BE 需要修改 `heartbeat_service_port`
+主要是避免`debug`模式下还能通过 service 访问到 crash 的节点导致误导流。
 
 ## 退出 Debug 模式
 
