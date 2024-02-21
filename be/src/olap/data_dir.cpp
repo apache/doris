@@ -40,6 +40,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
@@ -279,13 +280,18 @@ void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* 
     // path: /root_path/trash/time_label/tablet_id/schema_hash
     auto trash_path = fmt::format("{}/{}", _path, TRASH_PREFIX);
     bool exists = true;
+    io::FsListGeneratorPtr sub_dirs_iter;
+    Status st = io::global_local_filesystem()->list(trash_path, false, &sub_dirs_iter, &exists);
+    if (!st) {
+        return;
+    }
     std::vector<io::FileInfo> sub_dirs;
-    Status st = io::global_local_filesystem()->list(trash_path, false, &sub_dirs, &exists);
+    st = sub_dirs_iter->files(&sub_dirs);
     if (!st) {
         return;
     }
 
-    for (auto& sub_dir : sub_dirs) {
+    for (const auto& sub_dir : sub_dirs) {
         // sub dir is time_label
         if (sub_dir.is_file) {
             continue;
@@ -731,8 +737,14 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
         }
 
         bool exists;
+        io::FsListGeneratorPtr files_iter;
+        auto st = io::global_local_filesystem()->list(path, true, &files_iter, &exists);
+        if (!st.ok()) [[unlikely]] {
+            LOG(WARNING) << "[path gc] fail to list tablet path " << path << " : " << st;
+            continue;
+        }
         std::vector<io::FileInfo> files;
-        auto st = io::global_local_filesystem()->list(path, true, &files, &exists);
+        st = files_iter->files(&files);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << "[path gc] fail to list tablet path " << path << " : " << st;
             continue;
@@ -803,10 +815,16 @@ std::vector<std::string> DataDir::_perform_path_scan() {
     if (_stop_bg_worker) return tablet_paths;
     LOG(INFO) << "start to scan data dir " << _path;
     auto data_path = fmt::format("{}/{}", _path, DATA_PREFIX);
-    std::vector<io::FileInfo> shards;
+    io::FsListGeneratorPtr shards_iter;
     bool exists = true;
     const auto& fs = io::global_local_filesystem();
-    auto st = fs->list(data_path, false, &shards, &exists);
+    auto st = fs->list(data_path, false, &shards_iter, &exists);
+    if (!st.ok()) [[unlikely]] {
+        LOG(WARNING) << "failed to scan data dir: " << st;
+        return tablet_paths;
+    }
+    std::vector<io::FileInfo> shards;
+    st = shards_iter->files(&shards);
     if (!st.ok()) [[unlikely]] {
         LOG(WARNING) << "failed to scan data dir: " << st;
         return tablet_paths;
@@ -817,8 +835,14 @@ std::vector<std::string> DataDir::_perform_path_scan() {
             continue;
         }
         auto shard_path = fmt::format("{}/{}", data_path, shard.file_name);
+        io::FsListGeneratorPtr tablet_ids_iter;
+        st = io::global_local_filesystem()->list(shard_path, false, &tablet_ids_iter, &exists);
+        if (!st.ok()) [[unlikely]] {
+            LOG(WARNING) << "fail to walk dir, shard_path=" << shard_path << " : " << st;
+            continue;
+        }
         std::vector<io::FileInfo> tablet_ids;
-        st = io::global_local_filesystem()->list(shard_path, false, &tablet_ids, &exists);
+        st = tablet_ids_iter->files(&tablet_ids);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << "fail to walk dir, shard_path=" << shard_path << " : " << st;
             continue;
@@ -831,9 +855,16 @@ std::vector<std::string> DataDir::_perform_path_scan() {
                 continue;
             }
             auto tablet_id_path = fmt::format("{}/{}", shard_path, tablet_id.file_name);
-            std::vector<io::FileInfo> schema_hashes;
-            st = io::global_local_filesystem()->list(tablet_id_path, false, &schema_hashes,
+            io::FsListGeneratorPtr schema_hashes_iter;
+            st = io::global_local_filesystem()->list(tablet_id_path, false, &schema_hashes_iter,
                                                      &exists);
+            if (!st.ok()) [[unlikely]] {
+                LOG(WARNING) << "fail to walk dir, tablet_id_path=" << tablet_id_path << " : "
+                             << st;
+                continue;
+            }
+            std::vector<io::FileInfo> schema_hashes;
+            st = schema_hashes_iter->files(&schema_hashes);
             if (!st.ok()) [[unlikely]] {
                 LOG(WARNING) << "fail to walk dir, tablet_id_path=" << tablet_id_path << " : "
                              << st;
@@ -945,10 +976,15 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
 
     // 5. check parent dir of source file, delete it when empty
     std::string source_parent_dir = fs_tablet_path.parent_path(); // tablet_id level
-    std::vector<io::FileInfo> sub_files;
+    io::FsListGeneratorPtr sub_files;
     RETURN_IF_ERROR(
             io::global_local_filesystem()->list(source_parent_dir, false, &sub_files, &exists));
-    if (sub_files.empty()) {
+    std::vector<io::FileInfo> files;
+    while (sub_files->has_next()) {
+        const auto& sub_file = DORIS_TRY(sub_files->next());
+        files.emplace_back(sub_file);
+    }
+    if (files.empty()) {
         LOG(INFO) << "remove empty dir " << source_parent_dir;
         // no need to exam return status
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(source_parent_dir));

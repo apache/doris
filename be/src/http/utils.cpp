@@ -175,17 +175,25 @@ void do_file_response(const std::string& file_path, HttpRequest* req,
 
 void do_dir_response(const std::string& dir_path, HttpRequest* req) {
     bool exists = true;
+    io::FsListGeneratorPtr files_iter;
     std::vector<io::FileInfo> files;
-    Status st = io::global_local_filesystem()->list(dir_path, true, &files, &exists);
+    Status st = io::global_local_filesystem()->list(dir_path, true, &files_iter, &exists);
     if (!st.ok()) {
         LOG(WARNING) << "Failed to scan dir. " << st;
         HttpChannel::send_error(req, HttpStatus::INTERNAL_SERVER_ERROR);
+        return;
+    }
+    st = files_iter->files(&files);
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to scan dir. " << st;
+        HttpChannel::send_error(req, HttpStatus::INTERNAL_SERVER_ERROR);
+        return;
     }
 
     const std::string FILE_DELIMITER_IN_DIR_RESPONSE = "\n";
 
     std::stringstream result;
-    for (auto& file : files) {
+    for (const auto& file : files) {
         result << file.file_name << FILE_DELIMITER_IN_DIR_RESPONSE;
     }
 

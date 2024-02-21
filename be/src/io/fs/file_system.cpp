@@ -68,8 +68,7 @@ Status FileSystem::file_size(const Path& file, int64_t* file_size) const {
     FILESYSTEM_M(file_size_impl(path, file_size));
 }
 
-Status FileSystem::list(const Path& dir, bool only_file, std::vector<FileInfo>* files,
-                        bool* exists) {
+Status FileSystem::list(const Path& dir, bool only_file, FsListGeneratorPtr* files, bool* exists) {
     auto path = absolute_path(dir);
     FILESYSTEM_M(list_impl(path, only_file, files, exists));
 }

@@ -631,17 +631,19 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     }
 
     // check all files in /clone and /tablet
-    std::vector<io::FileInfo> clone_files;
+    io::FsListGeneratorPtr clone_files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(clone_dir, true, &clone_files, &exists));
     std::unordered_set<std::string> clone_file_names;
-    for (auto& file : clone_files) {
+    while (clone_files->has_next()) {
+        const auto& file = DORIS_TRY(clone_files->next());
         clone_file_names.insert(file.file_name);
     }
 
-    std::vector<io::FileInfo> local_files;
+    io::FsListGeneratorPtr local_files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));
     std::unordered_set<std::string> local_file_names;
-    for (auto& file : local_files) {
+    while (local_files->has_next()) {
+        const auto& file = DORIS_TRY(local_files->next());
         local_file_names.insert(file.file_name);
     }
 

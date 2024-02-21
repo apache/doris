@@ -312,7 +312,71 @@ Status S3FileSystem::file_size_impl(const Path& file, int64_t* file_size) const 
     return Status::OK();
 }
 
-Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
+struct S3FsListGenerator final : public FsListGenerator {
+public:
+    S3FsListGenerator(std::shared_ptr<Aws::S3::S3Client> client,
+                      Aws::S3::Model::ListObjectsV2Request request, bool only_file,
+                      std::string_view prefix, std::string full_path)
+            : client(std::move(client)),
+              request(std::move(request)),
+              only_file(only_file),
+              prefix(prefix),
+              full_path(std::move(full_path)) {}
+    ~S3FsListGenerator() override = default;
+
+    bool has_next() const override {
+        return !is_trucated && iter != outcome.GetResult().GetContents().end();
+    }
+
+    Status init() override { return Status::OK(); }
+
+private:
+    void generateNext() override {
+        while (!is_trucated && iter != outcome.GetResult().GetContents().end()) {
+            for (; iter != outcome.GetResult().GetContents().end(); iter++) {
+                const auto& obj = *iter;
+                std::string key = obj.GetKey();
+                bool is_dir = (key.back() == '/');
+                if (only_file && is_dir) {
+                    continue;
+                }
+                file_info.file_name = obj.GetKey().substr(prefix.size());
+                file_info.file_size = obj.GetSize();
+                file_info.is_file = !is_dir;
+                return;
+            }
+            get_list_outcome();
+        }
+    }
+
+    void get_list_outcome() {
+        do {
+            Aws::S3::Model::ListObjectsV2Outcome outcome;
+            {
+                SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+                outcome = client->ListObjectsV2(request);
+            }
+            if (!outcome.IsSuccess()) {
+                st = s3fs_error(outcome.GetError(), fmt::format("failed to list {}", full_path));
+                return;
+            }
+            is_trucated = outcome.GetResult().GetIsTruncated();
+            request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
+            return;
+        } while (is_trucated);
+    }
+
+    std::shared_ptr<Aws::S3::S3Client> client;
+    Aws::S3::Model::ListObjectsV2Request request;
+    bool only_file;
+    std::string_view prefix;
+    std::string full_path;
+    bool is_trucated = false;
+    Aws::S3::Model::ListObjectsV2Outcome outcome;
+    decltype(outcome.GetResult().GetContents().begin()) iter;
+};
+
+Status S3FileSystem::list_impl(const Path& dir, bool only_file, FsListGeneratorPtr* files,
                                bool* exists) {
     // For object storage, this path is always not exist.
     // So we ignore this property and set exists to true.
@@ -326,33 +390,9 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
 
     Aws::S3::Model::ListObjectsV2Request request;
     request.WithBucket(_s3_conf.bucket).WithPrefix(prefix);
-    bool is_trucated = false;
-    do {
-        Aws::S3::Model::ListObjectsV2Outcome outcome;
-        {
-            SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-            outcome = client->ListObjectsV2(request);
-        }
-        if (!outcome.IsSuccess()) {
-            return s3fs_error(outcome.GetError(),
-                              fmt::format("failed to list {}", full_path(prefix)));
-        }
-        for (const auto& obj : outcome.GetResult().GetContents()) {
-            std::string key = obj.GetKey();
-            bool is_dir = (key.back() == '/');
-            if (only_file && is_dir) {
-                continue;
-            }
-            FileInfo file_info;
-            file_info.file_name = obj.GetKey().substr(prefix.size());
-            file_info.file_size = obj.GetSize();
-            file_info.is_file = !is_dir;
-            files->push_back(std::move(file_info));
-        }
-        is_trucated = outcome.GetResult().GetIsTruncated();
-        request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
-    } while (is_trucated);
-    return Status::OK();
+    *files = std::make_unique<S3FsListGenerator>(std::move(client), std::move(request), only_file,
+                                                 prefix, full_path(prefix));
+    return (*files)->init();
 }
 
 Status S3FileSystem::rename_impl(const Path& orig_name, const Path& new_name) {

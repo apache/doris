@@ -1076,15 +1076,14 @@ void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         // list and save all snapshot files
         // snapshot_path like: data/snapshot/20180417205230.1.86400
         // we need to add subdir: tablet_id/schema_hash/
+        io::FsListGeneratorPtr files_iter;
         std::vector<io::FileInfo> files;
         bool exists = true;
         io::Path path = fmt::format("{}/{}/{}/", snapshot_path, snapshot_request.tablet_id,
                                     snapshot_request.schema_hash);
-        status = io::global_local_filesystem()->list(path, true, &files, &exists);
+        status = io::global_local_filesystem()->list(path, true, &files_iter, &exists);
         if (status.ok()) {
-            for (auto& file : files) {
-                snapshot_files.push_back(file.file_name);
-            }
+            status = files_iter->files(&files);
         }
     }
     if (!status.ok()) {

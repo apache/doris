@@ -195,9 +195,10 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id,
 Status RestoreTabletAction::_create_hard_link_recursive(const std::string& src,
                                                         const std::string& dst) {
     bool exists = true;
-    std::vector<io::FileInfo> files;
+    io::FsListGeneratorPtr files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(src, false, &files, &exists));
-    for (auto& file : files) {
+    while (files->has_next()) {
+        const auto& file = DORIS_TRY(files->next());
         std::string from = src + "/" + file.file_name;
         std::string to = dst + "/" + file.file_name;
         if (!file.is_file) {

@@ -21,6 +21,7 @@
 #include "CLucene/_SharedHeader.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "util/debug_points.h"
 #include "util/slice.h"
@@ -581,10 +582,12 @@ bool DorisCompoundDirectory::list(std::vector<std::string>* names) const {
     CND_PRECONDITION(!directory.empty(), "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, "");
-    std::vector<io::FileInfo> files;
+    io::FsListGeneratorPtr files_iter;
     bool exists;
-    LOG_AND_THROW_IF_ERROR(fs->list(fl, true, &files, &exists), "List file IO error");
-    for (auto& file : files) {
+    LOG_AND_THROW_IF_ERROR(fs->list(fl, true, &files_iter, &exists), "List file IO error");
+    std::vector<io::FileInfo> files;
+    LOG_AND_THROW_IF_ERROR(files_iter->files(&files), "List file IO error");
+    for (const auto& file : files) {
         names->push_back(file.file_name);
     }
     return true;

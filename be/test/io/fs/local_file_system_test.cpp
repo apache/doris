@@ -29,10 +29,12 @@
 #include <filesystem>
 #include <vector>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "common/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "util/slice.h"
 
@@ -160,16 +162,19 @@ TEST_F(LocalFileSystemTest, List) {
     st = file_writer->close();
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_TRUE(check_exist(fname));
+    std::unique_ptr<io::FsListGenerator> files_iter;
     std::vector<io::FileInfo> files;
     bool exists;
-    st = io::global_local_filesystem()->list(fname, false, &files, &exists);
+    st = io::global_local_filesystem()->list(fname, false, &files_iter, &exists);
     ASSERT_FALSE(st.ok()) << st; // Not a dir, can not list
 
     auto dname = fmt::format("{}/dir/dir1/dir2", test_dir);
     st = io::global_local_filesystem()->create_directory(dname);
     ASSERT_TRUE(st.ok()) << st;
     files.clear();
-    st = io::global_local_filesystem()->list(dname, false, &files, &exists);
+    st = io::global_local_filesystem()->list(dname, false, &files_iter, &exists);
+    ASSERT_TRUE(st.ok()) << st;
+    st = files_iter->files(&files);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_TRUE(files.empty());
     for (int i = 0; i < 10; ++i) {
@@ -177,7 +182,10 @@ TEST_F(LocalFileSystemTest, List) {
         ASSERT_TRUE(st.ok()) << st;
     }
     files.clear();
-    st = io::global_local_filesystem()->list(dname, false, &files, &exists);
+    LOG_INFO("time to core");
+    st = io::global_local_filesystem()->list(dname, false, &files_iter, &exists);
+    ASSERT_TRUE(st.ok()) << st;
+    st = files_iter->files(&files);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(files.size(), 10);
     std::sort(files.begin(), files.end(),

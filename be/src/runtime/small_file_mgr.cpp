@@ -77,7 +77,20 @@ Status SmallFileMgr::_load_local_files() {
         return true;
     };
 
-    RETURN_IF_ERROR(io::global_local_filesystem()->iterate_directory(_local_path, scan_cb));
+    io::Path path(_local_path);
+    // to be removed
+    if (!path.is_absolute()) {
+        path = io::global_local_filesystem()->root_path() / path;
+    }
+    bool exists = true;
+    io::FsListGeneratorPtr files;
+    RETURN_IF_ERROR(io::global_local_filesystem()->list(path, false, &files, &exists));
+    while (files->has_next()) {
+        const auto& file = DORIS_TRY(files->next());
+        if (!scan_cb(file)) {
+            break;
+        }
+    }
     return Status::OK();
 }
 

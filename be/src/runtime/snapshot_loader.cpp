@@ -846,9 +846,10 @@ Status SnapshotLoader::_check_local_snapshot_paths(
 Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_path,
                                                       std::vector<std::string>* local_files) {
     bool exists = true;
-    std::vector<io::FileInfo> files;
+    io::FsListGeneratorPtr files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(local_path, true, &files, &exists));
-    for (auto& file : files) {
+    while (files->has_next()) {
+        const auto& file = DORIS_TRY(files->next());
         local_files->push_back(file.file_name);
     }
     LOG(INFO) << "finished to list files in local path: " << local_path
@@ -938,9 +939,10 @@ Status SnapshotLoader::_report_every(int report_threshold, int* counter, int32_t
 Status SnapshotLoader::_list_with_checksum(const std::string& dir,
                                            std::map<std::string, FileStat>* md5_files) {
     bool exists = true;
-    std::vector<io::FileInfo> files;
+    io::FsListGeneratorPtr files;
     RETURN_IF_ERROR(_remote_fs->list(dir, true, &files, &exists));
-    for (auto& tmp_file : files) {
+    while (files->has_next()) {
+        const auto& tmp_file = DORIS_TRY(files->next());
         io::Path path(tmp_file.file_name);
         std::string file_name = path.filename();
         size_t pos = file_name.find_last_of(".");

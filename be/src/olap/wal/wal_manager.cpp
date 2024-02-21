@@ -298,17 +298,18 @@ Status WalManager::_load_wals() {
 
 Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalInfo>& res) {
     bool exists = false;
-    std::vector<io::FileInfo> dbs;
-    Status st = io::global_local_filesystem()->list(wal_path, false, &dbs, &exists);
+    io::FsListGeneratorPtr dbs_iter;
+    Status st = io::global_local_filesystem()->list(wal_path, false, &dbs_iter, &exists);
     if (!st.ok()) {
         LOG(WARNING) << "failed list files for wal_dir=" << wal_path << ", st=" << st.to_string();
         return st;
     }
-    for (const auto& database_id : dbs) {
+    while (dbs_iter->has_next()) {
+        const auto& database_id = DORIS_TRY(dbs_iter->next());
         if (database_id.is_file || database_id.file_name == _tmp) {
             continue;
         }
-        std::vector<io::FileInfo> tables;
+        io::FsListGeneratorPtr tables;
         auto db_path = wal_path + "/" + database_id.file_name;
         st = io::global_local_filesystem()->list(db_path, false, &tables, &exists);
         if (!st.ok()) {
@@ -316,11 +317,12 @@ Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalIn
                          << ", st=" << st.to_string();
             return st;
         }
-        for (const auto& table_id : tables) {
+        while (tables->has_next()) {
+            const auto& table_id = DORIS_TRY(tables->next());
             if (table_id.is_file) {
                 continue;
             }
-            std::vector<io::FileInfo> wals;
+            io::FsListGeneratorPtr wals;
             auto table_path = db_path + "/" + table_id.file_name;
             st = io::global_local_filesystem()->list(table_path, false, &wals, &exists);
             if (!st.ok()) {
@@ -328,7 +330,7 @@ Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalIn
                              << ", st=" << st.to_string();
                 return st;
             }
-            if (wals.empty()) {
+            if (!wals->has_next()) {
                 continue;
             }
             int64_t db_id = -1;
@@ -339,11 +341,12 @@ Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalIn
             } catch (const std::invalid_argument& e) {
                 return Status::InvalidArgument("Invalid format, {}", e.what());
             }
-            for (const auto& wal : wals) {
+            while (wals->has_next()) {
+                const auto& wal = DORIS_TRY(wals->next());
                 int64_t version = -1;
                 int64_t backend_id = -1;
                 int64_t wal_id = -1;
-                std::string label = "";
+                std::string label;
                 auto parse_st = parse_wal_path(wal.file_name, version, backend_id, wal_id, label);
                 if (!parse_st.ok()) {
                     LOG(WARNING) << "fail to parse file=" << wal.file_name

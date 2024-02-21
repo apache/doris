@@ -199,42 +199,80 @@ Status LocalFileSystem::directory_size(const Path& dir_path, size_t* dir_size) {
     return Status::InternalError("faile to get dir size {}", dir_path.native());
 }
 
-Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
+struct LocalFsListGenerator final : public FsListGenerator {
+public:
+    LocalFsListGenerator(const Path& dir, bool only_file) : dir(dir), only_file(only_file) {}
+    ~LocalFsListGenerator() override = default;
+
+    Status init() override {
+        Status status;
+        try {
+            iter = std::filesystem::directory_iterator(dir, ec);
+        } catch (const std::filesystem::filesystem_error& e) {
+            // although `directory_iterator(dir, ec)` does not throw an exception,
+            // it may throw an exception during iterator++, so we need to catch the exception here
+            status = localfs_error(e.code(), fmt::format("failed to list {}, error message: {}",
+                                                         dir.native(), e.what()));
+        }
+        if (ec) {
+            status = localfs_error(ec, fmt::format("failed to list {}", dir.native()));
+        }
+        return status;
+    }
+
+    bool has_next() const override { return iter != end; }
+
+private:
+    void generateNext() override {
+        if (iter != end) {
+            try {
+                while (iter != end) {
+                    iter++;
+                    const auto& entry = *iter;
+                    if (only_file && !entry.is_regular_file()) {
+                        continue;
+                    }
+                    file_info.file_name = entry.path().filename();
+                    file_info.is_file = entry.is_regular_file(ec);
+                    if (ec) {
+                        break;
+                    }
+                    if (file_info.is_file) {
+                        file_info.file_size = entry.file_size(ec);
+                        if (ec) {
+                            break;
+                        }
+                    }
+                    break;
+                }
+            } catch (const std::filesystem::filesystem_error& e) {
+                // although `directory_iterator(dir, ec)` does not throw an exception,
+                // it may throw an exception during iterator++, so we need to catch the exception here
+                st = localfs_error(e.code(), fmt::format("failed to list {}, error message: {}",
+                                                         dir.native(), e.what()));
+            }
+            if (ec) {
+                st = localfs_error(ec, fmt::format("failed to list {}", dir.native()));
+            }
+            return;
+        }
+    }
+
+    const Path& dir;
+    bool only_file;
+    std::error_code ec;
+    std::filesystem::directory_iterator iter;
+    std::filesystem::directory_iterator end;
+};
+
+Status LocalFileSystem::list_impl(const Path& dir, bool only_file, FsListGeneratorPtr* files,
                                   bool* exists) {
     RETURN_IF_ERROR(exists_impl(dir, exists));
     if (!exists) {
         return Status::OK();
     }
-    std::error_code ec;
-    try {
-        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-            if (only_file && !entry.is_regular_file()) {
-                continue;
-            }
-            FileInfo file_info;
-            file_info.file_name = entry.path().filename();
-            file_info.is_file = entry.is_regular_file(ec);
-            if (ec) {
-                break;
-            }
-            if (file_info.is_file) {
-                file_info.file_size = entry.file_size(ec);
-                if (ec) {
-                    break;
-                }
-            }
-            files->push_back(std::move(file_info));
-        }
-    } catch (const std::filesystem::filesystem_error& e) {
-        // although `directory_iterator(dir, ec)` does not throw an exception,
-        // it may throw an exception during iterator++, so we need to catch the exception here
-        return localfs_error(e.code(), fmt::format("failed to list {}, error message: {}",
-                                                   dir.native(), e.what()));
-    }
-    if (ec) {
-        return localfs_error(ec, fmt::format("failed to list {}", dir.native()));
-    }
-    return Status::OK();
+    *files = std::make_unique<LocalFsListGenerator>(dir, only_file);
+    return (*files)->init();
 }
 
 Status LocalFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
@@ -315,25 +353,6 @@ Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
     ss >> *md5sum;
 
     close(fd);
-    return Status::OK();
-}
-
-Status LocalFileSystem::iterate_directory(const std::string& dir,
-                                          const std::function<bool(const FileInfo& file)>& cb) {
-    auto path = absolute_path(dir);
-    FILESYSTEM_M(iterate_directory_impl(dir, cb));
-}
-
-Status LocalFileSystem::iterate_directory_impl(
-        const std::string& dir, const std::function<bool(const FileInfo& file)>& cb) {
-    bool exists = true;
-    std::vector<FileInfo> files;
-    RETURN_IF_ERROR(list_impl(dir, false, &files, &exists));
-    for (auto& file : files) {
-        if (!cb(file)) {
-            break;
-        }
-    }
     return Status::OK();
 }
 

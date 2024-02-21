@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
+#include "util/expected.hpp"
 
 namespace doris::io {
 
@@ -63,6 +64,43 @@ struct FileInfo {
     bool is_file;
 };
 
+struct FsListGenerator {
+    FsListGenerator() = default;
+    virtual ~FsListGenerator() = default;
+
+    virtual Status init() = 0;
+
+    Result<FileInfo> next() {
+        generateNext();
+        if (st.ok()) {
+            return std::move(file_info);
+        }
+        return ResultError(std::move(st));
+    }
+
+    Status files(std::vector<FileInfo>* files) {
+        while (has_next()) {
+            auto result = next();
+            if (!result.has_value()) {
+                return std::move(result.error());
+            }
+            files->emplace_back(result.value());
+        }
+        return Status::OK();
+    }
+
+    virtual bool has_next() const = 0;
+
+private:
+    virtual void generateNext() = 0;
+
+protected:
+    FileInfo file_info;
+    Status st;
+};
+
+using FsListGeneratorPtr = std::unique_ptr<FsListGenerator>;
+
 class FileSystem : public std::enable_shared_from_this<FileSystem> {
 public:
     // The following are public interface.
@@ -77,7 +115,7 @@ public:
     Status batch_delete(const std::vector<Path>& files);
     Status exists(const Path& path, bool* res) const;
     Status file_size(const Path& file, int64_t* file_size) const;
-    Status list(const Path& dir, bool only_file, std::vector<FileInfo>* files, bool* exists);
+    Status list(const Path& dir, bool only_file, FsListGeneratorPtr* files, bool* exists);
     Status rename(const Path& orig_name, const Path& new_name);
 
     std::shared_ptr<FileSystem> getSPtr() { return shared_from_this(); }
@@ -138,7 +176,7 @@ protected:
     /// if "only_file" is true, will only return regular files, otherwise, return files and subdirs.
     /// the existence of dir will be saved in "exists"
     /// if "dir" does not exist, it will return Status::OK, but "exists" will to false
-    virtual Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
+    virtual Status list_impl(const Path& dir, bool only_file, FsListGeneratorPtr* files,
                              bool* exists) = 0;
 
     /// rename file from orig_name to new_name

@@ -48,6 +48,7 @@
 #include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/ref_counted.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "io/fs/path.h"
 #include "olap/cold_data_compaction.h"
@@ -1182,17 +1183,20 @@ void StorageEngine::do_remove_unused_remote_files() {
             return;
         }
 
+        io::FsListGeneratorPtr files_iter;
         std::vector<io::FileInfo> files;
         // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
         //  Maybe we should also list files in previously uploaded resources.
         bool exists = true;
-        st = dest_fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files, &exists);
+        st = dest_fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files_iter,
+                           &exists);
         if (!st.ok()) {
             LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
                          << t->tablet_id() << " : " << st;
             return;
         }
-        if (!exists || files.empty()) {
+        st = files_iter->files(&files);
+        if (!st.ok() || !exists || files.empty()) {
             return;
         }
         // get all cooldowned rowsets

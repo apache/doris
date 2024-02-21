@@ -249,7 +249,42 @@ Status BrokerFileSystem::file_size_impl(const Path& path, int64_t* file_size) co
     }
 }
 
-Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
+struct BrokerFsListGenerator final : public FsListGenerator {
+public:
+    BrokerFsListGenerator(std::vector<TBrokerFileStatus> files, bool only_file)
+            : files(std::move(files)), only_file(only_file) {}
+    ~BrokerFsListGenerator() override = default;
+
+    bool has_next() const override { return iter != files.end(); }
+
+    Status init() override { return Status::OK(); }
+
+private:
+    void generateNext() override {
+        if (iter != files.end()) {
+            while (iter != files.end()) {
+                iter++;
+                auto file = *iter;
+                if (only_file && file.isDir) {
+                    // this is not a file
+                    continue;
+                }
+                file_info.file_name = file.path;
+                file_info.file_size = file.size;
+                file_info.is_file = !file.isDir;
+                file_size++;
+                return;
+            }
+        }
+    }
+
+    std::vector<TBrokerFileStatus> files;
+    decltype(files.begin()) iter;
+    bool only_file;
+    size_t file_size;
+};
+
+Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, FsListGeneratorPtr* files,
                                    bool* exists) {
     RETURN_IF_ERROR(exists_impl(dir, exists));
     if (!(*exists)) {
@@ -285,20 +320,8 @@ Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, std::vector<
         LOG(INFO) << "finished to list files from remote path. file num: " << list_rep.files.size();
         *exists = true;
 
-        // split file name and checksum
-        for (const auto& file : list_rep.files) {
-            if (only_file && file.isDir) {
-                // this is not a file
-                continue;
-            }
-            FileInfo file_info;
-            file_info.file_name = file.path;
-            file_info.file_size = file.size;
-            file_info.is_file = !file.isDir;
-            files->emplace_back(std::move(file_info));
-        }
-
-        LOG(INFO) << "finished to split files. valid file num: " << files->size();
+        *files = std::make_unique<BrokerFsListGenerator>(std::move(list_rep.files), only_file);
+        status = (*files)->init();
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;
         ss << "failed to list files in remote path: " << dir << ", msg: " << e.what();

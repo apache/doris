@@ -180,27 +180,37 @@ void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t rese
 
 void LoadPathMgr::clean_one_path(const std::string& path) {
     bool exists = true;
-    std::vector<io::FileInfo> dbs;
-    Status st = io::global_local_filesystem()->list(path, false, &dbs, &exists);
+    io::FsListGeneratorPtr dbs_iter;
+    Status st = io::global_local_filesystem()->list(path, false, &dbs_iter, &exists);
     if (!st) {
+        return;
+    }
+    std::vector<io::FileInfo> dbs;
+    if (!dbs_iter->files(&dbs).ok()) {
         return;
     }
 
     Status status;
     time_t now = time(nullptr);
-    for (auto& db : dbs) {
+    for (const auto& db : dbs) {
         if (db.is_file) {
             continue;
         }
         std::string db_dir = path + "/" + db.file_name;
+        io::FsListGeneratorPtr sub_dirs_iter;
+        status = io::global_local_filesystem()->list(db_dir, false, &sub_dirs_iter, &exists);
+        if (!status.ok()) {
+            LOG(WARNING) << "scan db of trash dir failed: " << status;
+            continue;
+        }
         std::vector<io::FileInfo> sub_dirs;
-        status = io::global_local_filesystem()->list(db_dir, false, &sub_dirs, &exists);
+        status = sub_dirs_iter->files(&sub_dirs);
         if (!status.ok()) {
             LOG(WARNING) << "scan db of trash dir failed: " << status;
             continue;
         }
         // delete this file
-        for (auto& sub_dir : sub_dirs) {
+        for (const auto& sub_dir : sub_dirs) {
             if (sub_dir.is_file) {
                 continue;
             }
@@ -209,13 +219,20 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
             if (sub_dir.file_name.find(SHARD_PREFIX) == 0) {
                 // sub_dir starts with SHARD_PREFIX
                 // process shard sub dir
-                std::vector<io::FileInfo> labels;
-                status = io::global_local_filesystem()->list(sub_path, false, &labels, &exists);
+                io::FsListGeneratorPtr labels_iter;
+                status =
+                        io::global_local_filesystem()->list(sub_path, false, &labels_iter, &exists);
                 if (!status.ok()) {
                     LOG(WARNING) << "scan one path to delete directory failed: " << status;
                     continue;
                 }
-                for (auto& label : labels) {
+                std::vector<io::FileInfo> labels;
+                status = labels_iter->files(&labels);
+                if (!status.ok()) {
+                    LOG(WARNING) << "scan one path to delete directory failed: " << status;
+                    continue;
+                }
+                for (const auto& label : labels) {
                     std::string label_dir = sub_path + "/" + label.file_name;
                     process_path(now, label_dir, config::load_data_reserve_hours);
                 }
@@ -237,14 +254,19 @@ void LoadPathMgr::clean() {
 void LoadPathMgr::clean_error_log() {
     time_t now = time(nullptr);
     bool exists = true;
-    std::vector<io::FileInfo> sub_dirs;
-    Status status = io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs, &exists);
+    io::FsListGeneratorPtr sub_dirs_iter;
+    Status status =
+            io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs_iter, &exists);
     if (!status.ok()) {
         LOG(WARNING) << "scan error_log dir failed: " << status;
         return;
     }
 
-    for (auto& sub_dir : sub_dirs) {
+    std::vector<io::FileInfo> sub_dirs;
+    if (!sub_dirs_iter->files(&sub_dirs).ok()) [[unlikely]] {
+        return;
+    }
+    for (const auto& sub_dir : sub_dirs) {
         if (sub_dir.is_file) {
             continue;
         }
@@ -253,14 +275,20 @@ void LoadPathMgr::clean_error_log() {
         if (sub_dir.file_name.find(SHARD_PREFIX) == 0) {
             // sub_dir starts with SHARD_PREFIX
             // process shard sub dir
+            io::FsListGeneratorPtr error_log_files_iter;
             std::vector<io::FileInfo> error_log_files;
-            Status status =
-                    io::global_local_filesystem()->list(sub_path, false, &error_log_files, &exists);
+            Status status = io::global_local_filesystem()->list(sub_path, false,
+                                                                &error_log_files_iter, &exists);
             if (!status.ok()) {
                 LOG(WARNING) << "scan one path to delete directory failed: " << status;
                 continue;
             }
-            for (auto& error_log : error_log_files) {
+            status = error_log_files_iter->files(&error_log_files);
+            if (!status.ok()) {
+                LOG(WARNING) << "scan one path to delete directory failed: " << status;
+                continue;
+            }
+            for (const auto& error_log : error_log_files) {
                 std::string error_log_path = sub_path + "/" + error_log.file_name;
                 process_path(now, error_log_path, config::load_error_log_reserve_hours);
             }

@@ -154,8 +154,8 @@ protected:
         return _local_fs->file_size(get_remote_path(path), file_size);
     }
 
-    Status list_impl(const Path& dir, bool regular_file, std::vector<io::FileInfo>* files,
-                     bool* exists) override {
+    Status list_impl(const Path& dir, bool regular_file,
+                     std::unique_ptr<io::FsListGenerator>* files, bool* exists) override {
         RETURN_IF_ERROR(_local_fs->list(get_remote_path(dir), true, files, exists));
         // for (auto& path : local_paths) {
         //     files->emplace_back(path.file_name.substr(config::storage_root_path.size() + 1));
