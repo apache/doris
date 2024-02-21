@@ -68,7 +68,7 @@ class FileListIterator {
 public:
     FileListIterator() = default;
     virtual ~FileListIterator() = default;
-    virtual Result<FileInfo> next() = 0 ;
+    virtual Result<FileInfo> next() = 0;
 
     Status files(std::vector<FileInfo>* files) {
         while (has_next()) {
@@ -82,8 +82,6 @@ public:
     }
 
     virtual bool has_next() const = 0;
-protected:
-    Status st;
 };
 
 using FileListIteratorPtr = std::unique_ptr<FileListIterator>;

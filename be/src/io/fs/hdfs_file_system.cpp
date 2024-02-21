@@ -269,6 +269,7 @@ public:
     ~HdfsFileListIterator() override { hdfsFreeFileInfo(hdfs_file_info, numEntries); }
 
     bool has_next() const override { return idx < numEntries; }
+
 private:
     Result<FileInfo> next() override {
         FileInfo file_info;
