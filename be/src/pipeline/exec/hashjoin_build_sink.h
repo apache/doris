@@ -190,7 +190,7 @@ private:
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     const std::vector<TExpr> _partition_exprs;
 
-    const bool _use_global_rf;
+    const bool _need_local_merge;
 };
 
 } // namespace pipeline

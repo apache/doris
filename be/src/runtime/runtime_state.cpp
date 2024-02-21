@@ -101,7 +101,8 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     _runtime_filter_mgr.reset(new RuntimeFilterMgr(fragment_exec_params.query_id,
                                                    RuntimeFilterParamsContext::create(this)));
     if (fragment_exec_params.__isset.runtime_filter_params) {
-        _runtime_filter_mgr->set_runtime_filter_params(fragment_exec_params.runtime_filter_params);
+        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                fragment_exec_params.runtime_filter_params);
     }
 }
 
@@ -305,11 +306,6 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     return Status::OK();
 }
 
-void RuntimeState::set_runtime_filter_params(
-        const TRuntimeFilterParams& runtime_filter_params) const {
-    _runtime_filter_mgr->set_runtime_filter_params(runtime_filter_params);
-}
-
 void RuntimeState::init_mem_trackers(const TUniqueId& id, const std::string& name) {
     _query_mem_tracker = std::make_shared<MemTrackerLimiter>(
             MemTrackerLimiter::Type::EXPERIMENTAL, fmt::format("{}#Id={}", name, print_id(id)));
@@ -506,4 +502,32 @@ bool RuntimeState::enable_page_cache() const {
            (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
 }
 
+RuntimeFilterMgr* RuntimeState::global_runtime_filter_mgr() {
+    return _query_ctx->runtime_filter_mgr();
+}
+
+Status RuntimeState::register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
+                                                      bool need_local_merge,
+                                                      doris::IRuntimeFilter** producer_filter,
+                                                      bool build_bf_exactly) {
+    if (desc.has_remote_targets || need_local_merge) {
+        return global_runtime_filter_mgr()->register_local_merge_producer_filter(
+                desc, query_options(), producer_filter, build_bf_exactly);
+    } else {
+        return local_runtime_filter_mgr()->register_producer_filter(
+                desc, query_options(), producer_filter, build_bf_exactly);
+    }
+}
+
+Status RuntimeState::register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
+                                                      bool need_local_merge, int node_id,
+                                                      doris::IRuntimeFilter** consumer_filter) {
+    if (desc.has_remote_targets || need_local_merge) {
+        return global_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
+                                                                     consumer_filter, false, true);
+    } else {
+        return local_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
+                                                                    consumer_filter, false, false);
+    }
+}
 } // end namespace doris

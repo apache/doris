@@ -99,9 +99,9 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _hash_table_init(state);
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                p._runtime_filter_descs[i], state->query_options(), &_runtime_filters[i],
-                _build_expr_ctxs.size() == 1, p._use_global_rf, p._child_x->parallel_tasks()));
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(
+                p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i],
+                _build_expr_ctxs.size() == 1));
     }
 
     return Status::OK();
@@ -370,7 +370,7 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
 HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
                                                        const TPlanNode& tnode,
                                                        const DescriptorTbl& descs,
-                                                       bool use_global_rf)
+                                                       bool need_local_merge)
         : JoinBuildSinkOperatorX(pool, operator_id, tnode, descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
                                                                     : TJoinDistributionType::NONE),
@@ -379,7 +379,7 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
           _partition_exprs(tnode.__isset.distribute_expr_lists && !_is_broadcast_join
                                    ? tnode.distribute_expr_lists[1]
                                    : std::vector<TExpr> {}),
-          _use_global_rf(use_global_rf) {}
+          _need_local_merge(need_local_merge) {}
 
 Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     if (_is_broadcast_join) {
@@ -475,10 +475,11 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
 
-        const bool use_global_rf =
-                local_state._parent->cast<HashJoinBuildSinkOperatorX>()._use_global_rf;
+        const bool need_local_merge =
+                local_state._parent->cast<HashJoinBuildSinkOperatorX>()._need_local_merge;
         RETURN_IF_ERROR(vectorized::process_runtime_filter_build(
-                state, local_state._shared_state->build_block.get(), &local_state, use_global_rf));
+                state, local_state._shared_state->build_block.get(), &local_state,
+                need_local_merge));
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
         if (_shared_hashtable_controller) {
@@ -528,8 +529,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state._shared_state->build_block = _shared_hash_table_context->block;
         local_state._shared_state->build_indexes_null =
                 _shared_hash_table_context->build_indexes_null;
-        const bool use_global_rf =
-                local_state._parent->cast<HashJoinBuildSinkOperatorX>()._use_global_rf;
+        const bool need_local_merge =
+                local_state._parent->cast<HashJoinBuildSinkOperatorX>()._need_local_merge;
 
         if (!_shared_hash_table_context->runtime_filters.empty()) {
             auto ret = std::visit(
@@ -545,7 +546,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                 local_state._runtime_filter_slots =
                                         std::make_shared<VRuntimeFilterSlots>(
                                                 _build_expr_ctxs, local_state._runtime_filters,
-                                                use_global_rf);
+                                                need_local_merge);
 
                                 RETURN_IF_ERROR(local_state._runtime_filter_slots->init(
                                         state, arg.hash_table->size()));
