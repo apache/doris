@@ -163,9 +163,11 @@ public:
         RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         auto start = std::chrono::high_resolution_clock::now();
+        io::FileListIteratorPtr files_iter;
         std::vector<FileInfo> files;
         bool exists = true;
-        RETURN_IF_ERROR(fs->list(file_path, true, &files, &exists));
+        RETURN_IF_ERROR(fs->list(file_path, true, &files_iter, &exists));
+        RETURN_IF_ERROR(files_iter->files(&files));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
