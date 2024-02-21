@@ -181,12 +181,12 @@ public class RuntimeFilterContext {
     }
 
     /**
-     * remove rf from builderNode to target
+     * remove the given target from runtime filters from builderNode to target with all runtime filter types
      *
      * @param targetId rf target
      * @param builderNode rf src
      */
-    public void removeFilter(ExprId targetId, PhysicalHashJoin builderNode) {
+    public void removeFilters(ExprId targetId, PhysicalHashJoin builderNode) {
         List<RuntimeFilter> filters = targetExprIdToFilter.get(targetId);
         if (filters != null) {
             Iterator<RuntimeFilter> filterIter = filters.iterator();
@@ -216,6 +216,33 @@ public class RuntimeFilterContext {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * remove one target from rf, and if there is no target, remove the rf
+     */
+    public void removeFilter(RuntimeFilter rf, ExprId targetId) {
+        Iterator<Slot> targetSlotIter = rf.getTargetSlots().listIterator();
+        Iterator<PhysicalRelation> targetScanIter = rf.getTargetScans().iterator();
+        Iterator<Expression> targetExpressionIter = rf.getTargetExpressions().iterator();
+        Slot targetSlot;
+        PhysicalRelation targetScan;
+        while (targetScanIter.hasNext() && targetSlotIter.hasNext() && targetExpressionIter.hasNext()) {
+            targetExpressionIter.next();
+            targetScan = targetScanIter.next();
+            targetSlot = targetSlotIter.next();
+            if (targetSlot.getExprId().equals(targetId)) {
+                targetScan.removeAppliedRuntimeFilter(rf);
+                targetExpressionIter.remove();
+                targetScanIter.remove();
+                targetSlotIter.remove();
+            }
+        }
+        if (rf.getTargetSlots().isEmpty()) {
+            rf.getBuilderNode().getRuntimeFilters().remove(rf);
+            targetExprIdToFilter.get(targetId).remove(rf);
+            prunedRF.add(rf);
         }
     }
 
