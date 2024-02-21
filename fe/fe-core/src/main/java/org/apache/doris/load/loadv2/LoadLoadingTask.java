@@ -34,6 +34,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.ErrorTabletInfo;
@@ -78,6 +79,8 @@ public class LoadLoadingTask extends LoadTask {
 
     private Profile jobProfile;
     private long beginTime;
+
+    private List<TPipelineWorkloadGroup> tWorkloadGroups = null;
 
     public LoadLoadingTask(Database db, OlapTable table,
             BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
@@ -164,6 +167,10 @@ public class LoadLoadingTask extends LoadTask {
         int timeoutS = Math.max((int) (leftTimeMs / 1000), 1);
         curCoordinator.setTimeout(timeoutS);
 
+        if (tWorkloadGroups != null) {
+            curCoordinator.setTWorkloadGroups(tWorkloadGroups);
+        }
+
         try {
             QeProcessorImpl.INSTANCE.registerQuery(loadId, curCoordinator);
             actualExecute(curCoordinator, timeoutS);
@@ -221,4 +228,9 @@ public class LoadLoadingTask extends LoadTask {
         this.loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         planner.updateLoadId(this.loadId);
     }
+
+    void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
+        this.tWorkloadGroups = tWorkloadGroups;
+    }
+
 }

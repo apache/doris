@@ -207,6 +207,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         task.init(loadId, attachment.getFileStatusByTable(aggKey),
                 attachment.getFileNumByTable(aggKey), getUserInfo());
+        task.settWorkloadGroups(tWorkloadGroups);
         return task;
     }
 
