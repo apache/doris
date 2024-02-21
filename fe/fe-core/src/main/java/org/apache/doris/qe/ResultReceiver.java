@@ -84,9 +84,7 @@ public class ResultReceiver {
                         throw new TimeoutException("query timeout, query id = " + DebugUtil.printId(this.queryId));
                     }
                     try {
-                        LOG.info("Before result receiver futer get");
                         pResult = fetchDataAsyncFuture.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
-                        LOG.info("After result receiver futer get");
                     } catch (CancellationException e) {
                         LOG.warn("Future of ResultReceiver of query {} is cancelled", DebugUtil.printId(this.queryId));
                         if (!isCancel) {
