@@ -736,8 +736,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableBucketShuffleJoin = true;
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_DOWNGRADE, needForward = true)
-    public boolean enableBucketShuffleDownGrade = true;
-    
+    public boolean enableBucketShuffleDownGrade = false;
+
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
 
