@@ -570,6 +570,9 @@ Status CompactionMixin::do_inverted_index_compaction() {
         auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
                                                    open_idx_file_cache);
         if (!st.ok()) {
+            LOG(ERROR) << "init inverted index "
+                       << InvertedIndexDescriptor::get_index_file_name(segment_file_name)
+                       << " failed in compaction when init inverted index file reader";
             return st;
         }
         inverted_index_file_readers[m.second] = std::move(inverted_index_file_reader);
@@ -586,15 +589,28 @@ Status CompactionMixin::do_inverted_index_compaction() {
         bool open_idx_file_cache = false;
         auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
                                                    open_idx_file_cache);
-        if (!st.ok()) {
+        if (st.ok()) {
+            auto index_not_need_to_compact =
+                    DORIS_TRY(inverted_index_file_reader->get_all_directories());
+            auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                    fs, tablet_path, prefix,
+                    _cur_tablet_schema->get_inverted_index_storage_format());
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    inverted_index_file_writer->initialize(index_not_need_to_compact),
+                    "failed to initialize inverted_index_file_writer for " +
+                            inverted_index_file_writer->get_index_file_name());
+            inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
+        } else if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+            auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                    fs, tablet_path, prefix,
+                    _cur_tablet_schema->get_inverted_index_storage_format());
+            inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
+        } else {
+            LOG(ERROR) << "init inverted index "
+                       << InvertedIndexDescriptor::get_index_file_name(prefix)
+                       << " failed in compaction when create inverted index file writer";
             return st;
         }
-        auto index_not_need_to_compact =
-                DORIS_TRY(inverted_index_file_reader->get_all_directories());
-        auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, tablet_path, prefix, _cur_tablet_schema->get_inverted_index_storage_format());
-        RETURN_IF_ERROR(inverted_index_file_writer->initialize(index_not_need_to_compact));
-        inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
     }
 
     // we choose the first destination segment name as the temporary index writer path
