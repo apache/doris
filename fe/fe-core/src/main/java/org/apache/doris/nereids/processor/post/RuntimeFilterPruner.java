@@ -147,7 +147,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
                     outputExprIdOfExpandTargets.addAll(expand.target2.getOutputExprIds());
                     rfContext.getTargetExprIdByFilterJoin(join)
                             .stream().filter(exprId -> outputExprIdOfExpandTargets.contains(exprId))
-                            .forEach(exprId -> rfContext.removeFilter(exprId, join));
+                            .forEach(exprId -> rfContext.removeFilters(exprId, join));
                 }
             }
             RuntimeFilterContext.EffectiveSrcType childType =
@@ -163,7 +163,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
                     }
                 }
                 if (!isEffective) {
-                    exprIds.stream().forEach(exprId -> rfContext.removeFilter(exprId, join));
+                    exprIds.stream().forEach(exprId -> rfContext.removeFilters(exprId, join));
                 }
             }
         }
