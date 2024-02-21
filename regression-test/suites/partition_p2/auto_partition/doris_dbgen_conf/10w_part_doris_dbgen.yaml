@@ -16,7 +16,23 @@
 # under the License.
 
 tables:
-  small_data_high_concurrent_load_range:
+  test1:
     col1:
-      range: {min: "2020-01-01 00:00:00", max: "2023-12-31 23:59:59"}
+      range: {min: "1990-01-01", max: "2020-12-31"}
+      force_not_null: true
+  test2:
+    col1:
+      range: { min: 1, max: 100000000 }
+      force_not_null: true
+  stream_load_list_test_table:
+    col1:
+      range: { min: 1, max: 100000000 }
+      force_not_null: true
+  stream_load_list_test_table_normal:
+    d4: # column name
+      range: { min: 1, max: 100000000 }
+      force_not_null: true
+  stream_load_range_test_table:
+    col1:
+      range: {min: "1990-01-01", max: "2020-12-31"}
       force_not_null: true

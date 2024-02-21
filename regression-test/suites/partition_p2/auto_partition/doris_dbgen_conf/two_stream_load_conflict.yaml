@@ -20,3 +20,17 @@ tables:
     col1:
       range: {min: "2020-01-01 00:00:00", max: "2023-12-31 23:59:59"}
       force_not_null: true
+  two_streamload_list1:
+    col1:
+      enumvals: [ 1 ]
+  two_streamload_list2:
+    col1:
+      enumvals: [ 2 ]
+  stream_load_range_test_table:
+    col1:
+      range: { min: "2020-01-01", max: "2023-12-31" }
+      force_not_null: true
+  test1:
+    col1:
+      range: { min: "2020-01-01", max: "2023-12-31" }
+      force_not_null: true
