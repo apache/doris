@@ -83,6 +83,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -147,11 +148,8 @@ public class DatabaseTransactionMgr {
     // it must exists in dbIdToTxnLabels, and vice versa
     private final Map<String, Set<Long>> labelToTxnIds = Maps.newHashMap();
 
-    // count the number of running txns of database, except for the routine load txn
+    // count the number of running txns of database
     private volatile int runningTxnNums = 0;
-
-    // count only the number of running routine load txns of database
-    private volatile int runningRoutineLoadTxnNums = 0;
 
     private final Env env;
 
@@ -238,10 +236,6 @@ public class DatabaseTransactionMgr {
         return runningTxnNums;
     }
 
-    protected int getRunningRoutineLoadTxnNums() {
-        return runningRoutineLoadTxnNums;
-    }
-
     @VisibleForTesting
     protected int getFinishedTxnNums() {
         return idToFinalStatusTransactionState.size();
@@ -266,6 +260,19 @@ public class DatabaseTransactionMgr {
                         getTxnStateInfo(t, info);
                         infos.add(info);
                     });
+        } finally {
+            readUnlock();
+        }
+        return infos;
+    }
+
+    public Map<Long, List<Long>> getDbRunningTransInfo() {
+        Map<Long, List<Long>> infos = Maps.newHashMap();
+        readLock();
+        try {
+            for (Entry<Long, TransactionState> info : idToRunningTransactionState.entrySet()) {
+                infos.put(info.getKey(), info.getValue().getTableIdList());
+            }
         } finally {
             readUnlock();
         }
@@ -386,7 +393,7 @@ public class DatabaseTransactionMgr {
                 }
             }
 
-            checkRunningTxnExceedLimit(sourceType);
+            checkRunningTxnExceedLimit();
 
             tid = idGenerator.getNextTransactionId();
             TransactionState transactionState = new TransactionState(dbId, tableIdList,
@@ -1446,19 +1453,11 @@ public class DatabaseTransactionMgr {
         }
         if (!transactionState.getTransactionStatus().isFinalStatus()) {
             if (idToRunningTransactionState.put(transactionState.getTransactionId(), transactionState) == null) {
-                if (transactionState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
-                    runningRoutineLoadTxnNums++;
-                } else {
-                    runningTxnNums++;
-                }
+                runningTxnNums++;
             }
         } else {
             if (idToRunningTransactionState.remove(transactionState.getTransactionId()) != null) {
-                if (transactionState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
-                    runningRoutineLoadTxnNums--;
-                } else {
-                    runningTxnNums--;
-                }
+                runningTxnNums--;
             }
             idToFinalStatusTransactionState.put(transactionState.getTransactionId(), transactionState);
             if (transactionState.isShortTxn()) {
@@ -1842,22 +1841,12 @@ public class DatabaseTransactionMgr {
         return infos;
     }
 
-    protected void checkRunningTxnExceedLimit(TransactionState.LoadJobSourceType sourceType)
+    protected void checkRunningTxnExceedLimit()
             throws BeginTransactionException, MetaNotFoundException {
-        switch (sourceType) {
-            case ROUTINE_LOAD_TASK:
-                // no need to check limit for routine load task:
-                // 1. the number of running routine load tasks is limited by Config.max_routine_load_task_num_per_be
-                // 2. if we add routine load txn to runningTxnNums, runningTxnNums will always be occupied by routine
-                //    load, and other txn may not be able to submitted.
-                break;
-            default:
-                long txnQuota = env.getInternalCatalog().getDbOrMetaException(dbId).getTransactionQuotaSize();
-                if (runningTxnNums >= txnQuota) {
-                    throw new BeginTransactionException("current running txns on db " + dbId + " is "
-                            + runningTxnNums + ", larger than limit " + txnQuota);
-                }
-                break;
+        long txnQuota = env.getInternalCatalog().getDbOrMetaException(dbId).getTransactionQuotaSize();
+        if (runningTxnNums >= txnQuota) {
+            throw new BeginTransactionException("current running txns on db " + dbId + " is "
+                    + runningTxnNums + ", larger than limit " + txnQuota);
         }
     }
 
@@ -2152,7 +2141,7 @@ public class DatabaseTransactionMgr {
         readLock();
         try {
             infos.add(Lists.newArrayList("running", String.valueOf(
-                    runningTxnNums + runningRoutineLoadTxnNums)));
+                    runningTxnNums)));
             long finishedNum = getFinishedTxnNums();
             infos.add(Lists.newArrayList("finished", String.valueOf(finishedNum)));
         } finally {
