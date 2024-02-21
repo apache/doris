@@ -360,6 +360,7 @@ private:
             if (!outcome.IsSuccess()) {
                 return s3fs_error(outcome.GetError(), fmt::format("failed to list {}", full_path));
             }
+            iter = outcome.GetResult().GetContents().begin();
             is_trucated = outcome.GetResult().GetIsTruncated();
             request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
             return Status::OK();

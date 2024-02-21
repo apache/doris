@@ -253,7 +253,7 @@ Status BrokerFileSystem::file_size_impl(const Path& path, int64_t* file_size) co
 class BrokerFileListIterator final : public FileListIterator {
 public:
     BrokerFileListIterator(std::vector<TBrokerFileStatus> files, bool only_file)
-            : files(std::move(files)), only_file(only_file) {}
+            : files(std::move(files)), iter(this->files.begin()), only_file(only_file) {}
     ~BrokerFileListIterator() override = default;
 
     bool has_next() const override { return iter != files.end(); }
@@ -262,8 +262,7 @@ public:
             return ResultError(Status::InternalError("out"));
         }
         FileInfo file_info;
-        while (iter != files.end()) {
-            iter++;
+        for (; iter != files.end(); iter++) {
             auto file = *iter;
             if (only_file && file.isDir) {
                 // this is not a file

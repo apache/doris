@@ -33,6 +33,7 @@
 #include "common/status.h"
 #include "common/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/err_utils.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -182,7 +183,6 @@ TEST_F(LocalFileSystemTest, List) {
         ASSERT_TRUE(st.ok()) << st;
     }
     files.clear();
-    LOG_INFO("time to core");
     st = io::global_local_filesystem()->list(dname, false, &files_iter, &exists);
     ASSERT_TRUE(st.ok()) << st;
     st = files_iter->files(&files);

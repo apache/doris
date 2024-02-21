@@ -230,8 +230,7 @@ public:
         FileInfo file_info;
         std::error_code ec;
         try {
-            while (iter != end) {
-                iter++;
+            for (; iter != end;) {
                 const auto& entry = *iter;
                 if (only_file && !entry.is_regular_file()) {
                     continue;
@@ -246,6 +245,10 @@ public:
                     if (ec) {
                         break;
                     }
+                }
+                iter.increment(ec);
+                if (ec) {
+                    break;
                 }
                 break;
             }

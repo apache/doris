@@ -265,7 +265,10 @@ Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) cons
 struct HdfsFileListIterator final : public FileListIterator {
 public:
     HdfsFileListIterator(int numEntries, hdfsFileInfo* hdfs_file_info, bool only_file)
-            : numEntries(numEntries), hdfs_file_info(hdfs_file_info), only_file(only_file) {}
+            : numEntries(numEntries),
+              hdfs_file_info(hdfs_file_info),
+              only_file(only_file),
+              idx(0) {}
     ~HdfsFileListIterator() override { hdfsFreeFileInfo(hdfs_file_info, numEntries); }
 
     bool has_next() const override { return idx < numEntries; }
