@@ -434,7 +434,7 @@ build_protobuf() {
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -Dprotobuf_BUILD_SHARED_LIBS=OFF \
         -Dprotobuf_BUILD_TESTS=OFF \
-        -Dprotobuf_WITH_ZLIB_DEFAULT=ON \
+        -DZLIB_LIBRARY="${TP_LIB_DIR}/libz.a" \
         -Dprotobuf_ABSL_PROVIDER=package \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ../..
 
