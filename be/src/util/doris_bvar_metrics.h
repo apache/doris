@@ -21,10 +21,12 @@
 #include <bvar/latency_recorder.h>
 #include <bvar/reducer.h>
 #include <bvar/status.h>
+
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
+
 #include "util/bvar_metrics.h"
 #include "util/system_bvar_metrics.h"
 namespace doris {
@@ -225,14 +227,14 @@ public:
     BvarMetricRegistry* metric_registry() { return &metric_registry_; }
     SystemBvarMetrics* system_metrics() { return system_metrics_.get(); }
     BvarMetricEntity* server_entity() { return server_metric_entity_.get(); }
-    
+
 private:
     // Don't allow constructor
     DorisBvarMetrics();
 
-    // void _update();
-    // void _update_process_thread_num();
-    // void _update_process_fd_num();
+    // void update();
+    // void update_process_thread_num();
+    // void update_process_fd_num();
 private:
     static const std::string s_registry_name_;
     static const std::string s_hook_name_;

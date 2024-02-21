@@ -65,7 +65,8 @@ enum class BvarMetricUnit {
 
 std::ostream& operator<<(std::ostream& os, BvarMetricType type);
 const char* unit_name(BvarMetricUnit unit);
-
+std::string labels_string(
+        std::initializer_list<const std::unordered_map<std::string, std::string>*> multi_labels);
 
 class BvarMetric {
 public:
@@ -86,12 +87,13 @@ public:
 
     std::string simple_name() const;
     std::string combine_name(const std::string& registry_name) const;
-    virtual std::string to_prometheus(const std::string& registry_name, const Labels& entity_labels) const = 0;
+    virtual std::string to_prometheus(const std::string& registry_name,
+                                      const Labels& entity_labels) const = 0;
     virtual rj::Value to_json_value(rj::Document::AllocatorType& allocator) const = 0;
-    virtual value_string() const = 0;
-    
+    virtual std::string value_string() const = 0;
+
 protected:
-    friend class MetricRegistry;
+    friend class BvarMetricRegistry;
     friend struct BvarMetircHash;
     friend struct BvarMetricEqualTo;
 
@@ -111,9 +113,8 @@ protected:
 // For 'bvar_metrics' in BvarMetricEntity.
 struct BvarMetircHash {
     size_t operator()(const BvarMetric* metric) const {
-        return std::hash<std::string>()(metric->group_name_.empty()
-                                                ? metric->name_
-                                                : metric->group_name_);
+        return std::hash<std::string>()(metric->group_name_.empty() ? metric->name_
+                                                                    : metric->group_name_);
     }
 };
 
@@ -141,11 +142,12 @@ public:
     void set_value(T value);
     void reset() { adder_->reset(); }
 
-    std::string to_prometheus(const std::string& registry_name, const Labels& entity_labels) const override;
+    std::string to_prometheus(const std::string& registry_name,
+                              const Labels& entity_labels) const override;
     rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override {
         return rj::Value(get_value());
     }
-    std::string value_string() const;
+    std::string value_string() const override;
 
 private:
     std::shared_ptr<bvar::Adder<T>> adder_;
@@ -160,7 +162,10 @@ public:
     BvarMetricEntity(std::string entity_name, BvarMetricEntityType type, const Labels& labels)
             : name_(entity_name), type_(type), lables_(labels) {}
     BvarMetricEntity(const BvarMetricEntity& entity)
-            : name_(entity.name_), type_(entity.type_), metrics_(entity.metrics_), lables_(entity.lables_) {}
+            : name_(entity.name_),
+              type_(entity.type_),
+              lables_(entity.lables_),
+              metrics_(entity.metrics_) {}
 
     template <typename T>
     void register_metric(const std::string& name, T metric);
@@ -188,7 +193,7 @@ private:
     std::unordered_map<std::string, std::shared_ptr<BvarMetric>> metrics_;
 
     std::map<std::string, std::function<void()>> hooks_;
-    
+
     bthread::Mutex mutex_;
 };
 
@@ -207,8 +212,9 @@ struct BvarMetricEntityEqualTo {
 };
 
 using BvarEntityMetricsByType =
-        std::unordered_map<const BvarMetric*, std::vector<std::pair<BvarMetricEntity*, BvarMetric*>>,
-                           BvarMetircHash, BvarMetricEqualTo>;
+        std::unordered_map<const BvarMetric*,
+                           std::vector<std::pair<BvarMetricEntity*, BvarMetric*>>, BvarMetircHash,
+                           BvarMetricEqualTo>;
 
 class BvarMetricRegistry {
 public:
@@ -216,7 +222,8 @@ public:
     BvarMetricRegistry(const std::string name) : name_(name) {}
     ~BvarMetricRegistry() {}
 
-    std::shared_ptr<BvarMetricEntity> register_entity(const std::string& name, const Labels& labels = {},
+    std::shared_ptr<BvarMetricEntity> register_entity(
+            const std::string& name, const Labels& labels = {},
             BvarMetricEntityType type = BvarMetricEntityType::kServer);
     void deregister_entity(const std::shared_ptr<BvarMetricEntity>& entity);
 
@@ -231,7 +238,8 @@ private:
 
     // BvarMetricEntity -> register count
     std::unordered_map<std::shared_ptr<BvarMetricEntity>, int32_t, BvarMetricEntityHash,
-                       BvarMetricEntityEqualTo> entities_;
+                       BvarMetricEntityEqualTo>
+            entities_;
 
     bthread::Mutex mutex_;
 };

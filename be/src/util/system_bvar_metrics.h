@@ -102,7 +102,6 @@ private:
 
     void install_max_metrics(BvarMetricEntity* entity);
 
-    
 private:
     static const char* s_hook_name_;
 
@@ -123,7 +122,7 @@ private:
     std::shared_ptr<BvarAdderMetric<int64_t>> max_disk_io_util_percent;
     std::shared_ptr<BvarAdderMetric<int64_t>> max_network_send_bytes_rate;
     std::shared_ptr<BvarAdderMetric<int64_t>> max_network_receive_bytes_rate;
-    
+
     bthread::Mutex mutex_;
 };
 } // namespace doris

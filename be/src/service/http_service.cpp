@@ -168,7 +168,8 @@ Status HttpService::start() {
     // register bvar_metrics
     {
         auto action = _pool.add(
-                new BvarMetricsAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::NONE));
+                new BvarMetricsAction(DorisBvarMetrics::instance()->metric_registry(), _env,
+                                      TPrivilegeHier::GLOBAL, TPrivilegeType::NONE));
         _ev_http_server->register_handler(HttpMethod::GET, "/bvar_metrics", action);
     }
 

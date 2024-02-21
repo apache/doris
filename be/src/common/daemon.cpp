@@ -74,10 +74,14 @@ void update_rowsets_and_segments_num_metrics() {
         // TODO(plat1ko): CloudStorageEngine
     } else {
         StorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_local();
-        DorisMetrics::instance()->all_rowsets_num->set_value(engine.tablet_manager()->get_rowset_nums());
-        DorisMetrics::instance()->all_segments_num->set_value(engine.tablet_manager()->get_segment_nums());
-        DorisBvarMetrics::instance()->all_rowsets_num->set_value(engine.tablet_manager()->get_rowset_nums());
-        DorisBvarMetrics::instance()->all_segments_num->set_value(engine.tablet_manager()->get_segment_nums());
+        DorisMetrics::instance()->all_rowsets_num->set_value(
+                engine.tablet_manager()->get_rowset_nums());
+        DorisMetrics::instance()->all_segments_num->set_value(
+                engine.tablet_manager()->get_segment_nums());
+        DorisBvarMetrics::instance()->all_rowsets_num->set_value(
+                engine.tablet_manager()->get_rowset_nums());
+        DorisBvarMetrics::instance()->all_segments_num->set_value(
+                engine.tablet_manager()->get_segment_nums());
     }
 }
 
