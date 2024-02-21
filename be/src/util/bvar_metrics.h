@@ -212,11 +212,14 @@ using BvarEntityMetricsByType =
 
 class BvarMetricRegistry {
 public:
+    using Labels = std::unordered_map<std::string, std::string>;
     BvarMetricRegistry(const std::string name) : name_(name) {}
     ~BvarMetricRegistry() {}
 
-    void register_entity(BvarMetricEntity entity);
-    
+    std::shared_ptr<BvarMetricEntity> register_entity(const std::string& name, const Labels& labels = {},
+            BvarMetricEntityType type = BvarMetricEntityType::kServer);
+    void deregister_entity(const std::shared_ptr<BvarMetricEntity>& entity);
+
     void trigger_all_hooks(bool force);
 
     const std::string to_prometheus(bool with_tablet_metrics);

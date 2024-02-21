@@ -168,7 +168,31 @@ void BvarMetricEntity::trigger_hook_unlocked(bool force) const {
     }
 }
 
-void BvarMetricRegistry::register_entity(BvarMetricEntity entity) {}
+std::shared_ptr<BvarMetricEntity> BvarMetricRegistry::register_entity(const std::string& name,
+                                                              const Labels& labels,
+                                                              BvarMetricEntityType type) {
+    std::shared_ptr<BvarMetricEntity> entity = std::make_shared<BvarMetricEntity>(name, type, labels);
+    std::lock_guard<bthread::Mutex> l(mutex_);
+    auto inserted_entity = entities_.insert(std::make_pair(entity, 1));
+    if (!inserted_entity.second) {
+        // If exist, increase the registered count
+        inserted_entity.first->second++;
+    }
+    return inserted_entity.first->first;
+}
+
+void BvarMetricRegistry::deregister_entity(const std::shared_ptr<BvarMetricEntity>& entity) {
+    std::lock_guard<bthread::Mutex> l(mutex_);
+    auto found_entity = entities_.find(entity);
+    if (found_entity != entities_.end()) {
+        // Decrease the registered count
+        --found_entity->second;
+        if (found_entity->second == 0) {
+            // Only erase it when registered count is zero
+            entities_.erase(found_entity);
+        }
+    }
+}
 
 void BvarMetricRegistry::trigger_all_hooks(bool force) {
     std::lock_guard<bthread::Mutex> l(mutex_);
