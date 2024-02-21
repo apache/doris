@@ -442,6 +442,7 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
 }
 
 Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id) {
+    int ret;
     if (_context.tablet_schema->get_inverted_index_storage_format() !=
         InvertedIndexStorageFormatPB::V1) {
         auto src_seg_path = BetaRowset::local_segment_path_segcompacted(
@@ -457,7 +458,6 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                     errno);
         }
     }
-    int ret;
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
         if (_context.tablet_schema->has_inverted_index(*column)) {
