@@ -29,12 +29,16 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_points.h"
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 #include "util/doris_bvar_metrics.h"
 >>>>>>> 4e08424c1e (clang-format)
 =======
 #include "util/doris_bvar_metrics.h"
 >>>>>>> 6565331992 (Delete error code)
+=======
+#include "util/doris_bvar_metrics.h"
+>>>>>>> f8c315fb5ef8e627297fd944213e3ce38a23d4ec
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_finder.h"
@@ -170,8 +174,13 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
     // the real 'num_rows_load_total' will be set when sink being closed.
     state->update_num_rows_load_total(rows);
     state->update_num_bytes_load_total(bytes);
+<<<<<<< HEAD
     g_group_commit_load_rows << rows;
     g_group_commit_load_bytes << bytes;
+=======
+    DorisMetrics::instance()->load_rows->increment(rows);
+    DorisMetrics::instance()->load_bytes->increment(bytes);
+>>>>>>> f8c315fb5ef8e627297fd944213e3ce38a23d4ec
     DorisBvarMetrics::instance()->load_rows->increment(rows);
     DorisBvarMetrics::instance()->load_bytes->increment(bytes);
     std::shared_ptr<vectorized::Block> block;

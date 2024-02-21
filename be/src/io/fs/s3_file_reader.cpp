@@ -34,6 +34,7 @@
 #include "io/fs/err_utils.h"
 #include "io/fs/s3_common.h"
 #include "util/bvar_helper.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/s3_util.h"
 
