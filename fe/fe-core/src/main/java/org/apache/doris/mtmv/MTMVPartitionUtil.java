@@ -151,7 +151,7 @@ public class MTMVPartitionUtil {
             }
         }
         throw new AnalysisException(
-                String.format("getRelatedColPos error, partitionCol: %s, partitionColumns: %s", relatedCol,
+                String.format("getRelatedColPos error, relatedCol: %s, partitionColumns: %s", relatedCol,
                         partitionColumns));
     }
 
@@ -197,6 +197,7 @@ public class MTMVPartitionUtil {
      * @param mtmv
      * @param tables
      * @param excludeTables
+     * @param partitionMappings
      * @return
      * @throws AnalysisException
      */
@@ -213,6 +214,14 @@ public class MTMVPartitionUtil {
         return true;
     }
 
+    /**
+     * getPartitionsUnSyncTables
+     *
+     * @param mtmv
+     * @param partitionIds
+     * @return partitionId ==> UnSyncTableNames
+     * @throws AnalysisException
+     */
     public static Map<Long, List<String>> getPartitionsUnSyncTables(MTMV mtmv, List<Long> partitionIds)
             throws AnalysisException {
         Map<Long, List<String>> res = Maps.newHashMap();
@@ -223,14 +232,6 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    /**
-     * get not sync tables
-     *
-     * @param mtmv
-     * @param partitionId
-     * @return
-     * @throws AnalysisException
-     */
     private static List<String> getPartitionUnSyncTables(MTMV mtmv, Long partitionId, Set<Long> relatedPartitionIds)
             throws AnalysisException {
         List<String> res = Lists.newArrayList();
@@ -288,7 +289,7 @@ public class MTMVPartitionUtil {
     }
 
     /**
-     * compare last update time of mtmvPartition and tablePartition
+     * Compare the current and last updated partition (or table) snapshot of the associated partition (or table)
      *
      * @param mtmv
      * @param mtmvPartitionId
@@ -427,6 +428,16 @@ public class MTMVPartitionUtil {
                 .equalsWithBaseTable(mtmvPartitionName, baseTable.getId(), baseTableCurrentSnapshot);
     }
 
+    /**
+     * Generate updated snapshots of partitions to determine if they are synchronized
+     *
+     * @param mtmv
+     * @param baseTables
+     * @param partitionIds
+     * @param partitionMappings
+     * @return
+     * @throws AnalysisException
+     */
     public static Map<String, MTMVRefreshPartitionSnapshot> generatePartitionSnapshots(MTMV mtmv,
             Set<BaseTableInfo> baseTables, Set<Long> partitionIds,
             Map<Long, Set<Long>> partitionMappings)

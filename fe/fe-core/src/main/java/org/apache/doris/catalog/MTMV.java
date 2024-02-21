@@ -248,6 +248,11 @@ public class MTMV extends OlapTable {
         return refreshSnapshot;
     }
 
+    /**
+     * generateMvPartitionDescs
+     *
+     * @return mvPartitionId ==> mvPartitionKeyDesc
+     */
     public Map<Long, PartitionKeyDesc> generateMvPartitionDescs() {
         Map<Long, PartitionItem> mtmvItems = getPartitionItems();
         Map<Long, PartitionKeyDesc> result = Maps.newHashMap();
@@ -257,6 +262,15 @@ public class MTMV extends OlapTable {
         return result;
     }
 
+    /**
+     * generateRelatedPartitionDescs
+     * <p>
+     * Different partitions may generate the same PartitionKeyDesc through logical calculations
+     * (such as selecting only one column, or rolling up partitions), so it is a one to many relationship
+     *
+     * @return related PartitionKeyDesc ==> relatedPartitionIds
+     * @throws AnalysisException
+     */
     public Map<PartitionKeyDesc, Set<Long>> generateRelatedPartitionDescs() throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
@@ -275,6 +289,14 @@ public class MTMV extends OlapTable {
         return res;
     }
 
+    /**
+     * Calculate the partition and associated partition mapping relationship of the MTMV
+     * It is the result of real-time comparison calculation, so there may be some costs,
+     * so it should be called with caution
+     *
+     * @return mvPartitionId ==> relationPartitionIds
+     * @throws AnalysisException
+     */
     public Map<Long, Set<Long>> calculatePartitionMappings() throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();

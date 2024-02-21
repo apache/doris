@@ -33,6 +33,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Collection;
+import java.util.Set;
 
 public class MTMVRewriteUtilTest {
     @Mocked
@@ -102,10 +103,10 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = true;
 
-                /*MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, partitionMappings.get(partition.getId()),
-                        (Set<BaseTableInfo>) any, (Set<String>) any);
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<Long>) any, (Set<BaseTableInfo>) any,
+                        (Set<String>) any);
                 minTimes = 0;
-                result = true;*/
+                result = true;
 
                 MTMVUtil.mtmvContainsExternalTable((MTMV) any);
                 minTimes = 0;
@@ -129,9 +130,10 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 2L;
 
-                //                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, partitionMappings.get(partition.getId()), (Set<BaseTableInfo>) any, (Set<String>) any);
-                //                minTimes = 0;
-                //                result = false;
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<Long>) any, (Set<BaseTableInfo>) any,
+                        (Set<String>) any);
+                minTimes = 0;
+                result = false;
             }
         };
 
@@ -148,10 +150,10 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 1L;
 
-                //                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, partitionMappings.get(partition.getId()),
-                // (Set<BaseTableInfo>) any, (Set<String>) any);
-                //                minTimes = 0;
-                //                result = false;
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<Long>) any, (Set<BaseTableInfo>) any,
+                        (Set<String>) any);
+                minTimes = 0;
+                result = false;
             }
         };
 
@@ -176,14 +178,14 @@ public class MTMVRewriteUtilTest {
 
     @Test
     public void testGetMTMVCanRewritePartitionsNotSync() throws AnalysisException {
-        //        new Expectations() {
-        //            {
-        //                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, partitionMappings.get(partition.getId()),
-        //                        (Set<BaseTableInfo>) any, (Set<String>) any);
-        //                minTimes = 0;
-        //                result = false;
-        //            }
-        //        };
+        new Expectations() {
+            {
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMV) any, anyLong, (Set<Long>) any, (Set<BaseTableInfo>) any,
+                        (Set<String>) any);
+                minTimes = 0;
+                result = false;
+            }
+        };
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
         Assert.assertEquals(0, mtmvCanRewritePartitions.size());
