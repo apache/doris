@@ -149,11 +149,108 @@ struct MurmurHash3Impl {
         return Status::OK();
     }
 };
+
 using FunctionMurmurHash3_32 = FunctionVariadicArgumentsBase<DataTypeInt32, MurmurHash3Impl<Int32>>;
 using FunctionMurmurHash3_64 = FunctionVariadicArgumentsBase<DataTypeInt64, MurmurHash3Impl<Int64>>;
+
+template <typename ReturnType>
+struct XxHashImpl {
+    static constexpr auto name = std::is_same_v<ReturnType, Int32> ? "xxhash_32" : "xxhash_64";
+
+    static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
+        ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
+        vec_to.get_data().assign(input_rows_count, static_cast<ReturnType>(emtpy_value));
+        return Status::OK();
+    }
+
+    static Status first_apply(const IDataType* type, const IColumn* column, size_t input_rows_count,
+                              IColumn& icolumn) {
+        return execute<true>(type, column, input_rows_count, icolumn);
+    }
+
+    static Status combine_apply(const IDataType* type, const IColumn* column,
+                                size_t input_rows_count, IColumn& icolumn) {
+        return execute<false>(type, column, input_rows_count, icolumn);
+    }
+
+    template <bool first>
+    static Status execute(const IDataType* type, const IColumn* column, size_t input_rows_count,
+                          IColumn& col_to) {
+        auto& col_to_data = assert_cast<ColumnVector<ReturnType>&>(col_to).get_data();
+        if (const auto* col_from = check_and_get_column<ColumnString>(column)) {
+            const typename ColumnString::Chars& data = col_from->get_chars();
+            const typename ColumnString::Offsets& offsets = col_from->get_offsets();
+            size_t size = offsets.size();
+
+            ColumnString::Offset current_offset = 0;
+            for (size_t i = 0; i < size; ++i) {
+                if (first) {
+                    if constexpr (std::is_same_v<ReturnType, Int32>) {
+                        UInt32 val = HashUtil::xxHash32WithSeed(
+                                reinterpret_cast<const char*>(&data[current_offset]),
+                                offsets[i] - current_offset, 0);
+                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)),
+                                           0);
+                    } else {
+                        UInt64 val = HashUtil::xxHash64WithSeed(
+                                reinterpret_cast<const char*>(&data[current_offset]),
+                                offsets[i] - current_offset, 0);
+                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)),
+                                           0);
+                    }
+                } else {
+                    if constexpr (std::is_same_v<ReturnType, Int32>) {
+                        col_to_data[i] = HashUtil::xxHash32WithSeed(
+                                reinterpret_cast<const char*>(&data[current_offset]),
+                                offsets[i] - current_offset, col_to_data[i]);
+                    } else {
+                        col_to_data[i] = HashUtil::xxHash64WithSeed(
+                                reinterpret_cast<const char*>(&data[current_offset]),
+                                offsets[i] - current_offset, col_to_data[i]);
+                    }
+                }
+                current_offset = offsets[i];
+            }
+        } else if (const ColumnConst* col_from_const =
+                           check_and_get_column_const_string_or_fixedstring(column)) {
+            auto value = col_from_const->get_value<String>();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                if (first) {
+                    if constexpr (std::is_same_v<ReturnType, Int32>) {
+                        UInt32 val = HashUtil::xxHash32WithSeed(value.data(), value.size(), 0);
+                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)),
+                                           0);
+                    } else {
+                        UInt64 val = HashUtil::xxHash64WithSeed(value.data(), value.size(), 0);
+                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)),
+                                           0);
+                    }
+                } else {
+                    if constexpr (std::is_same_v<ReturnType, Int32>) {
+                        col_to_data[i] = HashUtil::xxHash32WithSeed(
+                                value.data(), value.size(), col_to_data[i]);
+                    } else {
+                        col_to_data[i] = HashUtil::xxHash64WithSeed(
+                                value.data(), value.size(), col_to_data[i]);
+                    }
+                }
+            }
+        } else {
+            DCHECK(false);
+            return Status::NotSupported("Illegal column {} of argument of function {}",
+                                        column->get_name(), name);
+        }
+        return Status::OK();
+    }
+};
+
+using FunctionXxHash_32 = FunctionVariadicArgumentsBase<DataTypeInt32, XxHashImpl<Int32>>;
+using FunctionXxHash_64 = FunctionVariadicArgumentsBase<DataTypeInt64, XxHashImpl<Int64>>;
 
 void register_function_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMurmurHash3_32>();
     factory.register_function<FunctionMurmurHash3_64>();
+    factory.register_function<FunctionXxHash_32>();
+    factory.register_function<FunctionXxHash_64>();
 }
 } // namespace doris::vectorized
