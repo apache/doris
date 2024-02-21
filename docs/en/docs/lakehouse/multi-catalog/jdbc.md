@@ -61,11 +61,31 @@ PROPERTIES ("key"="value", ...)
 
 `driver_url` can be specified in three ways:
 
-1. File name. For example,  `mysql-connector-java-5.1.47.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
+1. File name. For example,  `mysql-connector-java-8.0.25.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
 
-2. Local absolute path. For example, `file:///path/to/mysql-connector-java-5.1.47.jar`. Please place the Jar file package in the specified paths of FE/BE node.
+2. Local absolute path. For example, `file:///path/to/mysql-connector-java-8.0.25.jar`. Please place the Jar file package in the specified paths of FE/BE node.
 
 3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
+
+**Driver package security**
+
+In order to prevent the use of a Driver Jar package with an unallowed path when creating the Catalog, Doris will perform path management and checksum checking on the Jar package.
+
+1. For the above method 1, the `jdbc_drivers_dir` configured by the Doris default user and all Jar packages in its directory are safe and will not be path checked.
+
+2. For the above methods 2 and 3, Doris will check the source of the Jar package. The checking rules are as follows:
+
+   * Control the allowed driver package paths through the FE configuration item `jdbc_driver_secure_path`. This configuration item can configure multiple paths, separated by semicolons. When this item is configured, Doris will check whether the prefix of the driver_url path in the Catalog properties is in `jdbc_driver_secure_path`. If not, it will refuse to create the Catalog.
+   * This parameter defaults to `*`, which means Jar packages of all paths are allowed.
+   * If the configuration `jdbc_driver_secure_path` is empty, driver packages for all paths are not allowed, which means that the driver package can only be specified using method 1 above.
+
+   > If you configure `jdbc_driver_secure_path = "file:///path/to/jdbc_drivers;http://path/to/jdbc_drivers"`, only `file:///path/to/jdbc_drivers` or `http:// is allowed The driver package path starting with path/to/jdbc_drivers`.
+
+3. When creating a Catalog, you can specify the checksum of the driver package through the `checksum` parameter. Doris will verify the driver package after loading the driver package. If the verification fails, it will refuse to create the Catalog.
+
+:::warning
+The above verification will only be performed when the Catalog is created. For already created Catalogs, verification will not be performed again.
+:::
 
 ### Lowercase name synchronization
 
