@@ -109,15 +109,6 @@ public:
     void set_cumulative_compaction_cnt(int64_t cnt) { _cumulative_compaction_cnt = cnt; }
     void set_cumulative_layer_point(int64_t new_point);
 
-    /*
-    int64_t base_compaction_cnt() const { return _base_compaction_cnt; }
-    void set_base_compaction_cnt(int64_t cnt) { _base_compaction_cnt = cnt; }
-    int64_t cumulative_compaction_cnt() const { return _cumulative_compaction_cnt; }
-    void set_cumulative_compaction_cnt(int64_t cnt) { _cumulative_compaction_cnt = cnt; }
-    int64_t full_compaction_cnt() const { return _full_compaction_cnt; }
-    void set_full_compaction_cnt(int64_t cnt) { _full_compaction_cnt = cnt; }
-    */
-
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
     void set_last_cumu_compaction_failure_time(int64_t millis) {
         _last_cumu_compaction_failure_millis = millis;
