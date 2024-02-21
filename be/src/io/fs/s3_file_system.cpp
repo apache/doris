@@ -346,7 +346,7 @@ public:
                 return ResultError(std::move(st));
             }
         }
-        return ResultError(Status::InternalError("Unable to iterate"));
+        return ResultError(Status::InternalError("Out of elements"));
     }
 
 private:

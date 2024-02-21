@@ -259,7 +259,7 @@ public:
     bool has_next() const override { return iter != files.end(); }
     Result<FileInfo> next() override {
         if (iter != files.end()) {
-            return ResultError(Status::InternalError("out"));
+            return ResultError(Status::InternalError("Out of elements"));
         }
         FileInfo file_info;
         for (; iter != files.end(); iter++) {

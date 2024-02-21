@@ -225,7 +225,7 @@ public:
 
     Result<FileInfo> next() override {
         if (iter == end) {
-            return ResultError(Status::InternalError("Already done"));
+            return ResultError(Status::InternalError("Out of elements"));
         }
         FileInfo file_info;
         std::error_code ec;
