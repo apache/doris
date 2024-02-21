@@ -70,7 +70,7 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options, TNetworkAddress coord_addr);
+                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline);
 
     ~QueryContext();
 
@@ -244,6 +244,7 @@ private:
     ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
     int64_t _bytes_limit = 0;
+    bool _is_pipeline = false;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.

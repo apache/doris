@@ -37,11 +37,13 @@ public:
 };
 
 QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                           const TQueryOptions& query_options, TNetworkAddress coord_addr)
+                           const TQueryOptions& query_options, TNetworkAddress coord_addr,
+                           bool is_pipeline)
         : fragment_num(total_fragment_num),
           timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
+          _is_pipeline(is_pipeline),
           _query_options(query_options) {
     this->coord_addr = coord_addr;
     _start_time = VecDateTimeValue::local_time();
@@ -117,10 +119,12 @@ QueryContext::~QueryContext() {
     }
 
     //TODO: check if pipeline and tracing both enabled
-    try {
-        ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
-    } catch (std::exception& e) {
-        LOG(WARNING) << "Dump trace log failed bacause " << e.what();
+    if (_is_pipeline && ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
+        try {
+            ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
+        } catch (std::exception& e) {
+            LOG(WARNING) << "Dump trace log failed bacause " << e.what();
+        }
     }
 }
 

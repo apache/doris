@@ -22,6 +22,7 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <chrono>
+#include <cstdint>
 #include <mutex>
 #include <string>
 
@@ -46,7 +47,10 @@ void PipelineTracerContext::record(ScheduleRecord record) {
 }
 
 void PipelineTracerContext::end_query(TUniqueId query_id, uint64_t task_group) {
-    _id_to_taskgroup[query_id] = task_group;
+    {
+        std::unique_lock<std::mutex> l(_tg_lock);
+        _id_to_taskgroup[query_id] = task_group;
+    }
     if (_dump_type == RecordType::PerQuery) {
         _dump(query_id);
     } else if (_dump_type == RecordType::Periodic) {
@@ -91,6 +95,7 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
         return;
     }
 
+    //TODO: when dump, now could append records but can't add new query. try use better grained locks.
     std::unique_lock<std::mutex> l(_data_lock); // can't rehash
     if (_dump_type == RecordType::PerQuery) {
         auto path = _dir / fmt::format("query{}", to_string(query_id));
@@ -103,7 +108,12 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
 
         ScheduleRecord record;
         while (_datas[query_id].try_dequeue(record)) {
-            auto tmp_str = record.to_string(_id_to_taskgroup[query_id]);
+            uint64_t v = 0;
+            {
+                std::unique_lock<std::mutex> l(_tg_lock);
+                v = _id_to_taskgroup[query_id];
+            }
+            auto tmp_str = record.to_string(v);
             auto text = Slice {tmp_str};
             THROW_IF_ERROR(writer.appendv(&text, 1));
         }
@@ -123,7 +133,12 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
         for (auto& [id, trace] : _datas) {
             ScheduleRecord record;
             while (trace.try_dequeue(record)) {
-                auto tmp_str = record.to_string(_id_to_taskgroup[query_id]);
+                uint64_t v = 0;
+                {
+                    std::unique_lock<std::mutex> l(_tg_lock);
+                    v = _id_to_taskgroup[query_id];
+                }
+                auto tmp_str = record.to_string(v);
                 auto text = Slice {tmp_str};
                 THROW_IF_ERROR(writer.appendv(&text, 1));
             }
@@ -133,7 +148,11 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
 
         _last_dump_time = MonotonicSeconds();
     }
+
     _datas.erase(query_id);
-    _id_to_taskgroup.erase(query_id);
+    {
+        std::unique_lock<std::mutex> l(_tg_lock);
+        _id_to_taskgroup.erase(query_id);
+    }
 }
 } // namespace doris::pipeline
