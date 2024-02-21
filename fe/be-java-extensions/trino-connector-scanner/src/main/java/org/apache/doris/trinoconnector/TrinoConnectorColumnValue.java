@@ -28,7 +28,9 @@ import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.DateTimeEncoding;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.Decimals;
+import io.trino.spi.type.DoubleType;
 import io.trino.spi.type.MapType;
+import io.trino.spi.type.RealType;
 import io.trino.spi.type.Type;
 import io.trino.util.DateTimeUtils;
 import org.slf4j.Logger;
@@ -96,9 +98,10 @@ public class TrinoConnectorColumnValue implements ColumnValue {
 
     @Override
     public float getFloat() {
-        return Float.intBitsToFloat(block.getInt(position, 0));
+        return RealType.REAL.getFloat(block, position);
     }
 
+    // BigInt
     @Override
     public long getLong() {
         return block.getLong(position, 0);
@@ -107,9 +110,10 @@ public class TrinoConnectorColumnValue implements ColumnValue {
     // block is LongArrayBlock type
     @Override
     public double getDouble() {
-        return Double.longBitsToDouble(block.getLong(position, 0));
+        return DoubleType.DOUBLE.getDouble(block, position);
     }
 
+    // LargeInt
     @Override
     public BigInteger getBigInteger() {
         return BigInteger.valueOf(block.getInt(position, 0));

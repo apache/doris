@@ -26,6 +26,7 @@ import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.DoubleType;
 import io.trino.spi.type.IntegerType;
 import io.trino.spi.type.MapType;
+import io.trino.spi.type.RealType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.SmallintType;
 import io.trino.spi.type.TimestampType;
@@ -39,6 +40,7 @@ public final class TrinoTypeToHiveTypeTranslator
 {
     private TrinoTypeToHiveTypeTranslator() {}
 
+    // trino do not support LargeInt
     public static String fromTrinoTypeToHiveType(Type type)
     {
         if (type instanceof BooleanType) {
@@ -51,16 +53,14 @@ public final class TrinoTypeToHiveTypeTranslator
             return "int";
         } else if (type instanceof BigintType) {
             return "bigint";
-            // } else if (type instanceof FloatType) {
-            //     return Type.FLOAT;
+        } else if (type instanceof RealType) {
+            return "float";
         } else if (type instanceof DoubleType) {
             return "double";
         } else if (type instanceof CharType) {
             return type.toString();
         } else if (type instanceof VarcharType) {
             return "string";
-            // } else if (type instanceof BinaryType) {
-            //     return Type.STRING;
         } else if (type instanceof VarbinaryType) {
             return "string";
         } else if (type instanceof DecimalType) {
