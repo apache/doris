@@ -17,22 +17,16 @@
 
 suite("test_analyze_mtmv") {
 
-    def wait_row_count_reported = { ->
-        while(true) {
+    def wait_row_count_reported = { table, expected ->
+        for (int i = 0; i < 120; i++) {
             Thread.sleep(5000)
-            boolean reported = true;
-            def result = sql """SHOW DATA;"""
+            def result = sql """SHOW DATA FROM ${table};"""
             logger.info("result " + result)
-            for (int i = 0; i < result.size(); i++) {
-                if (result[i][1] == "0.000 ") {
-                    reported = false;
-                    break;
-                }
-            }
-            if (reported) {
-                break;
+	    if (result[0][4] == expected) {
+		return;
             }
         }
+        throw new Exception("Row count report timeout.")
     }
 
     sql """drop database if exists test_analyze_mtmv"""
@@ -273,7 +267,7 @@ suite("test_analyze_mtmv") {
     result_sample = sql """show column cached stats mv1(sum_total)"""
     assertEquals(0, result_sample.size())
 
-    wait_row_count_reported()
+    wait_row_count_reported("mv1", "3")
     sql """analyze table mv1 with sync with sample rows 4000000"""
     result_sample = sql """show column stats mv1(l_shipdate)"""
     assertEquals(1, result_sample.size())
