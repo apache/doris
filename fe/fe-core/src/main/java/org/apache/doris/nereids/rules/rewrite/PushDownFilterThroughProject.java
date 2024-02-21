@@ -69,9 +69,17 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
     private static Plan pushdownFilterThroughProject(LogicalFilter<LogicalProject<Plan>> filter) {
         LogicalProject<Plan> project = filter.child();
         Set<Slot> childOutputs = project.getOutputSet();
+        // we need run this rule before subquey unnesting
+        // therefore the conjuncts may contain slots from outer query
+        // we should only push down conjuncts without any outer query's slot
+        // so we split the conjuncts into two parts:
+        // splitConjuncts.first -> conjuncts having outer query slots which should NOT be pushed down
+        // splitConjuncts.second -> conjuncts without any outer query slots which should be pushed down
         Pair<Set<Expression>, Set<Expression>> splitConjuncts =
                 splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs);
         if (splitConjuncts.second.isEmpty()) {
+            // all conjuncts contain outer query's slots, no conjunct can be pushed down
+            // just return unchanged plan
             return null;
         }
         project = (LogicalProject<Plan>) project.withChildren(new LogicalFilter<>(
@@ -85,6 +93,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
         LogicalLimit<LogicalProject<Plan>> limit = filter.child();
         LogicalProject<Plan> project = limit.child();
         Set<Slot> childOutputs = project.getOutputSet();
+        // split the conjuncts by child's output
         Pair<Set<Expression>, Set<Expression>> splitConjuncts =
                 splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs);
         if (splitConjuncts.second.isEmpty()) {
