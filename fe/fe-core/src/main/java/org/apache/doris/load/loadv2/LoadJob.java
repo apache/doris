@@ -52,6 +52,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TEtlState;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -134,7 +135,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected String comment = "";
 
-
+    protected List<TPipelineWorkloadGroup> tWorkloadGroups = null;
 
     public LoadJob(EtlJobType jobType) {
         this.jobType = jobType;
@@ -1165,5 +1166,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public LoadStatistic getLoadStatistic() {
         return loadStatistic;
+    }
+
+    public void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
+        this.tWorkloadGroups = tWorkloadGroups;
     }
 }
