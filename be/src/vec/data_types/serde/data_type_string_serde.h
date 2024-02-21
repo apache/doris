@@ -17,11 +17,11 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "util/jsonb_writer.h"
+#include "vec/columns/column_fixed_length_object.h"
+#include "vec/core/types.h"
 
 namespace doris {
 class PValues;
@@ -80,6 +80,24 @@ private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int row_idx, bool col_const) const;
+
+    virtual bool _is_fixed() const { return false; }
+
+    void write_to_column(IColumn& column, const char* data, size_t size) const {
+        if (_is_fixed()) {
+            assert_cast<ColumnFixedLengthObject&>(column).insert_data(data, size);
+        } else {
+            assert_cast<ColumnString&>(column).insert_data(data, size);
+        }
+    }
+
+    StringRef get_from_column(const IColumn& column, size_t pos) const {
+        if (_is_fixed()) {
+            return assert_cast<const ColumnFixedLengthObject&>(column).get_data_at(pos);
+        } else {
+            return assert_cast<const ColumnString&>(column).get_data_at(pos);
+        }
+    }
 };
 } // namespace vectorized
 } // namespace doris

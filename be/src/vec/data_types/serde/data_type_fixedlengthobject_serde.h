@@ -18,13 +18,13 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stdint.h>
 
 #include <ostream>
 
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "util/jsonb_writer.h"
+#include "vec/data_types/serde/data_type_string_serde.h"
 
 namespace doris {
 class PValues;
@@ -34,56 +34,9 @@ namespace vectorized {
 class IColumn;
 class Arena;
 
-class DataTypeFixedLengthObjectSerDe : public DataTypeSerDe {
+class DataTypeFixedLengthObjectSerDe : public DataTypeStringSerDe {
 public:
-    DataTypeFixedLengthObjectSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
-
-    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
-                                      FormatOptions& options) const override {
-        return Status::NotSupported("serialize_one_cell_to_json with type [{}]", column.get_name());
-    }
-
-    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                    BufferWritable& bw, FormatOptions& options) const override {
-        return Status::NotSupported("serialize_column_to_json with type [{}]", column.get_name());
-    }
-    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
-    }
-
-    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
-                                               const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_column_from_text_vector with type " +
-                                    column.get_name());
-    }
-
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                              int end) const override {
-        result.mutable_bytes_value()->Reserve(end - start);
-        auto* ptype = result.mutable_type();
-        ptype->set_id(PGenericType::STRING);
-        for (size_t row_num = start; row_num < end; ++row_num) {
-            StringRef data = column.get_data_at(row_num);
-            result.add_string_value(data.to_string());
-        }
-        return Status::OK();
-    }
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        return Status::NotSupported("read_column_from_pb with type " + column.get_name());
-    };
-    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 int32_t col_id, int row_num) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_one_cell_to_jsonb with type " + column.get_name());
-    }
-
-    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "read_one_cell_from_jsonb with type " + column.get_name());
-    }
+    DataTypeFixedLengthObjectSerDe(int nesting_level = 1) : DataTypeStringSerDe(nesting_level) {};
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override {
@@ -96,22 +49,8 @@ public:
                                "read_column_from_arrow with type " + column.get_name());
     }
 
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return Status::NotSupported("write_column_to_mysql with type " + column.get_name());
-    }
-
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return Status::NotSupported("write_column_to_pb with type " + column.get_name());
-    }
-
-    Status write_column_to_orc(const std::string& timezone, const IColumn& column,
-                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int start, int end,
-                               std::vector<StringRef>& buffer_list) const override {
-        return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
-    }
+private:
+    bool _is_fixed() const override { return true; }
 };
 } // namespace vectorized
 } // namespace doris

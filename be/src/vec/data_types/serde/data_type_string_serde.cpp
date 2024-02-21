@@ -17,12 +17,10 @@
 
 #include "data_type_string_serde.h"
 
-#include <assert.h>
 #include <gen_cpp/types.pb.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
-#include <stddef.h>
 
 #include "arrow/array/builder_binary.h"
 #include "util/jsonb_document.h"
@@ -32,8 +30,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 
 Status DataTypeStringSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
@@ -52,7 +49,7 @@ Status DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, in
     if (_nesting_level > 1) {
         bw.write('"');
     }
-    const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
+    const auto& value = get_from_column(*ptr, row_num);
     bw.write(value.data, value.size);
     if (_nesting_level > 1) {
         bw.write('"');
@@ -91,8 +88,6 @@ static void escape_string(const char* src, size_t& len, char escape_char) {
 
 Status DataTypeStringSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnString&>(column);
-
     /*
      * For strings in the json complex type, we remove double quotes by default.
      *
@@ -110,14 +105,14 @@ Status DataTypeStringSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     if (options.escape_char != 0) {
         escape_string(slice.data, slice.size, options.escape_char);
     }
-    column_data.insert_data(slice.data, slice.size);
+    write_to_column(column, slice.data, slice.size);
     return Status::OK();
 }
 
 Status DataTypeStringSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                int end) const {
     result.mutable_bytes_value()->Reserve(end - start);
-    auto ptype = result.mutable_type();
+    auto* ptype = result.mutable_type();
     ptype->set_id(PGenericType::STRING);
     for (size_t row_num = start; row_num < end; ++row_num) {
         StringRef data = column.get_data_at(row_num);
@@ -126,10 +121,9 @@ Status DataTypeStringSerDe::write_column_to_pb(const IColumn& column, PValues& r
     return Status::OK();
 }
 Status DataTypeStringSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    auto& col = reinterpret_cast<ColumnString&>(column);
-    col.reserve(arg.string_value_size());
+    column.reserve(arg.string_value_size());
     for (int i = 0; i < arg.string_value_size(); ++i) {
-        column.insert_data(arg.string_value(i).c_str(), arg.string_value(i).size());
+        write_to_column(column, arg.string_value(i).c_str(), arg.string_value(i).size());
     }
     return Status::OK();
 }
@@ -145,9 +139,8 @@ void DataTypeStringSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
 }
 void DataTypeStringSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     assert(arg->isBinary());
-    auto& col = reinterpret_cast<ColumnString&>(column);
-    auto blob = static_cast<const JsonbBlobVal*>(arg);
-    col.insert_data(blob->getBlob(), blob->getBlobLen());
+    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+    write_to_column(column, blob->getBlob(), blob->getBlobLen());
 }
 
 void DataTypeStringSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
@@ -161,8 +154,8 @@ void DataTypeStringSerDe::write_column_to_arrow(const IColumn& column, const Nul
                              array_builder->type()->name());
             continue;
         }
-        std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
-        checkArrowStatus(builder.Append(string_ref.data(), string_ref.size()), column.get_name(),
+        auto string_ref = string_column.get_data_at(string_i);
+        checkArrowStatus(builder.Append(string_ref.data, string_ref.size), column.get_name(),
                          array_builder->type()->name());
     }
 }
@@ -174,7 +167,7 @@ void DataTypeStringSerDe::read_column_from_arrow(IColumn& column, const arrow::A
     auto& column_offsets = assert_cast<ColumnString&>(column).get_offsets();
     if (arrow_array->type_id() == arrow::Type::STRING ||
         arrow_array->type_id() == arrow::Type::BINARY) {
-        auto concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
+        const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
         for (size_t offset_i = start; offset_i < end; ++offset_i) {
@@ -185,7 +178,7 @@ void DataTypeStringSerDe::read_column_from_arrow(IColumn& column, const arrow::A
             column_offsets.emplace_back(column_chars_t.size());
         }
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
-        auto concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
+        const auto* concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
         uint32_t width = concrete_array->byte_width();
         const auto* array_data = concrete_array->GetValue(start);
 
@@ -203,9 +196,8 @@ template <bool is_binary_format>
 Status DataTypeStringSerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
                                                    int row_idx, bool col_const) const {
-    auto& col = assert_cast<const ColumnString&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
-    const auto string_val = col.get_data_at(col_index);
+    const auto string_val = get_from_column(column, col_index);
     if (string_val.data == nullptr) {
         if (string_val.size == 0) {
             // 0x01 is a magic num, not useful actually, just for present ""
@@ -243,11 +235,10 @@ Status DataTypeStringSerDe::write_column_to_orc(const std::string& timezone, con
                                                 orc::ColumnVectorBatch* orc_col_batch, int start,
                                                 int end,
                                                 std::vector<StringRef>& buffer_list) const {
-    auto& col_data = assert_cast<const ColumnString&>(column);
-    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+    auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
     for (size_t row_id = start; row_id < end; row_id++) {
-        const auto& ele = col_data.get_data_at(row_id);
+        const auto& ele = get_from_column(column, row_id);
         cur_batch->data[row_id] = const_cast<char*>(ele.data);
         cur_batch->length[row_id] = ele.size;
     }
@@ -277,5 +268,4 @@ void DataTypeStringSerDe::read_one_cell_from_json(IColumn& column,
     col.insert_data(result.GetString(), result.GetStringLength());
 }
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
