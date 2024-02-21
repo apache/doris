@@ -136,4 +136,80 @@ TEST(HashFuncTest, ArrayNestedArrayTest) {
     EXPECT_TRUE(crc_hashes[2] != crc_hashes[3]);
 }
 
+TEST(HashFuncTest, ArrayCornerCaseTest) {
+    DataTypes dataTypes = create_scala_data_types();
+
+    DataTypePtr d = std::make_shared<DataTypeInt64>();
+    DataTypePtr a = std::make_shared<DataTypeArray>(d);
+    MutableColumnPtr array_mutable_col = a->create_column();
+    Array a1, a2;
+    a1.push_back(Int64(1));
+    a1.push_back(Int64(2));
+    a1.push_back(Int64(3));
+    array_mutable_col->insert(a1);
+    array_mutable_col->insert(a1);
+    a2.push_back(Int64(11));
+    a2.push_back(Int64(12));
+    a2.push_back(Int64(13));
+    array_mutable_col->insert(a2);
+
+    EXPECT_EQ(array_mutable_col->size(), 3);
+
+    std::vector<uint64_t> xx_hash_vals(3);
+    std::vector<uint32_t> crc_hash_vals(3);
+    auto* __restrict xx_hashes = xx_hash_vals.data();
+    auto* __restrict crc_hashes = crc_hash_vals.data();
+
+    // xxHash
+    EXPECT_NO_FATAL_FAILURE(array_mutable_col->update_hashes_with_value(xx_hashes));
+    EXPECT_EQ(xx_hashes[0], xx_hashes[1]);
+    EXPECT_TRUE(xx_hashes[0] != xx_hashes[2]);
+    // crcHash
+    EXPECT_NO_FATAL_FAILURE(array_mutable_col->update_crcs_with_value(
+            crc_hashes, PrimitiveType::TYPE_ARRAY, array_mutable_col->size()));
+    EXPECT_EQ(crc_hashes[0], crc_hashes[1]);
+    EXPECT_TRUE(xx_hashes[0] != xx_hashes[2]);
+}
+
+TEST(HashFuncTest, MapTypeTest) {
+    DataTypes dataTypes = create_scala_data_types();
+
+    std::vector<uint64_t> xx_hash_vals(1);
+    std::vector<uint32_t> crc_hash_vals(1);
+    auto* __restrict xx_hashes = xx_hash_vals.data();
+    auto* __restrict crc_hashes = crc_hash_vals.data();
+    // data_type_map
+    for (int i = 0; i < dataTypes.size() - 1; ++i) {
+        DataTypePtr a = std::make_shared<DataTypeMap>(dataTypes[i], dataTypes[i + 1]);
+        ColumnPtr col_a = a->create_column_const_with_default_value(1);
+        // xxHash
+        EXPECT_NO_FATAL_FAILURE(unpack_if_const(col_a).first->update_hashes_with_value(xx_hashes));
+        std::cout << xx_hashes[0] << std::endl;
+        // crcHash
+        EXPECT_NO_FATAL_FAILURE(unpack_if_const(col_a).first->update_crcs_with_value(
+                crc_hashes, PrimitiveType::TYPE_MAP, 1));
+        std::cout << crc_hashes[0] << std::endl;
+    }
+}
+
+TEST(HashFuncTest, StructTypeTest) {
+    DataTypes dataTypes = create_scala_data_types();
+
+    std::vector<uint64_t> xx_hash_vals(1);
+    std::vector<uint32_t> crc_hash_vals(1);
+    auto* __restrict xx_hashes = xx_hash_vals.data();
+    auto* __restrict crc_hashes = crc_hash_vals.data();
+
+    // data_type_struct
+    DataTypePtr a = std::make_shared<DataTypeStruct>(dataTypes);
+    ColumnPtr col_a = a->create_column_const_with_default_value(1);
+    // xxHash
+    EXPECT_NO_FATAL_FAILURE(unpack_if_const(col_a).first->update_hashes_with_value(xx_hashes));
+    std::cout << xx_hashes[0] << std::endl;
+    // crcHash
+    EXPECT_NO_FATAL_FAILURE(unpack_if_const(col_a).first->update_crcs_with_value(
+            crc_hashes, PrimitiveType::TYPE_STRUCT, 1));
+    std::cout << crc_hashes[0] << std::endl;
+}
+
 } // namespace doris::vectorized
