@@ -565,11 +565,11 @@ function create_warehouse() {
         \"user_id\":\"user-id\",
         \"obj_info\": {
             \"provider\": \"COS\",
-            \"region\": \"ap-beijing\",
-            \"bucket\": \"doris-build-1308700295\",
+            \"region\": \"ap-hongkong\",
+            \"bucket\": \"doris-build-hk-1308700295\",
             \"prefix\": \"ci\",
-            \"endpoint\": \"cos.ap-beijing.myqcloud.com\",
-            \"external_endpoint\": \"cos.ap-beijing.myqcloud.com\",
+            \"endpoint\": \"cos.ap-hongkong.myqcloud.com\",
+            \"external_endpoint\": \"cos.ap-hongkong.myqcloud.com\",
             \"ak\": \"${COS_ak}\",
             \"sk\": \"${COS_sk}\"
         }
