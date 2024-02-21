@@ -442,6 +442,21 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
 }
 
 Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id) {
+    if (_context.tablet_schema->get_inverted_index_storage_format() !=
+        InvertedIndexStorageFormatPB::V1) {
+        auto src_seg_path = BetaRowset::local_segment_path_segcompacted(
+                _context.rowset_dir, _context.rowset_id, begin, end);
+        auto dst_seg_path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id,
+                                                          _num_segcompacted);
+        auto src_idx_path = InvertedIndexDescriptor::get_index_file_name(src_seg_path);
+        auto dst_idx_path = InvertedIndexDescriptor::get_index_file_name(dst_seg_path);
+        ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
+        if (ret) {
+            return Status::Error<ROWSET_RENAME_FILE_FAILED>(
+                    "failed to rename {} to {}. ret:{}, errno:{}", src_idx_path, dst_idx_path, ret,
+                    errno);
+        }
+    }
     int ret;
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
@@ -458,13 +473,16 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
             auto dst_idx_path = InvertedIndexDescriptor::inverted_index_file_path(
                     _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id,
                     index_info->get_index_suffix());
-            VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
-                       << dst_idx_path;
-            ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
-            if (ret) {
-                return Status::Error<INVERTED_INDEX_RENAME_FILE_FAILED>(
-                        "failed to rename {} to {}. ret:{}, errno:{}", src_idx_path, dst_idx_path,
-                        ret, errno);
+            if (_context.tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V1) {
+                VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
+                           << dst_idx_path;
+                ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
+                if (ret) {
+                    return Status::Error<INVERTED_INDEX_RENAME_FILE_FAILED>(
+                            "failed to rename {} to {}. ret:{}, errno:{}", src_idx_path,
+                            dst_idx_path, ret, errno);
+                }
             }
             // Erase the origin index file cache
             RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
