@@ -32,7 +32,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -41,6 +40,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.PlanNode;
@@ -1037,7 +1037,9 @@ public class Analyzer {
                                                 newTblName == null ? d.getTable().getName() : newTblName.toString());
         }
 
-        LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
+        }
         if (col.getType().isVariantType() || (subColNames != null && !subColNames.isEmpty())) {
             if (getContext() != null && !getContext().getSessionVariable().enableVariantAccessInOriginalPlanner
                     && (subColNames != null && !subColNames.isEmpty())) {
@@ -1075,7 +1077,9 @@ public class Analyzer {
                 return result;
             }
             result = globalState.descTbl.addSlotDescriptor(d);
-            LOG.debug("register slot descriptor {}", result);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("register slot descriptor {}", result);
+            }
             result.setSubColLables(subColNames);
             result.setColumn(col);
             if (!subColNames.isEmpty()) {

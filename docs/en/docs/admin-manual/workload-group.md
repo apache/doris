@@ -58,6 +58,7 @@ Scenario 2: If the Workload Group is not used in version 2.0, it is also necessa
 * max_concurrency: Optional, maximum query concurrency, default value is the maximum integer value, which means there is no concurrency limit. When the number of running queries reaches this value, new queries will being queued.
 * max_queue_size: Optional, length of the query queue. When the queue is full, new queries will be rejected. The default value is 0, which means no queuing.
 * queue_timeout: Optional, query the timeout time in the queue, measured in milliseconds. If the query exceeds this value, an exception will be thrown directly to the client. The default value is 0, which means no queuing.
+* scan_thread_num: Optional, the number of threads used for scanning in the current workload group. The default value is -1, which means it does not take effect, the number of scan threads in the be configuration shall prevail. The value is an integer greater than 0.
 
 Notes:
 
@@ -70,7 +71,9 @@ Notes:
 
 Doris 2.0 version uses Doris scheduling to limit CPU resources, but since version 2.1, Doris defaults to using CGgroup v1 to limit CPU resources (CGgroup v2 is currently not supported). Therefore, if CPU resources are expected to be limited in version 2.1, it is necessary to have CGgroup v1 installed on the node where BE is located.
 
-If users use the Workload Group software limit in version 2.0 and upgrade to version 2.1, they also need to configure CGroup.
+If users use the Workload Group software limit in version 2.0 and upgrade to version 2.1, they also need to configure CGroup, Otherwise, cpu soft limit may not work.
+
+Without configuring cgroup, users can use all functions of the workload group except for CPU limitations.
 
 1 Firstly, confirm that the CGgroup v1 version has been installed on the node where BE is located, and the path ```/sys/fs/cgroup/cpu/``` exists.
 
@@ -89,12 +92,10 @@ chonw -R doris:doris /sys/fs/cgroup/cpu/doris
 
 4 Modify the configuration of BE and specify the path to cgroup
 ```
-1：modify be.conf in disk
 doris_cgroup_cpu_path = /sys/fs/cgroup/cpu/doris
-
-2 modify be conf in memory
-curl -X POST http://{be_ip}:{be_http_port}/api/update_config?doris_cgroup_cpu_path=/sys/fs/cgroup/cpu/doris
 ```
+
+5 restart BE, in the log (be. INFO), you can see the words "add thread xxx to group" indicating successful configuration.
 
 It should be noted that the current workload group does not support the deployment of multiple BE on same machine.
 

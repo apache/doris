@@ -33,8 +33,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.JdbcExternalDatabase;
-import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -46,6 +44,9 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.jdbc.sink.JdbcTableSink;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
@@ -54,7 +55,6 @@ import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
-import org.apache.doris.planner.external.jdbc.JdbcTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -799,13 +799,19 @@ public class NativeInsertStmt extends InsertStmt {
 
         if (LOG.isDebugEnabled()) {
             for (Expr expr : queryStmt.getResultExprs()) {
-                LOG.debug("final result expr: {}, {}", expr, System.identityHashCode(expr));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("final result expr: {}, {}", expr, System.identityHashCode(expr));
+                }
             }
             for (Expr expr : queryStmt.getBaseTblResultExprs()) {
-                LOG.debug("final base table result expr: {}, {}", expr, System.identityHashCode(expr));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("final base table result expr: {}, {}", expr, System.identityHashCode(expr));
+                }
             }
             for (String colLabel : queryStmt.getColLabels()) {
-                LOG.debug("final col label: {}", colLabel);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("final col label: {}", colLabel);
+                }
             }
         }
     }
@@ -1225,7 +1231,9 @@ public class NativeInsertStmt extends InsertStmt {
         olapTable.readLock();
         try {
             if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
-                LOG.debug("reuse group commit plan, table={}", olapTable);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("reuse group commit plan, table={}", olapTable);
+                }
                 reuseGroupCommitPlan = true;
                 return groupCommitPlanner;
             }

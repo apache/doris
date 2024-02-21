@@ -14,6 +14,7 @@
 #include "gutil/bits.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
+#include "util/time.h"
 
 using std::string;
 using std::stringstream;
@@ -243,6 +244,7 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
         }
         e->refs++;
         ++_hit_count;
+        e->last_visit_time = UnixMillis();
     }
     return reinterpret_cast<Cache::Handle*>(e);
 }
@@ -371,6 +373,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     e->mem_tracker = tracker;
     e->type = _type;
     memcpy(e->key_data, key.data(), key.size());
+    e->last_visit_time = UnixMillis();
     // The memory of the parameter value should be recorded in the tls mem tracker,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
     THREAD_MEM_TRACKER_TRANSFER_TO(e->bytes, tracker);
@@ -440,7 +443,7 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash) {
     }
 }
 
-int64_t LRUCache::prune() {
+PrunedInfo LRUCache::prune() {
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
@@ -458,23 +461,25 @@ int64_t LRUCache::prune() {
         }
     }
     int64_t pruned_count = 0;
+    int64_t pruned_size = 0;
     while (to_remove_head != nullptr) {
         ++pruned_count;
+        pruned_size += to_remove_head->bytes;
         LRUHandle* next = to_remove_head->next;
         to_remove_head->free();
         to_remove_head = next;
     }
-    return pruned_count;
+    return {pruned_count, pruned_size};
 }
 
-int64_t LRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
+PrunedInfo LRUCache::prune_if(CachePrunePredicate pred, bool lazy_mode) {
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
         LRUHandle* p = _lru_normal.next;
         while (p != &_lru_normal) {
             LRUHandle* next = p->next;
-            if (pred(p->value)) {
+            if (pred(p)) {
                 _evict_one_entry(p);
                 p->next = to_remove_head;
                 to_remove_head = p;
@@ -487,7 +492,7 @@ int64_t LRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
         p = _lru_durable.next;
         while (p != &_lru_durable) {
             LRUHandle* next = p->next;
-            if (pred(p->value)) {
+            if (pred(p)) {
                 _evict_one_entry(p);
                 p->next = to_remove_head;
                 to_remove_head = p;
@@ -498,13 +503,15 @@ int64_t LRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
         }
     }
     int64_t pruned_count = 0;
+    int64_t pruned_size = 0;
     while (to_remove_head != nullptr) {
         ++pruned_count;
+        pruned_size += to_remove_head->bytes;
         LRUHandle* next = to_remove_head->next;
         to_remove_head->free();
         to_remove_head = next;
     }
-    return pruned_count;
+    return {pruned_count, pruned_size};
 }
 
 void LRUCache::set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor) {
@@ -622,20 +629,24 @@ uint64_t ShardedLRUCache::new_id() {
     return _last_id.fetch_add(1, std::memory_order_relaxed);
 }
 
-int64_t ShardedLRUCache::prune() {
-    int64_t num_prune = 0;
+PrunedInfo ShardedLRUCache::prune() {
+    PrunedInfo pruned_info;
     for (int s = 0; s < _num_shards; s++) {
-        num_prune += _shards[s]->prune();
+        PrunedInfo info = _shards[s]->prune();
+        pruned_info.pruned_count += info.pruned_count;
+        pruned_info.pruned_size += info.pruned_size;
     }
-    return num_prune;
+    return pruned_info;
 }
 
-int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
-    int64_t num_prune = 0;
+PrunedInfo ShardedLRUCache::prune_if(CachePrunePredicate pred, bool lazy_mode) {
+    PrunedInfo pruned_info;
     for (int s = 0; s < _num_shards; s++) {
-        num_prune += _shards[s]->prune_if(pred, lazy_mode);
+        PrunedInfo info = _shards[s]->prune_if(pred, lazy_mode);
+        pruned_info.pruned_count += info.pruned_count;
+        pruned_info.pruned_size += info.pruned_size;
     }
-    return num_prune;
+    return pruned_info;
 }
 
 int64_t ShardedLRUCache::mem_consumption() {

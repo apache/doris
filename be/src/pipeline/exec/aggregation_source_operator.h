@@ -54,17 +54,6 @@ public:
     AggSourceDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AggSourceDependency", query_ctx) {}
     ~AggSourceDependency() override = default;
-
-    void block() override {
-        if (_is_streaming_agg_state()) {
-            Dependency::block();
-        }
-    }
-
-private:
-    bool _is_streaming_agg_state() {
-        return ((SharedState*)Dependency::_shared_state)->data_queue != nullptr;
-    }
 };
 
 class AggSourceOperatorX;
@@ -83,10 +72,6 @@ public:
 
 protected:
     friend class AggSourceOperatorX;
-    friend class StreamingAggSourceOperatorX;
-    friend class StreamingAggSinkOperatorX;
-    friend class DistinctStreamingAggSourceOperatorX;
-    friend class DistinctStreamingAggSinkOperatorX;
 
     Status _get_without_key_result(RuntimeState* state, vectorized::Block* block,
                                    SourceState& source_state);
@@ -144,7 +129,7 @@ class AggSourceOperatorX : public OperatorX<AggLocalState> {
 public:
     using Base = OperatorX<AggLocalState>;
     AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                       const DescriptorTbl& descs, bool is_streaming = false);
+                       const DescriptorTbl& descs);
     ~AggSourceOperatorX() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
@@ -154,7 +139,6 @@ public:
 
 private:
     friend class AggLocalState;
-    const bool _is_streaming;
 
     bool _needs_finalize;
     bool _without_key;

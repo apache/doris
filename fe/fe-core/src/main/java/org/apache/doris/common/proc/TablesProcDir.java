@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
@@ -31,10 +32,13 @@ import org.apache.doris.common.util.TimeUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 
 /*
  * SHOW PROC /dbs/dbId/
@@ -44,7 +48,7 @@ public class TablesProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TableId").add("TableName").add("IndexNum").add("PartitionColumnName")
             .add("PartitionNum").add("State").add("Type").add("LastConsistencyCheckTime").add("ReplicaCount")
-            .add("VisibleVersion").add("VisibleVersionTime").add("LastUpdateTime")
+            .add("VisibleVersion").add("VisibleVersionTime").add("RunningTransactionNum").add("LastUpdateTime")
             .build();
 
     private DatabaseIf db;
@@ -83,6 +87,16 @@ public class TablesProcDir implements ProcDirInterface {
         // get info
         List<List<Comparable>> tableInfos = new ArrayList<List<Comparable>>();
         List<TableIf> tableList = db.getTables();
+        Map<Long, List<Long>> transToTableListInfo = Env.getCurrentGlobalTransactionMgr()
+                .getDbRunningTransInfo(db.getId());
+        Map<Long, Integer> tableToTransNumInfo = Maps.newHashMap();
+        for (Entry<Long, List<Long>> transWithTableList : transToTableListInfo.entrySet()) {
+            for (Long tableId : transWithTableList.getValue()) {
+                int transNum = tableToTransNumInfo.getOrDefault(tableId, 0);
+                transNum++;
+                tableToTransNumInfo.put(tableId, transNum);
+            }
+        }
         for (TableIf table : tableList) {
             List<Comparable> tableInfo = new ArrayList<Comparable>();
             int partitionNum = 1;
@@ -132,6 +146,8 @@ public class TablesProcDir implements ProcDirInterface {
                     tableInfo.add(FeConstants.null_string);
                     tableInfo.add(FeConstants.null_string);
                 }
+                int runningTransactionNum = tableToTransNumInfo.getOrDefault(table.getId(), 0);
+                tableInfo.add(runningTransactionNum);
                 tableInfo.add(TimeUtils.longToTimeString(table.getUpdateTime()));
                 tableInfos.add(tableInfo);
             } finally {

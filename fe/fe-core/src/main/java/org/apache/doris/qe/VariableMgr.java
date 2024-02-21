@@ -303,7 +303,9 @@ public class VariableMgr {
         try {
             checkUpdate(setVar, varCtx.getFlag());
         } catch (DdlException e) {
-            LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
+            }
             return;
         }
         setVarInternal(sessionVariable, setVar, varCtx);
@@ -713,21 +715,15 @@ public class VariableMgr {
             throws DdlException {
         for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
             VarContext varCtx = entry.getValue();
-
-            SetType newSetType = null;
-            // some variables are GLOBAL only or SESSION only
-            if ((varCtx.getFlag() & GLOBAL) != 0) {
-                newSetType = SetType.GLOBAL;
-            } else if ((varCtx.getFlag() & SESSION_ONLY) != 0) {
-                newSetType = SetType.SESSION;
-            }
-
-            SetVar setVar = new SetVar(newSetType != null ? newSetType : setType, entry.getKey(),
+            SetVar setVar = new SetVar(setType, entry.getKey(),
                     new StringLiteral(varCtx.defaultValue), SetVarType.SET_SESSION_VAR);
-            //skip read only variables
-            if ((varCtx.getFlag() & READ_ONLY) == 0) {
-                setVar(sessionVariable, setVar);
+            try {
+                checkUpdate(setVar, varCtx.getFlag());
+            } catch (DdlException e) {
+                LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
+                continue;
             }
+            setVarInternal(sessionVariable, setVar, varCtx);
         }
     }
 

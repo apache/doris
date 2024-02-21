@@ -58,6 +58,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -110,14 +111,18 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void addDatabaseTransactionMgr(Long dbId) {
         if (dbIdToDatabaseTransactionMgrs.putIfAbsent(dbId,
                 new DatabaseTransactionMgr(dbId, env, idGenerator)) == null) {
-            LOG.debug("add database transaction manager for db {}", dbId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("add database transaction manager for db {}", dbId);
+            }
         }
     }
 
     @Override
     public void removeDatabaseTransactionMgr(Long dbId) {
         if (dbIdToDatabaseTransactionMgrs.remove(dbId) != null) {
-            LOG.debug("remove database transaction manager for db {}", dbId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remove database transaction manager for db {}", dbId);
+            }
         }
     }
 
@@ -197,7 +202,9 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
         }
 
-        LOG.debug("try to pre-commit transaction: {}", transactionId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try to pre-commit transaction: {}", transactionId);
+        }
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.preCommitTransaction2PC(tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
     }
@@ -224,7 +231,9 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
         }
 
-        LOG.debug("try to commit transaction: {}", transactionId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try to commit transaction: {}", transactionId);
+        }
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.commitTransaction(tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
     }
@@ -593,7 +602,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             long runningNum = 0;
             try {
                 DatabaseTransactionMgr dbMgr = getDatabaseTransactionMgr(dbId);
-                runningNum = dbMgr.getRunningTxnNums() + dbMgr.getRunningRoutineLoadTxnNums();
+                runningNum = dbMgr.getRunningTxnNums();
                 totalRunningNum += runningNum;
             } catch (AnalysisException e) {
                 LOG.warn("get database running transaction num failed", e);
@@ -621,6 +630,11 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     public List<List<String>> getDbTransInfo(Long dbId, boolean running, int limit) throws AnalysisException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         return dbTransactionMgr.getTxnStateInfoList(running, limit);
+    }
+
+    public Map<Long, List<Long>> getDbRunningTransInfo(long dbId) throws AnalysisException {
+        return Optional.ofNullable(dbIdToDatabaseTransactionMgrs.get(dbId))
+                .map(DatabaseTransactionMgr::getDbRunningTransInfo).orElse(Maps.newHashMap());
     }
 
     @Override
@@ -731,7 +745,8 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public int getRunningTxnNums(Long dbId) throws AnalysisException {
-        return getDatabaseTransactionMgr(dbId).getRunningTxnNums();
+        return Optional.ofNullable(dbIdToDatabaseTransactionMgrs.get(dbId))
+                .map(DatabaseTransactionMgr::getRunningTxnNums).orElse(0);
     }
 
     @Override

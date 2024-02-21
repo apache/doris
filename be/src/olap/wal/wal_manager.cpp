@@ -289,6 +289,7 @@ Status WalManager::_load_wals() {
                 continue;
             }
         }
+        _exec_env->wal_mgr()->add_wal_queue(wal.tb_id, wal.wal_id);
         WARN_IF_ERROR(add_recover_wal(wal.db_id, wal.tb_id, wal.wal_id, wal.wal_path),
                       fmt::format("Failed to add recover wal={}", wal.wal_path));
     }
@@ -406,7 +407,6 @@ Status WalManager::_replay_background() {
 
 Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, int64_t wal_id,
                                    std::string wal) {
-    add_wal_queue(table_id, wal_id);
     std::lock_guard<std::shared_mutex> wrlock(_table_lock);
     std::shared_ptr<WalTable> table_ptr;
     auto it = _table_map.find(table_id);

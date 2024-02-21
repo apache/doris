@@ -40,7 +40,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
@@ -536,7 +535,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
             return;
         }
-        waitWalFinished();
+        Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
+        Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(tableId);
+        Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
@@ -599,34 +600,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
     }
 
-    private void waitWalFinished() {
-        // wait wal done here
-        Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
-        LOG.info("block group commit for table={} when schema change", tableId);
-        List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-        long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
-        while (true) {
-            LOG.info("wait for wal queue size to be empty");
-            boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
-                    .isPreviousWalFinished(tableId, aliveBeIds);
-            if (walFinished) {
-                LOG.info("all wal is finished for table={}", tableId);
-                break;
-            } else if (System.currentTimeMillis() > expireTime) {
-                LOG.warn("waitWalFinished time out for table={}", tableId);
-                break;
-            } else {
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ie) {
-                    LOG.warn("failed to wait for wal for table={} when schema change", tableId, ie);
-                }
-            }
-        }
-        Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
-        LOG.info("unblock group commit for table={} when schema change", tableId);
-    }
-
     private void onFinished(OlapTable tbl) {
         // replace the origin index with shadow index, set index state as NORMAL
         for (Partition partition : tbl.getPartitions()) {
@@ -677,8 +650,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             }
             tbl.getIndexMetaByIndexId(shadowIdxId).setMaxColUniqueId(maxColUniqueId);
-            LOG.debug("originIdxId:{}, shadowIdxId:{}, maxColUniqueId:{}, indexSchema:{}",
-                    originIdxId, shadowIdxId, maxColUniqueId,  indexSchemaMap.get(shadowIdxId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("originIdxId:{}, shadowIdxId:{}, maxColUniqueId:{}, indexSchema:{}",
+                        originIdxId, shadowIdxId, maxColUniqueId,  indexSchemaMap.get(shadowIdxId));
+            }
 
             tbl.deleteIndexInfo(originIdxName);
             // the shadow index name is '__doris_shadow_xxx', rename it to origin name 'xxx'

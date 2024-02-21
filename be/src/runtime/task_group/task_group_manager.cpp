@@ -89,26 +89,29 @@ void TaskGroupManager::get_query_scheduler(uint64_t tg_id,
     }
 }
 
-Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info,
-                                                  ExecEnv* exec_env) {
+void TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info,
+                                                ExecEnv* exec_env) {
     uint64_t tg_id = tg_info->id;
     std::string tg_name = tg_info->name;
     int cpu_hard_limit = tg_info->cpu_hard_limit;
     uint64_t cpu_shares = tg_info->cpu_share;
     bool enable_cpu_hard_limit = tg_info->enable_cpu_hard_limit;
+    int scan_thread_num = tg_info->scan_thread_num;
 
     std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
     // step 1: init cgroup cpu controller
     CgroupCpuCtl* cg_cu_ctl_ptr = nullptr;
-    if (_cgroup_ctl_map.find(tg_id) == _cgroup_ctl_map.end()) {
+    if (config::doris_cgroup_cpu_path != "" &&
+        _cgroup_ctl_map.find(tg_id) == _cgroup_ctl_map.end()) {
         std::unique_ptr<CgroupCpuCtl> cgroup_cpu_ctl = std::make_unique<CgroupV1CpuCtl>(tg_id);
         Status ret = cgroup_cpu_ctl->init();
         if (ret.ok()) {
             cg_cu_ctl_ptr = cgroup_cpu_ctl.get();
             _cgroup_ctl_map.emplace(tg_id, std::move(cgroup_cpu_ctl));
+            LOG(INFO) << "[upsert wg thread pool] cgroup init success";
         } else {
-            return Status::InternalError<false>("cgroup init failed, gid={}, reason={}", tg_id,
-                                                ret.to_string());
+            LOG(INFO) << "[upsert wg thread pool] cgroup init failed, gid= " << tg_id
+                      << ", reason=" << ret.to_string();
         }
     }
 
@@ -127,7 +130,7 @@ Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_i
         if (ret.ok()) {
             _tg_sche_map.emplace(tg_id, std::move(pipeline_task_scheduler));
         } else {
-            return Status::InternalError<false>("task scheduler start failed, gid={}", tg_id);
+            LOG(INFO) << "[upsert wg thread pool] task scheduler start failed, gid= " << tg_id;
         }
     }
 
@@ -139,8 +142,11 @@ Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_i
         if (ret.ok()) {
             _tg_scan_sche_map.emplace(tg_id, std::move(scan_scheduler));
         } else {
-            return Status::InternalError<false>("scan scheduler start failed, gid={}", tg_id);
+            LOG(INFO) << "[upsert wg thread pool] scan scheduler start failed, gid=" << tg_id;
         }
+    }
+    if (scan_thread_num > 0 && _tg_scan_sche_map.find(tg_id) != _tg_scan_sche_map.end()) {
+        _tg_scan_sche_map.at(tg_id)->reset_thread_num(scan_thread_num);
     }
 
     // step 4: init non-pipe scheduler
@@ -153,31 +159,33 @@ Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_i
                            .set_cgroup_cpu_ctl(cg_cu_ctl_ptr)
                            .build(&thread_pool);
         if (!ret.ok()) {
-            LOG(INFO) << "create non-pipline thread pool failed";
+            LOG(INFO) << "[upsert wg thread pool] create non-pipline thread pool failed, gid="
+                      << tg_id;
         } else {
             _non_pipe_thread_pool_map.emplace(tg_id, std::move(thread_pool));
         }
     }
 
     // step 5: update cgroup cpu if needed
-    if (enable_cpu_hard_limit) {
-        if (cpu_hard_limit > 0) {
-            _cgroup_ctl_map.at(tg_id)->update_cpu_hard_limit(cpu_hard_limit);
-            _cgroup_ctl_map.at(tg_id)->update_cpu_soft_limit(CPU_SOFT_LIMIT_DEFAULT_VALUE);
+    if (_cgroup_ctl_map.find(tg_id) != _cgroup_ctl_map.end()) {
+        if (enable_cpu_hard_limit) {
+            if (cpu_hard_limit > 0) {
+                _cgroup_ctl_map.at(tg_id)->update_cpu_hard_limit(cpu_hard_limit);
+                _cgroup_ctl_map.at(tg_id)->update_cpu_soft_limit(CPU_SOFT_LIMIT_DEFAULT_VALUE);
+            } else {
+                LOG(INFO) << "[upsert wg thread pool] enable cpu hard limit but value is illegal: "
+                          << cpu_hard_limit << ", gid=" << tg_id;
+            }
         } else {
-            return Status::InternalError<false>("enable cpu hard limit but value is illegal");
+            if (config::enable_cgroup_cpu_soft_limit) {
+                _cgroup_ctl_map.at(tg_id)->update_cpu_soft_limit(cpu_shares);
+                _cgroup_ctl_map.at(tg_id)->update_cpu_hard_limit(
+                        CPU_HARD_LIMIT_DEFAULT_VALUE); // disable cpu hard limit
+            }
         }
-    } else {
-        if (config::enable_cgroup_cpu_soft_limit) {
-            _cgroup_ctl_map.at(tg_id)->update_cpu_soft_limit(cpu_shares);
-            _cgroup_ctl_map.at(tg_id)->update_cpu_hard_limit(
-                    CPU_HARD_LIMIT_DEFAULT_VALUE); // disable cpu hard limit
-        }
+        _cgroup_ctl_map.at(tg_id)->get_cgroup_cpu_info(&(tg_info->cgroup_cpu_shares),
+                                                       &(tg_info->cgroup_cpu_hard_limit));
     }
-    _cgroup_ctl_map.at(tg_id)->get_cgroup_cpu_info(&(tg_info->cgroup_cpu_shares),
-                                                   &(tg_info->cgroup_cpu_hard_limit));
-
-    return Status::OK();
 }
 
 void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {

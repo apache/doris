@@ -434,7 +434,7 @@ build_protobuf() {
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -Dprotobuf_BUILD_SHARED_LIBS=OFF \
         -Dprotobuf_BUILD_TESTS=OFF \
-        -Dprotobuf_WITH_ZLIB_DEFAULT=ON \
+        -DZLIB_LIBRARY="${TP_LIB_DIR}/libz.a" \
         -Dprotobuf_ABSL_PROVIDER=package \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ../..
 
@@ -1074,8 +1074,6 @@ build_arrow() {
     strip_lib libarrow.a
     strip_lib libjemalloc_arrow.a
     strip_lib libparquet.a
-
-    cp -rf "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a" "${TP_INSTALL_DIR}/lib64/libjemalloc.a" # TODO delete
 }
 
 # abseil

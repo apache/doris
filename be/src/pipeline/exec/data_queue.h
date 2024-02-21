@@ -52,7 +52,7 @@ public:
     bool is_finish(int child_idx = 0);
     bool is_all_finish();
 
-    bool has_enough_space_to_push(int child_idx = 0);
+    bool has_enough_space_to_push();
     bool has_data_or_finished(int child_idx = 0);
     bool remaining_has_data();
 

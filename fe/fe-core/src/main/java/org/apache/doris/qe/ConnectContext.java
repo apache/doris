@@ -1125,11 +1125,15 @@ public class ConnectContext {
                     .getBackendsByClusterName(cloudClusterName);
             AtomicBoolean hasAliveBe = new AtomicBoolean(false);
             bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
-                LOG.debug("get a clusterName {}, it's has more than one alive be {}", clusterName, backend);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", clusterName, backend);
+                }
                 hasAliveBe.set(true);
             });
             if (hasAliveBe.get()) {
-                LOG.debug("set context cluster name {}", cloudClusterName);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("set context cluster name {}", cloudClusterName);
+                }
                 return cloudClusterName;
             }
         }
@@ -1193,4 +1197,3 @@ public class ConnectContext {
         return this.sessionVariable.getNetWriteTimeout();
     }
 }
-

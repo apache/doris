@@ -18,9 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.common.Config;
-import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
@@ -480,4 +478,3 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         return HiveMetaStoreClientHelper.ugiDoAs(hiveConf, action);
     }
 }
-

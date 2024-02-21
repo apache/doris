@@ -52,7 +52,9 @@ public class LimitOutputStream extends OutputStream {
             throw new IOException("OutputStream is null");
         }
         speed = limitspeed;
-        LOG.debug("LimitOutputStream limit speed: {}", speed);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LimitOutputStream limit speed: {}", speed);
+        }
         this.out = out;
         bytesWriteTotal = 0;
         bstart = false;

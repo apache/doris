@@ -83,6 +83,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
@@ -174,9 +175,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     .build();
 
             while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
-                LOG.debug("retryTime:{}, beginTxnRequest:{}", retryTime, beginTxnRequest);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, beginTxnRequest:{}", retryTime, beginTxnRequest);
+                }
                 beginTxnResponse = MetaServiceProxy.getInstance().beginTxn(beginTxnRequest);
-                LOG.debug("retryTime:{}, beginTxnResponse:{}", retryTime, beginTxnResponse);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, beginTxnResponse:{}", retryTime, beginTxnResponse);
+                }
 
                 if (beginTxnResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                     break;
@@ -274,9 +279,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         try {
             while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
-                LOG.debug("retryTime:{}, commitTxnRequest:{}", retryTime, commitTxnRequest);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, commitTxnRequest:{}", retryTime, commitTxnRequest);
+                }
                 commitTxnResponse = MetaServiceProxy.getInstance().commitTxn(commitTxnRequest);
-                LOG.debug("retryTime:{}, commitTxnResponse:{}", retryTime, commitTxnResponse);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, commitTxnResponse:{}", retryTime, commitTxnResponse);
+                }
                 if (commitTxnResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                     break;
                 }
@@ -362,10 +371,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         int retryTime = 0;
         try {
             while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
-                LOG.debug("retryTime:{}, abortTxnRequest:{}", retryTime, abortTxnRequest);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, abortTxnRequest:{}", retryTime, abortTxnRequest);
+                }
                 abortTxnResponse = MetaServiceProxy
                         .getInstance().abortTxn(abortTxnRequest);
-                LOG.debug("retryTime:{}, abortTxnResponse:{}", retryTime, abortTxnResponse);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, abortTxnResponse:{}", retryTime, abortTxnResponse);
+                }
                 if (abortTxnResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                     break;
                 }
@@ -410,10 +423,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         try {
             while (retryTime < Config.cloud_meta_service_rpc_failed_retry_times) {
-                LOG.debug("retyTime:{}, abortTxnRequest:{}", retryTime, abortTxnRequest);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retyTime:{}, abortTxnRequest:{}", retryTime, abortTxnRequest);
+                }
                 abortTxnResponse = MetaServiceProxy
                         .getInstance().abortTxn(abortTxnRequest);
-                LOG.debug("retryTime:{}, abortTxnResponse:{}", retryTime, abortTxnResponse);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, abortTxnResponse:{}", retryTime, abortTxnResponse);
+                }
                 if (abortTxnResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                     break;
                 }
@@ -560,9 +577,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         try {
             // 5 times retry is enough for clean label
             while (retryTime < 5) {
-                LOG.debug("retryTime:{}, cleanTxnLabel:{}", retryTime, cleanTxnLabelRequest);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, cleanTxnLabel:{}", retryTime, cleanTxnLabelRequest);
+                }
                 cleanTxnLabelResponse = MetaServiceProxy.getInstance().cleanTxnLabel(cleanTxnLabelRequest);
-                LOG.debug("retryTime:{}, cleanTxnLabel:{}", retryTime, cleanTxnLabelResponse);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, cleanTxnLabel:{}", retryTime, cleanTxnLabelResponse);
+                }
                 if (cleanTxnLabelResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                     break;
                 }
@@ -773,6 +794,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public List<List<String>> getDbTransInfo(Long dbId, boolean running, int limit) throws AnalysisException {
+        throw new AnalysisException(NOT_SUPPORTED_MSG);
+    }
+
+    @Override
+    public Map<Long, List<Long>> getDbRunningTransInfo(long dbId) throws AnalysisException {
         throw new AnalysisException(NOT_SUPPORTED_MSG);
     }
 

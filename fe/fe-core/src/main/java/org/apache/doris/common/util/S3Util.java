@@ -92,7 +92,7 @@ public class S3Util {
                 // use virtual hosted-style access
                 .serviceConfiguration(S3Configuration.builder()
                         .chunkedEncodingEnabled(false)
-                        .pathStyleAccessEnabled(false)
+                        .pathStyleAccessEnabled(true)
                         .build())
                 .build();
     }
