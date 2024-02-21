@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
@@ -47,7 +46,6 @@ import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * translate runtime filter
@@ -58,11 +56,6 @@ public class RuntimeFilterTranslator {
 
     public RuntimeFilterTranslator(RuntimeFilterContext context) {
         this.context = context;
-        context.generatePhysicalHashJoinToRuntimeFilter();
-    }
-
-    public Set<RuntimeFilter> getRuntimeFilterOfHashJoinNode(AbstractPhysicalJoin join) {
-        return context.getRuntimeFilterOnHashJoinNode(join);
     }
 
     public RuntimeFilterContext getContext() {
