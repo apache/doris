@@ -43,7 +43,6 @@ public:
         offsets_ptr = nullptr;
     }
 
-
     const UInt8* map_nullmap_data = nullptr;
     const ColumnMap* map_col = nullptr;
     const ColumnArray::Offsets64* offsets_ptr = nullptr;
