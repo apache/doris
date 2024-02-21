@@ -108,6 +108,75 @@ public:
     void set_base_compaction_cnt(int64_t cnt) { _base_compaction_cnt = cnt; }
     void set_cumulative_compaction_cnt(int64_t cnt) { _cumulative_compaction_cnt = cnt; }
     void set_cumulative_layer_point(int64_t new_point);
+    
+    /*
+    int64_t base_compaction_cnt() const { return _base_compaction_cnt; }
+    void set_base_compaction_cnt(int64_t cnt) { _base_compaction_cnt = cnt; }
+    int64_t cumulative_compaction_cnt() const { return _cumulative_compaction_cnt; }
+    void set_cumulative_compaction_cnt(int64_t cnt) { _cumulative_compaction_cnt = cnt; }
+    int64_t full_compaction_cnt() const { return _full_compaction_cnt; }
+    void set_full_compaction_cnt(int64_t cnt) { _full_compaction_cnt = cnt; }
+    */
+
+    int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
+    void set_last_cumu_compaction_failure_time(int64_t millis) {
+        _last_cumu_compaction_failure_millis = millis;
+    }
+
+    int64_t last_base_compaction_failure_time() { return _last_base_compaction_failure_millis; }
+    void set_last_base_compaction_failure_time(int64_t millis) {
+        _last_base_compaction_failure_millis = millis;
+    }
+
+    int64_t last_full_compaction_failure_time() { return _last_full_compaction_failure_millis; }
+    void set_last_full_compaction_failure_time(int64_t millis) {
+        _last_full_compaction_failure_millis = millis;
+    }
+
+    int64_t last_cumu_compaction_success_time() { return _last_cumu_compaction_success_millis; }
+    void set_last_cumu_compaction_success_time(int64_t millis) {
+        _last_cumu_compaction_success_millis = millis;
+    }
+
+    int64_t last_base_compaction_success_time() { return _last_base_compaction_success_millis; }
+    void set_last_base_compaction_success_time(int64_t millis) {
+        _last_base_compaction_success_millis = millis;
+    }
+
+    int64_t last_full_compaction_success_time() { return _last_full_compaction_success_millis; }
+    void set_last_full_compaction_success_time(int64_t millis) {
+        _last_full_compaction_success_millis = millis;
+    }
+
+    int64_t last_base_compaction_schedule_time() { return _last_base_compaction_schedule_millis; }
+    void set_last_base_compaction_schedule_time(int64_t millis) {
+        _last_base_compaction_schedule_millis = millis;
+    }
+
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
+
+    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
+                          bool include_stale = false) {
+        std::shared_lock rlock(_meta_lock);
+        for (auto& [v, rs] : _rs_version_map) {
+            visitor(rs);
+        }
+        if (!include_stale) return;
+        for (auto& [v, rs] : _stale_rs_version_map) {
+            visitor(rs);
+        }
+    }
+
+    inline Version max_version() const {
+        std::shared_lock rdlock(_meta_lock);
+        return _tablet_meta->max_version();
+    }
+
+    int64_t base_size() const { return _base_size; }
+
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();
+
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
 
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
@@ -135,10 +204,27 @@ private:
     // Number of sorted arrays (e.g. for rowset with N segments, if rowset is overlapping, delta is N, otherwise 1) after cumu point
     std::atomic<int64_t> _approximate_cumu_num_deltas {-1};
 
+    // timestamp of last cumu compaction failure
+    std::atomic<int64_t> _last_cumu_compaction_failure_millis;
+    // timestamp of last base compaction failure
+    std::atomic<int64_t> _last_base_compaction_failure_millis;
+    // timestamp of last full compaction failure
+    std::atomic<int64_t> _last_full_compaction_failure_millis;
+    // timestamp of last cumu compaction success
+    std::atomic<int64_t> _last_cumu_compaction_success_millis;
+    // timestamp of last base compaction success
+    std::atomic<int64_t> _last_base_compaction_success_millis;
+    // timestamp of last full compaction success
+    std::atomic<int64_t> _last_full_compaction_success_millis;
+    // timestamp of last base compaction schedule time
+    std::atomic<int64_t> _last_base_compaction_schedule_millis;
+
     int64_t _base_compaction_cnt = 0;
     int64_t _cumulative_compaction_cnt = 0;
     int64_t _max_version = -1;
     int64_t _base_size = 0;
 };
+
+using CloudTabletSPtr = std::shared_ptr<CloudTablet>;
 
 } // namespace doris

@@ -158,6 +158,13 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("31", metric->to_string().c_str());
     }
     {
+        DorisMetrics::instance()->full_compaction_deltas_total->increment(30);
+        auto metric = server_entity->get_metric("full_compaction_deltas_total",
+                                                "compaction_deltas_total");
+        EXPECT_TRUE(metric != nullptr);
+        EXPECT_STREQ("30", metric->to_string().c_str());
+    }
+    {
         DorisMetrics::instance()->base_compaction_bytes_total->increment(32);
         auto metric =
                 server_entity->get_metric("base_compaction_bytes_total", "compaction_bytes_total");
@@ -170,6 +177,12 @@ TEST_F(DorisMetricsTest, Normal) {
                                                 "compaction_bytes_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("33", metric->to_string().c_str());
+    }
+        DorisMetrics::instance()->full_compaction_bytes_total->increment(32);
+        auto metric =
+                server_entity->get_metric("full_compaction_bytes_total", "compaction_bytes_total");
+        EXPECT_TRUE(metric != nullptr);
+        EXPECT_STREQ("32", metric->to_string().c_str());
     }
     // Gauge
     {

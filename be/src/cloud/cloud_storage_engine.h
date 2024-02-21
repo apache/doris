@@ -19,7 +19,12 @@
 
 #include <memory>
 
+//#include "cloud/cloud_cumulative_compaction.h"
+//#include "cloud/cloud_base_compaction.h"
+//#include "cloud/cloud_full_compaction.h"
+#include "cloud/cloud_tablet.h"
 #include "olap/storage_engine.h"
+#include "cloud/cloud_cumulative_compaction_policy.h"
 
 namespace doris {
 namespace cloud {
@@ -27,6 +32,9 @@ class CloudMetaMgr;
 }
 
 class CloudTabletMgr;
+class CloudCumulativeCompaction;
+class CloudBaseCompaction;
+class CloudFullCompaction;
 
 class CloudStorageEngine final : public BaseStorageEngine {
 public:
@@ -61,10 +69,24 @@ public:
         _latest_fs = fs;
     }
 
+    void get_cumu_compaction(int64_t tablet_id, std::vector<std::shared_ptr<CloudCumulativeCompaction>>& res);
+
+    CloudSizeBasedCumulativeCompactionPolicy* cumu_compaction_policy() const {
+        return _cumulative_compaction_policy.get();
+    }
+
 private:
     void _refresh_s3_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
     void _sync_tablets_thread_callback();
+    void _compaction_tasks_producer_callback();
+    std::vector<CloudTabletSPtr> _generate_cloud_compaction_tasks(CompactionType compaction_type, bool check_score);
+    void _adjust_compaction_thread_num();
+    Status submit_compaction_task(const CloudTabletSPtr& tablet, CompactionType compaction_type);
+    Status _submit_base_compaction_task(const CloudTabletSPtr& tablet);
+    Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
+    Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
+    void _lease_compaction_thread_callback();
 
     std::atomic_bool _stopped {false};
     CountDownLatch _stop_background_threads_latch {1};
@@ -77,6 +99,22 @@ private:
     io::FileSystemSPtr _latest_fs;
 
     std::vector<scoped_refptr<Thread>> _bg_threads;
+
+    // ATTN: Compactions in maps depend on `CloudTabletMgr` and `CloudMetaMgr`
+    mutable std::mutex _compaction_mtx;
+    // tablet_id -> submitted base compaction, guarded by `_compaction_mtx`
+    std::unordered_map<int64_t, std::shared_ptr<CloudBaseCompaction>> _submitted_base_compactions;
+    // tablet_id -> submitted full compaction, guarded by `_compaction_mtx`
+    std::unordered_map<int64_t, std::shared_ptr<CloudFullCompaction>> _submitted_full_compactions;
+    // Store tablets which are preparing cumu compaction, guarded by `_compaction_mtx`
+    std::unordered_set<int64_t> _tablet_preparing_cumu_compaction;
+    // tablet_id -> submitted cumu compactions, guarded by `_compaction_mtx`
+    std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>> _submitted_cumu_compactions;
+
+    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+
+    std::shared_ptr<CloudSizeBasedCumulativeCompactionPolicy> _cumulative_compaction_policy;
 };
 
 } // namespace doris
