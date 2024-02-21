@@ -57,8 +57,10 @@ public class EliminateSemiJoin extends OneRewriteRuleFactory {
                     } else {
                         return null;
                     }
-                    if (joinType == JoinType.LEFT_SEMI_JOIN && condition
-                            || (joinType == JoinType.LEFT_ANTI_JOIN && !condition)) {
+                    if (joinType == JoinType.LEFT_SEMI_JOIN && condition) {
+                        // the right table may be empty, we need keep plan unchanged
+                        return null;
+                    } else if (joinType == JoinType.LEFT_ANTI_JOIN && !condition) {
                         return join.left();
                     } else if (joinType == JoinType.LEFT_SEMI_JOIN && !condition
                             || (joinType == JoinType.LEFT_ANTI_JOIN && condition)) {
