@@ -272,7 +272,6 @@ terminal String
     KW_BINLOG,
     KW_BITMAP,
     KW_BITMAP_UNION,
-    KW_NGRAM_BF,
     KW_BLOB,
     KW_BOOLEAN,
     KW_BRIEF,
@@ -481,6 +480,7 @@ terminal String
     KW_NEGATIVE,
     KW_NEVER,
     KW_NEXT,
+    KW_NGRAM_BF,
     KW_NO,
     KW_NOT,
     KW_NULL,
@@ -7779,6 +7779,8 @@ keyword ::=
     | KW_PERIOD:id
     {: RESULT = id; :}
     | KW_PERCENT:id
+    {: RESULT = id; :}
+    | KW_BELONG:id
     {: RESULT = id; :}
     ;
 
