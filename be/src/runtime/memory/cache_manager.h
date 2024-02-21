@@ -20,6 +20,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_policy.h"
 #include "util/runtime_profile.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -54,9 +55,29 @@ public:
 
     void clear_once(CachePolicy::CacheType type);
 
+    template <bool prune_stale>
+    bool need_prune() {
+        int64_t now = UnixSeconds();
+        std::lock_guard<std::mutex> l(_caches_lock);
+        int64_t& last_timestamp =
+                prune_stale ? _last_prune_stale_timestamp : _last_prune_all_timestamp;
+        if (now - last_timestamp > config::cache_prune_interval_sec) {
+            last_timestamp = now;
+            return true;
+        }
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] cache no prune {}, last prune less than interval {}, now {}, last "
+                "timestamp {}",
+                prune_stale ? "stale" : "all", config::cache_prune_interval_sec, now,
+                last_timestamp);
+        return false;
+    }
+
 private:
     std::mutex _caches_lock;
     std::list<CachePolicy*> _caches;
+    int64_t _last_prune_stale_timestamp = 0;
+    int64_t _last_prune_all_timestamp = 0;
 };
 
 } // namespace doris
