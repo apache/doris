@@ -1253,7 +1253,7 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
-                    if (st.is<DATA_QUALITY_ERROR>()) {
+                    if (st.is_not_found()) {
                         RETURN_IF_ERROR(_append_error_msg(nullptr, st.to_string(), "", nullptr));
                         ADVANCE_ROW();
                         continue;
@@ -1698,11 +1698,11 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         Status st;
         if (i < _parsed_jsonpaths.size()) {
             st = JsonFunctions::extract_from_object(*value, _parsed_jsonpaths[i], &json_value);
-            if (!st.ok() && !st.is<DATA_QUALITY_ERROR>()) {
+            if (!st.ok() && !st.is_not_found()) {
                 return st;
             }
         }
-        if (i >= _parsed_jsonpaths.size() || st.is<DATA_QUALITY_ERROR>()) {
+        if (i >= _parsed_jsonpaths.size() || st.is_not_found()) {
             // not match in jsondata, filling with default value
             RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
             if (!(*valid)) {
