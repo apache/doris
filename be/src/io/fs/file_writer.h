@@ -35,6 +35,8 @@ struct FileWriterOptions {
     bool is_cold_data = false;
     bool sync_file_data = true;        // Whether flush data into storage system
     int64_t file_cache_expiration = 0; // Absolute time
+    // Whether to create empty file if no content
+    bool create_empty_file = true;
 };
 
 class FileWriter {
@@ -77,6 +79,7 @@ protected:
     std::shared_ptr<FileSystem> _fs;
     bool _closed = false;
     bool _opened = false;
+    bool _create_empty_file = true;
 };
 
 using FileWriterPtr = std::unique_ptr<FileWriter>;

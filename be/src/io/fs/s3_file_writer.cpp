@@ -102,6 +102,8 @@ S3FileWriter::S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs,
         _cache_key = IFileCache::hash(_path.filename().native());
         _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
     }
+
+    _create_empty_file = opts ? opts->create_empty_file : true;
 }
 
 S3FileWriter::~S3FileWriter() {
@@ -209,7 +211,7 @@ Status S3FileWriter::close() {
             auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
             DCHECK(buf != nullptr);
             buf->set_upload_to_remote([this](UploadFileBuffer& b) { _put_object(b); });
-        } else {
+        } else if (_create_empty_file) {
             // if there is no pending buffer, we need to create an empty file
             auto builder = FileBufferBuilder();
             builder.set_type(BufferType::UPLOAD)
@@ -236,9 +238,11 @@ Status S3FileWriter::close() {
             DCHECK(buf != nullptr);
         }
     }
-    _countdown_event.add_count();
-    RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
-    _pending_buf = nullptr;
+    if (_pending_buf != nullptr) {
+        _countdown_event.add_count();
+        RETURN_IF_ERROR(_pending_buf->submit(std::move(_pending_buf)));
+        _pending_buf = nullptr;
+    }
 
     DBUG_EXECUTE_IF("s3_file_writer::close", {
         RETURN_IF_ERROR(_complete());
