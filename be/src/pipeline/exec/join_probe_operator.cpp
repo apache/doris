@@ -112,13 +112,15 @@ Status JoinProbeLocalState<DependencyType, Derived>::_build_output_block(
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
-            DCHECK(mutable_columns.size() == p.row_desc().num_materialized_slots());
+            DCHECK(mutable_columns.size() == p.row_desc().num_materialized_slots())
+                    << mutable_columns.size() << " " << p.row_desc().num_materialized_slots();
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 insert_column_datas(mutable_columns[i], origin_block->get_by_position(i).column,
                                     rows);
             }
         } else {
-            DCHECK(mutable_columns.size() == p.row_desc().num_materialized_slots());
+            DCHECK(mutable_columns.size() == p.row_desc().num_materialized_slots())
+                    << mutable_columns.size() << " " << p.row_desc().num_materialized_slots();
             SCOPED_TIMER(Base::_projection_timer);
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 auto result_column_id = -1;

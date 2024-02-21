@@ -112,7 +112,7 @@ public:
 
     std::string get_name() const { return _name; }
 
-    virtual const RowDescriptor& row_desc() = 0;
+    virtual const RowDescriptor& row_desc() const = 0;
 
     int32_t id() const { return _id; }
 
@@ -133,7 +133,7 @@ public:
 
     ~OperatorBuilder() override = default;
 
-    const RowDescriptor& row_desc() override { return _node->row_desc(); }
+    const RowDescriptor& row_desc() const override { return _node->row_desc(); }
 
     NodeType* exec_node() const { return _node; }
 
@@ -151,7 +151,7 @@ public:
 
     bool is_sink() const override { return true; }
 
-    const RowDescriptor& row_desc() override { return _sink->row_desc(); }
+    const RowDescriptor& row_desc() const override { return _sink->row_desc(); }
 
     SinkType* exec_node() const { return _sink; }
 
@@ -243,7 +243,7 @@ public:
 
     const OperatorBuilderBase* operator_builder() const { return _operator_builder; }
 
-    virtual const RowDescriptor& row_desc();
+    virtual const RowDescriptor& row_desc() const;
 
     virtual std::string debug_string() const;
     virtual int32_t id() const { return _operator_builder->id(); }

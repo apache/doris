@@ -50,9 +50,6 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _serialize_data_timer = ADD_TIMER(profile(), "SerializeDataTime");
     _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
     auto& p = _parent->template cast<AggSourceOperatorX>();
-    if (p._is_streaming) {
-        _shared_state->data_queue->set_source_dependency(info.dependency);
-    }
     if (p._without_key) {
         if (p._needs_finalize) {
             _executor.get_result = std::bind<Status>(&AggLocalState::_get_without_key_result, this,
@@ -529,9 +526,8 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
 }
 
 AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                                       const DescriptorTbl& descs, bool is_streaming)
+                                       const DescriptorTbl& descs)
         : Base(pool, tnode, operator_id, descs),
-          _is_streaming(is_streaming),
           _needs_finalize(tnode.agg_node.need_finalize),
           _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 

@@ -38,7 +38,7 @@ OperatorPtr MultiCastDataStreamerSourceOperatorBuilder::build_operator() {
             this, _consumer_id, _multi_cast_data_streamer, _t_data_stream_sink);
 }
 
-const RowDescriptor& MultiCastDataStreamerSourceOperatorBuilder::row_desc() {
+const RowDescriptor& MultiCastDataStreamerSourceOperatorBuilder::row_desc() const {
     return _multi_cast_data_streamer->row_desc();
 }
 
