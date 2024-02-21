@@ -243,4 +243,18 @@ suite("test_subquery") {
     sql """drop table if exists table_20_undef_undef"""
     sql """drop table if exists table_9_undef_undef"""
 
+    sql "drop table if exists t1"
+    sql """create table t1
+                    (k1 bigint, k2 bigint)
+                    ENGINE=OLAP
+            DUPLICATE KEY(k1, k2)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(k2) BUCKETS 1
+            PROPERTIES (
+            "replication_num" = "1"
+            );"""
+    sql """insert into t1 values (1,null),(null,1),(1,2), (null,2),(1,3), (2,4), (2,5), (3,3), (3,4), (20,2), (22,3), (24,4),(null,null);"""
+    qt_select61 """SELECT * FROM t1 AS t1 WHERE EXISTS (SELECT k1 FROM t1 AS t2 WHERE t1.k1 <> t2.k1 + 7 GROUP BY k1 HAVING k1 >= 100);"""
+    qt_select62 """select * from t1 left semi join ( select * from t1 where t1.k1 < -1 ) l on true;"""
+    sql "drop table if exists t1"
 }
