@@ -19,12 +19,12 @@ suite("test_time_round") {
     qt_cast """
         with tmp as (
             select CONCAT(
-                YEAR('2024-02-06 03:37:07.157'), '-', 
+                YEAR('2024-02-06 03:37:07.157'), '-',
                 LPAD(MONTH('2024-02-06 03:37:07.157'), 2, '0'), '-',
                 LPAD(DAY('2024-02-06 03:37:07.157'), 2, '0'), ' ',
                 LPAD(HOUR('2024-02-06 03:37:07.157'), 2, '0'), ':',
                 LPAD(MINUTE('2024-02-06 03:37:07.157'), 2, '0'), ':',
-                LPAD(SECOND('2024-02-06 03:37:07.157'), 2, '0'), '.', "123456789" )
+                LPAD(SECOND('2024-02-06 03:37:07.157'), 2, '0'), '.', "123456789")
             AS generated_string)
             select generated_string, cast(generated_string as DateTime(6)) from tmp
     """

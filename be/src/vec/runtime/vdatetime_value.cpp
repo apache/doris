@@ -1988,7 +1988,6 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len,
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
                                         const cctz::time_zone* local_time_zone) {
-    LOG_INFO("whole str {}, len {}", std::string_view(date_str, len), len);
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
