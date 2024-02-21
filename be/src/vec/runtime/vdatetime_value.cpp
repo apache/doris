@@ -36,6 +36,7 @@
 #include "common/compiler_util.h"
 #include "common/config.h"
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "util/timezone_utils.h"
 #include "vec/common/int_exp.h"
@@ -1988,6 +1989,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len,
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
                                         const cctz::time_zone* local_time_zone) {
+    LOG_INFO("whole str {}, len {}", std::string_view(date_str, len), len);
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -2038,11 +2040,12 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         if (field_idx == 6) {
             // Microsecond
             const auto ms_part = ptr - start;
+            LOG_INFO("ms str {}", std::string_view(start, ptr));
             temp_val *= int_exp10(std::max(0L, 6 - ms_part));
             if constexpr (is_datetime) {
                 if (scale >= 0) {
-                    if (scale == 6 && ms_part > 6) {
-                        if (ptr < end && isdigit(*ptr) && *ptr >= '5') {
+                    if (scale == 6 && ms_part >= 6) {
+                        if (ptr <= end && isdigit(*ptr) && *ptr >= '5') {
                             temp_val += 1;
                         }
                     } else {
