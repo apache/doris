@@ -29,7 +29,7 @@ The following mainly introduces how to import local data in client.
 
 Now Doris support two way to load data from client local file:
 1. [Stream Load](../import-way/stream-load-manual.md)
-2. [MySql Load](../import-way/mysql-load-manual.md)
+2. [MySQL Load](../import-way/mysql-load-manual.md)
 
 ## Stream Load
 
@@ -224,9 +224,9 @@ public class DorisStreamLoader {
 > </dependency>
 > ```
 
-## MySql LOAD
+## MySQL Load
 <version since="dev">
-    Example of mysql load
+    Example of MySQL Load
 </version>
 
 ### Import Data
@@ -246,7 +246,7 @@ public class DorisStreamLoader {
    ````
 
 2. Import data
-   Excute fellowing sql statmeent in the mysql client to load client local file:
+   Excute fellowing sql statmeent in the MySQL client to load client local file:
 
    ```sql
    LOAD DATA
@@ -259,7 +259,7 @@ public class DorisStreamLoader {
 
 3. Wait for the import result
 
-   The MySql Load command is a synchronous command, and a successful return indicates that the import is successful. If the imported data is large, a longer waiting time may be required. Examples are as follows:
+   The MySQL Load command is a synchronous command, and a successful return indicates that the import is successful. If the imported data is large, a longer waiting time may be required. Examples are as follows:
 
    ```text
    Query OK, 1 row affected (0.17 sec)
@@ -271,5 +271,5 @@ public class DorisStreamLoader {
 
 ### Import Suggestion
 
-   - MySql Load can only import local files(which can be client local file or fe local file) and only support csv format.
+   - MySQL Load can only import local files(which can be client local file or fe local file) and only support csv format.
    - It is recommended to limit the amount of data for an import request to 1 - 2 GB. If you have a large number of local files, you can submit them concurrently in batches.

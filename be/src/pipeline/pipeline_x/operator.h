@@ -278,7 +278,7 @@ public:
 
     [[nodiscard]] int64_t limit() const { return _limit; }
 
-    [[nodiscard]] virtual const RowDescriptor& row_desc() override {
+    [[nodiscard]] const RowDescriptor& row_desc() const override {
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
     }
 

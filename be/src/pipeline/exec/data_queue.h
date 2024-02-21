@@ -35,7 +35,7 @@ class Dependency;
 class DataQueue {
 public:
     //always one is enough, but in union node it's has more children
-    DataQueue(int child_count = 1, bool is_streaming_agg = true);
+    DataQueue(int child_count = 1);
     ~DataQueue() = default;
 
     Status get_block_from_queue(std::unique_ptr<vectorized::Block>* block,
@@ -107,8 +107,6 @@ private:
     std::shared_ptr<Dependency> _source_dependency = nullptr;
     std::vector<Dependency*> _sink_dependencies;
     SpinLock _source_lock;
-
-    const bool _is_streaming_agg = true;
 };
 
 } // namespace doris::pipeline
