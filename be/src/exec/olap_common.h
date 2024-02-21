@@ -385,12 +385,12 @@ public:
     }
 
     static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
-                                  CppType* value) {
+                                CppType* value) {
         static_cast<void>(range.add_range(op, *value));
     }
 
     static void add_compound_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
-                                           CppType* value) {
+                                         CppType* value) {
         static_cast<void>(range.add_compound_value(op, *value));
     }
 
@@ -606,7 +606,8 @@ Status ColumnValueRange<primitive_type>::add_compound_value(SQLFilterOp op, CppT
 }
 
 template <PrimitiveType primitive_type>
-Status ColumnValueRange<primitive_type>::add_match_value(MatchType match_type, const CppType& value) {
+Status ColumnValueRange<primitive_type>::add_match_value(MatchType match_type,
+                                                         const CppType& value) {
     std::pair<MatchType, CppType> match_value(match_type, value);
     _match_values.insert(match_value);
     _contain_null = false;
