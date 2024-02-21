@@ -17,12 +17,12 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.catalog.AuthType;
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.security.authentication.AuthType;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.datasource.CatalogProperty;
-import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.HMSCachedClient;
+import org.apache.doris.datasource.hive.HMSClientException;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -61,9 +61,9 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
         hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                 String.valueOf(Config.hive_metastore_client_timeout_second));
         String authentication = catalogProperty.getOrDefault(
-                HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
+                AuthenticationConfig.HADOOP_SECURITY_AUTHENTICATION, "");
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            hiveConf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
+            hiveConf.set(AuthenticationConfig.HADOOP_SECURITY_AUTHENTICATION, authentication);
             UserGroupInformation.setConfiguration(hiveConf);
             try {
                 /**
@@ -72,8 +72,8 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
                  * it will relogin when TGT is expired, so we don't need to relogin manually.
                  */
                 UserGroupInformation.loginUserFromKeytab(
-                        catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_PRINCIPAL, ""),
-                        catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_KEYTAB, ""));
+                        catalogProperty.getOrDefault(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL, ""),
+                        catalogProperty.getOrDefault(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB, ""));
             } catch (IOException e) {
                 throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
             }

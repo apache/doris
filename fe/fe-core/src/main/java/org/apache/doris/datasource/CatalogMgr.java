@@ -789,9 +789,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return ((ExternalCatalog) catalog).tableExistInLocal(dbName, tableName);
     }
 
-    public void loadExternalTableFromEvent(String dbName, String tableName,
-                                           String catalogName, long updateTime,
-                                           boolean ignoreIfExists) throws DdlException {
+    public void registerExternalTableFromEvent(String dbName, String tableName,
+                                               String catalogName, long updateTime,
+                                               boolean ignoreIfExists) throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
@@ -814,7 +814,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
-        // TODO：防止event和catalog建表的tableID冲突
+        // TODO：avoid tableID conflict when use event or catalog to create table
         long tblId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tableName);
         // -1L means it will be dropped later, ignore
         if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {

@@ -18,14 +18,14 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.CatalogTable;
+import org.apache.doris.datasource.TableMetadata;
 
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 
 import java.util.List;
 import java.util.Map;
 
-public class HiveCatalogTable implements CatalogTable {
+public class HiveTableMetadata implements TableMetadata {
     private String dbName;
     private String tableName;
     private List<Column> columns;
@@ -35,13 +35,13 @@ public class HiveCatalogTable implements CatalogTable {
     private Map<String, String> properties;
     // private String viewSql;
 
-    public HiveCatalogTable(String dbName,
-                            String tblName,
-                            List<Column> columns,
-                            List<FieldSchema> partitionKeys,
-                            Map<String, String> props,
-                            String inputFormat,
-                            String outputFormat) {
+    public HiveTableMetadata(String dbName,
+                             String tblName,
+                             List<Column> columns,
+                             List<FieldSchema> partitionKeys,
+                             Map<String, String> props,
+                             String inputFormat,
+                             String outputFormat) {
         this.dbName = dbName;
         this.tableName = tblName;
         this.columns = columns;
@@ -82,13 +82,13 @@ public class HiveCatalogTable implements CatalogTable {
         return outputFormat;
     }
 
-    public static HiveCatalogTable of(String dbName,
-                                      String tblName,
-                                      List<Column> columns,
-                                      List<FieldSchema> partitionKeys,
-                                      Map<String, String> props,
-                                      String inputFormat,
-                                      String outputFormat) {
-        return new HiveCatalogTable(dbName, tblName, columns, partitionKeys, props, inputFormat, outputFormat);
+    public static HiveTableMetadata of(String dbName,
+                                       String tblName,
+                                       List<Column> columns,
+                                       List<FieldSchema> partitionKeys,
+                                       Map<String, String> props,
+                                       String inputFormat,
+                                       String outputFormat) {
+        return new HiveTableMetadata(dbName, tblName, columns, partitionKeys, props, inputFormat, outputFormat);
     }
 }

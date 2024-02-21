@@ -17,14 +17,9 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
-
-import java.util.Comparator;
-import java.util.List;
-import java.util.stream.Collectors;
 
 public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable> {
 
@@ -35,10 +30,5 @@ public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable
     @Override
     protected PaimonExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new PaimonExternalTable(tblId, tableName, name, (PaimonExternalCatalog) extCatalog);
-    }
-
-    public List<PaimonExternalTable> getTablesOnIdOrder() {
-        // Sort the name instead, because the id may change.
-        return getTables().stream().sorted(Comparator.comparing(TableIf::getName)).collect(Collectors.toList());
     }
 }

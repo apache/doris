@@ -18,8 +18,8 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.datasource.CatalogDatabase;
-import org.apache.doris.datasource.CatalogTable;
+import org.apache.doris.datasource.DatabaseMetadata;
+import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
 import org.apache.hadoop.hive.common.ValidWriteIdList;
@@ -83,11 +83,11 @@ public interface HMSCachedClient {
 
     String getCatalogLocation(String catalogName);
 
-    void createDatabase(CatalogDatabase catalogDatabase);
+    void createDatabase(DatabaseMetadata catalogDatabase);
 
     void dropDatabase(String dbName);
 
     void dropTable(String dbName, String tableName);
 
-    void createTable(CatalogTable catalogTable, boolean ignoreIfExists);
+    void createTable(TableMetadata catalogTable, boolean ignoreIfExists);
 }

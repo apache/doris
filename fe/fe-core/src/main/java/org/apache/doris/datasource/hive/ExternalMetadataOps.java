@@ -26,19 +26,57 @@ import org.apache.doris.common.UserException;
 
 import java.util.List;
 
+/**
+ * all external metadata operations use this interface
+ */
 public interface ExternalMetadataOps {
 
+    /**
+     * create db in external metastore
+     * @param stmt
+     * @throws DdlException
+     */
     void createDb(CreateDbStmt stmt) throws DdlException;
 
+    /**
+     * drop db in external metastore
+     * @param stmt
+     * @throws DdlException
+     */
     void dropDb(DropDbStmt stmt) throws DdlException;
 
+    /**
+     *
+     * @param stmt
+     * @throws UserException
+     */
     void createTable(CreateTableStmt stmt) throws UserException;
 
+    /**
+     *
+     * @param stmt
+     * @throws DdlException
+     */
     void dropTable(DropTableStmt stmt) throws DdlException;
 
+    /**
+     *
+     * @return
+     */
     List<String> listDatabaseNames();
 
+    /**
+     *
+     * @param db
+     * @return
+     */
     List<String> listTableNames(String db);
 
+    /**
+     *
+     * @param dbName
+     * @param tblName
+     * @return
+     */
     boolean tableExist(String dbName, String tblName);
 }

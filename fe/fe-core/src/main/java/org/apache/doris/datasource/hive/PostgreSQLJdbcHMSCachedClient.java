@@ -20,8 +20,8 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.CatalogDatabase;
-import org.apache.doris.datasource.CatalogTable;
+import org.apache.doris.datasource.DatabaseMetadata;
+import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -507,7 +507,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
         throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
-    public void createDatabase(CatalogDatabase database) {
+    public void createDatabase(DatabaseMetadata database) {
         throw new NotImplementedException("PostgreSQL createDatabase not implemented");
     }
 
@@ -515,7 +515,7 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
         throw new NotImplementedException("PostgreSQL dropDatabase not implemented");
     }
 
-    public void createTable(CatalogTable hiveTable, boolean ignoreIfExists) {
+    public void createTable(TableMetadata hiveTable, boolean ignoreIfExists) {
         throw new NotImplementedException("PostgreSQL createTable not implemented");
     }
 

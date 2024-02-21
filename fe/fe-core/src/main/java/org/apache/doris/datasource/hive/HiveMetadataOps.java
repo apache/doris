@@ -23,13 +23,12 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
-import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.NamedExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
-import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 
@@ -83,7 +82,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         Map<String, String> properties = stmt.getProperties();
         long id = Env.getCurrentEnv().getNextId();
         try {
-            HiveCatalogDatabase catalogDatabase = new HiveCatalogDatabase();
+            HiveDatabaseMetadata catalogDatabase = new HiveDatabaseMetadata();
             catalogDatabase.setDbName(fullDbName);
             catalogDatabase.setProperties(properties);
             if (properties.containsKey("location_uri")) {
@@ -123,7 +122,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                     "org.apache.hadoop.mapred.TextInputFormat"); // 定义成可配置的常量
             String outputFormat = props.getOrDefault("output_format",
                     "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"); // 定义成可配置的常量
-            HiveCatalogTable catalogTable = HiveCatalogTable.of(dbName,
+            HiveTableMetadata catalogTable = HiveTableMetadata.of(dbName,
                     tblName,
                     stmt.getColumns(),
                     parsePartitionKeys(props),

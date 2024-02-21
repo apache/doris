@@ -17,21 +17,11 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.Comparator;
-import java.util.List;
-import java.util.stream.Collectors;
-
 public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTable> {
-
-    private static final Logger LOG = LogManager.getLogger(IcebergExternalDatabase.class);
 
     public IcebergExternalDatabase(ExternalCatalog extCatalog, Long id, String name) {
         super(extCatalog, id, name, InitDatabaseLog.Type.ICEBERG);
@@ -40,10 +30,5 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
     @Override
     protected IcebergExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new IcebergExternalTable(tblId, tableName, name, (IcebergExternalCatalog) extCatalog);
-    }
-
-    public List<IcebergExternalTable> getTablesOnIdOrder() {
-        // Sort the name instead, because the id may change.
-        return getTables().stream().sorted(Comparator.comparing(TableIf::getName)).collect(Collectors.toList());
     }
 }

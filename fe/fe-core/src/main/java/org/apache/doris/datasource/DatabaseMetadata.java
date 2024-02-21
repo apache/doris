@@ -17,12 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import java.util.Map;
-
-public interface CatalogTable {
+public interface DatabaseMetadata {
     String getDbName();
-
-    String getTableName();
-
-    Map<String, String> getProperties();
 }

@@ -19,8 +19,8 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.Config;
-import org.apache.doris.datasource.CatalogDatabase;
-import org.apache.doris.datasource.CatalogTable;
+import org.apache.doris.datasource.DatabaseMetadata;
+import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
@@ -125,11 +125,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
-    public void createDatabase(CatalogDatabase db) {
+    public void createDatabase(DatabaseMetadata db) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                if (db instanceof HiveCatalogDatabase) {
-                    HiveCatalogDatabase hiveDb = (HiveCatalogDatabase) db;
+                if (db instanceof HiveDatabaseMetadata) {
+                    HiveDatabaseMetadata hiveDb = (HiveDatabaseMetadata) db;
                     ugiDoAs(() -> {
                         client.client.createDatabase(toHiveDatabase(hiveDb));
                         return null;
@@ -145,7 +145,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @NotNull
-    private static Database toHiveDatabase(HiveCatalogDatabase hiveDb) {
+    private static Database toHiveDatabase(HiveDatabaseMetadata hiveDb) {
         Database database = new Database();
         database.setName(hiveDb.getDbName());
         if (StringUtils.isNotEmpty(hiveDb.getLocationUri())) {
@@ -157,7 +157,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
-    public void createTable(CatalogTable tbl, boolean ignoreIfExists) {
+    public void createTable(TableMetadata tbl, boolean ignoreIfExists) {
         if (tableExists(tbl.getDbName(), tbl.getTableName())) {
             return;
         }
@@ -169,9 +169,9 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 // String outputFormat,
                 // Map<String, String> parameters
                 // parameters.put("", "doris created")
-                if (tbl instanceof HiveCatalogTable) {
+                if (tbl instanceof HiveTableMetadata) {
                     ugiDoAs(() -> {
-                        client.client.createTable(toHiveTable((HiveCatalogTable) tbl));
+                        client.client.createTable(toHiveTable((HiveTableMetadata) tbl));
                         return null;
                     });
                 }
@@ -184,7 +184,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         }
     }
 
-    private static Table toHiveTable(HiveCatalogTable hiveTable) {
+    private static Table toHiveTable(HiveTableMetadata hiveTable) {
         Table table = new Table();
         table.setDbName(hiveTable.getDbName());
         table.setTableName(hiveTable.getTableName());

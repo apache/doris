@@ -15,18 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hive;
-
-import org.apache.doris.datasource.CatalogDatabase;
-
-import lombok.Data;
+package org.apache.doris.datasource;
 
 import java.util.Map;
 
-@Data
-public class HiveCatalogDatabase implements CatalogDatabase {
-    private String dbName;
-    private String locationUri;
-    private Map<String, String> properties;
-    private String comment;
+public interface TableMetadata {
+    String getDbName();
+
+    String getTableName();
+
+    Map<String, String> getProperties();
 }

@@ -22,7 +22,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.AnalysisException;
@@ -33,7 +32,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.ExternalMetadataOps;
 import org.apache.doris.external.iceberg.util.DorisTypeToType;
 import org.apache.doris.external.iceberg.util.DorisTypeVisitor;
-import org.apache.doris.external.iceberg.util.IcebergUtils;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
