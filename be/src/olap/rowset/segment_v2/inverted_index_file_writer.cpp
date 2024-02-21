@@ -28,8 +28,9 @@
 namespace doris::segment_v2 {
 
 std::string InvertedIndexFileWriter::get_index_file_path(const TabletIndex* index_meta) const {
-    return _index_file_dir /
-           InvertedIndexDescriptor::get_index_file_name(_segment_file_name, index_meta->index_id(),
+
+    return InvertedIndexDescriptor::get_index_file_name(_index_file_dir / _segment_file_name,
+                                                        index_meta->index_id(),
                                                         index_meta->get_index_suffix());
 }
 
