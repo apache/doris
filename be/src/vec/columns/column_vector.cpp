@@ -111,12 +111,6 @@ void ColumnVector<T>::update_hash_with_value(size_t n, SipHash& hash) const {
 }
 
 template <typename T>
-void ColumnVector<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                               const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
-}
-
-template <typename T>
 void ColumnVector<T>::update_hashes_with_value(uint64_t* __restrict hashes,
                                                const uint8_t* __restrict null_data) const {
     auto s = size();
