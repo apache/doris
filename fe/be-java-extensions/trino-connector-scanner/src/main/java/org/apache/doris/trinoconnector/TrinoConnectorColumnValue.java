@@ -96,7 +96,7 @@ public class TrinoConnectorColumnValue implements ColumnValue {
 
     @Override
     public float getFloat() {
-        return block.getSlice(position, 0, block.getSliceLength(position)).getFloat(0);
+        return Float.intBitsToFloat(block.getInt(position, 0));
     }
 
     @Override
@@ -104,9 +104,10 @@ public class TrinoConnectorColumnValue implements ColumnValue {
         return block.getLong(position, 0);
     }
 
+    // block is LongArrayBlock type
     @Override
     public double getDouble() {
-        return block.getSlice(position, 0, block.getSliceLength(position)).getDouble(0);
+        return Double.longBitsToDouble(block.getLong(position, 0));
     }
 
     @Override

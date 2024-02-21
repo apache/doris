@@ -24,6 +24,8 @@ import org.apache.doris.trinoconnector.shade.TrinoConnectorServicesProvider;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.cache.RemovalListener;
+import com.google.common.cache.RemovalNotification;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.MoreExecutors;
 import io.airlift.node.NodeInfo;
@@ -73,9 +75,19 @@ public class TrinoConnectorCache {
 
     // Max cache num of trino connector
     public static final long max_external_schema_cache_num = 100;
+    // 24 hour
+    private static final int CACHE_EXPIRATION_MINUTES = 1440;
 
     private static LoadingCache<TrinoConnectorCacheKey, TrinoConnectorCacheValue> connectorCache = CacheBuilder.newBuilder()
             .maximumSize(max_external_schema_cache_num)
+            .expireAfterAccess(CACHE_EXPIRATION_MINUTES, TimeUnit.MINUTES)
+            .removalListener(new RemovalListener<TrinoConnectorCacheKey, TrinoConnectorCacheValue>() {
+                @Override
+                public void onRemoval(RemovalNotification<TrinoConnectorCacheKey,
+                        TrinoConnectorCacheValue> notification) {
+                    invalidateTableCache(notification.getKey(), notification.getValue());
+                }
+            })
             .build(new CacheLoader<TrinoConnectorCacheKey, TrinoConnectorCacheValue>() {
                 @Override
                 public TrinoConnectorCacheValue load(TrinoConnectorCacheKey key) {
@@ -85,6 +97,7 @@ public class TrinoConnectorCache {
 
     public static TrinoConnectorCacheValue getConnector(TrinoConnectorCacheKey key) {
         try {
+            LOG.info("Connector cache size is : " + connectorCache.size());
             return connectorCache.get(key);
         } catch (Exception e) {
             throw new RuntimeException("failed to get connector for:" + key);
@@ -137,20 +150,18 @@ public class TrinoConnectorCache {
         }
     }
 
-    public static void invalidateTableCache(TrinoConnectorCacheKey key) {
+    public static void invalidateTableCache(TrinoConnectorCacheKey key, TrinoConnectorCacheValue value) {
         try {
-            TrinoConnectorCacheValue connectorCacheValue = connectorCache.get(key);
-            Connector connector = connectorCacheValue.getConnector();
+            LOG.info("remove connector:{}", key);
 
+            Connector connector = value.getConnector();
             if (connector != null) {
                 try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(connector.getClass().getClassLoader())) {
                     connector.shutdown();
                 }
             }
-
-            connectorCache.invalidate(key);
         } catch (Exception e) {
-            throw new RuntimeException("failed to invalidate connector for:" + key);
+            throw new RuntimeException("failed to invalidate connector for: " + key);
         }
     }
 
@@ -180,13 +191,15 @@ public class TrinoConnectorCache {
     public static class TrinoConnectorCacheKey {
         private String catalogName;
         private String connectorName;
+        private String createTime;
         // other properties
         private Map<String, String> properties;
         private TrinoConnectorPluginManager trinoConnectorPluginManager;
 
-        public TrinoConnectorCacheKey(String catalogName, String connectorName) {
+        public TrinoConnectorCacheKey(String catalogName, String connectorName, String createTime) {
             this.catalogName = catalogName;
             this.connectorName = connectorName;
+            this.createTime = createTime;
         }
 
         @Override
@@ -198,18 +211,19 @@ public class TrinoConnectorCache {
                 return false;
             }
             TrinoConnectorCacheKey that = (TrinoConnectorCacheKey) o;
-            return Objects.equals(catalogName, that.catalogName) && Objects.equals(connectorName, that.connectorName);
+            return Objects.equals(catalogName, that.catalogName) && Objects.equals(connectorName, that.connectorName)
+                    && Objects.equals(createTime, that.createTime);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(catalogName, connectorName);
+            return Objects.hash(catalogName, connectorName, createTime);
         }
 
         @Override
         public String toString() {
             return "TrinoConnectorCacheKey{" + "catalogName='" + catalogName + '\'' + ", connectorName='"
-                    + connectorName + '\'' + '}';
+                    + connectorName + '\'' + ", createTime='" + createTime + '\'' + '}';
         }
 
         public void setProperties(Map<String, String> properties) {

@@ -72,6 +72,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -89,6 +91,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
 
 
     private final String catalogNameString;
+    private final String catalogCreateTime;
 
     // these need to be deserialized
     private final String connectorSplitString;
@@ -149,8 +152,8 @@ public class TrinoConnectorJniScanner extends JniScanner {
                 .filter(kv -> kv.getKey().startsWith(TRINO_CONNECTOR_OPTION_PREFIX))
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(TRINO_CONNECTOR_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
+        catalogCreateTime = trinoConnectorOptionParams.remove("create_time");
         trinoConnectorOptionParams.remove("type");
-        trinoConnectorOptionParams.remove("create_time");
     }
 
     @Override
@@ -165,7 +168,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
-        LOG.info("close in java side");
+        LOG.info("close TrinoConnectorJniScanner");
     }
 
     @Override
@@ -182,28 +185,33 @@ public class TrinoConnectorJniScanner extends JniScanner {
 
         // TODO(ftw): Page is up to 8192 rows, it is best to make 4064 rows
         Page page;
-        while ((page = source.getNextPage()) != null) {
-            if (page != null) {
-                // assure the page is in memory before handing to another operator
-                page = page.getLoadedPage();
-            }
-            if (page.getPositionCount() == 0) {
-                break;
-            }
-            for (int i = 0; i < page.getChannelCount(); ++i) {
-                Block block = page.getBlock(i);
-                columnValue.setBlock(block);
-                columnValue.setColumnType(types[i]);
-                columnValue.setTrinoType(trinoTypeList.get(i));
-                for (int j = 0; j < page.getPositionCount(); ++j) {
-                    columnValue.setPosition(j);
-                    appendData(i, columnValue);
+        try {
+            while ((page = source.getNextPage()) != null) {
+                if (page != null) {
+                    // assure the page is in memory before handing to another operator
+                    page = page.getLoadedPage();
+                }
+                if (page.getPositionCount() == 0) {
+                    break;
+                }
+                for (int i = 0; i < page.getChannelCount(); ++i) {
+                    Block block = page.getBlock(i);
+                    columnValue.setBlock(block);
+                    columnValue.setColumnType(types[i]);
+                    columnValue.setTrinoType(trinoTypeList.get(i));
+                    for (int j = 0; j < page.getPositionCount(); ++j) {
+                        columnValue.setPosition(j);
+                        appendData(i, columnValue);
+                    }
+                }
+                rows += page.getPositionCount();
+                if (rows >= batchSize) {
+                    return rows;
                 }
             }
-            rows += page.getPositionCount();
-            if (rows >= batchSize) {
-                return rows;
-            }
+        } catch (Exception e) {
+            printException(e);
+            throw e;
         }
         return rows;
     }
@@ -259,7 +267,8 @@ public class TrinoConnectorJniScanner extends JniScanner {
     private void initConnector() {
         String connectorName = trinoConnectorOptionParams.remove("connector.name");
 
-        TrinoConnectorCacheKey cacheKey = new TrinoConnectorCacheKey(catalogNameString, connectorName);
+        TrinoConnectorCacheKey cacheKey = new TrinoConnectorCacheKey(catalogNameString, connectorName,
+                catalogCreateTime);
         cacheKey.setProperties(this.trinoConnectorOptionParams);
         cacheKey.setTrinoConnectorPluginManager(this.trinoConnectorPluginManager);
 
@@ -290,13 +299,6 @@ public class TrinoConnectorJniScanner extends JniScanner {
 
             columnMetadataList = TrinoConnectorScannerUtils.decodeStringToList(connectorColumnMetadataString,
                     TrinoColumnMetadata.class, this.objectMapperProvider);
-
-            // ConnectorSession connectorSession = session.toConnectorSession(catalogHandle);
-            // for(ColumnHandle columnHandle : columns) {
-            //     ColumnMetadata columnMetadata = connector.getMetadata(connectorSession, connectorTransactionHandle)
-            //             .getColumnMetadata(connectorSession, connectorTableHandle, columnHandle);
-            //     columnMetadataList.add(columnMetadata);
-            // }
             trinoConnectorAllFieldNames = columnMetadataList.stream().map(columnMetadata -> columnMetadata.getName())
                     .collect(Collectors.toList());
         } catch (Exception e) {
@@ -356,5 +358,12 @@ public class TrinoConnectorJniScanner extends JniScanner {
                 .setRemoteUserAddress("address")
                 .setUserAgent("agent")
                 .build();
+    }
+
+    private void printException(Exception e) {
+        StringWriter stringWriter = new StringWriter();
+        PrintWriter printWriter = new PrintWriter(stringWriter);
+        e.printStackTrace(printWriter);
+        LOG.error("exception when get next: " + stringWriter);
     }
 }

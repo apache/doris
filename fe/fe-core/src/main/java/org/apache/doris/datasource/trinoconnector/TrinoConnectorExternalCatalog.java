@@ -29,6 +29,7 @@ import org.apache.doris.datasource.shade.TrinoConnectorServicesProvider;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.MoreExecutors;
 import io.airlift.node.NodeInfo;
 import io.opentelemetry.api.OpenTelemetry;
@@ -182,7 +183,11 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
 
     private ConnectorServicesProvider createConnectorServicesProvider() {
         // 1. check and create ConnectorName
-        Map<String, String> trinoConnectorProperties = getTrinoConnectorProperties();
+        Map<String, String> trinoConnectorProperties = Maps.newHashMap();
+        trinoConnectorProperties.putAll(catalogProperty.getProperties());
+        trinoConnectorProperties.remove("create_time");
+        trinoConnectorProperties.remove("type");
+
         String connectorNameString = trinoConnectorProperties.remove("connector.name");
         Objects.requireNonNull(connectorNameString, "connectorName is null");
         if (connectorNameString.indexOf('-') >= 0) {
@@ -313,10 +318,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     }
 
     public Map<String, String> getTrinoConnectorProperties() {
-        Map<String, String> properties = catalogProperty.getProperties();
-        properties.remove("create_time");
-        properties.remove("type");
-        return properties;
+        return catalogProperty.getProperties();
     }
 
     public Connector getConnector() {
