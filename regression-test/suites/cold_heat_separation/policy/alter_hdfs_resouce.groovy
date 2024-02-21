@@ -177,7 +177,7 @@ suite("alter_hdfs_policy") {
     alter_resource_change_property(has_resource_policy_alter)
     check_alter_resource_result_with_policy(has_resource_policy_alter)
     sql """
-    DROP STORAGE POLICY has_resouce_policy_alter_policy
+    DROP STORAGE POLICY IF EXISTS has_resouce_policy_alter_policy
     """
 
     def storage_exist = { name ->
