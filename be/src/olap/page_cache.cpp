@@ -60,7 +60,6 @@ bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle,
         return false;
     }
     *handle = PageCacheHandle(cache, lru_handle);
-    handle->update_last_visit_time();
     return true;
 }
 
@@ -79,7 +78,6 @@ void StoragePageCache::insert(const CacheKey& key, DataPage* data, PageCacheHand
     auto cache = _get_page_cache(page_type);
     auto lru_handle = cache->insert(key.encode(), data, data->capacity(), deleter, priority);
     *handle = PageCacheHandle(cache, lru_handle);
-    handle->update_last_visit_time();
 }
 
 } // namespace doris

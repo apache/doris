@@ -142,9 +142,7 @@ void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roarin
 
     std::unique_ptr<InvertedIndexQueryCache::CacheValue> cache_value_ptr =
             std::make_unique<InvertedIndexQueryCache::CacheValue>();
-    cache_value_ptr->last_visit_time = UnixMillis();
     cache_value_ptr->bitmap = bitmap;
-    cache_value_ptr->size = bitmap->getSizeInBytes();
     if (key.encode().empty()) {
         return;
     }
