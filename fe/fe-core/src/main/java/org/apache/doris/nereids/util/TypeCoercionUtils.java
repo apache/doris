@@ -966,7 +966,7 @@ public class TypeCoercionUtils {
         if (inPredicate.getCompareExpr().getDataType().isStructType() && optionalCommonType.isPresent()
                 && !optionalCommonType.get().isStructType()) {
             throw new AnalysisException("data type " + optionalCommonType.get()
-                    + " could not used in InPredicate " + inPredicate.toSql());
+                    + " is not match " + inPredicate.getCompareExpr().getDataType() + " used in InPredicate");
         }
         if (optionalCommonType.isPresent() && !supportCompare(optionalCommonType.get())
                 && !optionalCommonType.get().isStructType()) {

@@ -92,6 +92,7 @@ public:
         auto* col_desc = context->get_arg_type(0);
         DataTypePtr args_type = DataTypeFactory::instance().create_data_type(*col_desc);
         MutableColumnPtr column_struct_ptr_args = remove_nullable(args_type)->create_column();
+        NullMap null_map(context->get_num_args(), false);
         for (int i = 1; i < context->get_num_args(); ++i) {
             // FE should make element type consistent and
             // equalize the length of the elements in struct
@@ -102,8 +103,9 @@ public:
             const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
             if (col->is_nullable()) {
                 auto* null_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(col);
-                if (!null_in_set && null_col->has_null()) {
+                if (null_col->has_null()) {
                     null_in_set = true;
+                    null_map[i-1] = true;
                 } else {
                     column_struct_ptr_args->insert_from(null_col->get_nested_column(), 0);
                 }
@@ -114,6 +116,9 @@ public:
         ColumnPtr column_ptr = std::move(column_struct_ptr_args);
         // make StructRef into set
         for (size_t i = 1; i < context->get_num_args(); ++i) {
+            if (null_in_set && null_map[i-1]) {
+                continue;
+            }
             args_set.insert({column_ptr, i - 1});
         }
         return Status::OK();
