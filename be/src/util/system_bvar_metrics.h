@@ -37,14 +37,11 @@ struct ProcBvarMetrics;
 
 class SystemBvarMetrics {
 public:
-    SystemBvarMetrics(const std::set<std::string>& disk_devices,
+    SystemBvarMetrics(BvarMetricRegistry* registry, const std::set<std::string>& disk_devices,
                       const std::vector<std::string>& network_interfaces);
 
     ~SystemBvarMetrics();
 
-    const std::string to_prometheus(const std::string& registry_name);
-    const std::string to_core_string(const std::string& registry_name);
-    void to_json(rj::Document& doc, bool with_tablet_metrics);
     // update metrics
     void update();
 
@@ -64,14 +61,14 @@ public:
     void update_allocator_metrics();
 
     //for UT
-    CpuBvarMetrics* cpu_metrics(const std::string& name) { return cpu_metrics_[name]; }
-    MemoryBvarMetrics* memory_metrics() { return memory_metrics_.get(); }
-    DiskBvarMetrics* disk_metrics(const std::string& name) { return disk_metrics_[name]; }
-    NetworkBvarMetrics* network_metrics(const std::string& name) { return network_metrics_[name]; }
-    FileDescriptorBvarMetrics* fd_metrics() { return fd_metrics_.get(); }
-    SnmpBvarMetrics* snmp_metrics() { return snmp_metrics_.get(); }
-    LoadAverageBvarMetrics* load_average_metrics() { return load_average_metrics_.get(); }
-    ProcBvarMetrics* proc_metrics() { return proc_metrics_.get(); }
+    // CpuBvarMetrics* cpu_metrics(const std::string& name) { return cpu_metrics_[name]; }
+    // MemoryBvarMetrics* memory_metrics() { return memory_metrics_.get(); }
+    // DiskBvarMetrics* disk_metrics(const std::string& name) { return disk_metrics_[name]; }
+    // NetworkBvarMetrics* network_metrics(const std::string& name) { return network_metrics_[name]; }
+    // FileDescriptorBvarMetrics* fd_metrics() { return fd_metrics_.get(); }
+    // SnmpBvarMetrics* snmp_metrics() { return snmp_metrics_.get(); }
+    // LoadAverageBvarMetrics* load_average_metrics() { return load_average_metrics_.get(); }
+    // ProcBvarMetrics* proc_metrics() { return proc_metrics_.get(); }
 
 private:
     void install_cpu_metrics();
@@ -79,7 +76,7 @@ private:
     // read /proc/stat would cost about 170us
     void update_cpu_metrics();
 
-    void install_memory_metrics();
+    void install_memory_metrics(BvarMetricEntity* entity);
     void update_memory_metrics();
 
     void install_disk_metrics(const std::set<std::string>& disk_devices);
@@ -88,22 +85,22 @@ private:
     void install_net_metrics(const std::vector<std::string>& interfaces);
     void update_net_metrics();
 
-    void install_fd_metrics();
+    void install_fd_metrics(BvarMetricEntity* entity);
     void update_fd_metrics();
 
-    void install_snmp_metrics();
+    void install_snmp_metrics(BvarMetricEntity* entity);
     void update_snmp_metrics();
 
-    void install_load_avg_metrics();
+    void install_load_avg_metrics(BvarMetricEntity* entity);
     void update_load_avg_metrics();
 
-    void install_proc_metrics();
+    void install_proc_metrics(BvarMetricEntity* entity);
     void update_proc_metrics();
 
     void get_metrics_from_proc_vmstat();
     void get_cpu_name();
 
-    void install_max_metrics();
+    void install_max_metrics(BvarMetricEntity* entity);
 
     
 private:
@@ -117,10 +114,11 @@ private:
     std::shared_ptr<SnmpBvarMetrics> snmp_metrics_;
     std::shared_ptr<LoadAverageBvarMetrics> load_average_metrics_;
     std::shared_ptr<ProcBvarMetrics> proc_metrics_;
+    int proc_net_dev_version_ = 0;
 
     std::vector<std::string> cpu_names_;
-    int proc_net_dev_version_ = 0;
-    std::unordered_map<std::string, std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
+    BvarMetricRegistry* registry_ = nullptr;
+    std::shared_ptr<BvarMetricEntity> server_entity_;
 
     std::shared_ptr<BvarAdderMetric<int64_t>> max_disk_io_util_percent;
     std::shared_ptr<BvarAdderMetric<int64_t>> max_network_send_bytes_rate;
