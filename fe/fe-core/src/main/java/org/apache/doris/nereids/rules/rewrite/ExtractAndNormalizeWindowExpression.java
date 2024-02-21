@@ -101,12 +101,12 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                     .collect(Collectors.toMap(expr -> ((Alias) expr).child(), expr -> ((Alias) expr).toSlot(),
                             (oldExpr, newExpr) -> oldExpr));
 
-            List<NamedExpression> normalizedOutputs1 = context.normalizeToUseSlotRef(outputs,
+            List<NamedExpression> normalizedOutputs = context.normalizeToUseSlotRef(outputs,
                     (ctx, expr) -> customNormalizeMap.getOrDefault(expr, null));
             Set<WindowExpression> normalizedWindows =
-                    ExpressionUtils.collect(normalizedOutputs1, WindowExpression.class::isInstance);
+                    ExpressionUtils.collect(normalizedOutputs, WindowExpression.class::isInstance);
 
-            existedAlias = ExpressionUtils.collect(normalizedOutputs1, Alias.class::isInstance);
+            existedAlias = ExpressionUtils.collect(normalizedOutputs, Alias.class::isInstance);
             NormalizeToSlotContext ctxForWindows = NormalizeToSlotContext.buildContext(
                     existedAlias, Sets.newHashSet(normalizedWindows));
 
@@ -116,7 +116,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                     new LogicalWindow<>(ImmutableList.copyOf(normalizedWindowWithAlias), normalizedChild);
 
             // 3. handle top projects
-            List<NamedExpression> topProjects = ctxForWindows.normalizeToUseSlotRef(normalizedOutputs1);
+            List<NamedExpression> topProjects = ctxForWindows.normalizeToUseSlotRef(normalizedOutputs);
             return project.withProjectsAndChild(topProjects, normalizedLogicalWindow);
         }).toRule(RuleType.EXTRACT_AND_NORMALIZE_WINDOW_EXPRESSIONS);
     }
