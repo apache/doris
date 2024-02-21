@@ -26,6 +26,7 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -652,19 +653,19 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         _tablet_indexes.assign(num_rows, 0);
 
         auto validate_column_nullable_function = [&](const ColumnUInt8& null_map,
-                                                     SlotDescriptor* desc, bool* stop_processing) {
+                                                     SlotDescriptor* desc, bool* stop_processing,
+                                                     int* skip_rows) {
             for (int row = 0; row < num_rows; ++row) {
                 if (null_map.get_data()[row]) {
+                    *skip_rows = *skip_rows + 1;
                     fmt::memory_buffer error_msg;
                     fmt::format_to(error_msg,
                                    "column_name[{}], null value for not null column, type={}",
                                    desc->col_name(), desc->type().debug_string());
-                    auto st = _state->append_error_msg_to_file(
+                    return _state->append_error_msg_to_file(
                             []() -> std::string { return ""; },
                             [&error_msg]() -> std::string { return fmt::to_string(error_msg); },
                             stop_processing);
-                    return Status::DataQualityError(
-                            "Encountered unqualified data, stop processing");
                 }
             }
             return Status::OK();
@@ -672,6 +673,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 
         //TODO: maybe could do validate_and_convert_block only at here
         bool stop_processing = false;
+        int32_t skip_rows = 0;
         std::shared_ptr<vectorized::Block> convert_block =
                 vectorized::Block::create_shared(block->get_columns_with_type_and_name());
         for (int i = 0;
@@ -690,8 +692,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                     const auto& null_map_data = assert_cast<const vectorized::ColumnNullable&>(
                                                         *convert_block->get_by_position(i).column)
                                                         .get_null_map_column();
-                    RETURN_IF_ERROR(validate_column_nullable_function(null_map_data, desc,
-                                                                      &stop_processing));
+                    RETURN_IF_ERROR(validate_column_nullable_function(
+                            null_map_data, desc, &stop_processing, &skip_rows));
                     convert_block->get_by_position(i).type =
                             assert_cast<const vectorized::DataTypeNullable&>(
                                     *convert_block->get_by_position(i).type)
@@ -713,6 +715,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         channel2rows.resize(num_channels);
         for (int row_idx = 0; row_idx < convert_block->rows(); row_idx++) {
             if (_skip[row_idx]) {
+                skip_rows++;
                 continue;
             }
             auto& partition = _partitions[row_idx];
@@ -721,7 +724,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             auto tablet_id = index.tablets[tablet_index];
             channel2rows[tablet_id % num_channels].emplace_back(row_idx);
         }
-
+        _state->update_num_rows_load_filtered(skip_rows + _tablet_finder->num_filtered_rows());
         RETURN_IF_ERROR(channel_add_rows_with_idx(state, _channels, num_channels, channel2rows,
                                                   convert_block.get(),
                                                   _enable_pipeline_exec ? eos : false));
