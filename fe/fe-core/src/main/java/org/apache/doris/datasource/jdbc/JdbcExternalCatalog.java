@@ -104,11 +104,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             jdbcUrl = JdbcResource.handleJdbcUrl(jdbcUrl);
             properties.put(JdbcResource.JDBC_URL, jdbcUrl);
         }
-
-        if (properties.containsKey(JdbcResource.DRIVER_URL) && !properties.containsKey(JdbcResource.CHECK_SUM)) {
-            properties.put(JdbcResource.CHECK_SUM,
-                    JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
-        }
         return properties;
     }
 
@@ -231,10 +226,21 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         if (isReplay) {
             return;
         }
-        Map<String, String> properties = Maps.newHashMap();
-        if (properties.containsKey(JdbcResource.DRIVER_URL) && !properties.containsKey(JdbcResource.CHECK_SUM)) {
-            properties.put(JdbcResource.CHECK_SUM,
-                    JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
+        Map<String, String> properties = catalogProperty.getProperties();
+        if (properties.containsKey(JdbcResource.DRIVER_URL)) {
+            String computedChecksum = JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL));
+            if (properties.containsKey(JdbcResource.CHECK_SUM)) {
+                String providedChecksum = properties.get(JdbcResource.CHECK_SUM);
+                if (!providedChecksum.equals(computedChecksum)) {
+                    throw new DdlException(
+                            "The provided checksum (" + providedChecksum
+                                    + ") does not match the computed checksum (" + computedChecksum
+                                    + ") for the driver_url."
+                    );
+                }
+            } else {
+                catalogProperty.addProperty(JdbcResource.CHECK_SUM, computedChecksum);
+            }
         }
     }
 }

@@ -42,6 +42,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Map;
 
 
@@ -275,14 +276,28 @@ public class JdbcResource extends Resource {
         }
     }
 
-    public static String getFullDriverUrl(String driverUrl) {
+    public static String getFullDriverUrl(String driverUrl) throws IllegalArgumentException {
         try {
             URI uri = new URI(driverUrl);
             String schema = uri.getScheme();
             if (schema == null && !driverUrl.startsWith("/")) {
                 return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;
+            } else {
+                if ("*".equals(Config.jdbc_driver_secure_path)) {
+                    return driverUrl;
+                } else if (Config.jdbc_driver_secure_path.trim().isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "jdbc_driver_secure_path is set to empty, disallowing all driver URLs.");
+                } else {
+                    boolean isAllowed = Arrays.stream(Config.jdbc_driver_secure_path.split(";"))
+                            .anyMatch(allowedPath -> driverUrl.startsWith(allowedPath.trim()));
+                    if (!isAllowed) {
+                        throw new IllegalArgumentException("Driver URL does not match any allowed paths: " + driverUrl);
+                    } else {
+                        return driverUrl;
+                    }
+                }
             }
-            return driverUrl;
         } catch (URISyntaxException e) {
             LOG.warn("invalid jdbc driver url: " + driverUrl);
             return driverUrl;
