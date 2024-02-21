@@ -965,6 +965,7 @@ Status IRuntimeFilter::publish(bool publish_local) {
     auto send_to_local = [&](RuntimePredicateWrapper* wrapper) {
         std::vector<IRuntimeFilter*> filters;
         RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
+        DCHECK(!filters.empty());
         // push down
         for (auto filter : filters) {
             filter->_wrapper = wrapper;

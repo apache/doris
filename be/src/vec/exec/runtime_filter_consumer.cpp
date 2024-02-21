@@ -52,16 +52,8 @@ Status RuntimeFilterConsumer::_register_runtime_filter(bool need_local_merge) {
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
-        if (filter_desc.has_remote_targets || need_local_merge) {
-            RETURN_IF_ERROR(
-                    _state->get_query_ctx()->global_runtime_filter_mgr()->register_consumer_filter(
-                            filter_desc, _state->query_options(), _filter_id, &runtime_filter,
-                            false, true));
-        } else {
-            RETURN_IF_ERROR(_state->local_runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), _filter_id, &runtime_filter, false,
-                    false));
-        }
+        RETURN_IF_ERROR(_state->register_consumer_runtime_filter(filter_desc, need_local_merge,
+                                                                 _filter_id, &runtime_filter));
         _runtime_filter_ctxs.emplace_back(runtime_filter);
         _runtime_filter_ready_flag.emplace_back(false);
     }

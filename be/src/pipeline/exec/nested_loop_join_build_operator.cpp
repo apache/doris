@@ -42,15 +42,8 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     }
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        if (p._runtime_filter_descs[i].has_remote_targets) {
-            RETURN_IF_ERROR(
-                    state->get_query_ctx()->global_runtime_filter_mgr()->register_producer_filter(
-                            p._runtime_filter_descs[i], state->query_options(),
-                            &_runtime_filters[i]));
-        } else {
-            RETURN_IF_ERROR(state->local_runtime_filter_mgr()->register_producer_filter(
-                    p._runtime_filter_descs[i], state->query_options(), &_runtime_filters[i]));
-        }
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i], false,
+                                                                &_runtime_filters[i], false));
     }
     return Status::OK();
 }

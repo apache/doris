@@ -44,6 +44,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+class IRuntimeFilter;
 
 namespace pipeline {
 class PipelineXLocalStateBase;
@@ -463,6 +464,8 @@ public:
         }
     }
 
+    RuntimeFilterMgr* global_runtime_filter_mgr();
+
     void set_pipeline_x_runtime_filter_mgr(RuntimeFilterMgr* pipeline_x_runtime_filter_mgr) {
         _pipeline_x_runtime_filter_mgr = pipeline_x_runtime_filter_mgr;
     }
@@ -567,6 +570,15 @@ public:
                 << "_task_execution_context_inited == false, the ctx is not inited";
         return _task_execution_context;
     }
+
+    Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
+                                            bool need_local_merge,
+                                            doris::IRuntimeFilter** producer_filter,
+                                            bool build_bf_exactly);
+
+    Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
+                                            bool need_local_merge, int node_id,
+                                            doris::IRuntimeFilter** producer_filter);
 
 private:
     Status create_error_log_file();

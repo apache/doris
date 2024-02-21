@@ -530,7 +530,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         runtime_filter_mgr =
                 std::make_unique<RuntimeFilterMgr>(request.query_id, filterparams.get());
         if (i == 0 && local_params.__isset.runtime_filter_params) {
-            _query_ctx->global_runtime_filter_mgr()->set_runtime_filter_params(
+            _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                     local_params.runtime_filter_params);
         }
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
