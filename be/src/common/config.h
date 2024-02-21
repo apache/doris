@@ -932,6 +932,10 @@ CONF_Int32(primary_key_data_page_size, "32768");
 // the max package size be thrift server can receive,avoid accepting error or too large package causing OOM,default 20M
 CONF_Int32(be_thrift_max_pkg_bytes, "20000000");
 
+// grace stop time limit, exit() will be called if be dose not stop within this time limit
+// default value is 0, which means there is no time limit and be will wait until it is successfully stopped
+CONF_Int32(grace_shutdown_wait_seconds, "0");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
