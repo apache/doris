@@ -99,7 +99,7 @@ public:
         return Status::OK();
     }
 
-    RowDescriptor& row_desc() override { return _row_desc; }
+    const RowDescriptor& row_desc() const override { return _row_desc; }
 
     std::shared_ptr<MultiCastSharedState> create_multi_cast_data_streamer() {
         auto multi_cast_data_streamer =
