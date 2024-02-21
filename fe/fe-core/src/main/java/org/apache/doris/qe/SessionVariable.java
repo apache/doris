@@ -241,7 +241,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
+
     public static final String ENABLE_BUCKET_SHUFFLE_DOWNGRADE = "enable_bucket_shuffle_downgrade";
+
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
@@ -735,6 +737,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_DOWNGRADE, needForward = true)
     public boolean enableBucketShuffleDownGrade = true;
+    
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
 
