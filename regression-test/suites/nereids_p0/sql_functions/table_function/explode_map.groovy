@@ -40,11 +40,11 @@ suite("explode_map") {
     sql """ insert into sdu values (4, "amory", NULL); """
 
     qt_sql """ select * from sdu order by id; """
-    qt_explode_sql """ select name, k,v from sdu lateral view explode_map(score) tmp as k,v;"""
-    qt_explode_outer_sql """ select name, k,v from sdu lateral view explode_map_outer(score) tmp as k,v; """
+    qt_explode_sql """ select name, k,v from sdu lateral view explode_map(score) tmp as k,v order by id;"""
+    qt_explode_outer_sql """ select name, k,v from sdu lateral view explode_map_outer(score) tmp as k,v order by id; """
 
     // multi lateral view
-    qt_explode_sql_multi """ select name, k,v,k1,v1 from sdu lateral view explode_map_outer(score) tmp as k,v lateral view explode_map(score) tmp2 as k1,v1;"""
+    qt_explode_sql_multi """ select name, k,v,k1,v1 from sdu lateral view explode_map_outer(score) tmp as k,v lateral view explode_map(score) tmp2 as k1,v1 order by id;"""
 
     // Old planner do not support explode_map
     sql "SET enable_nereids_planner=false;"

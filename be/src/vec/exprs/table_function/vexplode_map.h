@@ -35,7 +35,7 @@ class Block;
 
 namespace doris::vectorized {
 
-class ColumnMapExecutionData {
+struct ColumnMapExecutionData {
 public:
     void reset() {
         map_nullmap_data = nullptr;
@@ -43,7 +43,7 @@ public:
         offsets_ptr = nullptr;
     }
 
-public:
+
     const UInt8* map_nullmap_data = nullptr;
     const ColumnMap* map_col = nullptr;
     const ColumnArray::Offsets64* offsets_ptr = nullptr;
