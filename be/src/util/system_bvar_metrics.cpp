@@ -65,15 +65,13 @@ struct CpuBvarMetrics {
         DECLARE_INT64_BVAR_METRIC(cpu_irq, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
                                   "cpu", BvarMetric::Labels({{"mode", "irq"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_soft_irq, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT,
-                                  "", "cpu", BvarMetric::Labels({{"mode", "soft_irq"}}),
-                                  false)
+                                  "", "cpu", BvarMetric::Labels({{"mode", "soft_irq"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_steal, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
                                   "cpu", BvarMetric::Labels({{"mode", "steal"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_guest, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT, "",
                                   "cpu", BvarMetric::Labels({{"mode", "guest"}}), false)
         DECLARE_INT64_BVAR_METRIC(cpu_guest_nice, BvarMetricType::COUNTER, BvarMetricUnit::PERCENT,
-                                  "", "cpu", BvarMetric::Labels({{"mode", "guest_nice"}}),
-                                  false)
+                                  "", "cpu", BvarMetric::Labels({{"mode", "guest_nice"}}), false)
         entity->register_metric("cpu_user", *cpu_user);
         entity->register_metric("cpu_nice", *cpu_nice);
         entity->register_metric("cpu_system", *cpu_system);
@@ -102,7 +100,7 @@ struct CpuBvarMetrics {
 };
 
 struct MemoryBvarMetrics {
-    MemoryBvarMetrics(std::shared_ptr<BvarMetricEntity> entity) {
+    MemoryBvarMetrics(BvarMetricEntity* entity) {
         INIT_INT64_BVAR_METRIC(memory_allocated_bytes, BvarMetricType::GAUGE, BvarMetricUnit::BYTES,
                                "", "", BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(memory_pgpgin, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
@@ -226,27 +224,21 @@ struct MemoryBvarMetrics {
 struct DiskBvarMetrics {
     DiskBvarMetrics(BvarMetricEntity* entity) {
         INIT_INT64_BVAR_METRIC(disk_reads_completed, BvarMetricType::COUNTER,
-                               BvarMetricUnit::OPERATIONS, "", "",
-                               BvarMetric::Labels(), false)
+                               BvarMetricUnit::OPERATIONS, "", "", BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(disk_bytes_read, BvarMetricType::COUNTER, BvarMetricUnit::BYTES, "",
                                "", BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(disk_read_time_ms, BvarMetricType::COUNTER,
-                               BvarMetricUnit::MILLISECONDS, "", "",
-                               BvarMetric::Labels(), false)
+                               BvarMetricUnit::MILLISECONDS, "", "", BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(disk_writes_completed, BvarMetricType::COUNTER,
-                               BvarMetricUnit::OPERATIONS, "", "",
-                               BvarMetric::Labels(), false)
+                               BvarMetricUnit::OPERATIONS, "", "", BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(disk_bytes_written, BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
                                "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(disk_write_time_ms, BvarMetricType::COUNTER,
-                               BvarMetricUnit::MILLISECONDS, "", "",
-                               BvarMetric::Labels(), false)
+                               BvarMetricUnit::MILLISECONDS, "", "", BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(disk_io_time_ms, BvarMetricType::COUNTER,
-                               BvarMetricUnit::MILLISECONDS, "", "",
-                               BvarMetric::Labels(), false)
+                               BvarMetricUnit::MILLISECONDS, "", "", BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(disk_io_time_weigthed, BvarMetricType::COUNTER,
-                               BvarMetricUnit::MILLISECONDS, "", "",
-                               BvarMetric::Labels(), false)
+                               BvarMetricUnit::MILLISECONDS, "", "", BvarMetric::Labels(), false)
         entity->register_metric("disk_reads_completed", *disk_reads_completed);
         entity->register_metric("disk_bytes_read", *disk_bytes_read);
         entity->register_metric("disk_read_time_ms", *disk_read_time_ms);
@@ -270,16 +262,13 @@ struct DiskBvarMetrics {
 struct NetworkBvarMetrics {
     NetworkBvarMetrics(BvarMetricEntity* entity) {
         INIT_INT64_BVAR_METRIC(network_receive_bytes, BvarMetricType::COUNTER,
-                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(),
-                               false);
+                               BvarMetricUnit::BYTES, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(network_receive_packets, BvarMetricType::COUNTER,
-                               BvarMetricUnit::PACKETS, "", "", BvarMetric::Labels(),
-                               false);
+                               BvarMetricUnit::PACKETS, "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(network_send_bytes, BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
                                "", "", BvarMetric::Labels(), false);
         INIT_INT64_BVAR_METRIC(network_send_packets, BvarMetricType::COUNTER,
-                               BvarMetricUnit::PACKETS, "", "", BvarMetric::Labels(),
-                               false);
+                               BvarMetricUnit::PACKETS, "", "", BvarMetric::Labels(), false);
         entity->register_metric("network_receive_bytes", *network_receive_bytes);
         entity->register_metric("network_receive_packets", *network_receive_packets);
         entity->register_metric("network_send_bytes", *network_send_bytes);
@@ -310,15 +299,16 @@ struct FileDescriptorBvarMetrics {
 struct SnmpBvarMetrics {
     SnmpBvarMetrics(BvarMetricEntity* entity) {
         INIT_INT64_BVAR_METRIC(snmp_tcp_in_errs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
-                               "The number of all problematic TCP packets received", "", BvarMetric::Labels(),
-                               false)
+                               "The number of all problematic TCP packets received", "",
+                               BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(snmp_tcp_retrans_segs, BvarMetricType::COUNTER,
                                BvarMetricUnit::NOUNIT, "All TCP packets retransmitted", "",
                                BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(snmp_tcp_in_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
                                "All received TCP packets", "", BvarMetric::Labels(), false)
         INIT_INT64_BVAR_METRIC(snmp_tcp_out_segs, BvarMetricType::COUNTER, BvarMetricUnit::NOUNIT,
-                               "All send TCP packets with RST mark", "", BvarMetric::Labels(), false)
+                               "All send TCP packets with RST mark", "", BvarMetric::Labels(),
+                               false)
         entity->register_metric("snmp_tcp_in_errs", *snmp_tcp_in_errs);
         entity->register_metric("snmp_tcp_retrans_segs", *snmp_tcp_retrans_segs);
         entity->register_metric("snmp_tcp_in_segs", *snmp_tcp_in_segs);
@@ -376,13 +366,14 @@ struct ProcBvarMetrics {
 
 const char* SystemBvarMetrics::s_hook_name_ = "system_metrics";
 
-SystemBvarMetrics::SystemBvarMetrics(BvarMetricRegistry* registry, const std::set<std::string>& disk_devices,
+SystemBvarMetrics::SystemBvarMetrics(BvarMetricRegistry* registry,
+                                     const std::set<std::string>& disk_devices,
                                      const std::vector<std::string>& network_interfaces) {
     DCHECK(registry != nullptr);
     registry_ = registry;
     server_entity_ = registry->register_entity("server");
     DCHECK(server_entity_ != nullptr);
-    server_entity_->register_hook(s_hook_name_, std::bind(&BvarSystemMetrics::update, this));
+    server_entity_->register_hook(s_hook_name_, std::bind(&SystemBvarMetrics::update, this));
     install_cpu_metrics();
     install_memory_metrics(server_entity_.get());
     install_disk_metrics(disk_devices);
@@ -499,7 +490,7 @@ void SystemBvarMetrics::update_cpu_metrics() {
 
 void SystemBvarMetrics::install_memory_metrics(BvarMetricEntity* entity) {
     memory_metrics_.reset(new MemoryBvarMetrics(entity));
-}   
+}
 
 void SystemBvarMetrics::update_memory_metrics() {
     memory_metrics_->memory_allocated_bytes->set_value(PerfCounters::get_vm_rss());
@@ -617,8 +608,7 @@ void SystemBvarMetrics::update_net_metrics() {
     char* line_ptr = nullptr;
     size_t line_buf_size = 0;
     // Ignore header
-    if (getline(&line_ptr, &line_buf_size, fp) < 0 ||
-        getline(&line_ptr, &line_buf_size, fp) < 0) {
+    if (getline(&line_ptr, &line_buf_size, fp) < 0 || getline(&line_ptr, &line_buf_size, fp) < 0) {
         char buf[64];
         LOG(WARNING) << "read /proc/net/dev first two line failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
@@ -819,7 +809,7 @@ void SystemBvarMetrics::update_snmp_metrics() {
 }
 
 void SystemBvarMetrics::install_load_avg_metrics(BvarMetricEntity* entity) {
-    load_average_metrics_.reset(new LoadAverageBvarMetrics(entity)); 
+    load_average_metrics_.reset(new LoadAverageBvarMetrics(entity));
 }
 
 void SystemBvarMetrics::update_load_avg_metrics() {

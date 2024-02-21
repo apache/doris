@@ -32,11 +32,11 @@ void BvarMetricsAction::handle(HttpRequest* req) {
     const std::string& with_tablet = req->param("with_tablet");
     std::string str;
     if (type == "core") {
-        str = DorisBvarMetrics::instance()->to_core_string();
+        str = metric_registry_->to_core_string();
     } else if (type == "json") {
-        str = DorisBvarMetrics::instance()->to_json(with_tablet == "true");
+        str = metric_registry_->to_json(with_tablet == "true");
     } else {
-        str = DorisBvarMetrics::instance()->to_prometheus();
+        str = metric_registry_->to_prometheus(with_tablet == "true");
     }
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");
