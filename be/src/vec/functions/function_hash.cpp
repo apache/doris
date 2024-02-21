@@ -227,11 +227,11 @@ struct XxHashImpl {
                     }
                 } else {
                     if constexpr (std::is_same_v<ReturnType, Int32>) {
-                        col_to_data[i] = HashUtil::xxHash32WithSeed(
-                                value.data(), value.size(), col_to_data[i]);
+                        col_to_data[i] = HashUtil::xxHash32WithSeed(value.data(), value.size(),
+                                                                    col_to_data[i]);
                     } else {
-                        col_to_data[i] = HashUtil::xxHash64WithSeed(
-                                value.data(), value.size(), col_to_data[i]);
+                        col_to_data[i] = HashUtil::xxHash64WithSeed(value.data(), value.size(),
+                                                                    col_to_data[i]);
                     }
                 }
             }

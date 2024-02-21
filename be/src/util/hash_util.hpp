@@ -344,7 +344,7 @@ public:
         static const int INT_VALUE = 0;
         return XXH32(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
     }
-    
+
     static xxh_u64 xxHash64WithSeed(const char* s, size_t len, xxh_u64 seed) {
         return XXH3_64bits_withSeed(s, len, seed);
     }
