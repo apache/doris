@@ -445,20 +445,22 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     int ret;
     if (_context.tablet_schema->get_inverted_index_storage_format() !=
         InvertedIndexStorageFormatPB::V1) {
-        auto src_seg_path = begin < 0
-                                    ? BetaRowset::segment_file_path(_context.rowset_dir,
-                                                                    _context.rowset_id, seg_id)
-                                    : BetaRowset::local_segment_path_segcompacted(
-                                              _context.rowset_dir, _context.rowset_id, begin, end);
-        auto dst_seg_path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id,
-                                                          _num_segcompacted);
-        auto src_idx_path = InvertedIndexDescriptor::get_index_file_name(src_seg_path);
-        auto dst_idx_path = InvertedIndexDescriptor::get_index_file_name(dst_seg_path);
-        ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
-        if (ret) {
-            return Status::Error<ROWSET_RENAME_FILE_FAILED>(
-                    "failed to rename {} to {}. ret:{}, errno:{}", src_idx_path, dst_idx_path, ret,
-                    errno);
+        if (_context.tablet_schema->has_inverted_index()) {
+            auto src_seg_path =
+                    begin < 0 ? BetaRowset::segment_file_path(_context.rowset_dir,
+                                                              _context.rowset_id, seg_id)
+                              : BetaRowset::local_segment_path_segcompacted(
+                                        _context.rowset_dir, _context.rowset_id, begin, end);
+            auto dst_seg_path = BetaRowset::segment_file_path(
+                    _context.rowset_dir, _context.rowset_id, _num_segcompacted);
+            auto src_idx_path = InvertedIndexDescriptor::get_index_file_name(src_seg_path);
+            auto dst_idx_path = InvertedIndexDescriptor::get_index_file_name(dst_seg_path);
+            ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
+            if (ret) {
+                return Status::Error<ROWSET_RENAME_FILE_FAILED>(
+                        "failed to rename {} to {}. ret:{}, errno:{}", src_idx_path, dst_idx_path,
+                        ret, errno);
+            }
         }
     }
     // rename remaining inverted index files
