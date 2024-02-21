@@ -224,8 +224,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                 );
                                 if (pushedDown) {
                                     rfCtx.removeFilter(
-                                            rightDeepTargetExpressionOnCTE.getInputSlotExprIds().iterator().next(),
-                                            (PhysicalHashJoin) rfToPush.getBuilderNode());
+                                            rfToPush,
+                                            rightDeepTargetExpressionOnCTE.getInputSlotExprIds().iterator().next());
                                 }
                             }
                         }
