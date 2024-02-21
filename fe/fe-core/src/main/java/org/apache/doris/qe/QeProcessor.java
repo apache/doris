@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr.QueryType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
@@ -31,9 +32,10 @@ public interface QeProcessor {
 
     TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr);
 
-    void registerQuery(TUniqueId queryId, Coordinator coord) throws UserException;
+    void registerQuery(TUniqueId queryId, Coordinator coord, QueryType queryType)
+            throws UserException;
 
-    void registerQuery(TUniqueId queryId, QeProcessorImpl.QueryInfo info) throws UserException;
+    void registerQuery(TUniqueId queryId, QeProcessorImpl.QueryInfo info, QueryType queryType) throws UserException;
 
     void registerInstances(TUniqueId queryId, Integer instancesNum) throws UserException;
 

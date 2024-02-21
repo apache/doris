@@ -66,6 +66,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
@@ -98,6 +99,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr.QueryType;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsData;
@@ -1892,6 +1894,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         result.params.setWorkloadGroups(tWorkloadGroupList);
                     }
                 }
+                String queryIdStr = DebugUtil.printId(ctx.queryId());
+                String streamLoadSql = " stream load into table: " + request.getTbl();
+                Env.getCurrentEnv().getWorkloadRuntimeStatusMgr()
+                        .registerRuntimeQueryStatusCtx(queryIdStr, QueryType.STREAM_LOAD, System.currentTimeMillis(),
+                                request.getDb(),
+                                streamLoadSql);
             }
         } catch (UserException e) {
             LOG.warn("failed to get stream load plan: {}", e.getMessage());

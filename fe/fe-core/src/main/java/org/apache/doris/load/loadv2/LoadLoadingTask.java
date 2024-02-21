@@ -20,6 +20,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
@@ -31,8 +32,10 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr.QueryType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TQueryType;
@@ -81,6 +84,8 @@ public class LoadLoadingTask extends LoadTask {
     private long beginTime;
 
     private List<TPipelineWorkloadGroup> tWorkloadGroups = null;
+
+    private AuditEvent auditEvent = null;
 
     public LoadLoadingTask(Database db, OlapTable table,
             BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
@@ -172,9 +177,19 @@ public class LoadLoadingTask extends LoadTask {
         }
 
         try {
-            QeProcessorImpl.INSTANCE.registerQuery(loadId, curCoordinator);
+            QeProcessorImpl.INSTANCE.registerQuery(loadId, curCoordinator, QueryType.BROKER_LOAD);
             actualExecute(curCoordinator, timeoutS);
         } finally {
+            try {
+                // a broker load job may have multiple task because of retry, here is task audit log
+                if (auditEvent != null) {
+                    auditEvent.queryId = DebugUtil.printId(loadId);
+                    auditEvent.queryTime = System.currentTimeMillis() - beginTime;
+                    Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(auditEvent);
+                }
+            } catch (Throwable t) {
+                LOG.info("broker load task audit log failed, ", t);
+            }
             QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
         }
     }
@@ -231,6 +246,10 @@ public class LoadLoadingTask extends LoadTask {
 
     void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
         this.tWorkloadGroups = tWorkloadGroups;
+    }
+
+    void setAuditEvent(AuditEvent auditEvent) {
+        this.auditEvent = auditEvent;
     }
 
 }

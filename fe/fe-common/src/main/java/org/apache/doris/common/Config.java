@@ -2398,6 +2398,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int be_report_query_statistics_timeout_ms = 60000;
 
+    @ConfField(mutable = true)
+    public static int query_statistics_report_timeout_ms = 6000;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_group_max_num = 15;
 

@@ -69,6 +69,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr.QueryType;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
@@ -202,7 +203,9 @@ public class InsertExecutor {
             coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
             coordinator.setQueryType(TQueryType.LOAD);
             executor.getProfile().setExecutionProfile(coordinator.getExecutionProfile());
-            QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), coordinator);
+            QeProcessorImpl.QueryInfo qinfo = new QeProcessorImpl.QueryInfo(null, executor.getOriginStmtInString(),
+                    coordinator);
+            QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), qinfo, QueryType.INSERT);
             coordinator.exec();
             int execTimeout = ctx.getExecTimeout();
             if (LOG.isDebugEnabled()) {

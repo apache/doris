@@ -150,6 +150,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr.QueryType;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
@@ -1572,7 +1573,7 @@ public class StmtExecutor {
         } else {
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                    new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+                    new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord), QueryType.QUERY);
             profile.setExecutionProfile(coord.getExecutionProfile());
             coordBase = coord;
         }
@@ -2052,7 +2053,7 @@ public class StmtExecutor {
                 coord.setQueryType(TQueryType.LOAD);
                 profile.setExecutionProfile(coord.getExecutionProfile());
 
-                QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
+                QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord, QueryType.INSERT);
 
                 Table table = insertStmt.getTargetTable();
                 if (table instanceof OlapTable) {
@@ -2855,7 +2856,7 @@ public class StmtExecutor {
             profile.setExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                        new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+                        new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord), QueryType.QUERY);
             } catch (UserException e) {
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }

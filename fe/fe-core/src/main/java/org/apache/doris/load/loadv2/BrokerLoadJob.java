@@ -208,6 +208,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         task.init(loadId, attachment.getFileStatusByTable(aggKey),
                 attachment.getFileNumByTable(aggKey), getUserInfo());
         task.settWorkloadGroups(tWorkloadGroups);
+        task.setAuditEvent(loadAuditEvent);
         return task;
     }
 

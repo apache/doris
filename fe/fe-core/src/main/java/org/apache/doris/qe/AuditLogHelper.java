@@ -27,6 +27,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.audit.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -37,6 +38,12 @@ import org.apache.commons.codec.digest.DigestUtils;
 public class AuditLogHelper {
 
     public static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
+            org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+        AuditEvent auditEvent = getAuditEvent(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
+        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(auditEvent);
+    }
+
+    public static AuditEvent getAuditEvent(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
         origStmt = origStmt.replace("\n", " ");
         // slow query
@@ -119,6 +126,7 @@ public class AuditLogHelper {
                 }
             }
         }
-        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(auditEventBuilder.build());
+        return auditEventBuilder.build();
     }
+
 }

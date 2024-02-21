@@ -46,6 +46,7 @@ import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.CleanLabelOperationLog;
+import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TUniqueId;
@@ -149,6 +150,7 @@ public class LoadManager implements Writable {
             loadJob.settWorkloadGroups(
                     Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get()));
         }
+        loadJob.setLoadAuditEvent(AuditLogHelper.getAuditEvent(ConnectContext.get(), stmt.toSql(), stmt, null, false));
 
         Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
 

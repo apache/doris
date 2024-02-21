@@ -50,6 +50,7 @@ public class ActiveQueriesTableValuedFunction extends MetadataTableValuedFunctio
             new Column("ShuffleSendRows", PrimitiveType.BIGINT),
             new Column("Database", ScalarType.createStringType()),
             new Column("FrontendInstance", ScalarType.createStringType()),
+            new Column("QueryType", ScalarType.createStringType()),
             new Column("Sql", ScalarType.createStringType()));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;

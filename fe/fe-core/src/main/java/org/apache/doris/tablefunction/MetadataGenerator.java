@@ -37,8 +37,8 @@ import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QeProcessorImpl;
-import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr.QueryType;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr.RuntimeQueryStatusCtx;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.FrontendService;
@@ -422,7 +422,21 @@ public class MetadataGenerator {
     }
 
     private static TRow makeQueryStatisticsTRow(SimpleDateFormat sdf, String queryId, Backend be,
-            String selfNode, QueryInfo queryInfo, TQueryStatistics qs) {
+            String selfNode, RuntimeQueryStatusCtx queryStatus, TQueryStatistics qs) {
+        String startExecTime = "";
+        long durationTime = 0;
+        String db = "";
+        QueryType queryType = QueryType.UNKNOWN;
+        String sql = "";
+        if (queryStatus != null) {
+            startExecTime = sdf.format(new Date(queryStatus.startExecTime));
+            durationTime = queryStatus.queryFinishTime < 0 ? System.currentTimeMillis() - queryStatus.startExecTime
+                    : queryStatus.queryFinishTime - queryStatus.startExecTime;
+            db = queryStatus.db;
+            queryType = queryStatus.queryType;
+            sql = queryStatus.sql;
+        }
+
         TRow trow = new TRow();
         if (be != null) {
             trow.addToColumnValue(new TCell().setStringVal(be.getHost()));
@@ -433,9 +447,8 @@ public class MetadataGenerator {
         }
         trow.addToColumnValue(new TCell().setStringVal(queryId));
 
-        String strDate = sdf.format(new Date(queryInfo.getStartExecTime()));
-        trow.addToColumnValue(new TCell().setStringVal(strDate));
-        trow.addToColumnValue(new TCell().setLongVal(System.currentTimeMillis() - queryInfo.getStartExecTime()));
+        trow.addToColumnValue(new TCell().setStringVal(startExecTime));
+        trow.addToColumnValue(new TCell().setLongVal(durationTime));
 
         if (qs != null) {
             trow.addToColumnValue(new TCell().setLongVal(qs.workload_group_id));
@@ -457,13 +470,10 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(0L));
         }
 
-        if (queryInfo.getConnectContext() != null) {
-            trow.addToColumnValue(new TCell().setStringVal(queryInfo.getConnectContext().getDatabase()));
-        } else {
-            trow.addToColumnValue(new TCell().setStringVal(""));
-        }
+        trow.addToColumnValue(new TCell().setStringVal(db));
         trow.addToColumnValue(new TCell().setStringVal(selfNode));
-        trow.addToColumnValue(new TCell().setStringVal(queryInfo.getSql()));
+        trow.addToColumnValue(new TCell().setStringVal(queryType.toString()));
+        trow.addToColumnValue(new TCell().setStringVal(sql));
 
         return trow;
     }
@@ -486,11 +496,11 @@ public class MetadataGenerator {
         // get query
         Map<Long, Map<String, TQueryStatistics>> beQsMap = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr()
                 .getBeQueryStatsMap();
+        Map<String, RuntimeQueryStatusCtx> queryStatusCtxMap = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr()
+                .getRuntimeQueryStatusMap();
         Set<Long> beIdSet = beQsMap.keySet();
 
         List<TRow> dataBatch = Lists.newArrayList();
-        Map<String, QueryInfo> queryInfoMap = QeProcessorImpl.INSTANCE.getQueryInfoMap();
-
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         for (Long beId : beIdSet) {
             Map<String, TQueryStatistics> qsMap = beQsMap.get(beId);
@@ -499,19 +509,10 @@ public class MetadataGenerator {
             }
             Set<String> queryIdSet = qsMap.keySet();
             for (String queryId : queryIdSet) {
-                QueryInfo queryInfo = queryInfoMap.get(queryId);
-                if (queryInfo == null) {
-                    continue;
-                }
-                //todo(wb) add connect context for insert select
-                if (queryInfo.getConnectContext() != null && !Env.getCurrentEnv().getAccessManager()
-                        .checkDbPriv(queryInfo.getConnectContext(), queryInfo.getConnectContext().getDatabase(),
-                                PrivPredicate.SELECT)) {
-                    continue;
-                }
                 TQueryStatistics qs = qsMap.get(queryId);
+                RuntimeQueryStatusCtx queryStatus = queryStatusCtxMap.get(queryId);
                 Backend be = Env.getCurrentEnv().getClusterInfo().getBackend(beId);
-                TRow tRow = makeQueryStatisticsTRow(sdf, queryId, be, selfNode, queryInfo, qs);
+                TRow tRow = makeQueryStatisticsTRow(sdf, queryId, be, selfNode, queryStatus, qs);
                 dataBatch.add(tRow);
             }
         }

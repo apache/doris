@@ -24,6 +24,7 @@ import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
+import com.aliyuncs.utils.StringUtils;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -42,9 +43,47 @@ public class WorkloadRuntimeStatusMgr {
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
     private Map<Long, Map<String, TQueryStatistics>> beToQueryStatsMap = Maps.newConcurrentMap();
     private Map<Long, Long> beLastReportTime = Maps.newConcurrentMap();
+    private Map<String, RuntimeQueryStatusCtx> queryStatusMap = Maps.newConcurrentMap();
+    // NOTE(wb) Why need a queryLastReportTime ?
+    // A query maybe finished in FE, but not finished in be, then report could sustain
+    // a report query statistics can not find a RuntimeQueryStatusCtx,
+    // so we need queryLastReportTime to mark this wild TQueryStatistics timeout and clear it.
     private Map<String, Long> queryLastReportTime = Maps.newConcurrentMap();
     private final ReentrantReadWriteLock queryAuditEventLock = new ReentrantReadWriteLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
+
+    public enum QueryType {
+        UNKNOWN,
+        QUERY,
+        INSERT,
+        BROKER_LOAD,
+        STREAM_LOAD,
+    }
+
+    // when a query registered in FE, it should register a RuntimeQueryStatusCtx,
+    // include select/brokerload/stream load
+    // when select/brokerload's RuntimeQueryStatusCtx is removed when they are finished in FE and timeout.
+    // stream load's RuntimeQueryStatusCtx is removed when be report timeout, because it's not managed by FE
+    public class RuntimeQueryStatusCtx {
+        public QueryType queryType = QueryType.UNKNOWN;
+        public long startExecTime;
+        public String db;
+        public String sql;
+        public volatile long queryFinishTime; // used for select/insert/broker load
+
+        RuntimeQueryStatusCtx(QueryType queryType, long startExecTime, String db, String sql) {
+            this.queryType = queryType;
+            this.startExecTime = startExecTime;
+            this.db = db;
+            if (StringUtils.isEmpty(sql)) {
+                this.sql = "";
+            } else {
+                int sqlLen = Math.min(1024, sql.length());
+                this.sql = sql.substring(0, sqlLen);
+            }
+            this.queryFinishTime = -1;
+        }
+    }
 
     class WorkloadRuntimeStatsThread extends Daemon {
 
@@ -131,19 +170,20 @@ public class WorkloadRuntimeStatusMgr {
             LOG.warn("be report workload runtime status but without query stats map");
             return;
         }
+
         long beId = params.backend_id;
         Map<String, TQueryStatistics> queryIdMap = beToQueryStatsMap.get(beId);
-        beLastReportTime.put(beId, System.currentTimeMillis());
+        // NOTE(wb): one be send report request one by one, so no need lock here.
         if (queryIdMap == null) {
             queryIdMap = Maps.newConcurrentMap();
-            queryIdMap.putAll(params.query_statistics_map);
             beToQueryStatsMap.put(beId, queryIdMap);
-        } else {
-            long currentTime = System.currentTimeMillis();
-            for (Map.Entry<String, TQueryStatistics> entry : params.query_statistics_map.entrySet()) {
-                queryIdMap.put(entry.getKey(), entry.getValue());
-                queryLastReportTime.put(entry.getKey(), currentTime);
-            }
+        }
+        long currentTime = System.currentTimeMillis();
+        beLastReportTime.put(beId, currentTime);
+        for (Map.Entry<String, TQueryStatistics> entry : params.query_statistics_map.entrySet()) {
+            String queryId = entry.getKey();
+            queryIdMap.put(queryId, entry.getValue());
+            queryLastReportTime.put(queryId, currentTime);
         }
     }
 
@@ -201,14 +241,24 @@ public class WorkloadRuntimeStatusMgr {
             beLastReportTime.remove(beId);
         }
 
-        // 2 clear report timeout query
+        // 2 clear report timeout/finished query
+        long newCurrentTime = System.currentTimeMillis();
         Set<String> queryNeedToClear = new HashSet<>();
-        Long newCurrentTime = System.currentTimeMillis();
-        Set<String> queryLastReportTimeKeySet = queryLastReportTime.keySet();
-        for (String queryId : queryLastReportTimeKeySet) {
+        Set<String> queryStatuskeySet = queryStatusMap.keySet();
+        for (String queryId : queryStatuskeySet) {
+            RuntimeQueryStatusCtx runtimeQueryStatusCtx = queryStatusMap.get(queryId);
+            if (runtimeQueryStatusCtx.queryFinishTime > 0
+                    && newCurrentTime - runtimeQueryStatusCtx.queryFinishTime >= Config.query_audit_log_timeout_ms) {
+                queryNeedToClear.add(queryId);
+            }
+        }
+
+        Set<String> queryLastReportKeySet = queryLastReportTime.keySet();
+        // stream load/wild queryStatistics relies on timeout to clear
+        for (String queryId : queryLastReportKeySet) {
             Long lastReportTime = queryLastReportTime.get(queryId);
             if (lastReportTime != null
-                    && newCurrentTime - lastReportTime > Config.be_report_query_statistics_timeout_ms) {
+                    && newCurrentTime - lastReportTime >= Config.query_statistics_report_timeout_ms) {
                 queryNeedToClear.add(queryId);
             }
         }
@@ -218,8 +268,26 @@ public class WorkloadRuntimeStatusMgr {
             for (Long beId : beIdSet) {
                 beToQueryStatsMap.get(beId).remove(queryId);
             }
+            queryStatusMap.remove(queryId);
             queryLastReportTime.remove(queryId);
         }
+    }
+
+    public void registerRuntimeQueryStatusCtx(String queryId, QueryType queryType, long startExecTime, String db,
+            String sql) {
+        RuntimeQueryStatusCtx runtimeQueryStatusCtx = new RuntimeQueryStatusCtx(queryType, startExecTime, db, sql);
+        queryStatusMap.put(queryId, runtimeQueryStatusCtx);
+    }
+
+    public void unregisterRuntimeQueryStatusCtx(String queryId) {
+        RuntimeQueryStatusCtx runtimeQueryStatusCtx = queryStatusMap.get(queryId);
+        if (runtimeQueryStatusCtx != null) {
+            runtimeQueryStatusCtx.queryFinishTime = System.currentTimeMillis();
+        }
+    }
+
+    public Map<String, RuntimeQueryStatusCtx> getRuntimeQueryStatusMap() {
+        return queryStatusMap;
     }
 
     private void queryAuditEventLogWriteLock() {

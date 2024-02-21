@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr.QueryType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -90,19 +91,27 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     @Override
-    public void registerQuery(TUniqueId queryId, Coordinator coord) throws UserException {
-        registerQuery(queryId, new QueryInfo(coord));
+    public void registerQuery(TUniqueId queryId, Coordinator coord, QueryType queryType)
+            throws UserException {
+        registerQuery(queryId, new QueryInfo(coord), queryType);
     }
 
     @Override
-    public void registerQuery(TUniqueId queryId, QueryInfo info) throws UserException {
+    public void registerQuery(TUniqueId queryId, QueryInfo info, QueryType queryType) throws UserException {
+        String queryIdStr = DebugUtil.printId(queryId);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("register query id = " + DebugUtil.printId(queryId) + ", job: " + info.getCoord().getJobId());
+            LOG.debug("register query id = " + queryIdStr + ", job: " + info.getCoord().getJobId());
         }
         final QueryInfo result = coordinatorMap.putIfAbsent(queryId, info);
         if (result != null) {
             throw new UserException("queryId " + queryId + " already exists");
         }
+        String db = "";
+        if (info.getConnectContext() != null) {
+            db = info.getConnectContext().getDatabase();
+        }
+        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr()
+                .registerRuntimeQueryStatusCtx(queryIdStr, queryType, info.getStartExecTime(), db, info.getSql());
     }
 
     @Override
@@ -139,10 +148,12 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public void unregisterQuery(TUniqueId queryId) {
+        String queryIdStr = DebugUtil.printId(queryId);
         QueryInfo queryInfo = coordinatorMap.remove(queryId);
+        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().unregisterRuntimeQueryStatusCtx(queryIdStr);
         if (queryInfo != null) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Deregister query id {}", DebugUtil.printId(queryId));
+                LOG.debug("Deregister query id {}", queryIdStr);
             }
 
             if (queryInfo.getConnectContext() != null
@@ -154,7 +165,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     AtomicInteger instancesNum = userToInstancesCount.get(user);
                     if (instancesNum == null) {
                         LOG.warn("WTF?? query {} in queryToInstancesNum but not in userToInstancesCount",
-                                DebugUtil.printId(queryId)
+                                queryIdStr
                         );
                     } else {
                         instancesNum.addAndGet(-num);
@@ -163,12 +174,12 @@ public final class QeProcessorImpl implements QeProcessor {
             }
         } else {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
+                LOG.debug("not found query {} when unregisterQuery", queryIdStr);
             }
         }
 
         // commit hive tranaction if needed
-        Env.getCurrentHiveTransactionMgr().deregister(DebugUtil.printId(queryId));
+        Env.getCurrentHiveTransactionMgr().deregister(queryIdStr);
     }
 
     @Override

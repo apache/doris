@@ -49,6 +49,7 @@ import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -137,6 +138,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected String comment = "";
 
     protected List<TPipelineWorkloadGroup> tWorkloadGroups = null;
+    protected AuditEvent loadAuditEvent = null; // log after broker load task finish
 
     public LoadJob(EtlJobType jobType) {
         this.jobType = jobType;
@@ -1171,5 +1173,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
         this.tWorkloadGroups = tWorkloadGroups;
+    }
+
+    public void setLoadAuditEvent(AuditEvent auditEvent) {
+        this.loadAuditEvent = auditEvent;
     }
 }
