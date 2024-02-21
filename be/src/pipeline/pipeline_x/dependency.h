@@ -341,7 +341,6 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
-    std::unique_ptr<DataQueue> data_queue = std::make_unique<DataQueue>(1, true);
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
@@ -402,8 +401,7 @@ public:
 
 struct UnionSharedState : public BasicSharedState {
 public:
-    UnionSharedState(int child_count = 1)
-            : data_queue(child_count, false), _child_count(child_count) {};
+    UnionSharedState(int child_count = 1) : data_queue(child_count), _child_count(child_count) {};
     int child_count() const { return _child_count; }
     DataQueue data_queue;
     const int _child_count;
