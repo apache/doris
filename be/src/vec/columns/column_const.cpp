@@ -110,22 +110,6 @@ void ColumnConst::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pri
     }
 }
 
-MutableColumns ColumnConst::scatter(ColumnIndex num_columns, const Selector& selector) const {
-    if (s != selector.size()) {
-        LOG(FATAL) << fmt::format("Size of selector ({}) doesn't match size of column ({})",
-                                  selector.size(), s);
-    }
-
-    std::vector<size_t> counts = count_columns_size_in_selector(num_columns, selector);
-
-    MutableColumns res(num_columns);
-    for (size_t i = 0; i < num_columns; ++i) {
-        res[i] = clone_resized(counts[i]);
-    }
-
-    return res;
-}
-
 void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
                                            const uint8_t* __restrict null_data) const {
     DCHECK(null_data == nullptr);
@@ -140,6 +124,22 @@ void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
             hashes[i] = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hashes[i]);
         }
     }
+}
+
+MutableColumns ColumnConst::scatter(ColumnIndex num_columns, const Selector& selector) const {
+    if (s != selector.size()) {
+        LOG(FATAL) << fmt::format("Size of selector ({}) doesn't match size of column ({})",
+                                  selector.size(), s);
+    }
+
+    std::vector<size_t> counts = count_columns_size_in_selector(num_columns, selector);
+
+    MutableColumns res(num_columns);
+    for (size_t i = 0; i < num_columns; ++i) {
+        res[i] = clone_resized(counts[i]);
+    }
+
+    return res;
 }
 
 void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
