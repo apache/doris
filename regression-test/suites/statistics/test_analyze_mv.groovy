@@ -34,22 +34,16 @@ suite("test_analyze_mv") {
         }
     }
 
-    def wait_row_count_reported = { ->
-        while(true) {
+    def wait_row_count_reported = { table, expected ->
+        for (int i = 0; i < 120; i++) {
             Thread.sleep(5000)
-            boolean reported = true;
-            def result = sql """SHOW DATA;"""
+            def result = sql """SHOW DATA FROM ${table};"""
             logger.info("result " + result)
-            for (int i = 0; i < result.size(); i++) {
-                if (result[i][1] == "0.000 ") {
-                    reported = false;
-                    break;
-                }
-            }
-            if (reported) {
-                break;
+            if (result[3][4] == expected) {
+                return;
             }
         }
+        throw new Exception("Row count report timeout.")
     }
 
     def wait_analyze_finish = { table ->
@@ -305,12 +299,12 @@ suite("test_analyze_mv") {
     assertEquals("4001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
 
-    wait_row_count_reported()
     sql """drop stats mvTestDup"""
     result_sample = sql """show column stats mvTestDup"""
     assertEquals(0, result_sample.size())
 
     // Test sample
+    wait_row_count_reported("mvTestDup", "6")
     sql """analyze table mvTestDup with sample rows 4000000"""
     wait_analyze_finish("mvTestDup")
     result_sample = sql """SHOW ANALYZE mvTestDup;"""
