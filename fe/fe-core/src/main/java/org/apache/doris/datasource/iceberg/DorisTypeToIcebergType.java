@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external.iceberg.util;
+package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.MapType;
@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.datasource.DorisTypeVisitor;
 
 import com.google.common.collect.Lists;
 import org.apache.iceberg.types.Type;
@@ -34,15 +35,15 @@ import java.util.List;
 /**
  * Convert Doris type to Iceberg type
  */
-public class DorisTypeToType extends DorisTypeVisitor<Type> {
+public class DorisTypeToIcebergType extends DorisTypeVisitor<Type> {
     private final StructType root;
     private int nextId = 0;
 
-    public DorisTypeToType() {
+    public DorisTypeToIcebergType() {
         this.root = null;
     }
 
-    public DorisTypeToType(StructType root) {
+    public DorisTypeToIcebergType(StructType root) {
         this.root = root;
         // the root struct's fields use the first ids
         this.nextId = root.getFields().size();

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external.iceberg.util;
+package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.MapType;

@@ -29,9 +29,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.hive.ExternalMetadataOps;
-import org.apache.doris.external.iceberg.util.DorisTypeToType;
-import org.apache.doris.external.iceberg.util.DorisTypeVisitor;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -96,7 +95,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         String dbName = stmt.getFullDbName();
         Map<String, String> properties = stmt.getProperties();
         nsCatalog.createNamespace(Namespace.of(dbName), properties);
-        // TODO 增加刷新流程,否则create之后，show不出来，只能refresh之后才能show出来
     }
 
     @Override
@@ -120,7 +118,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
                 .collect(Collectors.toList());
         StructType structType = new StructType(new ArrayList<>(collect));
-        org.apache.iceberg.types.Type visit = DorisTypeVisitor.visit(structType, new DorisTypeToType(structType));
+        org.apache.iceberg.types.Type visit =
+                DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = stmt.getProperties();
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(properties, schema);
