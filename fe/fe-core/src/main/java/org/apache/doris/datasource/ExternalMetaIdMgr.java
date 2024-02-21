@@ -148,7 +148,6 @@ public class ExternalMetaIdMgr {
                 break;
 
             case MetaIdMappingsLog.TYPE_FROM_HMS_EVENT:
-                // handle these logs serialized
                 for (MetaIdMappingsLog.MetaIdMapping mapping : log.getMetaIdMappings()) {
                     handleMetaIdMapping(mapping, ctlMetaIdMgr);
                 }
