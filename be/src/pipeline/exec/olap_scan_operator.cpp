@@ -225,7 +225,7 @@ bool OlapScanLocalState::_storage_no_merge() {
 Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
-        _scan_dependency->set_ready();
+        _dependency->set_ready();
         return Status::OK();
     }
     SCOPED_TIMER(_scanner_init_timer);
@@ -486,7 +486,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
         }
         if (eos) {
             _eos = true;
-            _scan_dependency->set_ready();
+            _dependency->set_ready();
         }
 
         for (auto& iter : _colname_to_value_range) {

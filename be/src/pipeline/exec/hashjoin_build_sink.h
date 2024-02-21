@@ -45,20 +45,11 @@ public:
 
 class HashJoinBuildSinkOperatorX;
 
-class SharedHashTableDependency final : public Dependency {
-public:
-    using SharedState = HashJoinSharedState;
-    ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
-    SharedHashTableDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SharedHashTableBuildDependency", true, query_ctx) {}
-    ~SharedHashTableDependency() override = default;
-};
-
 class HashJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState> {
+        : public JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
-    using Base = JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState>;
+    using Base = JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState>;
     using Parent = HashJoinBuildSinkOperatorX;
     HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~HashJoinBuildSinkLocalState() override = default;
@@ -114,7 +105,6 @@ protected:
      * so null does not need to be added to the hash table.
      */
     bool _build_side_ignore_null = false;
-    std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
     std::vector<int> _build_col_ids;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;

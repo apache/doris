@@ -535,9 +535,9 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                           std::shared_ptr<LocalExchangeSinkDependency>>> {
+                                           std::shared_ptr<Dependency>>> {
             std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                    std::shared_ptr<LocalExchangeSinkDependency>>>
+                                    std::shared_ptr<Dependency>>>
                     le_state_map;
             auto source_id = pipeline->operator_xs().front()->operator_id();
             if (auto iter = _op_id_to_le_state.find(source_id); iter != _op_id_to_le_state.end()) {
@@ -772,8 +772,9 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)data_distribution.distribution_type));
     }
-    auto sink_dep = std::make_shared<LocalExchangeSinkDependency>(sink_id, local_exchange_id,
-                                                                  _runtime_state->get_query_ctx());
+    auto sink_dep = std::make_shared<Dependency>(sink_id, local_exchange_id,
+                                                 "LOCAL_EXCHANGE_SINK_DEPENDENCY", true,
+                                                 _runtime_state->get_query_ctx());
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_dependency = sink_dep;
     _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});

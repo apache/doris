@@ -46,7 +46,6 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    _shared_hash_table_dependency = dependency_sptr();
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
 
@@ -73,9 +72,9 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         }
     }
     if (!_should_build_hash_table) {
-        _shared_hash_table_dependency->block();
+        _dependency->block();
         p._shared_hashtable_controller->append_dependency(p.node_id(),
-                                                          _shared_hash_table_dependency);
+                                                          _dependency->shared_from_this());
     }
 
     _build_blocks_memory_usage =

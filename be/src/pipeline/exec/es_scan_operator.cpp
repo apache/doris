@@ -67,7 +67,7 @@ Status EsScanLocalState::_process_conjuncts() {
 Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
-        _scan_dependency->set_ready();
+        _dependency->set_ready();
         return Status::OK();
     }
 

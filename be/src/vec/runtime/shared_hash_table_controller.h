@@ -37,7 +37,7 @@ class BloomFilterFuncBase;
 class BitmapFilterFuncBase;
 
 namespace pipeline {
-class SharedHashTableDependency;
+class Dependency;
 }
 
 namespace vectorized {
@@ -78,7 +78,7 @@ public:
     Status wait_for_signal(RuntimeState* state, const SharedHashTableContextPtr& context);
     bool should_build_hash_table(const TUniqueId& fragment_instance_id, int my_node_id);
     void set_pipeline_engine_enabled(bool enabled) { _pipeline_engine_enabled = enabled; }
-    void append_dependency(int node_id, std::shared_ptr<pipeline::SharedHashTableDependency> dep) {
+    void append_dependency(int node_id, std::shared_ptr<pipeline::Dependency> dep) {
         std::lock_guard<std::mutex> lock(_mutex);
         _dependencies[node_id].push_back(dep);
     }
@@ -87,8 +87,7 @@ private:
     bool _pipeline_engine_enabled = false;
     std::mutex _mutex;
     // For pipelineX, we update all dependencies once hash table is built;
-    std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::SharedHashTableDependency>>>
-            _dependencies;
+    std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>> _dependencies;
     std::condition_variable _cv;
     std::map<int /*node id*/, TUniqueId /*fragment instance id*/> _builder_fragment_ids;
     std::map<int /*node id*/, SharedHashTableContextPtr> _shared_contexts;
