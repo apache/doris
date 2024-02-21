@@ -50,6 +50,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -74,6 +75,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.validation.constraints.NotNull;
 
 /**
  * The abstract class for all types of external catalogs.
@@ -85,6 +87,9 @@ public abstract class ExternalCatalog
 
     public static final String ENABLE_AUTO_ANALYZE = "enable.auto.analyze";
 
+    private final byte[] propLock = new byte[0];
+
+    // fields need to be serialized
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
     protected long id;
@@ -98,21 +103,20 @@ public abstract class ExternalCatalog
     // save properties of this catalog, such as hive meta store url.
     @SerializedName(value = "catalogProperty")
     protected CatalogProperty catalogProperty;
-    private volatile boolean initialized = false;
-    protected volatile Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected volatile long lastUpdateTime;
-    // db name does not contains "default_cluster"
-    protected volatile Map<String, Long> dbNameToId = Maps.newConcurrentMap();
-    private volatile boolean objectCreated = false;
-    protected boolean invalidCacheInInit = true;
-    protected ExternalMetadataOps metadataOps;
 
-    private ExternalSchemaCache schemaCache;
-    private String comment;
+    protected ExternalMetadataOps metadataOps;
+    private volatile String comment;
+    private volatile boolean initialized = false;
+    private volatile boolean objectCreated = false;
+
+    // db name does not contains "default_cluster"
+    protected volatile @NotNull Map<String, Long> dbNameToId = Maps.newConcurrentMap();
+    protected volatile Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
+
     // A cached and being converted properties for external catalog.
     // generated from catalog properties.
-    private byte[] propLock = new byte[0];
     private Map<String, String> convertedProperties = null;
 
     public ExternalCatalog() {
@@ -306,13 +310,18 @@ public abstract class ExternalCatalog
         Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
     }
 
-    public void initForAllNodes(ExternalMetaIdMgr.CtlMetaIdMgr ctlMetaIdMgr, long lastUpdateTime) {
+    protected synchronized void initForAllNodes(ExternalMetaIdMgr.CtlMetaIdMgr ctlMetaIdMgr, long lastUpdateTime) {
         // use a temp map and replace the old one later
         Map<Long, ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
         Map<String, ExternalMetaIdMgr.DbMetaIdMgr> dbNameToMgr = ctlMetaIdMgr.getDbNameToMgr();
+        // refresh all dbs, reuse the exists dbs if possible
         for (String dbName : dbNameToMgr.keySet()) {
-            ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbNameToMgr.get(dbName).dbId, type);
+            ExternalDatabase<? extends ExternalTable> db = dbNameToId.containsKey(dbName)
+                        ? idToDb.get(dbNameToId.get(dbName))
+                        : getDbForInit(dbName, dbNameToMgr.get(dbName).dbId, type);
+            Preconditions.checkNotNull(db);
+            db.setUnInitialized(true);
             tmpIdToDb.put(db.getId(), db);
             tmpDbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
         }
@@ -328,7 +337,6 @@ public abstract class ExternalCatalog
         synchronized (this.propLock) {
             this.convertedProperties = null;
         }
-        this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
@@ -540,7 +548,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void gsonPostProcess() throws IOException {
-        objectCreated = false;
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrade to the new version.
         if (type == null) {
@@ -554,7 +561,8 @@ public abstract class ExternalCatalog
                 }
             }
         }
-        this.propLock = new byte[0];
+        dbNameToId = Maps.newConcurrentMap();
+        idToDb = Maps.newConcurrentMap();
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {

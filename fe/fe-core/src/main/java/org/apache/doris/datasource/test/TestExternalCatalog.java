@@ -102,6 +102,10 @@ public class TestExternalCatalog extends ExternalCatalog {
         return true;
     }
 
+    public void setCatalogProvider(TestCatalogProvider catalogProvider) {
+        this.catalogProvider = catalogProvider;
+    }
+
     public interface TestCatalogProvider {
         // db name -> (tbl name -> schema)
         Map<String, Map<String, List<Column>>> getMetadata();

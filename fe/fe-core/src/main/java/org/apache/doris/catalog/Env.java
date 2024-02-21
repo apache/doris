@@ -598,6 +598,10 @@ public class Env {
         return catalogMgr;
     }
 
+    public void setCatalogMgr(CatalogMgr catalogMgr) {
+        this.catalogMgr = catalogMgr;
+    }
+
     public ExternalMetaCacheMgr getExtMetaCacheMgr() {
         return extMetaCacheMgr;
     }

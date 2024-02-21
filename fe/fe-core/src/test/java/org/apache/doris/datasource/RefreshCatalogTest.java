@@ -94,7 +94,9 @@ public class RefreshCatalogTest extends TestWithFeService {
         String json = GsonUtils.GSON.toJson(env.getCatalogMgr());
         System.out.println(json);
         CatalogMgr mgr2 = GsonUtils.GSON.fromJson(json, CatalogMgr.class);
+        env.setCatalogMgr(mgr2);
         test1 = mgr2.getCatalog("test1");
+        ((TestExternalCatalog) test1).setCatalogProvider(new RefreshCatalogProvider());
         infoDb = (ExternalInfoSchemaDatabase) test1.getDb(InfoSchemaDb.DATABASE_NAME).get();
         Assertions.assertEquals(27, infoDb.getTables().size());
         testDb = (TestExternalDatabase) test1.getDb("db1").get();

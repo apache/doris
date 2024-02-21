@@ -167,6 +167,7 @@ public class MetaIdMappingsLog implements Writable {
                              String partitionName,
                              long id) {
             Preconditions.checkArgument(opType == OPERATION_TYPE_ADD);
+            Preconditions.checkArgument(id > 0);
             this.opType = opType;
             this.metaObjType = metaObjType;
             this.dbName = dbName;
@@ -195,6 +196,7 @@ public class MetaIdMappingsLog implements Writable {
                              String tblName,
                              long id) {
             Preconditions.checkArgument(opType == OPERATION_TYPE_ADD);
+            Preconditions.checkArgument(id > 0);
             this.opType = opType;
             this.metaObjType = metaObjType;
             this.dbName = dbName;
@@ -221,6 +223,7 @@ public class MetaIdMappingsLog implements Writable {
                              String dbName,
                              long id) {
             Preconditions.checkArgument(opType == OPERATION_TYPE_ADD);
+            Preconditions.checkArgument(id > 0);
             this.opType = opType;
             this.metaObjType = metaObjType;
             this.dbName = dbName;

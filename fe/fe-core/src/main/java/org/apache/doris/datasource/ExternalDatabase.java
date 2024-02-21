@@ -29,6 +29,7 @@ import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -52,22 +53,15 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public abstract class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> {
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
-    protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
-
-    protected long id;
-
-    protected String name;
-    protected DatabaseProperty dbProperties = new DatabaseProperty();
-
-    protected volatile boolean initialized = false;
+    protected final long id;
+    protected final String name;
+    protected final ExternalCatalog extCatalog;
+    protected final ExternalCatalog.Type dbType;
+    protected final DatabaseProperty dbProperties = new DatabaseProperty();
+    protected final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
     protected volatile long lastUpdateTime;
-    protected final ExternalCatalog.Type dbType;
-
-    protected ExternalCatalog extCatalog;
-
-    protected boolean invalidCacheInInit = true;
-
+    protected volatile boolean initialized = false;
     protected volatile Map<Long, T> idToTbl = Maps.newConcurrentMap();
     protected volatile Map<String, Long> tableNameToId = Maps.newConcurrentMap();
 
@@ -87,7 +81,6 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
 
     public void setUnInitialized(boolean invalidCache) {
         this.initialized = false;
-        this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(extCatalog.getId(), name);
         }
@@ -147,13 +140,16 @@ public abstract class ExternalDatabase<T extends ExternalTable> implements Datab
         Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
     }
 
-    public void initForAllNodes(ExternalMetaIdMgr.DbMetaIdMgr dbMetaIdMgr, long lastUpdateTime) {
+    protected synchronized void initForAllNodes(ExternalMetaIdMgr.DbMetaIdMgr dbMetaIdMgr, long lastUpdateTime) {
         // use a temp map and replace the old one later
         Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
         Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
         Map<String, ExternalMetaIdMgr.TblMetaIdMgr> tblNameToMgr = dbMetaIdMgr.getTblNameToMgr();
+        // refresh all tables, reuse the exists tables if possible
         for (String tableName : tblNameToMgr.keySet()) {
             T table = newExternalTable(tableName, tblNameToMgr.get(tableName).getTblId(), extCatalog);
+            Preconditions.checkNotNull(table);
+            table.unsetObjectCreated();
             tmpIdToTbl.put(table.getId(), table);
             tmpTableNameToId.put(tableName, table.getId());
         }

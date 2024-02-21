@@ -216,6 +216,7 @@ public class ExternalMetaIdMgr {
     private static void handleAddMetaIdMapping(MetaIdMappingsLog.MetaIdMapping mapping,
                                                CtlMetaIdMgr ctlMetaIdMgr,
                                                MetaIdMappingsLog.MetaObjectType objType) {
+        Preconditions.checkArgument(mapping.getId() > 0);
         DbMetaIdMgr dbMetaIdMgr;
         TblMetaIdMgr tblMetaIdMgr;
         switch (objType) {
@@ -251,7 +252,7 @@ public class ExternalMetaIdMgr {
     }
 
     // invoke this method only on master
-    // try to reuse the existed id
+    // try to reuse the exists ids
     public static long generateDbId(@Nullable CtlMetaIdMgr oldCtlMetaIdMgr,
                                     String dbName) {
         if (oldCtlMetaIdMgr == null) {
@@ -261,11 +262,11 @@ public class ExternalMetaIdMgr {
         if (dbMetaIdMgr == null) {
             return nextMetaId();
         }
-        return dbMetaIdMgr.dbId;
+        return dbMetaIdMgr.dbId == META_ID_FOR_NOT_EXISTS ? nextMetaId() : dbMetaIdMgr.dbId;
     }
 
     // invoke this method only on master
-    // try to reuse the existed id
+    // try to reuse the exists ids
     public static long generateTblId(@Nullable CtlMetaIdMgr oldCtlMetaIdMgr,
                                      String dbName, String tblName) {
         if (oldCtlMetaIdMgr == null) {
@@ -279,11 +280,11 @@ public class ExternalMetaIdMgr {
         if (tblMetaIdMgr == null) {
             return nextMetaId();
         }
-        return tblMetaIdMgr.tblId;
+        return tblMetaIdMgr.tblId == META_ID_FOR_NOT_EXISTS ? nextMetaId() : tblMetaIdMgr.tblId;
     }
 
     // invoke this method only on master
-    // try to reuse the existed id
+    // try to reuse the exists ids
     public static long generatePartitionId(@Nullable CtlMetaIdMgr oldCtlMetaIdMgr,
                                            String dbName, String tblName, String pName) {
         if (oldCtlMetaIdMgr == null) {
@@ -301,7 +302,8 @@ public class ExternalMetaIdMgr {
         if (partitionMetaIdMgr == null) {
             return nextMetaId();
         }
-        return partitionMetaIdMgr.partitionId;
+        return partitionMetaIdMgr.partitionId == META_ID_FOR_NOT_EXISTS
+                    ? nextMetaId() : partitionMetaIdMgr.partitionId;
     }
 
     @Data

@@ -69,7 +69,7 @@ public class ExternalTable implements TableIf {
     protected volatile long schemaUpdateTime;
 
     protected long dbId;
-    protected boolean objectCreated = false;
+    protected volatile boolean objectCreated = false;
     protected ExternalCatalog catalog;
 
     /**
