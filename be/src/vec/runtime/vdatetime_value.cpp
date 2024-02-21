@@ -2037,8 +2037,8 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             temp_val *= int_exp10(std::max(0L, 6 - ms_part));
             if constexpr (is_datetime) {
                 if (scale >= 0) {
-                    if (scale == 6 && ms_part > 6) {
-                        if (ptr < end && isdigit(*ptr) && *ptr >= '5') {
+                    if (scale == 6 && ms_part >= 6) {
+                        if (ptr <= end && isdigit(*ptr) && *ptr >= '5') {
                             temp_val += 1;
                         }
                     } else {
