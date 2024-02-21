@@ -161,7 +161,7 @@ KEY(k1,k2)
 
 ##### partition
 There are two partition methods for materialized views. If no partition is specified, there is only one partition by default. If a partition field is specified, 
-it will automatically deduce which base table the field comes from and synchronize all partitions of the base table (constraint: the base table can only have one partition field and cannot allow null values)
+it will automatically deduce which base table the field comes from and synchronize all partitions of the base table (constraint: If the base table is an `OlapTable`,it can only have one partition field and cannot allow null values)
 
 For example, if the base table is a range partition with a partition field of `create_time` and partitioning by day, and `partition by(ct) as select create_time as ct from t1` is specified when creating a materialized view, 
 then the materialized view will also be a range partition with a partition field of 'ct' and partitioning by day

@@ -38,5 +38,12 @@ public abstract class PartitionItem implements Comparable<PartitionItem>, Writab
 
     public abstract PartitionKeyDesc toPartitionKeyDesc();
 
+    /**
+     * Generate PartitionKeyDesc using only the posth PartitionValue
+     *
+     * @param pos
+     * @return
+     * @throws AnalysisException
+     */
     public abstract PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException;
 }
