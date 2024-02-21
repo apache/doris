@@ -16,6 +16,8 @@
 // under the License.
 
 suite("inpredicate_with_struct") {
+    sql """ set enable_nereids_planner = true;"""
+    sql """ set enable_fallback_to_original_planner=false;"""
     // support struct type
     order_qt_in_predicate_11 """
          select struct(1,"2")  in (struct(1,3), null);
