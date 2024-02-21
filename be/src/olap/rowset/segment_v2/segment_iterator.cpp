@@ -2062,7 +2062,30 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
-    auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); }); }();
+    auto status = [&]() {
+        RETURN_IF_CATCH_EXCEPTION({
+            RETURN_IF_ERROR(_next_batch_internal(block));
+
+            // reverse block row order if read_orderby_key_reverse is true for key topn
+            // it should be processed for all success _next_batch_internal
+            if (_opts.read_orderby_key_reverse) {
+                size_t num_rows = block->rows();
+                if (num_rows == 0) {
+                    return Status::OK();
+                }
+                size_t num_columns = block->columns();
+                vectorized::IColumn::Permutation permutation;
+                for (size_t i = 0; i < num_rows; ++i) permutation.emplace_back(num_rows - 1 - i);
+
+                for (size_t i = 0; i < num_columns; ++i)
+                    block->get_by_position(i).column =
+                            block->get_by_position(i).column->permute(permutation, num_rows);
+            }
+
+            return Status::OK();
+        });
+    }();
+
     // if rows read by batch is 0, will return end of file, we should not remove segment cache in this situation.
     if (!status.ok() && !status.is<END_OF_FILE>()) {
         _segment->remove_from_segment_cache();
@@ -2363,21 +2386,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     }
 #endif
     VLOG_DEBUG << "dump block " << block->dump_data(0, block->rows());
-
-    // reverse block row order
-    if (_opts.read_orderby_key_reverse) {
-        size_t num_rows = block->rows();
-        if (num_rows == 0) {
-            return Status::OK();
-        }
-        size_t num_columns = block->columns();
-        vectorized::IColumn::Permutation permutation;
-        for (size_t i = 0; i < num_rows; ++i) permutation.emplace_back(num_rows - 1 - i);
-
-        for (size_t i = 0; i < num_columns; ++i)
-            block->get_by_position(i).column =
-                    block->get_by_position(i).column->permute(permutation, num_rows);
-    }
 
     return Status::OK();
 }
