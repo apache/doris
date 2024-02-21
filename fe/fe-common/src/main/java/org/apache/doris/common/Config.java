@@ -140,6 +140,14 @@ public class Config extends ConfigBase {
                     + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
     public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
+    @ConfField(description = {"JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔"
+            + "默认为 * 全部允许，如果设置为空责全部不允许",
+            "The safe path of the JDBC driver. When creating a JDBC Catalog,"
+                    + "you can configure multiple files or network paths that are allowed to be used,"
+                    + "separated by semicolons"
+                    + "The default is * to allow all, if set to empty, all are not allowed"})
+    public static String jdbc_driver_secure_path = "*";
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 1;

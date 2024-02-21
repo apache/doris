@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateResourceStmt;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -200,6 +201,20 @@ public class JdbcResourceTest {
 
         // Ensure the result URL still contains ';'
         Assert.assertTrue(resultUrl.contains(";"));
+    }
+
+    @Test
+    public void testJdbcDriverPtah() {
+        String driverPath = "postgresql-42.5.0.jar";
+        Config.jdbc_driver_secure_path = "";
+        String fullPath = JdbcResource.getFullDriverUrl(driverPath);
+        Assert.assertEquals(fullPath, "file://" + Config.jdbc_drivers_dir + "/" + driverPath);
+        Config.jdbc_driver_secure_path = "file:///jdbc/;http://jdbc";
+        String driverPath2 = "file:///postgresql-42.5.0.jar";
+        Exception exception = Assert.assertThrows(IllegalArgumentException.class, () -> {
+            JdbcResource.getFullDriverUrl(driverPath2);
+        });
+        Assert.assertEquals("Driver URL does not match any allowed paths: file:///postgresql-42.5.0.jar", exception.getMessage());
     }
 }
 
