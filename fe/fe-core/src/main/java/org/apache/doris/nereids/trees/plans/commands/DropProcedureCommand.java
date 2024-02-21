@@ -53,9 +53,7 @@ public class DropProcedureCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         client.dropPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(), procedureName.getDb());
-        // TODO, removeCached needs to be synchronized to all Observer FEs.
-        // Even if it is always executed on the Master FE, it still has to deal with Master switching.
-        ctx.getPlSqlOperation().getExec().functions.removeCached(procedureName.toString());
+        ctx.getPlSqlOperation().getExec().functions.remove(procedureName);
     }
 
     @Override
