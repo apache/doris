@@ -52,7 +52,6 @@ public class DropProcedureCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        client.dropPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(), procedureName.getDb());
         ctx.getPlSqlOperation().getExec().functions.remove(procedureName);
     }
 
