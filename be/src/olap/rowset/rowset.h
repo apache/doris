@@ -247,7 +247,7 @@ public:
                     _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
                     // first do close, then change state
                     do_close();
-                    static_cast<void>(_rowset_state_machine.on_release());
+                    THROW_IF_ERROR(_rowset_state_machine.on_release());
                 }
             }
             if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {

@@ -35,6 +35,7 @@
 #include <memory>
 #include <sstream>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
@@ -113,7 +114,7 @@ void EvHttpServer::start() {
     // bind to
     auto s = _bind();
     CHECK(s.ok()) << s.to_string();
-    static_cast<void>(ThreadPoolBuilder("EvHttpServer")
+    THROW_IF_ERROR(ThreadPoolBuilder("EvHttpServer")
                               .set_min_threads(_num_workers)
                               .set_max_threads(_num_workers)
                               .build(&_workers));

@@ -484,7 +484,7 @@ Status BaseTabletsChannel::cancel() {
         return _close_status;
     }
     for (auto& it : _tablet_writers) {
-        static_cast<void>(it.second->cancel());
+        RETURN_IF_ERROR(it.second->cancel());
     }
     _state = kFinished;
 

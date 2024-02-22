@@ -92,7 +92,7 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
         std::this_thread::sleep_for(
                 std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
         // just reopen to disable this connection
-        static_cast<void>(client.reopen(timeout_ms));
+        RETURN_IF_ERROR(client.reopen(timeout_ms));
         return Status::RpcError("failed to call frontend service, reason: {}", e.what());
     }
     return Status::OK();

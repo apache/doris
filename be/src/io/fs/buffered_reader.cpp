@@ -413,7 +413,7 @@ void PrefetchBuffer::reset_offset(size_t offset) {
     } else {
         _exceed = false;
     }
-    static_cast<void>(ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
+    THROW_IF_ERROR(ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
             [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); }));
 }
 

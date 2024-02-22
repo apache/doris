@@ -708,7 +708,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
                           << ", tablet_uid=" << tablet_info.first.tablet_uid;
                 continue;
             }
-            static_cast<void>(_txn_manager->delete_txn(partition_id, tablet, transaction_id));
+            THROW_IF_ERROR(_txn_manager->delete_txn(partition_id, tablet, transaction_id));
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
@@ -863,10 +863,10 @@ void StorageEngine::_clean_unused_rowset_metas() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        static_cast<void>(
+        THROW_IF_ERROR(
                 RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func));
         for (auto& rowset_meta : invalid_rowset_metas) {
-            static_cast<void>(RowsetMetaManager::remove(
+            THROW_IF_ERROR(RowsetMetaManager::remove(
                     data_dir->get_meta(), rowset_meta->tablet_uid(), rowset_meta->rowset_id()));
         }
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
@@ -898,10 +898,10 @@ void StorageEngine::_clean_unused_binlog_metas() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        static_cast<void>(RowsetMetaManager::traverse_binlog_metas(data_dir->get_meta(),
+        THROW_IF_ERROR(RowsetMetaManager::traverse_binlog_metas(data_dir->get_meta(),
                                                                    unused_binlog_collector));
         for (const auto& suffix : unused_binlog_key_suffixes) {
-            static_cast<void>(RowsetMetaManager::remove_binlog(data_dir->get_meta(), suffix));
+            THROW_IF_ERROR(RowsetMetaManager::remove_binlog(data_dir->get_meta(), suffix));
         }
         LOG(INFO) << "remove " << unused_binlog_key_suffixes.size()
                   << " invalid binlog meta from dir: " << data_dir->path();
@@ -924,10 +924,10 @@ void StorageEngine::_clean_unused_delete_bitmap() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        static_cast<void>(TabletMetaManager::traverse_delete_bitmap(data_dir->get_meta(),
+        THROW_IF_ERROR(TabletMetaManager::traverse_delete_bitmap(data_dir->get_meta(),
                                                                     clean_delete_bitmap_func));
         for (auto id : removed_tablets) {
-            static_cast<void>(
+            THROW_IF_ERROR(
                     TabletMetaManager::remove_old_version_delete_bitmap(data_dir, id, INT64_MAX));
         }
         LOG(INFO) << "removed invalid delete bitmap from dir: " << data_dir->path()
@@ -949,10 +949,10 @@ void StorageEngine::_clean_unused_pending_publish_info() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        static_cast<void>(TabletMetaManager::traverse_pending_publish(
+        THROW_IF_ERROR(TabletMetaManager::traverse_pending_publish(
                 data_dir->get_meta(), clean_pending_publish_info_func));
         for (auto& [tablet_id, publish_version] : removed_infos) {
-            static_cast<void>(TabletMetaManager::remove_pending_publish_info(data_dir, tablet_id,
+            THROW_IF_ERROR(TabletMetaManager::remove_pending_publish_info(data_dir, tablet_id,
                                                                              publish_version));
         }
         LOG(INFO) << "removed invalid pending publish info from dir: " << data_dir->path()
@@ -1419,7 +1419,7 @@ bool StorageEngine::add_broken_path(std::string path) {
     std::lock_guard<std::mutex> lock(_broken_paths_mutex);
     auto success = _broken_paths.emplace(path).second;
     if (success) {
-        static_cast<void>(_persist_broken_paths());
+        THROW_IF_ERROR(_persist_broken_paths());
     }
     return success;
 }
@@ -1428,7 +1428,7 @@ bool StorageEngine::remove_broken_path(std::string path) {
     std::lock_guard<std::mutex> lock(_broken_paths_mutex);
     auto count = _broken_paths.erase(path);
     if (count > 0) {
-        static_cast<void>(_persist_broken_paths());
+        THROW_IF_ERROR(_persist_broken_paths());
     }
     return count > 0;
 }

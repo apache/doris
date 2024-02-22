@@ -155,7 +155,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     // this could cause unable to get JVM
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
-        RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status(_agg_data->without_key)));
+        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(_create_agg_status(_agg_data->without_key)));
     }
     return Status::OK();
 }
@@ -629,7 +629,7 @@ Status AggSinkLocalState::_reset_hash_table() {
 
                 hash_table.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        static_cast<void>(_destroy_agg_status(mapped));
+                        THROW_IF_ERROR(_destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });
@@ -662,7 +662,7 @@ Status AggSinkLocalState::try_spill_disk(bool eos) {
                     return Status::OK();
                 }
 
-                RETURN_IF_ERROR(_spill_hash_table(agg_method, hash_table));
+                THROW_IF_ERROR(_spill_hash_table(agg_method, hash_table));
                 return _reset_hash_table();
             },
             _agg_data->method_variant);
@@ -801,7 +801,7 @@ Status AggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_
     }
     if (source_state == SourceState::FINISHED) {
         if (local_state._shared_state->spill_context.has_data) {
-            static_cast<void>(local_state.try_spill_disk(true));
+            RETURN_IF_ERROR(local_state.try_spill_disk(true));
             RETURN_IF_ERROR(local_state._shared_state->spill_context.prepare_for_reading());
         }
         local_state._dependency->set_ready_to_read();

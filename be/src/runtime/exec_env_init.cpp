@@ -151,7 +151,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
     _user_function_cache = new UserFunctionCache();
-    static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
+    RETURN_IF_ERROR(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _vstream_mgr = new doris::vectorized::VDataStreamMgr();
     _result_mgr = new ResultBufferMgr();
@@ -163,18 +163,18 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     TimezoneUtils::load_timezone_names();
     TimezoneUtils::load_timezones_to_cache();
 
-    static_cast<void>(ThreadPoolBuilder("SendBatchThreadPool")
+    RETURN_IF_ERROR(ThreadPoolBuilder("SendBatchThreadPool")
                               .set_min_threads(config::send_batch_thread_pool_thread_num)
                               .set_max_threads(config::send_batch_thread_pool_thread_num)
                               .set_max_queue_size(config::send_batch_thread_pool_queue_size)
                               .build(&_send_batch_thread_pool));
 
-    static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+    RETURN_IF_ERROR(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
                               .set_min_threads(16)
                               .set_max_threads(64)
                               .build(&_buffered_reader_prefetch_thread_pool));
 
-    static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
+    RETURN_IF_ERROR(ThreadPoolBuilder("S3FileUploadThreadPool")
                               .set_min_threads(16)
                               .set_max_threads(64)
                               .build(&_s3_file_upload_thread_pool));
@@ -182,18 +182,18 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // min num equal to fragment pool's min num
     // max num is useless because it will start as many as requested in the past
     // queue size is useless because the max thread num is very large
-    static_cast<void>(ThreadPoolBuilder("SendReportThreadPool")
+    RETURN_IF_ERROR(ThreadPoolBuilder("SendReportThreadPool")
                               .set_min_threads(config::fragment_pool_thread_num_min)
                               .set_max_threads(std::numeric_limits<int>::max())
                               .set_max_queue_size(config::fragment_pool_queue_size)
                               .build(&_send_report_thread_pool));
 
-    static_cast<void>(ThreadPoolBuilder("JoinNodeThreadPool")
+    RETURN_IF_ERROR(ThreadPoolBuilder("JoinNodeThreadPool")
                               .set_min_threads(config::fragment_pool_thread_num_min)
                               .set_max_threads(std::numeric_limits<int>::max())
                               .set_max_queue_size(config::fragment_pool_queue_size)
                               .build(&_join_node_thread_pool));
-    static_cast<void>(ThreadPoolBuilder("LazyReleaseMemoryThreadPool")
+    RETURN_IF_ERROR(ThreadPoolBuilder("LazyReleaseMemoryThreadPool")
                               .set_min_threads(1)
                               .set_max_threads(1)
                               .set_max_queue_size(1000000)
@@ -230,21 +230,21 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
-    static_cast<void>(_result_mgr->init());
+    RETURN_IF_ERROR(_result_mgr->init());
     Status status = _load_path_mgr->init();
     if (!status.ok()) {
         LOG(ERROR) << "Load path mgr init failed. " << status;
         return status;
     }
     _broker_mgr->init();
-    static_cast<void>(_small_file_mgr->init());
+    RETURN_IF_ERROR(_small_file_mgr->init());
     status = _scanner_scheduler->init(this);
     if (!status.ok()) {
         LOG(ERROR) << "Scanner scheduler init failed. " << status;
         return status;
     }
 
-    static_cast<void>(_init_mem_env());
+    RETURN_IF_ERROR(_init_mem_env());
 
     RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
@@ -324,7 +324,7 @@ void ExecEnv::init_file_cache_factory() {
         }
 
         std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
-        static_cast<void>(doris::ThreadPoolBuilder("FileCacheInitThreadPool")
+        THROW_IF_ERROR(doris::ThreadPoolBuilder("FileCacheInitThreadPool")
                                   .set_min_threads(cache_paths.size())
                                   .set_max_threads(cache_paths.size())
                                   .build(&file_cache_init_pool));

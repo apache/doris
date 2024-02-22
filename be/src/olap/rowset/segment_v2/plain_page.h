@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
@@ -125,7 +126,7 @@ public:
 
         _parsed = true;
 
-        static_cast<void>(seek_to_position_in_page(0));
+        RETURN_IF_ERROR(seek_to_position_in_page(0));
         return Status::OK();
     }
 

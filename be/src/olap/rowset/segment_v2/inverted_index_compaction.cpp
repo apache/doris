@@ -19,6 +19,7 @@
 
 #include <CLucene.h>
 
+#include "common/status.h"
 #include "inverted_index_compound_directory.h"
 #include "inverted_index_compound_reader.h"
 #include "util/debug_points.h"
@@ -92,7 +93,7 @@ Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_nu
     }
 
     // delete temporary index_writer_path
-    static_cast<void>(fs->delete_directory(index_writer_path.c_str()));
+    RETURN_IF_ERROR(fs->delete_directory(index_writer_path.c_str()));
     return Status::OK();
 }
 } // namespace doris::segment_v2

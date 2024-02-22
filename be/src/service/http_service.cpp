@@ -152,10 +152,10 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/tablets_json", tablets_info_action);
 
     // register pprof actions
-    static_cast<void>(PprofActions::setup(_env, _ev_http_server.get(), _pool));
+    RETURN_IF_ERROR(PprofActions::setup(_env, _ev_http_server.get(), _pool));
 
     // register jeprof actions
-    static_cast<void>(JeprofileActions::setup(_env, _ev_http_server.get(), _pool));
+    RETURN_IF_ERROR(JeprofileActions::setup(_env, _ev_http_server.get(), _pool));
 
     // register metrics
     {

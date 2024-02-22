@@ -106,7 +106,7 @@ Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id)
         _exec_env->fragment_mgr()->cancel_instance(context->fragment_instance_id,
                                                    PPlanFragmentCancelReason::INTERNAL_ERROR);
         // clear the fragment instance's related result queue
-        static_cast<void>(_exec_env->result_queue_mgr()->cancel(context->fragment_instance_id));
+        RETURN_IF_ERROR(_exec_env->result_queue_mgr()->cancel(context->fragment_instance_id));
         LOG(INFO) << "close scan context: context id [ " << context_id << " ]";
     }
     return Status::OK();
@@ -146,7 +146,7 @@ void ExternalScanContextMgr::gc_expired_context() {
             // must cancel the fragment instance, otherwise return thrift transport TTransportException
             _exec_env->fragment_mgr()->cancel_instance(expired_context->fragment_instance_id,
                                                        PPlanFragmentCancelReason::INTERNAL_ERROR);
-            static_cast<void>(
+            THROW_IF_ERROR(
                     _exec_env->result_queue_mgr()->cancel(expired_context->fragment_instance_id));
         }
     }

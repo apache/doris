@@ -33,6 +33,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/data_dir.h"
 #include "olap/delta_writer.h"
 #include "olap/olap_common.h"
@@ -613,7 +614,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                         key.first, key.second, tablet_info.to_string(),
                         rowset->rowset_id().to_string(), rowset->version().to_string());
             } else {
-                static_cast<void>(RowsetMetaManager::remove(meta, tablet_uid, rowset->rowset_id()));
+                RETURN_IF_ERROR(RowsetMetaManager::remove(meta, tablet_uid, rowset->rowset_id()));
 #ifndef BE_TEST
                 _engine.add_unused_rowset(rowset);
 #endif
@@ -674,7 +675,7 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
                     LOG(INFO) << " delete transaction from engine "
                               << ", tablet: " << tablet_info.to_string()
                               << ", rowset id: " << rowset->rowset_id();
-                    static_cast<void>(
+                    THROW_IF_ERROR(
                             RowsetMetaManager::remove(meta, tablet_uid, rowset->rowset_id()));
                 }
                 LOG(INFO) << "remove tablet related txn."

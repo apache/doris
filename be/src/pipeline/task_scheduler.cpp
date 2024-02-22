@@ -195,7 +195,7 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
     auto task = *task_itr;
     task->set_state(t_state);
     local_tasks.erase(task_itr++);
-    static_cast<void>(task->get_task_queue()->push_back(task));
+    THROW_IF_ERROR(task->get_task_queue()->push_back(task));
 }
 
 TaskScheduler::~TaskScheduler() {
@@ -206,7 +206,7 @@ TaskScheduler::~TaskScheduler() {
 Status TaskScheduler::start() {
     int cores = _task_queue->cores();
     // Must be mutil number of cpu cores
-    static_cast<void>(ThreadPoolBuilder(_name)
+    RETURN_IF_ERROR(ThreadPoolBuilder(_name)
                               .set_min_threads(cores)
                               .set_max_threads(cores)
                               .set_max_queue_size(0)
@@ -234,7 +234,7 @@ void TaskScheduler::_do_work(size_t index) {
             continue;
         }
         if (task->is_pipelineX() && task->is_running()) {
-            static_cast<void>(_task_queue->push_back(task, index));
+            THROW_IF_ERROR(_task_queue->push_back(task, index));
             continue;
         }
         task->log_detail_if_need();
@@ -348,7 +348,7 @@ void TaskScheduler::_do_work(size_t index) {
                 // After the task is added to the block queue, it maybe run by another thread
                 // and the task maybe released in the other thread. And will core at
                 // task set running.
-                static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
+                THROW_IF_ERROR(_blocked_task_scheduler->add_blocked_task(task));
             }
             continue;
         }
@@ -359,11 +359,11 @@ void TaskScheduler::_do_work(size_t index) {
         case PipelineTaskState::BLOCKED_FOR_SINK:
         case PipelineTaskState::BLOCKED_FOR_RF:
         case PipelineTaskState::BLOCKED_FOR_DEPENDENCY:
-            static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
+            THROW_IF_ERROR(_blocked_task_scheduler->add_blocked_task(task));
             break;
         case PipelineTaskState::RUNNABLE:
             task->set_running(false);
-            static_cast<void>(_task_queue->push_back(task, index));
+            THROW_IF_ERROR(_task_queue->push_back(task, index));
             break;
         default:
             DCHECK(false) << "error state after run task, " << get_state_name(pipeline_state)

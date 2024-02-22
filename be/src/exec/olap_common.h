@@ -377,7 +377,7 @@ public:
     int scale() const { return _scale; }
 
     static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
-        static_cast<void>(range.add_fixed_value(*value));
+        THROW_IF_ERROR(range.add_fixed_value(*value));
     }
 
     static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
@@ -386,17 +386,17 @@ public:
 
     static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                 CppType* value) {
-        static_cast<void>(range.add_range(op, *value));
+        THROW_IF_ERROR(range.add_range(op, *value));
     }
 
     static void add_compound_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                          CppType* value) {
-        static_cast<void>(range.add_compound_value(op, *value));
+        THROW_IF_ERROR(range.add_compound_value(op, *value));
     }
 
     static void add_match_value_range(ColumnValueRange<primitive_type>& range, MatchType match_type,
                                       CppType* match_value) {
-        static_cast<void>(range.add_match_value(match_type, *match_value));
+        THROW_IF_ERROR(range.add_match_value(match_type, *match_value));
     }
 
     static ColumnValueRange<primitive_type> create_empty_column_value_range(bool is_nullable_col,

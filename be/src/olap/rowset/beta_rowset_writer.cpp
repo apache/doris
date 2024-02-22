@@ -373,8 +373,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                         ret, errno);
             }
             // Erase the origin index file cache
-            static_cast<void>(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
-            static_cast<void>(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
         }
     }
     return Status::OK();
@@ -608,7 +608,7 @@ int64_t BetaRowsetWriter::_num_seg() const {
 void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
     std::lock_guard<std::mutex> lock(*(_context.schema_lock));
     TabletSchemaSPtr update_schema;
-    static_cast<void>(vectorized::schema_util::get_least_common_schema(
+    THROW_IF_ERROR(vectorized::schema_util::get_least_common_schema(
             {_context.tablet_schema, flush_schema}, nullptr, update_schema));
     CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
             << "Rowset merge schema columns count is " << update_schema->num_columns()

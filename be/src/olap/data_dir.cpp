@@ -964,7 +964,7 @@ void DataDir::perform_remote_rowset_gc() {
         gc_kvs.emplace_back(key, value);
         return true;
     };
-    static_cast<void>(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_ROWSET_GC_PREFIX,
+    THROW_IF_ERROR(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_ROWSET_GC_PREFIX,
                                      traverse_remote_rowset_func));
     std::vector<std::string> deleted_keys;
     for (auto& [key, val] : gc_kvs) {
@@ -996,7 +996,7 @@ void DataDir::perform_remote_rowset_gc() {
         }
     }
     for (const auto& key : deleted_keys) {
-        static_cast<void>(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
+        THROW_IF_ERROR(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
 }
 
@@ -1007,7 +1007,7 @@ void DataDir::perform_remote_tablet_gc() {
         tablet_gc_kvs.emplace_back(key, value);
         return true;
     };
-    static_cast<void>(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX,
+    THROW_IF_ERROR(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX,
                                      traverse_remote_tablet_func));
     std::vector<std::string> deleted_keys;
     for (auto& [key, val] : tablet_gc_kvs) {
@@ -1039,7 +1039,7 @@ void DataDir::perform_remote_tablet_gc() {
         }
     }
     for (const auto& key : deleted_keys) {
-        static_cast<void>(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
+        THROW_IF_ERROR(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
 }
 

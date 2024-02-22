@@ -183,7 +183,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id,
     Status s = _create_hard_link_recursive(latest_tablet_path, restore_schema_hash_path);
     if (!s.ok()) {
         // do not check the status of delete_directory, return status of link operation
-        static_cast<void>(
+        RETURN_IF_ERROR(
                 io::global_local_filesystem()->delete_directory(restore_schema_hash_path));
         return s;
     }
@@ -277,7 +277,7 @@ bool RestoreTabletAction::_get_timestamp_and_count_from_schema_hash_path(
     path time_label_path = schema_hash_path.parent_path().parent_path();
     std::string time_label = time_label_path.filename().string();
     std::vector<std::string> parts;
-    static_cast<void>(doris::split_string<char>(time_label, '.', &parts));
+    THROW_IF_ERROR(doris::split_string<char>(time_label, '.', &parts));
     if (parts.size() != 2) {
         LOG(WARNING) << "invalid time label:" << time_label;
         return false;

@@ -331,10 +331,10 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             }
         }
 
-        static_cast<void>(BaseTablet::commit_phase_update_delete_bitmap(
+        THROW_IF_ERROR(BaseTablet::commit_phase_update_delete_bitmap(
                 local_tablet, rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
                 calc_delete_bitmap_token.get(), nullptr));
-        static_cast<void>(calc_delete_bitmap_token->wait());
+        THROW_IF_ERROR(calc_delete_bitmap_token->wait());
     }
 
     // Step 6.3: commit txn
@@ -398,7 +398,7 @@ Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, 
     if (thread_num == 0) {
         thread_num = std::thread::hardware_concurrency();
     }
-    static_cast<void>(doris::ThreadPoolBuilder("IngestBinlog")
+    RETURN_IF_ERROR(doris::ThreadPoolBuilder("IngestBinlog")
                               .set_min_threads(thread_num)
                               .set_max_threads(thread_num * 2)
                               .build(&(service->_ingest_binlog_workers)));
@@ -524,7 +524,7 @@ int64_t BackendService::get_trash_used_capacity() {
     int64_t result = 0;
 
     std::vector<DataDirInfo> data_dir_infos;
-    static_cast<void>(_engine.get_all_data_dir_info(&data_dir_infos, false /*do not update */));
+    THROW_IF_ERROR(_engine.get_all_data_dir_info(&data_dir_infos, false /*do not update */));
 
     // uses excute sql `show trash`, then update backend trash capacity too.
     _engine.notify_listener("REPORT_DISK_STATE");
@@ -538,7 +538,7 @@ int64_t BackendService::get_trash_used_capacity() {
 
 void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
     std::vector<DataDirInfo> data_dir_infos;
-    static_cast<void>(_engine.get_all_data_dir_info(&data_dir_infos, false /*do not update */));
+    THROW_IF_ERROR(_engine.get_all_data_dir_info(&data_dir_infos, false /*do not update */));
 
     // uses excute sql `show trash on <be>`, then update backend trash capacity too.
     _engine.notify_listener("REPORT_DISK_STATE");
@@ -574,7 +574,7 @@ void BaseBackendService::open_scanner(TScanOpenResult& result_, const TScanOpenP
     TStatus t_status;
     TUniqueId fragment_instance_id = generate_uuid();
     std::shared_ptr<ScanContext> p_context;
-    static_cast<void>(_exec_env->external_scan_context_mgr()->create_scan_context(&p_context));
+    THROW_IF_ERROR(_exec_env->external_scan_context_mgr()->create_scan_context(&p_context));
     p_context->fragment_instance_id = fragment_instance_id;
     p_context->offset = 0;
     p_context->last_access_time = time(nullptr);
@@ -682,7 +682,7 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
 }
 
 void BackendService::clean_trash() {
-    static_cast<void>(_engine.start_trash_sweep(nullptr, true));
+    THROW_IF_ERROR(_engine.start_trash_sweep(nullptr, true));
     static_cast<void>(_engine.notify_listener("REPORT_DISK_STATE"));
 }
 

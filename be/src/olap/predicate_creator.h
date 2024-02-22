@@ -182,7 +182,7 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
         return std::make_unique<CustomPredicateCreator<TYPE_DECIMALV2, PT, ConditionType>>(
                 [](const std::string& condition) {
                     decimal12_t value = {0, 0};
-                    static_cast<void>(value.from_string(condition));
+                    THROW_IF_ERROR(value.from_string(condition));
                     // Decimal12t is storage type, we need convert to compute type here to
                     // do comparisons
                     return DecimalV2Value(value.integer, value.fraction);

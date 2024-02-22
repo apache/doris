@@ -172,7 +172,7 @@ public:
     uint64_t num_rows() const { return _num_rows; }
 
     void set_dict_encoding_type(DictEncodingType type) {
-        static_cast<void>(_set_dict_encoding_type_once.call([&] {
+        THROW_IF_ERROR(_set_dict_encoding_type_once.call([&] {
             _dict_encoding_type = type;
             return Status::OK();
         }));

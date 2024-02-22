@@ -326,7 +326,7 @@ Status GroupCommitTable::_create_group_commit_load(
     st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, params,
                              pipeline_params);
     if (!st.ok()) {
-        static_cast<void>(_finish_group_commit_load(_db_id, _table_id, label, txn_id, instance_id,
+        RETURN_IF_ERROR(_finish_group_commit_load(_db_id, _table_id, label, txn_id, instance_id,
                                                     st, nullptr));
     }
     return st;
@@ -444,7 +444,7 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
                                              const TExecPlanFragmentParams& params,
                                              const TPipelineFragmentParams& pipeline_params) {
     auto finish_cb = [db_id, table_id, label, txn_id, this](RuntimeState* state, Status* status) {
-        static_cast<void>(_finish_group_commit_load(db_id, table_id, label, txn_id,
+        THROW_IF_ERROR(_finish_group_commit_load(db_id, table_id, label, txn_id,
                                                     state->fragment_instance_id(), *status, state));
     };
     if (is_pipeline) {
@@ -467,7 +467,7 @@ Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,
 }
 
 GroupCommitMgr::GroupCommitMgr(ExecEnv* exec_env) : _exec_env(exec_env) {
-    static_cast<void>(ThreadPoolBuilder("GroupCommitThreadPool")
+    THROW_IF_ERROR(ThreadPoolBuilder("GroupCommitThreadPool")
                               .set_min_threads(1)
                               .set_max_threads(config::group_commit_insert_threads)
                               .build(&_thread_pool));

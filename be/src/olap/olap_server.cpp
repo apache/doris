@@ -1039,7 +1039,7 @@ Status StorageEngine::submit_seg_compaction_task(std::shared_ptr<SegcompactionWo
                                                  SegCompactionCandidatesSharedPtr segments) {
     uint64_t submission_time = GetCurrentTimeMicros();
     return _seg_compaction_thread_pool->submit_func([this, worker, segments, submission_time] {
-        static_cast<void>(_handle_seg_compaction(worker, segments, submission_time));
+        THROW_IF_ERROR(_handle_seg_compaction(worker, segments, submission_time));
     });
 }
 
@@ -1361,7 +1361,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_compact) {
             LOG(INFO) << "submit cold data compaction. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(_cold_data_compaction_thread_pool->submit_func(
+            THROW_IF_ERROR(_cold_data_compaction_thread_pool->submit_func(
                     [&, t = std::move(tablet), this]() {
                         auto compaction = std::make_shared<ColdDataCompaction>(*this, t);
                         {
@@ -1399,7 +1399,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_follow) {
             LOG(INFO) << "submit to follow cooldown meta. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(
+            THROW_IF_ERROR(
                     _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
                         {
                             std::lock_guard lock(tablet_submitted_mtx);
@@ -1446,7 +1446,7 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
         PendingPublishInfoPB pending_publish_info_pb;
         pending_publish_info_pb.set_partition_id(partition_id);
         pending_publish_info_pb.set_transaction_id(transaction_id);
-        static_cast<void>(TabletMetaManager::save_pending_publish_info(
+        THROW_IF_ERROR(TabletMetaManager::save_pending_publish_info(
                 tablet->data_dir(), tablet->tablet_id(), publish_version,
                 pending_publish_info_pb.SerializeAsString()));
     }
@@ -1514,7 +1514,7 @@ void StorageEngine::_process_async_publish() {
 
             auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
                     *this, tablet, partition_id, transaction_id, version);
-            static_cast<void>(_tablet_publish_txn_thread_pool->submit_func(
+            THROW_IF_ERROR(_tablet_publish_txn_thread_pool->submit_func(
                     [=]() { async_publish_task->handle(); }));
             tablet_iter->second.erase(task_iter);
             need_removed_tasks.emplace_back(tablet, version);
@@ -1522,7 +1522,7 @@ void StorageEngine::_process_async_publish() {
         }
     }
     for (auto& [tablet, publish_version] : need_removed_tasks) {
-        static_cast<void>(TabletMetaManager::remove_pending_publish_info(
+        THROW_IF_ERROR(TabletMetaManager::remove_pending_publish_info(
                 tablet->data_dir(), tablet->tablet_id(), publish_version));
     }
 }

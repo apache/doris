@@ -315,7 +315,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             auto* scan_node = static_cast<ScanNode*>(node);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
-            static_cast<void>(scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges));
+            RETURN_IF_ERROR(scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges));
             VLOG_CRITICAL << "query " << print_id(get_query_id())
                           << " scan_node_id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
@@ -632,7 +632,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         } else {
             OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
                     node->child(1)->id(), node->child(1)->row_desc(), node->child(1));
-            static_cast<void>(new_pipe->add_operator(builder));
+            RETURN_IF_ERROR(new_pipe->add_operator(builder));
         }
         OperatorBuilderPtr join_sink =
                 std::make_shared<HashJoinBuildSinkBuilder>(node->id(), join_node);
@@ -752,10 +752,10 @@ Status PipelineFragmentContext::submit() {
 void PipelineFragmentContext::close_sink() {
     if (_sink) {
         if (_prepared) {
-            static_cast<void>(
+            THROW_IF_ERROR(
                     _sink->close(_runtime_state.get(), Status::RuntimeError("prepare failed")));
         } else {
-            static_cast<void>(_sink->close(_runtime_state.get(), Status::OK()));
+            THROW_IF_ERROR(_sink->close(_runtime_state.get(), Status::OK()));
         }
     }
 }
@@ -763,10 +763,10 @@ void PipelineFragmentContext::close_sink() {
 void PipelineFragmentContext::close_if_prepare_failed() {
     if (_tasks.empty()) {
         if (_root_plan) {
-            static_cast<void>(_root_plan->close(_runtime_state.get()));
+            THROW_IF_ERROR(_root_plan->close(_runtime_state.get()));
         }
         if (_sink) {
-            static_cast<void>(
+            THROW_IF_ERROR(
                     _sink->close(_runtime_state.get(), Status::RuntimeError("prepare failed")));
         }
     }
@@ -855,12 +855,12 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
                     std::make_shared<MultiCastDataStreamerSourceOperatorBuilder>(
                             next_operator_builder_id(), i, multi_cast_data_streamer,
                             thrift_sink.multi_cast_stream_sink.sinks[i]);
-            static_cast<void>(new_pipeline->add_operator(source_op));
+            RETURN_IF_ERROR(new_pipeline->add_operator(source_op));
 
             // 3. create and set sink operator of data stream sender for new pipeline
             OperatorBuilderPtr sink_op_builder = std::make_shared<ExchangeSinkOperatorBuilder>(
                     next_operator_builder_id(), _multi_cast_stream_sink_senders[i].get(), i);
-            static_cast<void>(new_pipeline->set_sink_builder(sink_op_builder));
+            RETURN_IF_ERROR(new_pipeline->set_sink_builder(sink_op_builder));
 
             // 4. init and prepare the data_stream_sender of diff exchange
             TDataSink t;
@@ -887,7 +887,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     _runtime_state->runtime_profile()->total_time_counter()->update(
             _fragment_watcher.elapsed_time());
-    static_cast<void>(send_report(true));
+    THROW_IF_ERROR(send_report(true));
     if (_is_report_success) {
         std::stringstream ss;
         // Compute the _local_time_percent before pretty_print the runtime_profile

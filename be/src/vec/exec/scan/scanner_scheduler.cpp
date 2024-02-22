@@ -107,7 +107,7 @@ Status ScannerScheduler::init(ExecEnv* env) {
             "RemoteScanThreadPool");
 
     // 3. limited scan thread pool
-    static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
+    RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
                               .set_min_threads(config::doris_scanner_thread_pool_thread_num)
                               .set_max_threads(config::doris_scanner_thread_pool_thread_num)
                               .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
@@ -242,7 +242,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scanner->set_opened();
     }
 
-    static_cast<void>(scanner->try_append_late_arrival_runtime_filter());
+    THROW_IF_ERROR(scanner->try_append_late_arrival_runtime_filter());
 
     bool first_read = true;
     while (!eos) {
@@ -278,7 +278,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
         if (!first_read && free_block) {
             vectorized::MutableBlock mutable_block(scan_task->current_block.get());
-            static_cast<void>(mutable_block.merge(*free_block));
+            THROW_IF_ERROR(mutable_block.merge(*free_block));
             scan_task->current_block->set_columns(std::move(mutable_block.mutable_columns()));
             ctx->return_free_block(std::move(free_block));
         }

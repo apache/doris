@@ -339,7 +339,7 @@ public:
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
         if (need_init_bf) {
             // BloomFilter may be not init
-            static_cast<void>(bf->init_with_fixed_length());
+            THROW_IF_ERROR(bf->init_with_fixed_length());
             insert_to_bloom_filter(bf);
         }
         // release in filter

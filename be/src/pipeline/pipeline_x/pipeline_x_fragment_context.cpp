@@ -227,11 +227,11 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
             request, root_pipeline->output_row_desc(), _runtime_state.get(), *_desc_tbl,
             root_pipeline->id()));
     RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
-    static_cast<void>(root_pipeline->set_sink(_sink));
+    RETURN_IF_ERROR(root_pipeline->set_sink(_sink));
 
     for (PipelinePtr& pipeline : _pipelines) {
         DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
-        static_cast<void>(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
+        RETURN_IF_ERROR(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
     }
     if (_enable_local_shuffle()) {
         RETURN_IF_ERROR(_plan_local_exchange(request.num_buckets,
@@ -422,7 +422,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
             // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
             source_op.reset(new MultiCastDataStreamerSourceOperatorX(
                     i, pool, thrift_sink.multi_cast_stream_sink.sinks[i], row_desc, source_id));
-            static_cast<void>(new_pipeline->add_operator(source_op));
+            RETURN_IF_ERROR(new_pipeline->add_operator(source_op));
             // 2. create and set sink operator of data stream sender for new pipeline
 
             DataSinkOperatorXPtr sink_op;
@@ -431,7 +431,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                                               thrift_sink.multi_cast_stream_sink.sinks[i],
                                               thrift_sink.multi_cast_stream_sink.destinations[i]));
 
-            static_cast<void>(new_pipeline->set_sink(sink_op));
+            RETURN_IF_ERROR(new_pipeline->set_sink(sink_op));
             {
                 TDataSink* t = pool->add(new TDataSink());
                 t->stream_sink = thrift_sink.multi_cast_stream_sink.sinks[i];
@@ -1246,7 +1246,7 @@ void PipelineXFragmentContext::_close_fragment_instance() {
     }
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
-    static_cast<void>(send_report(true));
+    THROW_IF_ERROR(send_report(true));
     if (_is_report_success) {
         std::stringstream ss;
         // Compute the _local_time_percent before pretty_print the runtime_profile

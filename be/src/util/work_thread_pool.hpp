@@ -20,6 +20,7 @@
 #include <mutex>
 #include <thread>
 
+#include "common/exception.h"
 #include "util/blocking_priority_queue.hpp"
 #include "util/blocking_queue.hpp"
 #include "util/thread.h"
@@ -106,7 +107,7 @@ public:
 
     // Blocks until all threads are finished. shutdown does not need to have been called,
     // since it may be called on a separate thread.
-    virtual void join() { static_cast<void>(_threads.join_all()); }
+    virtual void join() { THROW_IF_ERROR(_threads.join_all()); }
 
     virtual uint32_t get_queue_size() const { return _work_queue.get_size(); }
     virtual uint32_t get_active_threads() const { return _active_threads; }

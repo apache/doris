@@ -32,6 +32,7 @@
 
 #include "arrow/record_batch.h"
 #include "arrow/type_fwd.h"
+#include "common/exception.h"
 #include "runtime/buffer_control_block.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
@@ -92,7 +93,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
         // details see issue https://github.com/apache/doris/issues/16203
         // add extra 5s for avoid corner case
         int64_t max_timeout = time(nullptr) + exec_timout + 5;
-        static_cast<void>(cancel_at_time(max_timeout, query_id));
+        RETURN_IF_ERROR(cancel_at_time(max_timeout, query_id));
     }
     *sender = control_block;
     return Status::OK();
@@ -156,7 +157,7 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
         BufferMap::iterator iter = _buffer_map.find(query_id);
 
         if (_buffer_map.end() != iter) {
-            static_cast<void>(iter->second->cancel());
+            RETURN_IF_ERROR(iter->second->cancel());
             _buffer_map.erase(iter);
         }
     }
@@ -209,7 +210,7 @@ void ResultBufferMgr::cancel_thread() {
 
         // cancel query
         for (int i = 0; i < query_to_cancel.size(); ++i) {
-            static_cast<void>(cancel(query_to_cancel[i]));
+            THROW_IF_ERROR(cancel(query_to_cancel[i]));
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 

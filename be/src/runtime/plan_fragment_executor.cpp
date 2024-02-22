@@ -207,7 +207,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
             ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
             auto scan_ranges =
                     find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-            static_cast<void>(scan_node->set_scan_ranges(runtime_state(), scan_ranges));
+            RETURN_IF_ERROR(scan_node->set_scan_ranges(runtime_state(), scan_ranges));
             VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
         }
@@ -262,7 +262,7 @@ Status PlanFragmentExecutor::open() {
     // at end, otherwise the coordinator hangs in case we finish w/ an error
     if (_is_report_success && config::status_report_interval > 0) {
         std::unique_lock<std::mutex> l(_report_thread_lock);
-        static_cast<void>(_exec_env->send_report_thread_pool()->submit_func([this] {
+        RETURN_IF_ERROR(_exec_env->send_report_thread_pool()->submit_func([this] {
             Defer defer {[&]() { this->_report_thread_promise.set_value(true); }};
             this->report_profile();
         }));
@@ -291,7 +291,7 @@ Status PlanFragmentExecutor::open() {
         std::lock_guard<std::mutex> l(_status_lock);
         _status = status;
         if (status.is<MEM_LIMIT_EXCEEDED>()) {
-            static_cast<void>(_runtime_state->set_mem_limit_exceeded(status.to_string()));
+            RETURN_IF_ERROR(_runtime_state->set_mem_limit_exceeded(status.to_string()));
         }
         if (_runtime_state->query_type() == TQueryType::EXTERNAL) {
             TUniqueId fragment_instance_id = _runtime_state->fragment_instance_id();
@@ -604,15 +604,15 @@ void PlanFragmentExecutor::close() {
     if (_runtime_state != nullptr) {
         // _runtime_state init failed
         if (_plan != nullptr) {
-            static_cast<void>(_plan->close(_runtime_state.get()));
+            THROW_IF_ERROR(_plan->close(_runtime_state.get()));
         }
 
         if (_sink != nullptr) {
             if (!_prepared) {
-                static_cast<void>(
+                THROW_IF_ERROR(
                         _sink->close(runtime_state(), Status::InternalError("prepare failed")));
             } else if (!_opened) {
-                static_cast<void>(
+                THROW_IF_ERROR(
                         _sink->close(runtime_state(), Status::InternalError("open failed")));
             } else {
                 Status status;
@@ -620,7 +620,7 @@ void PlanFragmentExecutor::close() {
                     std::lock_guard<std::mutex> l(_status_lock);
                     status = _status;
                 }
-                static_cast<void>(_sink->close(runtime_state(), status));
+                THROW_IF_ERROR(_sink->close(runtime_state(), status));
             }
         }
 

@@ -139,7 +139,7 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
             _queue.shutdown();
             // cancel all consumers
             for (auto& consumer : _consumers) {
-                static_cast<void>(consumer->cancel(ctx));
+                RETURN_IF_ERROR(consumer->cancel(ctx));
             }
 
             // waiting all threads finished
@@ -149,7 +149,7 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
                 kafka_pipe->cancel(result_st.to_string());
                 return result_st;
             }
-            static_cast<void>(kafka_pipe->finish());
+            RETURN_IF_ERROR(kafka_pipe->finish());
             ctx->kafka_info->cmt_offset = std::move(cmt_offset);
             ctx->receive_bytes = ctx->max_batch_size - left_bytes;
             return Status::OK();

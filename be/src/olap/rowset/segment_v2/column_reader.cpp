@@ -381,8 +381,8 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
                                    WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        static_cast<void>(min_value_container->from_string(zone_map.min()));
-        static_cast<void>(max_value_container->from_string(zone_map.max()));
+        THROW_IF_ERROR(min_value_container->from_string(zone_map.min()));
+        THROW_IF_ERROR(max_value_container->from_string(zone_map.max()));
     }
     // for compatible original Cond eval logic
     if (zone_map.has_null()) {
@@ -400,8 +400,8 @@ void ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
                                              WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        static_cast<void>(min_value_container->from_string(zone_map.min()));
-        static_cast<void>(max_value_container->from_string(zone_map.max()));
+        THROW_IF_ERROR(min_value_container->from_string(zone_map.min()));
+        THROW_IF_ERROR(max_value_container->from_string(zone_map.max()));
     }
 
     if (!zone_map.has_not_null()) {
@@ -1016,7 +1016,7 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         // it has bad impact on primary key query. For example, select * from table where pk = 1, and
         // the table has 2000 columns.
         if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
-            static_cast<void>(seek_to_ordinal(_reader->num_rows() - 1));
+            RETURN_IF_ERROR(seek_to_ordinal(_reader->num_rows() - 1));
             _is_all_dict_encoding = _page.is_dict_encoding;
             _reader->set_dict_encoding_type(_is_all_dict_encoding
                                                     ? ColumnReader::ALL_DICT_ENCODING
@@ -1079,7 +1079,7 @@ void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset
         pos_in_data = offset_in_data + skips - skip_nulls;
     }
 
-    static_cast<void>(page->data_decoder->seek_to_position_in_page(pos_in_data));
+    THROW_IF_ERROR(page->data_decoder->seek_to_position_in_page(pos_in_data));
     page->offset_in_page = offset_in_page;
 }
 
@@ -1199,7 +1199,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 }
 
                 if (!is_null) {
-                    static_cast<void>(
+                    RETURN_IF_ERROR(
                             _page.data_decoder->seek_to_position_in_page(origin_index + this_run));
                 }
 

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "olap/rowset/segment_v2/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder
@@ -180,7 +181,7 @@ public:
         _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
                                            _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
 
-        static_cast<void>(seek_to_position_in_page(0));
+        RETURN_IF_ERROR(seek_to_position_in_page(0));
         return Status::OK();
     }
 

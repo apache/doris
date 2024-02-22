@@ -195,7 +195,7 @@ int64_t MemTableMemoryLimiter::_flush_memtable(std::weak_ptr<MemTableWriter> wri
                 "tablet_id={}, err={}",
                 writer->tablet_id(), st.to_string());
         LOG(WARNING) << err_msg;
-        static_cast<void>(writer->cancel_with_status(st));
+        THROW_IF_ERROR(writer->cancel_with_status(st));
         return 0;
     }
     return mem_usage;

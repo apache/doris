@@ -48,7 +48,7 @@ Status DataConsumerPool::get_consumer(std::shared_ptr<StreamLoadContext> ctx,
     while (iter != std::end(_pool)) {
         if ((*iter)->match(ctx)) {
             VLOG_NOTICE << "get an available data consumer from pool: " << (*iter)->id();
-            static_cast<void>((*iter)->reset());
+            RETURN_IF_ERROR((*iter)->reset());
             *ret = *iter;
             iter = _pool.erase(iter);
             return Status::OK();
@@ -113,7 +113,7 @@ void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
         return;
     }
 
-    static_cast<void>(consumer->reset());
+    THROW_IF_ERROR(consumer->reset());
     _pool.push_back(consumer);
     VLOG_NOTICE << "return the data consumer: " << consumer->id()
                 << ", current pool size: " << _pool.size();

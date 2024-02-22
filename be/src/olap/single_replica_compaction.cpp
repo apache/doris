@@ -18,6 +18,7 @@
 #include "olap/single_replica_compaction.h"
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/strings/split.h"
@@ -571,7 +572,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
             for (auto& file : linked_success_files) {
                 paths.emplace_back(file);
             }
-            static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
+            RETURN_IF_ERROR(io::global_local_filesystem()->batch_delete(paths));
         }
     }
     // clear clone dir

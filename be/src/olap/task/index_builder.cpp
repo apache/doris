@@ -159,7 +159,7 @@ Status IndexBuilder::update_inverted_index_info() {
         rowset_meta->set_segments_overlap(input_rowset_meta->segments_overlap());
         rowset_meta->set_rowset_state(input_rowset_meta->rowset_state());
         std::vector<KeyBoundsPB> key_bounds;
-        static_cast<void>(input_rowset->get_segments_key_bounds(&key_bounds));
+        RETURN_IF_ERROR(input_rowset->get_segments_key_bounds(&key_bounds));
         rowset_meta->set_segments_key_bounds(key_bounds);
         auto output_rowset = output_rs_writer->manual_build(rowset_meta);
         if (input_rowset_meta->has_delete_predicate()) {
@@ -266,7 +266,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             for (auto& writer_sign : inverted_index_writer_signs) {
                 try {
                     if (_inverted_index_builders[writer_sign]) {
-                        static_cast<void>(_inverted_index_builders[writer_sign]->finish());
+                        RETURN_IF_ERROR(_inverted_index_builders[writer_sign]->finish());
                     }
                 } catch (const std::exception& e) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(

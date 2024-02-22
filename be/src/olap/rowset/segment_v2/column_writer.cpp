@@ -25,6 +25,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
@@ -711,7 +712,7 @@ Status ScalarColumnWriter::finish_current_page() {
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
     data_page_footer->set_nullmap_size(nullmap.slice().size);
     if (_new_page_callback != nullptr) {
-        static_cast<void>(_new_page_callback->put_extra_info_in_page(data_page_footer));
+        RETURN_IF_ERROR(_new_page_callback->put_extra_info_in_page(data_page_footer));
     }
     // trying to compress page body
     OwnedSlice compressed_body;

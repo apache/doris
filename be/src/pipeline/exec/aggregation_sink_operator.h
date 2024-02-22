@@ -216,7 +216,7 @@ protected:
                 Base::_shared_state->spill_context.runtime_profile));
         Defer defer {[&]() {
             // redundant call is ok
-            static_cast<void>(writer->close());
+            THROW_IF_ERROR(writer->close());
         }};
         Base::_shared_state->spill_context.stream_ids.emplace_back(writer->get_id());
 
@@ -245,7 +245,7 @@ protected:
             if (blocks_rows[i] == 0) {
                 /// Here write one empty block to ensure there are enough blocks in the file,
                 /// blocks' count should be equal with partition_count.
-                static_cast<void>(writer->write(block_to_write));
+                RETURN_IF_ERROR(writer->write(block_to_write));
                 continue;
             }
 
