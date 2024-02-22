@@ -122,7 +122,7 @@ Click the `+` button next to the plugin to add a Doris service:
 
 The meaning of some parameters of Config Properties is as follows:
 
-- `Username`/`Pasword`: the username and password of the Doris cluster. It is recommended to use the Admin user here.
+- `Username`/`Password`: the username and password of the Doris cluster. It is recommended to use the Admin user here.
 - `jdbc.driver_class`: Connect to the JDBC driver used by Doris. `com.mysql.cj.jdbc.Driver`
 - `jdbc.url`: JDBC url connection string of Doris cluster. `jdbc:mysql://172.21.0.101:9030?useSSL=false`
 - Additional parameters:

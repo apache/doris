@@ -125,8 +125,8 @@ message ColumnPB {
     required string type = 3;   // Column type
     optional bool is_key = 4;   // Whether column is a primary key column
     optional string aggregation = 5;    // Aggregate type
-    optional bool is_nullable = 6;      // Whether column is allowed to assgin null
-    optional bytes default_value = 7;   // Defalut value
+    optional bool is_nullable = 6;      // Whether column is allowed to assign null
+    optional bytes default_value = 7;   // Default value
     optional int32 precision = 8;       // Precision of column
     optional int32 frac = 9;
     optional int32 length = 10;         // Length of column

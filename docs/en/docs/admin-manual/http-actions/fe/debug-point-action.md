@@ -129,7 +129,7 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
 
 ## Pass Custom Parameters
 When activating debug point, besides "timeout" and "execute" mentioned above, passing custom parameters is also allowed.<br/>
-A parameter is a key-value pair in the form of "key=value" in url path, after debug point name glued by charactor '?'.<br/> 
+A parameter is a key-value pair in the form of "key=value" in url path, after debug point name glued by character '?'.<br/> 
 See examples below.
 
 ### API
@@ -296,8 +296,8 @@ and `disableDebugPointForAllFEs()` or `disableDebugPointForAllBEs()` needs to be
 
 ### Concurrent Issue
 
-Enabled debug points affects FE or BE globally, which could cause other concurrent tests to fail unexpectly in your pull request. <br/>
-To avoid this, there's a convension that regression tests using debug points must be in directory regression-test/suites/fault_injection_p0, <br/>
+Enabled debug points affects FE or BE globally, which could cause other concurrent tests to fail unexpectedly in your pull request. <br/>
+To avoid this, there's a convention that regression tests using debug points must be in directory regression-test/suites/fault_injection_p0, <br/>
 and their group name must be "nonConcurrent", as these regression tests will be executed serially by pull request workflow. 
 
 ### Examples
