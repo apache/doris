@@ -91,6 +91,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             }
             catalogDatabase.setComment(properties.getOrDefault("comment", ""));
             client.createDatabase(catalogDatabase);
+            catalog.onRefresh(true);
             catalog.registerDatabase(dbId, fullDbName);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
@@ -103,8 +104,8 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         String dbName = stmt.getDbName();
         try {
             client.dropDatabase(dbName);
-            catalog.unregisterDatabase(dbName);
             catalog.onRefresh(true);
+            catalog.unregisterDatabase(dbName);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -133,13 +134,12 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                     serDe);
 
             client.createTable(catalogTable, stmt.isSetIfNotExists());
-            // TODO: need add first, use increased id
+            catalog.onRefresh(true);
             long tableId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tblName);
             if (tableId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
                 return;
             }
             db.registerTable(NamedExternalTable.of(tableId, tblName, dbName, catalog));
-            catalog.onRefresh(true);
         } catch (Exception e) {
             throw new UserException(e.getMessage(), e);
         }
@@ -165,8 +165,8 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             client.dropTable(dbName, stmt.getTableName());
-            db.unregisterTable(stmt.getTableName());
             catalog.onRefresh(true);
+            db.unregisterTable(stmt.getTableName());
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);
         }

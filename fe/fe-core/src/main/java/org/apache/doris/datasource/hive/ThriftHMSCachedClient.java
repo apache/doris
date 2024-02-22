@@ -161,7 +161,8 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     @Override
     public void createTable(TableMetadata tbl, boolean ignoreIfExists) {
         if (tableExists(tbl.getDbName(), tbl.getTableName())) {
-            return;
+            throw new HMSClientException("Table '" + tbl.getTableName()
+                    + "' has existed in '" + tbl.getDbName() + "'.");
         }
         try (ThriftHMSClient client = getClient()) {
             try {
