@@ -342,7 +342,6 @@ public:
         return false;
     }
     std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
-    std::vector<TabletIndex> get_indexes_for_column_by_copy(const TabletColumn& col) const;
     bool has_inverted_index(const TabletColumn& col) const;
     bool has_inverted_index_with_index_id(int32_t index_id, const std::string& suffix_path) const;
     const TabletIndex* get_inverted_index_with_index_id(int32_t index_id,

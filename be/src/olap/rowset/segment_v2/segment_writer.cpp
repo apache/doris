@@ -222,7 +222,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
             skip_inverted_index = true;
         }
         // indexes for this column
-        opts.indexes = std::move(_tablet_schema->get_indexes_for_column_by_copy(column));
+        opts.indexes = std::move(_tablet_schema->get_indexes_for_column(column));
         if (column.is_variant_type() || (column.is_extracted_column() && column.is_jsonb_type()) ||
             (column.is_extracted_column() && column.is_array_type())) {
             // variant and jsonb type skip write index
@@ -230,7 +230,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         }
         opts.inverted_index_file_writer = _inverted_index_file_writer.get();
         for (auto index : opts.indexes) {
-            if (!skip_inverted_index && index.index_type() == IndexType::INVERTED) {
+            if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
                 opts.inverted_index = index;
                 opts.need_inverted_index = true;
                 // TODO support multiple inverted index

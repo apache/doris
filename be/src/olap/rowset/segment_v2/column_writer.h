@@ -63,8 +63,8 @@ struct ColumnWriterOptions {
     bool need_inverted_index = false;
     uint8_t gram_size;
     uint16_t gram_bf_size;
-    std::vector<TabletIndex> indexes;
-    TabletIndex inverted_index;
+    std::vector<const TabletIndex*> indexes;
+    const TabletIndex* inverted_index = nullptr;
     InvertedIndexFileWriter* inverted_index_file_writer;
     std::string to_string() const {
         std::stringstream ss;
