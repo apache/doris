@@ -136,8 +136,7 @@ public:
             : _query_id(0, 0), _fragment_instance_id(0, 0), _state(state) {}
     ~RuntimeFilterMergeControllerEntity() = default;
 
-    Status init(UniqueId query_id, UniqueId fragment_instance_id,
-                const TRuntimeFilterParams& runtime_filter_params,
+    Status init(UniqueId query_id, const TRuntimeFilterParams& runtime_filter_params,
                 const TQueryOptions& query_options);
 
     // handle merge rpc
@@ -201,7 +200,6 @@ public:
 
         // TODO: why we need string, direct use UniqueId
         std::string query_id_str = query_id.to_string();
-        UniqueId fragment_instance_id = UniqueId(params.fragment_instance_id);
         uint32_t shard = _get_controller_shard_idx(query_id);
         std::lock_guard<std::mutex> guard(_controller_mutex[shard]);
         auto iter = _filter_controller_map[shard].find(query_id_str);
@@ -214,8 +212,7 @@ public:
                     });
             _filter_controller_map[shard][query_id_str] = *handle;
             const TRuntimeFilterParams& filter_params = params.runtime_filter_params;
-            RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params,
-                                                query_options));
+            RETURN_IF_ERROR(handle->get()->init(query_id, filter_params, query_options));
         } else {
             *handle = _filter_controller_map[shard][query_id_str].lock();
         }
@@ -266,10 +263,8 @@ struct RuntimeFilterParamsContext {
     RuntimeFilterMgr* runtime_filter_mgr;
     ExecEnv* exec_env;
     PUniqueId query_id;
-    PUniqueId _fragment_instance_id;
     int be_exec_version;
     QueryContext* query_ctx;
     QueryContext* get_query_ctx() const { return query_ctx; }
-    PUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 };
 } // namespace doris

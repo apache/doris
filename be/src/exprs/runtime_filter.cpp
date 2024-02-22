@@ -1019,8 +1019,8 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     pquery_id->set_lo(_state->query_id.lo());
 
     auto pfragment_instance_id = merge_filter_request->mutable_fragment_instance_id();
-    pfragment_instance_id->set_hi(_state->fragment_instance_id().hi());
-    pfragment_instance_id->set_lo(_state->fragment_instance_id().lo());
+    pfragment_instance_id->set_hi(BackendOptions::get_local_backend().id);
+    pfragment_instance_id->set_lo((int64_t)this);
 
     merge_filter_request->set_filter_id(_filter_id);
     merge_filter_request->set_opt_remote_rf(opt_remote_rf);

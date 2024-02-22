@@ -169,6 +169,7 @@ void RuntimeFilterDependency::sub_filters(int id) {
     {
         std::lock_guard<std::mutex> lk(_task_lock);
         if (!_filter_ready_map[id]) {
+            _filter_ready_map[id] = true;
             _filters--;
         }
         if (_filters == 0) {
