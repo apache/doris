@@ -567,8 +567,8 @@ function create_warehouse() {
         \"obj_info\": {
             \"provider\": \"COS\",
             \"region\": \"ap-hongkong\",
-            \"bucket\": \"doris-build-hk-1308700295\",
-            \"prefix\": \"ci\",
+            \"bucket\": \"doris-community-test-1308700295\",
+            \"prefix\": \"cloud_regression\",
             \"endpoint\": \"cos.ap-hongkong.myqcloud.com\",
             \"external_endpoint\": \"cos.ap-hongkong.myqcloud.com\",
             \"ak\": \"${COS_ak}\",
