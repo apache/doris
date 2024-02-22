@@ -125,6 +125,7 @@ struct TResultFileSinkOptions {
 
     16: optional bool delete_existing_files;
     17: optional string file_suffix;
+    18: optional bool with_bom;
 }
 
 struct TMemoryScratchSink {

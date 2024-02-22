@@ -69,6 +69,9 @@
 #include "vec/sink/vresult_sink.h"
 
 namespace doris::vectorized {
+
+static const unsigned char bom[] = {0xEF, 0xBB, 0xBF};
+
 const size_t VFileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 using doris::operator<<;
 
@@ -188,6 +191,7 @@ Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
     ss << _file_opts->file_path << print_id(_fragment_instance_id) << "_" << (_file_idx++) << "."
        << suffix;
     *file_name = ss.str();
+    _bom_sent = false;
     _header_sent = false;
     if (_storage_type == TStorageBackendType::LOCAL) {
         // For local file writer, the file_path is a local dir.
@@ -430,6 +434,12 @@ std::string VFileResultWriter::gen_types() {
 }
 
 Status VFileResultWriter::write_csv_header() {
+    if (!_bom_sent && _file_opts->with_bom) {
+        RETURN_IF_ERROR(_file_writer_impl->append(reinterpret_cast<const char*>(bom)));
+        _bom_sent = true;
+        _current_written_bytes += 3;
+        COUNTER_UPDATE(_written_data_bytes, 3);
+    }
     if (!_header_sent && _header.size() > 0) {
         std::string tmp_header = _header;
         if (_header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
@@ -437,6 +447,8 @@ Status VFileResultWriter::write_csv_header() {
         }
         RETURN_IF_ERROR(_file_writer_impl->append(tmp_header));
         _header_sent = true;
+        _current_written_bytes += tmp_header.length();
+        COUNTER_UPDATE(_written_data_bytes, tmp_header.length());
     }
     return Status::OK();
 }
