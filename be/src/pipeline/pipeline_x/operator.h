@@ -536,8 +536,8 @@ public:
 
     [[nodiscard]] bool is_source() const override { return false; }
 
-    Status close(RuntimeState* state, Status exec_status) {
-        auto result = state->get_sink_local_state_result(operator_id());
+    static Status close(RuntimeState* state, Status exec_status) {
+        auto result = state->get_sink_local_state_result();
         if (!result) {
             return result.error();
         }
@@ -600,7 +600,7 @@ public:
 
     using LocalState = LocalStateType;
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
-        return state->get_sink_local_state(operator_id())->template cast<LocalState>();
+        return state->get_sink_local_state()->template cast<LocalState>();
     }
 };
 
@@ -663,8 +663,10 @@ public:
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
     virtual ~StatefulOperatorX() = default;
 
+    using OperatorX<LocalStateType>::get_local_state;
+
     [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
-                                   SourceState& source_state) override;
+                                   SourceState& source_state) final;
 
     [[nodiscard]] virtual Status pull(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) const = 0;

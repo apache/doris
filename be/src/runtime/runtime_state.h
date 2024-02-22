@@ -552,9 +552,9 @@ public:
 
     void emplace_sink_local_state(int id, std::unique_ptr<SinkLocalState> state);
 
-    SinkLocalState* get_sink_local_state(int id);
+    SinkLocalState* get_sink_local_state();
 
-    Result<SinkLocalState*> get_sink_local_state_result(int id);
+    Result<SinkLocalState*> get_sink_local_state_result();
 
     void resize_op_id_to_local_state(int operator_size);
 
