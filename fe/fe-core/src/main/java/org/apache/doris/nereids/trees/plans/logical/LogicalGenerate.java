@@ -51,7 +51,7 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     private final List<List<String>> expandColumnAlias;
 
     public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput, CHILD_TYPE child) {
-        this(generators, generatorOutput, Lists.newArrayList(), Optional.empty(), Optional.empty(), child);
+        this(generators, generatorOutput, ImmutableList.of(), Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput, List<List<String>> expandColumnAlias,

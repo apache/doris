@@ -27,10 +27,8 @@
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/array/function_array_utils.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {

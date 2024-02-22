@@ -621,7 +621,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     List<Function> boundFunctionGenerators = boundSlotGenerators.stream()
                             .map(f -> bindTableGeneratingFunction((UnboundFunction) f, ctx.root, ctx.cascadesContext))
                             .collect(Collectors.toList());
-                    Builder<Slot> slotBuilder = ImmutableList.builder();
+                    ImmutableList.Builder<Slot> slotBuilder = ImmutableList.builder();
                     List<Alias> expandAlias = Lists.newArrayList();
                     for (int i = 0; i < generate.getGeneratorOutput().size(); i++) {
                         Function generator = boundFunctionGenerators.get(i);
@@ -634,7 +634,7 @@ public class BindExpression implements AnalysisRuleFactory {
                         // the boundSlot may has two situation:
                         // 1. the expandColumnsAlias is not empty, we should use make boundSlot expand to multi alias
                         // 2. the expandColumnsAlias is empty, we should use origin boundSlot
-                        if (generate.getExpandColumnAlias() != null
+                        if (generate.getExpandColumnAlias() != null && i < generate.getExpandColumnAlias().size()
                                 && !CollectionUtils.isEmpty(generate.getExpandColumnAlias().get(i))) {
                             // if the alias is not empty, we should bind it with struct_element as child expr with alias
                             // struct_element(#expand_col#k, #k) as #k
