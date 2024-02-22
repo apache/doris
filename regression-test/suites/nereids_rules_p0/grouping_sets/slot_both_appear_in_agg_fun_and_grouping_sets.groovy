@@ -52,11 +52,11 @@ suite("slot_both_appear_in_agg_fun_and_grouping_sets") {
 
     qt_select4 """
           select group_concat(col_text_undef_signed,',' ) from table_10_undef_undef4 
-          group by grouping sets((col_text_undef_signed));
+          group by grouping sets((col_text_undef_signed)) order by 1;
     """
 
     qt_select5 """
           select sum(rank() over (partition by col_text_undef_signed order by col_int_undef_signed)) 
-          as col1 from table_10_undef_undef4 group by grouping sets((col_int_undef_signed));
+          as col1 from table_10_undef_undef4 group by grouping sets((col_int_undef_signed)) order by 1;
     """
 }
