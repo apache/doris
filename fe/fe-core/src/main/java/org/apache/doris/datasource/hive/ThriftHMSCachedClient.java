@@ -54,6 +54,7 @@ import org.apache.hadoop.hive.metastore.api.LockState;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
@@ -195,6 +196,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         table.setSd(toHiveStorageDesc(hiveTable.getColumns(),
                 hiveTable.getInputFormat(),
                 hiveTable.getOutputFormat(),
+                hiveTable.getSerDe(),
                 location));
         table.setPartitionKeys(hiveTable.getPartitionKeys());
         // table.setViewOriginalText(hiveTable.getViewSql());
@@ -205,9 +207,12 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     private static StorageDescriptor toHiveStorageDesc(List<Column> columns, String inputFormat, String outputFormat,
-                                                       String location) {
+                                                       String serDe, String location) {
         StorageDescriptor sd = new StorageDescriptor();
         sd.setCols(toHiveColumns(columns));
+        SerDeInfo serDeInfo = new SerDeInfo();
+        serDeInfo.setSerializationLib(serDe);
+        sd.setSerdeInfo(serDeInfo);
         sd.setInputFormat(inputFormat);
         sd.setOutputFormat(outputFormat);
         if (StringUtils.isNotEmpty(location)) {

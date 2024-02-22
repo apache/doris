@@ -200,7 +200,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (LOG.isDebugEnabled()) {
             LOG.debug("create database [{}]", dbName);
         }
-        dbNameToId.put(dbName, dbId);
+        dbNameToId.put(ClusterNamespace.getNameFromFullName(dbName), dbId);
         ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);
         idToDb.put(dbId, db);
     }

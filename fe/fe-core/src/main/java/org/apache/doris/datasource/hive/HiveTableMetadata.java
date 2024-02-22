@@ -32,6 +32,7 @@ public class HiveTableMetadata implements TableMetadata {
     private List<FieldSchema> partitionKeys;
     private String inputFormat;
     private String outputFormat;
+    private String serDe;
     private Map<String, String> properties;
     // private String viewSql;
 
@@ -41,13 +42,15 @@ public class HiveTableMetadata implements TableMetadata {
                              List<FieldSchema> partitionKeys,
                              Map<String, String> props,
                              String inputFormat,
-                             String outputFormat) {
+                             String outputFormat,
+                             String serDe) {
         this.dbName = dbName;
         this.tableName = tblName;
         this.columns = columns;
         this.partitionKeys = partitionKeys;
         this.inputFormat = inputFormat;
         this.outputFormat = outputFormat;
+        this.serDe = serDe;
         this.properties = props;
     }
 
@@ -82,13 +85,18 @@ public class HiveTableMetadata implements TableMetadata {
         return outputFormat;
     }
 
+    public String getSerDe() {
+        return serDe;
+    }
+
     public static HiveTableMetadata of(String dbName,
                                        String tblName,
                                        List<Column> columns,
                                        List<FieldSchema> partitionKeys,
                                        Map<String, String> props,
                                        String inputFormat,
-                                       String outputFormat) {
-        return new HiveTableMetadata(dbName, tblName, columns, partitionKeys, props, inputFormat, outputFormat);
+                                       String outputFormat, String serDe) {
+        return new HiveTableMetadata(dbName, tblName, columns, partitionKeys, props,
+                inputFormat, outputFormat, serDe);
     }
 }

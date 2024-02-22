@@ -2211,6 +2211,10 @@ public class Config extends ConfigBase {
             "Default hive output format for creating table."})
     public static String hive_default_output_format = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat";
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Hive创建外部表默认指定的SerDe类",
+            "Default hive serde class for creating table."})
+    public static String hive_default_serde = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
 
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
