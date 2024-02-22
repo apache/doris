@@ -42,7 +42,8 @@ constexpr uint64_t emtpy_value = 0xe28dbde7fe22e41c;
 
 template <typename ReturnType>
 struct MurmurHash3Impl {
-    static constexpr auto name = std::is_same_v<ReturnType, Int32> ? "murmur_hash3_32" : "murmur_hash3_64";
+    static constexpr auto name =
+            std::is_same_v<ReturnType, Int32> ? "murmur_hash3_32" : "murmur_hash3_64";
 
     static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
@@ -66,9 +67,7 @@ struct MurmurHash3Impl {
         auto& to_column = assert_cast<ColumnVector<ReturnType>&>(col_to);
         if constexpr (first) {
             if constexpr (std::is_same_v<ReturnType, Int32>) {
-                for (int i = 0; i < input_rows_count; ++i) {
-                    to_column.insert_value(static_cast<Int32>(HashUtil::MURMUR3_32_SEED));
-                }
+                to_column.fill(static_cast<Int32>(HashUtil::MURMUR3_32_SEED), input_rows_count);
             } else {
                 to_column.insert_many_defaults(input_rows_count);
             }
@@ -78,7 +77,6 @@ struct MurmurHash3Impl {
             const typename ColumnString::Chars& data = col_from->get_chars();
             const typename ColumnString::Offsets& offsets = col_from->get_offsets();
             size_t size = offsets.size();
-            DCHECK(size == input_rows_count);
             ColumnString::Offset current_offset = 0;
             for (size_t i = 0; i < size; ++i) {
                 if constexpr (std::is_same_v<ReturnType, Int32>) {
@@ -97,11 +95,11 @@ struct MurmurHash3Impl {
             auto value = col_from_const->get_value<String>();
             for (size_t i = 0; i < input_rows_count; ++i) {
                 if constexpr (std::is_same_v<ReturnType, Int32>) {
-                    col_to_data[i] = HashUtil::murmur_hash3_32(
-                            value.data(), value.size(), col_to_data[i]);
+                    col_to_data[i] =
+                            HashUtil::murmur_hash3_32(value.data(), value.size(), col_to_data[i]);
                 } else {
-                    murmur_hash3_x64_64(value.data(), value.size(),
-                                        col_to_data[i], col_to_data.data() + i);
+                    murmur_hash3_x64_64(value.data(), value.size(), col_to_data[i],
+                                        col_to_data.data() + i);
                 }
             }
         } else {
@@ -148,7 +146,6 @@ struct XxHashImpl {
             const typename ColumnString::Chars& data = col_from->get_chars();
             const typename ColumnString::Offsets& offsets = col_from->get_offsets();
             size_t size = offsets.size();
-            DCHECK(size == input_rows_count);
             ColumnString::Offset current_offset = 0;
             for (size_t i = 0; i < size; ++i) {
                 if constexpr (std::is_same_v<ReturnType, Int32>) {
@@ -167,11 +164,11 @@ struct XxHashImpl {
             auto value = col_from_const->get_value<String>();
             for (size_t i = 0; i < input_rows_count; ++i) {
                 if constexpr (std::is_same_v<ReturnType, Int32>) {
-                    col_to_data[i] = HashUtil::xxHash32WithSeed(value.data(), value.size(),
-                                                                col_to_data[i]);
+                    col_to_data[i] =
+                            HashUtil::xxHash32WithSeed(value.data(), value.size(), col_to_data[i]);
                 } else {
-                    col_to_data[i] = HashUtil::xxHash64WithSeed(value.data(), value.size(),
-                                                                col_to_data[i]);
+                    col_to_data[i] =
+                            HashUtil::xxHash64WithSeed(value.data(), value.size(), col_to_data[i]);
                 }
             }
         } else {
