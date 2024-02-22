@@ -54,6 +54,7 @@
 #include "util/string_parser.hpp"
 #include "util/types.h"
 #include "vec/common/arena.h"
+#include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
@@ -632,7 +633,7 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TINYINT> {
-    using CppType = int8_t;
+    using CppType = vectorized::Int8;
     using UnsignedCppType = uint8_t;
 };
 template <>

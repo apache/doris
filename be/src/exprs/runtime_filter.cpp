@@ -56,6 +56,7 @@
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/core/wide_integer_to_string.h"
 #include "vec/exprs/vbitmap_predicate.h"
@@ -574,7 +575,7 @@ public:
         case TYPE_TINYINT: {
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
-                int8_t int_val = static_cast<int8_t>(column.intval());
+                vectorized::Int8 int_val = static_cast<vectorized::Int8>(column.intval());
                 set->insert(&int_val);
             });
             break;
@@ -752,8 +753,10 @@ public:
             return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_TINYINT: {
-            int8_t min_val = static_cast<int8_t>(minmax_filter->min_val().intval());
-            int8_t max_val = static_cast<int8_t>(minmax_filter->max_val().intval());
+            vectorized::Int8 min_val =
+                    static_cast<vectorized::Int8>(minmax_filter->min_val().intval());
+            vectorized::Int8 max_val =
+                    static_cast<vectorized::Int8>(minmax_filter->max_val().intval());
             return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_SMALLINT: {
@@ -1452,9 +1455,10 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
         return;
     }
     case TYPE_TINYINT: {
-        batch_copy<int8_t>(filter, it, [](PColumnValue* column, const int8_t* value) {
-            column->set_intval(*value);
-        });
+        batch_copy<vectorized::Int8>(filter, it,
+                                     [](PColumnValue* column, const vectorized::Int8* value) {
+                                         column->set_intval(*value);
+                                     });
         return;
     }
     case TYPE_SMALLINT: {
@@ -1578,8 +1582,8 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
         return;
     }
     case TYPE_TINYINT: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int8_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int8_t*>(max_data));
+        filter->mutable_min_val()->set_intval(*reinterpret_cast<const vectorized::Int8*>(min_data));
+        filter->mutable_max_val()->set_intval(*reinterpret_cast<const vectorized::Int8*>(max_data));
         return;
     }
     case TYPE_SMALLINT: {

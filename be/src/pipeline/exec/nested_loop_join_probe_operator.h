@@ -199,7 +199,7 @@ private:
     int _left_side_process_count = 0;
     bool _need_more_input_data = true;
     // Visited flags for current row in probe side.
-    std::vector<int8_t> _cur_probe_row_visited_flags;
+    std::vector<vectorized::Int8> _cur_probe_row_visited_flags;
     size_t _current_build_pos = 0;
     vectorized::MutableColumns _dst_columns;
     std::stack<uint16_t> _build_offset_stack;

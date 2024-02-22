@@ -18,6 +18,7 @@
 #pragma once
 
 #include <charconv>
+#include <cstdint>
 #include <type_traits>
 
 #include "exec/olap_utils.h"
@@ -33,6 +34,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/date_func.h"
+#include "util/hash_util.hpp"
 #include "util/string_util.h"
 
 namespace doris {
@@ -69,6 +71,10 @@ private:
             value = std::stod(condition, nullptr);
         } else if constexpr (std::is_same_v<CppType, float>) {
             value = std::stof(condition, nullptr);
+        } else if constexpr (std::is_same_v<CppType, vectorized::Int8>) {
+            int8_t tmp_value;
+            std::from_chars(condition.data(), condition.data() + condition.size(), tmp_value);
+            value = (vectorized::Int8)(tmp_value);
         } else {
             std::from_chars(condition.data(), condition.data() + condition.size(), value);
         }

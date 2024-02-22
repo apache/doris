@@ -1034,6 +1034,11 @@ struct NearestFieldTypeImpl<unsigned char> {
 };
 
 template <>
+struct NearestFieldTypeImpl<Int8> {
+    using Type = Int64;
+};
+
+template <>
 struct NearestFieldTypeImpl<UInt16> {
     using Type = UInt64;
 };

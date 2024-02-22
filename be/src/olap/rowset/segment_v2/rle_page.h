@@ -60,6 +60,9 @@ public:
             _bit_width = 1;
             break;
         }
+        case FieldType::OLAP_FIELD_TYPE_TINYINT: {
+            _bit_width = 8;
+        }
         default: {
             _bit_width = SIZE_OF_TYPE * 8;
             break;

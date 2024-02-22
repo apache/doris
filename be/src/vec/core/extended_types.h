@@ -32,7 +32,7 @@ static_assert(sizeof(wide::UInt256) == 32);
 namespace wide {
 template <class T>
 concept is_integer = std::is_integral_v<T> || std::is_same_v<T, wide::Int256> ||
-                     std::is_same_v<T, wide::UInt256>;
+                     std::is_same_v<T, wide::UInt256> || std::is_same_v<T, doris::vectorized::Int8>;
 }
 template <>
 struct std::is_signed<wide::Int256> {

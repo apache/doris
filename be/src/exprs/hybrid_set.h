@@ -270,7 +270,11 @@ public:
         if (data == nullptr) {
             return;
         }
-        _set.insert(*reinterpret_cast<const ElementType*>(data));
+        if constexpr (std::is_same_v<ElementType, doris::vectorized::Int8>) {
+            _set.insert(*reinterpret_cast<const int8_t*>(data));
+        } else {
+            _set.insert(*reinterpret_cast<const ElementType*>(data));
+        }
     }
     void insert(void* data, size_t /*unused*/) override { insert(data); }
 

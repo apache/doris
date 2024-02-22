@@ -28,6 +28,7 @@
 
 #include "util/bit_util.h"
 #include "util/coding.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -471,7 +472,7 @@ bool ForDecoder<T>::seek_at_or_after_value(const void* value, bool* exact_match)
     return found;
 }
 
-template class ForEncoder<int8_t>;
+template class ForEncoder<doris::vectorized::Int8>;
 template class ForEncoder<int16_t>;
 template class ForEncoder<int32_t>;
 template class ForEncoder<int64_t>;
@@ -483,7 +484,7 @@ template class ForEncoder<uint64_t>;
 template class ForEncoder<uint24_t>;
 template class ForEncoder<uint128_t>;
 
-template class ForDecoder<int8_t>;
+template class ForDecoder<doris::vectorized::Int8>;
 template class ForDecoder<int16_t>;
 template class ForDecoder<int32_t>;
 template class ForDecoder<int64_t>;

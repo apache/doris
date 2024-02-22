@@ -283,6 +283,29 @@ public:
     }
 };
 
+// TODO: Figure out what is this.
+template <>
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_TINYINT> {
+public:
+    static void full_encode_ascending(const void* value, std::string* buf) {
+        auto slice = reinterpret_cast<const Slice*>(value);
+        buf->append(slice->get_data(), slice->get_size());
+    }
+
+    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+        const Slice* slice = (const Slice*)value;
+        CHECK(index_size <= slice->size)
+                << "index size is larger than char size, index=" << index_size
+                << ", char=" << slice->size;
+        buf->append(slice->data, index_size);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        LOG(FATAL) << "decode_ascending is not implemented";
+        return Status::OK();
+    }
+};
+
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
 public:

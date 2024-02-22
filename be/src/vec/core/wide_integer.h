@@ -45,6 +45,13 @@
 #include <limits>
 #include <type_traits>
 
+namespace doris::vectorized {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wbit-int-extension"
+using Int8 = signed _BitInt(8);
+#pragma clang diagnostic pop
+}; // namespace doris::vectorized
+
 // NOLINTBEGIN(*)
 
 namespace wide {
@@ -133,6 +140,7 @@ public:
     constexpr operator long double() const noexcept;
     constexpr operator double() const noexcept;
     constexpr operator float() const noexcept;
+    constexpr operator doris::vectorized::Int8() const noexcept;
 
     struct _impl;
 

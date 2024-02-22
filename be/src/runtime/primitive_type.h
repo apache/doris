@@ -132,7 +132,7 @@ struct PrimitiveTypeTraits<TYPE_BOOLEAN> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_TINYINT> {
-    using CppType = int8_t;
+    using CppType = vectorized::Int8;
     using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnInt8;
 };

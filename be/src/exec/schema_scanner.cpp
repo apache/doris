@@ -199,7 +199,8 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
 
         case TYPE_TINYINT: {
-            int8_t num = *reinterpret_cast<int8_t*>(data);
+            // TODO: this is ub
+            vectorized::Int8 num = *reinterpret_cast<vectorized::Int8*>(data);
             reinterpret_cast<vectorized::ColumnVector<vectorized::Int8>*>(col_ptr)->insert_value(
                     num);
             break;

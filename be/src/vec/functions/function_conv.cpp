@@ -124,10 +124,10 @@ public:
 private:
     // check out of bound.
     static bool _check_oob(const Int8 src_base, const Int8 dst_base) {
-        return std::abs(src_base) < MathFunctions::MIN_BASE ||
-               std::abs(src_base) > MathFunctions::MAX_BASE ||
-               std::abs(dst_base) < MathFunctions::MIN_BASE ||
-               std::abs(dst_base) > MathFunctions::MAX_BASE;
+        return std::abs((int8_t)src_base) < MathFunctions::MIN_BASE ||
+               std::abs((int8_t)src_base) > MathFunctions::MAX_BASE ||
+               std::abs((int8_t)dst_base) < MathFunctions::MIN_BASE ||
+               std::abs((int8_t)dst_base) > MathFunctions::MAX_BASE;
     }
     static void execute_straight(FunctionContext* context,
                                  const typename Impl::DataType::ColumnType* data_column,

@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -28,6 +29,7 @@
 
 #include "common/consts.h"
 #include "util/binary_cast.hpp"
+#include "util/int8_to_string.h"
 #include "vec/common/int_exp.h"
 #include "vec/core/wide_integer.h"
 #include "vec/core/wide_integer_to_string.h"
@@ -111,7 +113,11 @@ using UInt16 = uint16_t;
 using UInt32 = uint32_t;
 using UInt64 = uint64_t;
 
-using Int8 = int8_t;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wbit-int-extension"
+using Int8 = signed _BitInt(8);
+#pragma clang diagnostic pop
+
 using Int16 = int16_t;
 using Int32 = int32_t;
 using Int64 = int64_t;
@@ -522,6 +528,7 @@ struct Decimal {
     Decimal(Decimal<T>&&) = default;
     Decimal(const Decimal<T>&) = default;
 
+    explicit(IsInt256) Decimal(Int8 value) noexcept : value(static_cast<Int32>(value)) {}
     explicit(IsInt256) Decimal(Int32 value) noexcept : value(value) {}
     explicit(IsInt256) Decimal(Int64 value) noexcept : value(value) {}
     explicit(IsInt256) Decimal(Int128 value) noexcept : value(value) {}
@@ -671,6 +678,7 @@ struct Decimal128V3 : public Decimal<Int128> {
     DECLARE_NUMERIC_CTOR(wide::Int256)
     DECLARE_NUMERIC_CTOR(Int128)
     DECLARE_NUMERIC_CTOR(IPv6)
+    DECLARE_NUMERIC_CTOR(Int8)
     DECLARE_NUMERIC_CTOR(Int32)
     DECLARE_NUMERIC_CTOR(Int64)
     DECLARE_NUMERIC_CTOR(UInt32)
@@ -978,3 +986,37 @@ constexpr bool typeindex_is_int(doris::vectorized::TypeIndex index) {
     }
     }
 }
+
+namespace std {
+template <>
+struct hash<doris::vectorized::Int8> /// NOLINT (cert-dcl58-cpp)
+{
+    size_t operator()(const doris::vectorized::Int8 x) const {
+        return std::hash<int8_t>()(int8_t {x});
+    }
+};
+
+// template<>
+// struct std::is_integral<doris::vectorized::Int8> : std::true_type {};
+
+template <>
+struct make_unsigned<doris::vectorized::Int8> {
+    using type = std::make_unsigned_t<doris::vectorized::UInt8>;
+};
+
+template <>
+struct std::is_signed<doris::vectorized::Int8> {
+    static constexpr bool value = true;
+};
+
+template <>
+struct std::is_unsigned<doris::vectorized::Int8> {
+    static constexpr bool value = false;
+};
+
+template <>
+struct std::make_signed<doris::vectorized::Int8> {
+    using type = doris::vectorized::Int8;
+};
+
+} // namespace std

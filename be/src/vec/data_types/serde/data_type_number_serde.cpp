@@ -31,7 +31,7 @@
 namespace doris {
 namespace vectorized {
 
-// Type map的基本结构
+// Type map 的基本结构
 template <typename Key, typename Value, typename... Rest>
 struct TypeMap {
     using KeyType = Key;
@@ -39,7 +39,7 @@ struct TypeMap {
     using Next = TypeMap<Rest...>;
 };
 
-// Type map的末端
+// Type map 的末端
 template <>
 struct TypeMap<void, void> {};
 
@@ -47,13 +47,13 @@ struct TypeMap<void, void> {};
 template <typename Key, typename Map>
 struct TypeMapLookup;
 
-// Type map查找：找到匹配的键时的情况
+// Type map 查找：找到匹配的键时的情况
 template <typename Key, typename Value, typename... Rest>
 struct TypeMapLookup<Key, TypeMap<Key, Value, Rest...>> {
     using ValueType = Value;
 };
 
-// Type map查找：递归查找
+// Type map 查找：递归查找
 template <typename Key, typename K, typename V, typename... Rest>
 struct TypeMapLookup<Key, TypeMap<K, V, Rest...>> {
     using ValueType = typename TypeMapLookup<Key, TypeMap<Rest...>>::ValueType;
@@ -77,7 +77,14 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
     using ARROW_BUILDER_TYPE = typename TypeMapLookup<T, DORIS_NUMERIC_ARROW_BUILDER>::ValueType;
     auto arrow_null_map = revert_null_map(null_map, start, end);
     auto arrow_null_map_data = arrow_null_map.empty() ? nullptr : arrow_null_map.data();
-    if constexpr (std::is_same_v<T, UInt8>) {
+    if constexpr (std::is_same_v<T, Int8>) {
+        ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
+        checkArrowStatus(
+                builder.AppendValues(reinterpret_cast<const int8_t*>(col_data.data() + start),
+                                     end - start,
+                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
+                column.get_name(), array_builder->type()->name());
+    } else if constexpr (std::is_same_v<T, UInt8>) {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         checkArrowStatus(
                 builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),

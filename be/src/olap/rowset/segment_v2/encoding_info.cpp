@@ -89,6 +89,19 @@ struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
 };
 
 template <>
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_TINYINT, RLE, bool> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        *builder = new RlePageBuilder<FieldType::OLAP_FIELD_TYPE_TINYINT>(opts);
+        return Status::OK();
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new RlePageDecoder<FieldType::OLAP_FIELD_TYPE_TINYINT>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <>
 struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_BOOL, RLE, bool> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         *builder = new RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>(opts);
@@ -110,6 +123,20 @@ struct TypeEncodingTraits<type, DICT_ENCODING, Slice> {
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
         *decoder = new BinaryDictPageDecoder(data, opts);
+        return Status::OK();
+    }
+};
+
+template <>
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_TINYINT, FOR_ENCODING,
+                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TINYINT>::CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        *builder = new FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_TINYINT>(opts);
+        return Status::OK();
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_TINYINT>(data, opts);
         return Status::OK();
     }
 };

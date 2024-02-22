@@ -38,6 +38,7 @@
 #include "olap/predicate_creator.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "vec/core/types.h"
 
 using apache::thrift::ThriftDebugString;
 using std::vector;
@@ -166,7 +167,7 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
     FieldType field_type = column.type();
     switch (field_type) {
     case FieldType::OLAP_FIELD_TYPE_TINYINT:
-        return valid_signed_number<int8_t>(value_str);
+        return valid_signed_number<vectorized::Int8>(value_str);
     case FieldType::OLAP_FIELD_TYPE_SMALLINT:
         return valid_signed_number<int16_t>(value_str);
     case FieldType::OLAP_FIELD_TYPE_INT:

@@ -30,6 +30,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
+#include "util/int8_to_string.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"

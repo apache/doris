@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <type_traits>
 
 #include "parallel_hashmap/phmap_utils.h"
@@ -90,6 +91,14 @@ template <typename T>
     requires std::is_arithmetic_v<T>
 struct DefaultHash<T> {
     size_t operator()(T key) const { return default_hash64<T>(key); }
+};
+
+template <>
+struct DefaultHash<doris::vectorized::Int8> /// NOLINT (cert-dcl58-cpp)
+{
+    size_t operator()(const doris::vectorized::Int8 x) const {
+        return default_hash64(static_cast<int8_t>(x));
+    }
 };
 
 template <>
