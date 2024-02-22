@@ -29,6 +29,7 @@ import org.apache.doris.qe.ConnectContext;
  * Check whether a user is permitted to scan specific tables.
  */
 public class UserAuthentication {
+    /** checkPermission. */
     public static void checkPermission(TableIf table, ConnectContext connectContext) {
         if (table == null) {
             return;
@@ -51,10 +52,10 @@ public class UserAuthentication {
         String ctlName = catalog.getName();
         // TODO: 2023/7/19 checkColumnsPriv
         if (!connectContext.getEnv().getAccessManager().checkTblPriv(connectContext, ctlName, dbName,
-            tableName, PrivPredicate.SELECT)) {
+                tableName, PrivPredicate.SELECT)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SELECT",
-                ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                ctlName + ": " + dbName + ": " + tableName);
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    ctlName + ": " + dbName + ": " + tableName);
             throw new AnalysisException(message);
         }
     }
