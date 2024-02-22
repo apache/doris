@@ -919,6 +919,7 @@ nonReserved
     | BACKENDS
     | BACKUP
     | BEGIN
+    | BELONG
     | BIN
     | BITAND
     | BITMAP
