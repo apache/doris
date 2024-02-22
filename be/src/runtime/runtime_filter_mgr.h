@@ -254,8 +254,6 @@ private:
 // and the other is local, originating from RuntimeState.
 // In practice, we have already distinguished between them through UpdateRuntimeFilterParamsV2/V1.
 // RuntimeState/QueryContext is only used to store runtime_filter_wait_time_ms and enable_pipeline_exec...
-
-/// TODO: Consider adding checks for global/local.
 struct RuntimeFilterParamsContext {
     RuntimeFilterParamsContext() = default;
     static RuntimeFilterParamsContext* create(RuntimeState* state);
