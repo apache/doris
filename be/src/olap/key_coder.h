@@ -35,6 +35,7 @@
 #include "olap/types.h"
 #include "util/slice.h"
 #include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
 
 namespace doris {
 
@@ -84,6 +85,8 @@ template <FieldType field_type>
 class KeyCoderTraits<
         field_type,
         typename std::enable_if<
+                std::is_same_v<typename CppTypeTraits<field_type>::CppType,
+                               doris::vectorized::Int8> ||
                 std::is_integral<typename CppTypeTraits<field_type>::CppType>::value ||
                 field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
                 vectorized::IsDecimalNumber<typename CppTypeTraits<field_type>::CppType>>::type> {
@@ -283,29 +286,6 @@ public:
     }
 };
 
-// TODO: Figure out what is this.
-template <>
-class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_TINYINT> {
-public:
-    static void full_encode_ascending(const void* value, std::string* buf) {
-        auto slice = reinterpret_cast<const Slice*>(value);
-        buf->append(slice->get_data(), slice->get_size());
-    }
-
-    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
-        const Slice* slice = (const Slice*)value;
-        CHECK(index_size <= slice->size)
-                << "index size is larger than char size, index=" << index_size
-                << ", char=" << slice->size;
-        buf->append(slice->data, index_size);
-    }
-
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
-        LOG(FATAL) << "decode_ascending is not implemented";
-        return Status::OK();
-    }
-};
-
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
 public:
@@ -327,6 +307,10 @@ public:
         return Status::OK();
     }
 };
+
+template <>
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_TINYINT>
+        : public KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {};
 
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {

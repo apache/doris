@@ -1030,7 +1030,8 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
         return try_read_bool_text(x, rb);
     }
 
-    if constexpr (std::is_integral_v<typename DataType::FieldType> || std::is_same_v<typename DataType::FieldType, doris::vectorized::Int8>) {
+    if constexpr (std::is_integral_v<typename DataType::FieldType> ||
+                  std::is_same_v<typename DataType::FieldType, doris::vectorized::Int8>) {
         return try_read_int_text(x, rb);
     }
 }

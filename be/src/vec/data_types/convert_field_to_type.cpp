@@ -229,7 +229,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
             // return convert_numric_type<UInt128>(src, type, to);
         }
         if (which_type.is_int8()) {
-            return convert_numric_type<int8_t>(src, type, to);
+            return convert_numric_type<Int8>(src, type, to);
         }
         if (which_type.is_int16()) {
             return convert_numric_type<Int16>(src, type, to);

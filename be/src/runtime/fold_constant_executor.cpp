@@ -172,8 +172,7 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
         break;
     }
     case TYPE_TINYINT: {
-        // TODO: This is ub, use memcpy
-        vectorized::Int8 val = *reinterpret_cast<const vectorized::Int8*>(src);
+        vectorized::Int8 val = unaligned_load<vectorized::Int8>(src);
         result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }

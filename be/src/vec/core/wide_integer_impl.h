@@ -1212,20 +1212,6 @@ constexpr integer<Bits, Signed>::operator T() const noexcept {
 }
 
 template <size_t Bits, typename Signed>
-constexpr integer<Bits, Signed>::operator doris::vectorized::Int8() const noexcept {
-    using UInt8 = std::uint8_t;
-    UInt8 res {};
-    for (unsigned i = 0;
-         i < _impl::item_count && i < (sizeof(UInt8) + sizeof(base_type) - 1) / sizeof(base_type);
-         ++i) {
-        res += UInt8(items[_impl::little(i)])
-               << (sizeof(base_type) * 8 *
-                   i); // NOLINT(clang-analyzer-core.UndefinedBinaryOperatorResult)
-    }
-    return res;
-}
-
-template <size_t Bits, typename Signed>
 constexpr integer<Bits, Signed>::operator long double() const noexcept {
     if (_impl::operator_eq(*this, 0)) {
         return 0;
