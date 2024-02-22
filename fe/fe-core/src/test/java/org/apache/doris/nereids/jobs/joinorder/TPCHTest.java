@@ -21,6 +21,7 @@ import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
@@ -28,7 +29,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class TPCHTest extends TPCHTestBase {
+public class TPCHTest extends TPCHTestBase  implements MemoPatternMatchSupported {
     @Test
     void testQ5() {
         PlanChecker.from(connectContext)
@@ -60,12 +61,18 @@ public class TPCHTest extends TPCHTestBase {
                 + "            and l_commitdate < l_receiptdate\n"
                 + "    );";
 
-        PlanChecker checker = PlanChecker.from(connectContext)
+        // o_orderstatus is smaller than o_orderdate, but o_orderstatus is not used in this sql
+        // it is better to choose the column which is already used to represent count(*)
+        PlanChecker.from(connectContext)
                 .analyze(sql)
-                .rewrite();
-        List<? extends Expression> proj = checker.getPlan().child(0).child(0).getExpressions();
-        Assertions.assertEquals(proj.size(), 1);
-        Assertions.assertTrue(proj.get(0) instanceof SlotReference
-                && "o_orderdate".equals(proj.get(0).toSql()));
+                .rewrite()
+                .matches(
+                        logicalResultSink(
+                                logicalAggregate(
+                                    logicalProject().when(
+                                            project -> project.getProjects().size() == 1
+                                                    && project.getProjects().get(0) instanceof SlotReference
+                                                    && "o_orderdate".equals(project.getProjects().get(0).toSql()))))
+                );
     }
 }
