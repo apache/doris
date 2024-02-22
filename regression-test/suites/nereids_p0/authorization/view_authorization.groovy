@@ -47,6 +47,8 @@ suite("view_authorization") {
     sql "grant SELECT_PRIV on ${db}.${view1} to '${user1}'@'%';"
     sql "grant SELECT_PRIV on ${db}.${view3} to '${user1}'@'%';"
 
+    sql 'sync'
+
     def defaultDbUrl = context.config.jdbcUrl.substring(0, context.config.jdbcUrl.lastIndexOf("/"))
     logger.info("connect to ${defaultDbUrl}".toString())
     connect(user = user1, password = null, url = defaultDbUrl) {
@@ -58,20 +60,20 @@ suite("view_authorization") {
             exception "SELECT command denied to user '${user1}'"
         }
 
-        // has privilega to view1
+        // has privilege to view1
         test {
             sql "select * from ${db}.${view1}"
             result([[1, 'hello', 'hello_1']])
         }
 
-        // no privilega to view2
+        // no privilege to view2
         test {
             sql "select * from ${db}.${view2}"
             exception "SELECT command denied to user '${user1}'"
         }
 
         // nested view
-        // has privilega to view3
+        // has privilege to view3
         test {
             sql "select * from ${db}.${view3}"
             result([['doris_3', 100]])
