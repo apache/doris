@@ -235,7 +235,7 @@ std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
 }
 
 std::string DataSinkOperatorXBase::debug_string(RuntimeState* state, int indentation_level) const {
-    return state->get_sink_local_state(operator_id())->debug_string(indentation_level);
+    return state->get_sink_local_state()->debug_string(indentation_level);
 }
 
 Status DataSinkOperatorXBase::init(const TDataSink& tsink) {
@@ -498,8 +498,7 @@ Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vector
 template <typename LocalStateType>
 Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                     SourceState& source_state) {
-    auto& local_state = state->get_local_state(OperatorX<LocalStateType>::operator_id())
-                                ->template cast<LocalStateType>();
+    auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data();
         RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(

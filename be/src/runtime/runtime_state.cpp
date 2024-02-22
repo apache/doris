@@ -486,13 +486,13 @@ void RuntimeState::emplace_sink_local_state(
     _sink_local_state = std::move(state);
 }
 
-doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state(int) {
+doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state() {
     return _sink_local_state.get();
 }
 
-Result<RuntimeState::SinkLocalState*> RuntimeState::get_sink_local_state_result(int id) {
+Result<RuntimeState::SinkLocalState*> RuntimeState::get_sink_local_state_result() {
     if (!_sink_local_state) {
-        return ResultError(Status::InternalError("_op_id_to_sink_local_state id:{} is null", id));
+        return ResultError(Status::InternalError("_op_id_to_sink_local_state not exist"));
     }
     return _sink_local_state.get();
 }
