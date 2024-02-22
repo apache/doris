@@ -37,6 +37,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
@@ -256,7 +257,8 @@ public class IcebergUtils {
     }
 
     // "partition"="c1;day(c1);bucket(4,c3)"
-    public static PartitionSpec solveIcebergPartitionSpec(Map<String, String> properties, Schema schema) {
+    public static PartitionSpec solveIcebergPartitionSpec(Map<String, String> properties, Schema schema)
+            throws UserException {
         if (properties.containsKey("partition")) {
             PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
             String par = properties.get("partition").replaceAll(" ", "");
@@ -291,10 +293,10 @@ public class IcebergUtils {
                                 builder.truncate(matcher.group(3), Integer.parseInt(matcher.group(2)));
                                 break;
                             default:
-                                LOG.warn("unsupported partition for " + matcher.group(1));
+                                throw new UserException("unsupported partition for " + matcher.group(1));
                         }
                     } else {
-                        LOG.warn("failed to get partition info from " + func);
+                        throw new UserException("failed to get partition info from " + func);
                     }
                 } else {
                     builder.identity(func);
