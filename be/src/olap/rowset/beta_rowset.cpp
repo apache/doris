@@ -97,14 +97,29 @@ Status BetaRowset::get_inverted_index_size(size_t* index_size) {
     if (!fs || _schema == nullptr) {
         return Status::Error<INIT_FAILED>("get fs failed");
     }
-    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        auto seg_path = segment_file_path(seg_id);
-        int64_t file_size = 0;
+    if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+        auto indices = _schema->indexes();
+        for (auto& index : indices) {
+            for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+                auto seg_path = segment_file_path(seg_id);
+                int64_t file_size = 0;
 
-        std::string inverted_index_file_path =
-                InvertedIndexDescriptor::get_index_file_name(seg_path);
-        RETURN_IF_ERROR(fs->file_size(inverted_index_file_path, &file_size));
-        *index_size += file_size;
+                std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_name(
+                        seg_path, index.index_id(), index.get_index_suffix());
+                RETURN_IF_ERROR(fs->file_size(inverted_index_file_path, &file_size));
+                *index_size += file_size;
+            }
+        }
+    } else {
+        for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+            auto seg_path = segment_file_path(seg_id);
+            int64_t file_size = 0;
+
+            std::string inverted_index_file_path =
+                    InvertedIndexDescriptor::get_index_file_name(seg_path);
+            RETURN_IF_ERROR(fs->file_size(inverted_index_file_path, &file_size));
+            *index_size += file_size;
+        }
     }
     return Status::OK();
 }

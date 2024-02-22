@@ -67,12 +67,14 @@ Status IndexBuilder::update_inverted_index_info() {
         TabletSchemaSPtr output_rs_tablet_schema = std::make_shared<TabletSchema>();
         const auto& input_rs_tablet_schema = input_rowset->tablet_schema();
         output_rs_tablet_schema->copy_from(*input_rs_tablet_schema);
+        size_t total_index_size = 0;
+        auto* beta_rowset = reinterpret_cast<BetaRowset*>(input_rowset.get());
+        auto size_st = beta_rowset->get_inverted_index_size(&total_index_size);
+        if (!size_st.ok() && !size_st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() &&
+            !size_st.is<ErrorCode::NOT_FOUND>()) {
+            return size_st;
+        }
         if (_is_drop_op) {
-            size_t total_index_size = 0;
-            auto* beta_rowset = reinterpret_cast<BetaRowset*>(input_rowset.get());
-            size_t index_size = 0;
-            RETURN_IF_ERROR(beta_rowset->get_inverted_index_size(&index_size));
-            total_index_size += index_size;
             for (const auto& t_inverted_index : _alter_inverted_indexes) {
                 DCHECK_EQ(t_inverted_index.columns.size(), 1);
                 auto column_name = t_inverted_index.columns[0];
@@ -93,29 +95,6 @@ Status IndexBuilder::update_inverted_index_info() {
                 _drop_indices_meta.push_back(*index_meta);
                 output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
             }
-
-            auto input_rowset_meta = input_rowset->rowset_meta();
-            auto update_disk_size = [&](size_t& disk_size, const std::string& size_type) {
-                if (disk_size >= total_index_size) {
-                    disk_size -= total_index_size;
-                } else {
-                    LOG(WARNING) << "rowset " << input_rowset_meta->rowset_id() << " " << size_type
-                                 << " size:" << disk_size
-                                 << " is less than index size:" << total_index_size;
-                }
-            };
-
-            size_t before_size = input_rowset_meta->total_disk_size();
-            update_disk_size(before_size, "total disk");
-            input_rowset_meta->set_total_disk_size(before_size);
-
-            before_size = input_rowset_meta->data_disk_size();
-            update_disk_size(before_size, "data disk");
-            input_rowset_meta->set_data_disk_size(before_size);
-
-            before_size = input_rowset_meta->index_disk_size();
-            update_disk_size(before_size, "index");
-            input_rowset_meta->set_index_disk_size(before_size);
         } else {
             // base on input rowset's tablet_schema to build
             // output rowset's tablet_schema which only add
@@ -184,9 +163,9 @@ Status IndexBuilder::update_inverted_index_info() {
         auto input_rowset_meta = input_rowset->rowset_meta();
         RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
         rowset_meta->set_num_rows(input_rowset_meta->num_rows());
-        rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size());
-        rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size());
-        rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size());
+        rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size() - total_index_size);
+        rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size() - total_index_size);
+        rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size() - total_index_size);
         rowset_meta->set_empty(input_rowset_meta->empty());
         rowset_meta->set_num_segments(input_rowset_meta->num_segments());
         rowset_meta->set_segments_overlap(input_rowset_meta->segments_overlap());
