@@ -692,6 +692,12 @@ public class Column implements Writable, GsonPostProcessable {
                 return 65535;
             case MAP:
                 return 65535;
+            case IPV4:
+                return 4;
+            case IPV6:
+                return 16;
+            case VARIANT:
+                return stringLength + 2147483647;
             default:
                 LOG.warn("unknown field type. [type= << {} << ]", type);
                 throw new DdlException("unknown field type. type: " + type);
