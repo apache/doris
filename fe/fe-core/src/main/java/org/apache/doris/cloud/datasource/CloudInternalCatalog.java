@@ -51,7 +51,6 @@ import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCompressionType;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
 

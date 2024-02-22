@@ -1952,7 +1952,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storeRowColumn(), binlogConfig);
 
                     task.setStorageFormat(tbl.getStorageFormat());
-                    task.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat();
+                    task.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
                     task.setClusterKeyIndexes(clusterKeyIndexes);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
