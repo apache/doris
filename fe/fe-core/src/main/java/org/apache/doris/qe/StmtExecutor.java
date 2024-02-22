@@ -3007,7 +3007,7 @@ public class StmtExecutor {
             LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
                     + "\n because of " + e.getMessage(), e);
             LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
-            generateStreamLoadNereidsPlan(queryId);
+            generateStreamLoadLegacyPlan(queryId);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
