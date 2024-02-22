@@ -46,7 +46,7 @@ namespace doris::pipeline {
 
 class TaskQueue;
 class PriorityTaskQueue;
-struct LocalExchangeSinkDependency;
+class Dependency;
 
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineXTask : public PipelineTask {
@@ -54,7 +54,7 @@ public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                   PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
                   std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                          std::shared_ptr<LocalExchangeSinkDependency>>>
+                                          std::shared_ptr<Dependency>>>
                           le_state_map,
                   int task_idx);
 
@@ -215,8 +215,7 @@ private:
     std::vector<DependencySPtr> _downstream_dependency;
     // All shared states of this pipeline task.
     std::map<int, std::shared_ptr<BasicSharedState>> _shared_states;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                            std::shared_ptr<LocalExchangeSinkDependency>>>
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _le_state_map;
     int _task_idx;
     bool _dry_run = false;

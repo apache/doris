@@ -36,10 +36,10 @@ namespace pipeline {
 
 class DistinctStreamingAggOperatorX;
 
-class DistinctStreamingAggLocalState final : public PipelineXLocalState<FakeDependency> {
+class DistinctStreamingAggLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     using Parent = DistinctStreamingAggOperatorX;
-    using Base = PipelineXLocalState<FakeDependency>;
+    using Base = PipelineXLocalState<FakeSharedState>;
     ENABLE_FACTORY_CREATOR(DistinctStreamingAggLocalState);
     DistinctStreamingAggLocalState(RuntimeState* state, OperatorXBase* parent);
 

@@ -55,8 +55,7 @@ class MemTrackerLimiter;
 class RuntimeState;
 
 namespace pipeline {
-struct ExchangeDataDependency;
-class LocalExchangeChannelDependency;
+class Dependency;
 class ExchangeLocalState;
 } // namespace pipeline
 
@@ -115,8 +114,7 @@ public:
 
     bool is_closed() const { return _is_closed; }
 
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency(
-            int sender_id);
+    std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
 
 private:
     void update_blocks_memory_usage(int64_t size);
@@ -172,8 +170,7 @@ private:
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
     bool _enable_pipeline;
-    std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
-            _sender_to_local_channel_dependency;
+    std::vector<std::shared_ptr<pipeline::Dependency>> _sender_to_local_channel_dependency;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -192,7 +189,7 @@ public:
     virtual ~SenderQueue();
 
     void set_local_channel_dependency(
-            std::shared_ptr<pipeline::LocalExchangeChannelDependency> local_channel_dependency) {
+            std::shared_ptr<pipeline::Dependency> local_channel_dependency) {
         _local_channel_dependency = local_channel_dependency;
     }
 
@@ -216,13 +213,12 @@ public:
         return _block_queue.empty();
     }
 
-    void set_dependency(std::shared_ptr<pipeline::ExchangeDataDependency> dependency) {
+    void set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
         _dependency = dependency;
     }
 
 protected:
     friend class pipeline::ExchangeLocalState;
-    friend struct pipeline::ExchangeDataDependency;
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
 
     void try_set_dep_ready_without_lock();
@@ -289,8 +285,8 @@ protected:
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
-    std::shared_ptr<pipeline::ExchangeDataDependency> _dependency;
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency;
+    std::shared_ptr<pipeline::Dependency> _dependency;
+    std::shared_ptr<pipeline::Dependency> _local_channel_dependency;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {

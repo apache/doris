@@ -79,8 +79,8 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     deps.resize(queues.size());
     metrics.resize(queues.size());
     for (size_t i = 0; i < queues.size(); i++) {
-        deps[i] = ExchangeDataDependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                        state->get_query_ctx(), queues[i]);
+        deps[i] = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                            "SHUFFLE_DATA_DEPENDENCY", state->get_query_ctx());
         queues[i]->set_dependency(deps[i]);
         source_dependency->add_child(deps[i]);
     }

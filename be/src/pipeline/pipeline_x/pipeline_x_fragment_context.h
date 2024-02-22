@@ -53,7 +53,7 @@ class TDataSink;
 class TPipelineFragmentParams;
 
 namespace pipeline {
-struct LocalExchangeSinkDependency;
+class Dependency;
 
 class PipelineXFragmentContext : public PipelineFragmentContext {
 public:
@@ -227,8 +227,7 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                            std::shared_ptr<LocalExchangeSinkDependency>>>
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _op_id_to_le_state;
 
     // UniqueId -> runtime mgr

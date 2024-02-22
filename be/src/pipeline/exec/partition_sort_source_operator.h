@@ -48,22 +48,14 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
-class PartitionSortSourceDependency final : public Dependency {
-public:
-    using SharedState = PartitionSortNodeSharedState;
-    PartitionSortSourceDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "PartitionSortSourceDependency", query_ctx) {}
-    ~PartitionSortSourceDependency() override = default;
-};
-
 class PartitionSortSourceOperatorX;
 class PartitionSortSourceLocalState final
-        : public PipelineXLocalState<PartitionSortSourceDependency> {
+        : public PipelineXLocalState<PartitionSortNodeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(PartitionSortSourceLocalState);
-    using Base = PipelineXLocalState<PartitionSortSourceDependency>;
+    using Base = PipelineXLocalState<PartitionSortNodeSharedState>;
     PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<PartitionSortSourceDependency>(state, parent),
+            : PipelineXLocalState<PartitionSortNodeSharedState>(state, parent),
               _get_sorted_timer(nullptr) {}
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
