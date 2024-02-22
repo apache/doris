@@ -716,10 +716,6 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         if (eos) {
             _row_distribution._deal_batched = true;
             RETURN_IF_ERROR(_send_new_partition_batch());
-            _state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
-                                                  _tablet_finder->num_filtered_rows());
-            _state->update_num_rows_load_unselected(
-                    _tablet_finder->num_immutable_partition_filtered_rows());
         }
     } else {
         // Range partition
@@ -794,7 +790,12 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
             }
         }
     }
-
+    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        _state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
+                                              _tablet_finder->num_filtered_rows());
+        _state->update_num_rows_load_unselected(
+                _tablet_finder->num_immutable_partition_filtered_rows());
+    }
     if (_peak_memory_usage_counter) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
