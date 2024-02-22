@@ -364,7 +364,7 @@ TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
         auto cache_value_use_cache =
                 (InvertedIndexSearcherCache::CacheValue*)(inverted_index_cache_handle._cache)
                         ->value(inverted_index_cache_handle._handle);
-        EXPECT_LT(UnixMillis(), cache_value_use_cache->last_visit_time);
+        EXPECT_GE(UnixMillis(), cache_value_use_cache->last_visit_time);
     }
 
     delete index_searcher_cache;
