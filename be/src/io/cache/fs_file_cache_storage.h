@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <shared_mutex>
+#include <thread>
 
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"

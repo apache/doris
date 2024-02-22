@@ -34,7 +34,9 @@
 #include "common/status.h"
 #include "gutil/port.h"
 #include "inverted_index_fs_directory.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
@@ -78,7 +80,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                              DataDir* data_dir, uint32_t max_row_per_segment,
                              const SegmentWriterOptions& opts,
-                             std::shared_ptr<MowContext> mow_context)
+                             std::shared_ptr<MowContext> mow_context, const io::FileSystemSPtr& fs)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
@@ -136,7 +138,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
     }
     if (_tablet_schema->has_inverted_index()) {
         _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                _file_writer->fs(), _file_writer->path().parent_path(),
+                fs ? fs : io::global_local_filesystem(), _file_writer->path().parent_path(),
                 _file_writer->path().filename(),
                 _tablet_schema->get_inverted_index_storage_format());
     }
@@ -232,7 +234,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
             opts.need_bitmap_index = false;
         }
         opts.inverted_index_file_writer = _inverted_index_file_writer.get();
-        for (auto index : opts.indexes) {
+        for (const auto* index : opts.indexes) {
             if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
                 opts.inverted_index = index;
                 opts.need_inverted_index = true;

@@ -28,6 +28,8 @@
 #include <roaring/roaring.hh>
 #include <vector>
 
+#include "io/fs/local_file_system.h"
+
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"

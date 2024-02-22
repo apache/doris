@@ -18,7 +18,6 @@
 #include "vhive_partition_writer.h"
 
 #include "io/file_factory.h"
-#include "io/fs/file_system.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/materialize_block.h"
 #include "vec/runtime/vorc_transformer.h"
@@ -27,12 +26,14 @@
 namespace doris {
 namespace vectorized {
 
-VHivePartitionWriter::VHivePartitionWriter(
-        const TDataSink& t_sink, const std::string partition_name, TUpdateMode::type update_mode,
-        const VExprContextSPtrs& output_expr_ctxs, const std::vector<THiveColumn>& columns,
-        WriteInfo write_info, const std::string file_name, TFileFormatType::type file_format_type,
-        TFileCompressType::type hive_compress_type,
-        const std::map<std::string, std::string>& hadoop_conf)
+VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
+                                           TUpdateMode::type update_mode,
+                                           const VExprContextSPtrs& output_expr_ctxs,
+                                           const std::vector<THiveColumn>& columns,
+                                           WriteInfo write_info, std::string file_name,
+                                           TFileFormatType::type file_format_type,
+                                           TFileCompressType::type hive_compress_type,
+                                           const std::map<std::string, std::string>& hadoop_conf)
         : _partition_name(std::move(partition_name)),
           _update_mode(update_mode),
           _vec_output_expr_ctxs(output_expr_ctxs),
@@ -41,17 +42,15 @@ VHivePartitionWriter::VHivePartitionWriter(
           _file_name(std::move(file_name)),
           _file_format_type(file_format_type),
           _hive_compress_type(hive_compress_type),
-          _hadoop_conf(hadoop_conf)
-
-{}
+          _hadoop_conf(hadoop_conf) {}
 
 Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
 
-    std::vector<TNetworkAddress> broker_addresses;
-    RETURN_IF_ERROR(FileFactory::create_file_writer(
-            _write_info.file_type, state->exec_env(), broker_addresses, _hadoop_conf,
-            fmt::format("{}/{}", _write_info.write_path, _file_name), 0, _file_writer_impl));
+    io::FSPropertiesRef fs_properties(_write_info.file_type);
+    fs_properties.properties = &_hadoop_conf;
+    _fs = DORIS_TRY(FileFactory::create_fs(fs_properties,
+                                           {.path = _write_info.write_path + '/' + _file_name}));
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
@@ -135,17 +134,17 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
     }
 }
 
-Status VHivePartitionWriter::close(Status status) {
+Status VHivePartitionWriter::close(const Status& status) {
     if (_vfile_writer != nullptr) {
         Status st = _vfile_writer->close();
-        if (st != Status::OK()) {
+        if (!st.ok()) {
             LOG(WARNING) << fmt::format("_vfile_writer close failed, reason: {}", st.to_string());
         }
     }
-    if (status != Status::OK()) {
+    if (!status.ok()) {
         auto path = fmt::format("{}/{}", _write_info.write_path, _file_name);
-        Status st = _file_writer_impl->fs()->delete_file(path);
-        if (st != Status::OK()) {
+        Status st = _fs->delete_file(path);
+        if (!st.ok()) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
         }
     }
