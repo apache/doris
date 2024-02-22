@@ -436,11 +436,13 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
 
         // check the rowsets used for delete bitmap calculation is equal to the rowsets
         // that we can capture by version
-        Version full_version = Version(0, max_version_unlocked());
-        std::vector<RowsetSharedPtr> expected_rowsets;
-        auto st = capture_consistent_rowsets_unlocked(full_version, &expected_rowsets);
-        DCHECK(st.ok()) << st;
-        DCHECK_EQ(base_rowsets_for_full_clone.size(), expected_rowsets.size());
+        if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
+            Version full_version = Version(0, max_version_unlocked());
+            std::vector<RowsetSharedPtr> expected_rowsets;
+            auto st = capture_consistent_rowsets_unlocked(full_version, &expected_rowsets);
+            DCHECK(st.ok()) << st;
+            DCHECK_EQ(base_rowsets_for_full_clone.size(), expected_rowsets.size());
+        }
     }
 
     // clear stale rowset
