@@ -139,7 +139,7 @@ public:
                 SourceState source_state) override;
 
     bool should_dry_run(RuntimeState* state) override {
-        return _is_broadcast_join && !state->get_sink_local_state(operator_id())
+        return _is_broadcast_join && !state->get_sink_local_state()
                                               ->cast<HashJoinBuildSinkLocalState>()
                                               ._should_build_hash_table;
     }
