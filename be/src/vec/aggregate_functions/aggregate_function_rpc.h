@@ -359,8 +359,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        THROW_IF_ERROR(
-                this->data(place).buffer_add(columns, row_num, row_num + 1, argument_types));
+        THROW_IF_ERROR(this->data(place).buffer_add(columns, row_num, row_num + 1, argument_types));
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,

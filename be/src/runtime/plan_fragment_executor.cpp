@@ -612,8 +612,7 @@ void PlanFragmentExecutor::close() {
                 THROW_IF_ERROR(
                         _sink->close(runtime_state(), Status::InternalError("prepare failed")));
             } else if (!_opened) {
-                THROW_IF_ERROR(
-                        _sink->close(runtime_state(), Status::InternalError("open failed")));
+                THROW_IF_ERROR(_sink->close(runtime_state(), Status::InternalError("open failed")));
             } else {
                 Status status;
                 {

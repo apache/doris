@@ -207,11 +207,11 @@ Status TaskScheduler::start() {
     int cores = _task_queue->cores();
     // Must be mutil number of cpu cores
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
-                              .set_min_threads(cores)
-                              .set_max_threads(cores)
-                              .set_max_queue_size(0)
-                              .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
-                              .build(&_fix_thread_pool));
+                            .set_min_threads(cores)
+                            .set_max_threads(cores)
+                            .set_max_queue_size(0)
+                            .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
+                            .build(&_fix_thread_pool));
     _markers.reserve(cores);
     for (size_t i = 0; i < cores; ++i) {
         _markers.push_back(std::make_unique<std::atomic<bool>>(true));

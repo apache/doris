@@ -164,40 +164,40 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     TimezoneUtils::load_timezones_to_cache();
 
     RETURN_IF_ERROR(ThreadPoolBuilder("SendBatchThreadPool")
-                              .set_min_threads(config::send_batch_thread_pool_thread_num)
-                              .set_max_threads(config::send_batch_thread_pool_thread_num)
-                              .set_max_queue_size(config::send_batch_thread_pool_queue_size)
-                              .build(&_send_batch_thread_pool));
+                            .set_min_threads(config::send_batch_thread_pool_thread_num)
+                            .set_max_threads(config::send_batch_thread_pool_thread_num)
+                            .set_max_queue_size(config::send_batch_thread_pool_queue_size)
+                            .build(&_send_batch_thread_pool));
 
     RETURN_IF_ERROR(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-                              .set_min_threads(16)
-                              .set_max_threads(64)
-                              .build(&_buffered_reader_prefetch_thread_pool));
+                            .set_min_threads(16)
+                            .set_max_threads(64)
+                            .build(&_buffered_reader_prefetch_thread_pool));
 
     RETURN_IF_ERROR(ThreadPoolBuilder("S3FileUploadThreadPool")
-                              .set_min_threads(16)
-                              .set_max_threads(64)
-                              .build(&_s3_file_upload_thread_pool));
+                            .set_min_threads(16)
+                            .set_max_threads(64)
+                            .build(&_s3_file_upload_thread_pool));
 
     // min num equal to fragment pool's min num
     // max num is useless because it will start as many as requested in the past
     // queue size is useless because the max thread num is very large
     RETURN_IF_ERROR(ThreadPoolBuilder("SendReportThreadPool")
-                              .set_min_threads(config::fragment_pool_thread_num_min)
-                              .set_max_threads(std::numeric_limits<int>::max())
-                              .set_max_queue_size(config::fragment_pool_queue_size)
-                              .build(&_send_report_thread_pool));
+                            .set_min_threads(config::fragment_pool_thread_num_min)
+                            .set_max_threads(std::numeric_limits<int>::max())
+                            .set_max_queue_size(config::fragment_pool_queue_size)
+                            .build(&_send_report_thread_pool));
 
     RETURN_IF_ERROR(ThreadPoolBuilder("JoinNodeThreadPool")
-                              .set_min_threads(config::fragment_pool_thread_num_min)
-                              .set_max_threads(std::numeric_limits<int>::max())
-                              .set_max_queue_size(config::fragment_pool_queue_size)
-                              .build(&_join_node_thread_pool));
+                            .set_min_threads(config::fragment_pool_thread_num_min)
+                            .set_max_threads(std::numeric_limits<int>::max())
+                            .set_max_queue_size(config::fragment_pool_queue_size)
+                            .build(&_join_node_thread_pool));
     RETURN_IF_ERROR(ThreadPoolBuilder("LazyReleaseMemoryThreadPool")
-                              .set_min_threads(1)
-                              .set_max_threads(1)
-                              .set_max_queue_size(1000000)
-                              .build(&_lazy_release_obj_pool));
+                            .set_min_threads(1)
+                            .set_max_threads(1)
+                            .set_max_queue_size(1000000)
+                            .build(&_lazy_release_obj_pool));
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -325,9 +325,9 @@ void ExecEnv::init_file_cache_factory() {
 
         std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
         THROW_IF_ERROR(doris::ThreadPoolBuilder("FileCacheInitThreadPool")
-                                  .set_min_threads(cache_paths.size())
-                                  .set_max_threads(cache_paths.size())
-                                  .build(&file_cache_init_pool));
+                               .set_min_threads(cache_paths.size())
+                               .set_max_threads(cache_paths.size())
+                               .build(&file_cache_init_pool));
 
         std::list<doris::Status> cache_status;
         for (auto& cache_path : cache_paths) {
