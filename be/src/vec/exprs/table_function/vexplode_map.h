@@ -29,7 +29,7 @@
 
 namespace doris::vectorized {
 class Block;
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::vectorized {
 
