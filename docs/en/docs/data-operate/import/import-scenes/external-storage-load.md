@@ -118,7 +118,7 @@ This document mainly introduces how to import data stored in AWS S3. It also sup
 * Data volumes range from tens to hundreds of GB.
 
 ### Preparing
-1. Standard AK and SK
+1. Prepare AK and SK
    First, you need to find or regenerate AWS `Access keys`, you can find the generation method in `My Security Credentials` of AWS console, as shown in the following figure:
    [AK_SK](/images/aws_ak_sk.png)
    Select `Create New Access Key` and pay attention to save and generate AK and SK.
