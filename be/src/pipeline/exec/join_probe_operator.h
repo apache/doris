@@ -27,10 +27,10 @@ namespace doris {
 namespace pipeline {
 template <typename LocalStateType>
 class JoinProbeOperatorX;
-template <typename DependencyType, typename Derived>
-class JoinProbeLocalState : public PipelineXLocalState<DependencyType> {
+template <typename SharedStateArg, typename Derived>
+class JoinProbeLocalState : public PipelineXLocalState<SharedStateArg> {
 public:
-    using Base = PipelineXLocalState<DependencyType>;
+    using Base = PipelineXLocalState<SharedStateArg>;
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
     virtual void add_tuple_is_null_column(vectorized::Block* block) = 0;
@@ -97,7 +97,7 @@ public:
     }
 
 protected:
-    template <typename DependencyType, typename Derived>
+    template <typename SharedStateArg, typename Derived>
     friend class JoinProbeLocalState;
 
     const TJoinOp::type _join_op;

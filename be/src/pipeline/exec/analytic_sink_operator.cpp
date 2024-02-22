@@ -27,7 +27,7 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, StreamingOperator)
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSinkDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<AnalyticSinkOperatorX>();

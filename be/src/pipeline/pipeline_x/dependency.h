@@ -46,8 +46,6 @@
 namespace doris::pipeline {
 
 class Dependency;
-class AnalyticSourceDependency;
-class AnalyticSinkDependency;
 class PipelineXTask;
 struct BasicSharedState;
 using DependencySPtr = std::shared_ptr<Dependency>;
@@ -78,9 +76,8 @@ struct BasicSharedState {
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
-    ENABLE_FACTORY_CREATOR(Dependency);
-
 public:
+    ENABLE_FACTORY_CREATOR(Dependency);
     Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : _id(id),
               _node_id(node_id),
@@ -137,7 +134,28 @@ public:
     }
 
     // Notify downstream pipeline tasks this dependency is blocked.
-    virtual void block() { _ready = false; }
+    void block() {
+        if (_always_ready) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_ready_lock);
+        if (_always_ready) {
+            return;
+        }
+        _ready = false;
+    }
+
+    void set_always_ready() {
+        if (_always_ready) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_ready_lock);
+        if (_always_ready) {
+            return;
+        }
+        _always_ready = true;
+        set_ready();
+    }
 
 protected:
     void _add_block_task(PipelineXTask* task);
@@ -156,9 +174,13 @@ protected:
 
     std::mutex _task_lock;
     std::vector<PipelineXTask*> _blocked_task;
+
+    // If `_always_ready` is true, `block()` will never block tasks.
+    std::atomic<bool> _always_ready = false;
+    std::mutex _always_ready_lock;
 };
 
-struct FakeSharedState : public BasicSharedState {};
+struct FakeSharedState final : public BasicSharedState {};
 
 struct FakeDependency final : public Dependency {
 public:
@@ -293,9 +315,13 @@ protected:
     std::shared_ptr<std::atomic_bool> _blocked_by_rf;
 };
 
+struct EmptySharedState final : public BasicSharedState {};
+
+struct AndSharedState final : public BasicSharedState {};
+
 class AndDependency final : public Dependency {
 public:
-    using SharedState = FakeSharedState;
+    using SharedState = AndSharedState;
     ENABLE_FACTORY_CREATOR(AndDependency);
     AndDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AndDependency", query_ctx) {}
@@ -484,7 +510,7 @@ public:
 
 class AsyncWriterDependency final : public Dependency {
 public:
-    using SharedState = FakeSharedState;
+    using SharedState = BasicSharedState;
     ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
     AsyncWriterDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AsyncWriterDependency", true, query_ctx) {}
@@ -632,10 +658,10 @@ public:
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
     void sub_running_sink_operators();
-    void _set_ready_for_read() {
+    void _set_always_ready() {
         for (auto& dep : source_dependencies) {
             DCHECK(dep);
-            dep->set_ready();
+            dep->set_always_ready();
         }
     }
 
