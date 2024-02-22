@@ -751,9 +751,9 @@ private:
                 _key_containers.pop_back();
                 _current_keys = nullptr;
             }
-            if (_current_agg_data) {                 _value_containers.pop_back();
+            if (_current_agg_data) {
                 _value_containers.pop_back();
-                _current_agg_data = nullptr;             }
+                _current_agg_data = nullptr;
             }
             throw;
         }
