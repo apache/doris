@@ -124,7 +124,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
-    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    /**
+     * This function is used to generate the plan for Nereids.
+     * There are some load functions that only need to the plan, such as stream_load.
+     * Therefore, this section will be presented separately.
+     */
+    public InsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
@@ -197,6 +202,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption
         // so we need to set this here
         executor.setCoord(insertExecutor.getCoordinator());
+        return insertExecutor;
+    }
+
+    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        InsertExecutor insertExecutor = initPlan(ctx, executor);
         insertExecutor.executeSingleInsertTransaction(executor, jobId);
     }
 

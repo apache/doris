@@ -133,6 +133,18 @@ public class InsertExecutor {
         return txnId;
     }
 
+    public String getLabelName() {
+        return labelName;
+    }
+
+    public Database getDatabase() {
+        return database;
+    }
+
+    public Table getTable() {
+        return table;
+    }
+
     /**
      * begin transaction if necessary
      */
