@@ -2102,7 +2102,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableBucketShuffleDownGrade() {
-        return enableBucketShuffleJoin;
+        return enableBucketShuffleDownGrade;
     }
 
     public boolean isEnableOdbcTransaction() {
