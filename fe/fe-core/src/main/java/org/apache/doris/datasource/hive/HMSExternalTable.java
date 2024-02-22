@@ -104,6 +104,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private static final String SPARK_STATS_MAX_LEN = ".avgLen";
     private static final String SPARK_STATS_HISTOGRAM = ".histogram";
 
+    private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
+
+
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
@@ -225,6 +228,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
         String inputFormatName = remoteTable.getSd().getInputFormat();
         return "org.apache.hudi.hadoop.HoodieParquetInputFormat".equals(inputFormatName);
+    }
+
+    /**
+     * Some data lakes (such as Hudi) will synchronize their partition information to HMS,
+     * then we can quickly obtain the partition information of the table from HMS.
+     */
+    public boolean useHiveSyncPartition() {
+        return Boolean.parseBoolean(catalog.getProperties().getOrDefault(USE_HIVE_SYNC_PARTITION, "false"));
     }
 
     /**
