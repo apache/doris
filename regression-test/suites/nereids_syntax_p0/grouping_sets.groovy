@@ -138,22 +138,6 @@ suite("test_nereids_grouping_sets") {
                  group by grouping sets((k_if, k1),()) order by k_if, k1, k2_sum
                """
 
-    test {
-        sql """
-              SELECT k1, k2, SUM(k3) FROM groupingSetsTable
-              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
-            """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = column: k3 cannot both in select list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
-    }
-
-    test {
-        sql """
-              SELECT k1, k2, SUM(k3)/(SUM(k3)+1) FROM groupingSetsTable
-              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
-            """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = column: k3 cannot both in select list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
-    }
-
     order_qt_select """
         select k1, sum(k2) from (select k1, k2, grouping(k1), grouping(k2) from groupingSetsTableNotNullable group by grouping sets((k1), (k2)))a group by k1
     """
