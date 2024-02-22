@@ -28,8 +28,8 @@ suite("drop_hdfs_policy") {
         return false;
     }
 
-    def resource_not_table_use = "resource_not_table_use"
-    def use_policy = "use_policy"
+    def resource_not_table_use = "resource_not_table_use_hdfs"
+    def use_policy = "use_policy_hdfs"
 
     if (!storage_exist.call(use_policy)) {
         def has_resouce_policy_drop = sql """
@@ -59,7 +59,7 @@ suite("drop_hdfs_policy") {
         // can drop, no policy use
         assertEquals(drop_result.size(), 1)
 
-        def resource_table_use = "resource_table_use"
+        def resource_table_use = "resource_table_use_hdfs"
         sql """
         CREATE RESOURCE IF NOT EXISTS "${resource_table_use}"
         PROPERTIES(
@@ -98,17 +98,17 @@ suite("drop_hdfs_policy") {
         assertEquals(drop_policy_ret.size(), 1)
 
         def create_succ_2 = try_sql """
-            CREATE STORAGE POLICY IF NOT EXISTS drop_policy_test_has_table_binded
+            CREATE STORAGE POLICY IF NOT EXISTS drop_policy_test_has_table_binded_hdfs
             PROPERTIES(
             "storage_resource" = "${resource_table_use}",
             "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
-        assertEquals(storage_exist.call("drop_policy_test_has_table_binded"), true)
+        assertEquals(storage_exist.call("drop_policy_test_has_table_binded_hdfs"), true)
 
         // success
         def create_table_use_created_policy = try_sql """
-            CREATE TABLE IF NOT EXISTS create_table_binding_created_policy
+            CREATE TABLE IF NOT EXISTS create_table_binding_created_policy_hdfs
             (
                 k1 BIGINT,
                 k2 LARGEINT,
@@ -117,7 +117,7 @@ suite("drop_hdfs_policy") {
             UNIQUE KEY(k1)
             DISTRIBUTED BY HASH (k1) BUCKETS 3
             PROPERTIES(
-                "storage_policy" = "drop_policy_test_has_table_binded",
+                "storage_policy" = "drop_policy_test_has_table_binded_hdfs",
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "false"
             );
@@ -126,17 +126,17 @@ suite("drop_hdfs_policy") {
         assertEquals(create_table_use_created_policy.size(), 1);
 
         def drop_policy_fail_ret = try_sql """
-            DROP STORAGE POLICY drop_policy_test_has_table_binded
+            DROP STORAGE POLICY drop_policy_test_has_table_binded_hdfs
         """
         // fail to drop, there are tables using this policy
         assertEquals(drop_policy_fail_ret, null)
 
         sql """
-        DROP TABLE create_table_binding_created_policy;
+        DROP TABLE create_table_binding_created_policy_hdfs;
         """
 
         sql """
-        DROP STORAGE POLICY drop_policy_test_has_table_binded;
+        DROP STORAGE POLICY drop_policy_test_has_table_binded_hdfs;
         """
 
         sql """
@@ -145,3 +145,4 @@ suite("drop_hdfs_policy") {
     }
 
 }
+

@@ -147,7 +147,7 @@ suite("alter_hdfs_policy") {
 
 
     // test when no policy binding to resource
-    def no_binding_policy_resource = "no_binding_policy_resource"
+    def no_binding_policy_resource = "no_binding_policy_resource_hdfs"
     check_resource_delete_if_exist(no_binding_policy_resource)
     create_source(no_binding_policy_resource)
     alter_resource_change_property(no_binding_policy_resource)
@@ -155,20 +155,20 @@ suite("alter_hdfs_policy") {
 
 
     // test when policy binding to resource
-    def has_resource_policy_alter = "has_resource_policy_alter"
+    def has_resource_policy_alter = "has_resource_policy_alter_hdfs"
     sql """
-    DROP STORAGE POLICY IF EXISTS has_resouce_policy_alter_policy
+    DROP STORAGE POLICY IF EXISTS has_resouce_policy_alter_policy_hdfs
     """
     sql """
-    DROP STORAGE POLICY IF EXISTS has_test_policy_to_alter
+    DROP STORAGE POLICY IF EXISTS has_test_policy_to_alter_hdfs
     """
     sql """
-    DROP STORAGE POLICY IF EXISTS has_test_policy_to_alter_1
+    DROP STORAGE POLICY IF EXISTS has_test_policy_to_alter_1_hdfs
     """
     check_resource_delete_if_exist(has_resource_policy_alter)
     create_source(has_resource_policy_alter)
     sql """
-        CREATE STORAGE POLICY IF NOT EXISTS has_resouce_policy_alter_policy
+        CREATE STORAGE POLICY IF NOT EXISTS has_resouce_policy_alter_policy_hdfs
         PROPERTIES(
             "storage_resource" = "${has_resource_policy_alter}",
             "cooldown_ttl" = "1d"
@@ -177,7 +177,7 @@ suite("alter_hdfs_policy") {
     alter_resource_change_property(has_resource_policy_alter)
     check_alter_resource_result_with_policy(has_resource_policy_alter)
     sql """
-    DROP STORAGE POLICY IF EXISTS has_resouce_policy_alter_policy
+    DROP STORAGE POLICY has_resouce_policy_alter_policy_hdfs
     """
 
     def storage_exist = { name ->
@@ -193,53 +193,53 @@ suite("alter_hdfs_policy") {
     }
 
 
-    if (!storage_exist.call("has_test_policy_to_alter")) {
+    if (!storage_exist.call("has_test_policy_to_alter_hdfs")) {
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY has_test_policy_to_alter
+            CREATE STORAGE POLICY has_test_policy_to_alter_hdfs
             PROPERTIES( 
             "storage_resource" = "${has_resource_policy_alter}",
             "cooldown_ttl" = "10086"
             );
         """
-        assertEquals(storage_exist.call("has_test_policy_to_alter"), true)
+        assertEquals(storage_exist.call("has_test_policy_to_alter_hdfs"), true)
     }
 
     // OK
     def alter_result_sql_succ_ttl = try_sql """
-        ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_ttl" = "10000");
+        ALTER STORAGE POLICY has_test_policy_to_alter_hdfs PROPERTIES("cooldown_ttl" = "10000");
     """
 
     // FAIL
     alter_result_sql_succ_ttl = try_sql """
-        ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_ttl" = "-10000");
+        ALTER STORAGE POLICY has_test_policy_to_alter_hdfs PROPERTIES("cooldown_ttl" = "-10000");
     """
 
     // OK
     def alter_result_sql_succ_datetime = try_sql """
-        ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_datetime" = "2023-06-08 00:00:00");
+        ALTER STORAGE POLICY has_test_policy_to_alter_hdfs PROPERTIES("cooldown_datetime" = "2023-06-08 00:00:00");
     """
 
     // FAILED
     alter_result_sql_succ_datetime = try_sql """
-        ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_datetime" = "2023-13-32 00:00:00");
+        ALTER STORAGE POLICY has_test_policy_to_alter_hdfs PROPERTIES("cooldown_datetime" = "2023-13-32 00:00:00");
     """
 
     // FAILED
     def alter_result_sql_failed_storage_resource = try_sql """
-        ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("storage_resource" = "${no_binding_policy_resource}");
+        ALTER STORAGE POLICY has_test_policy_to_alter_hdfs PROPERTIES("storage_resource" = "${no_binding_policy_resource}");
     """
     // errCode = 2, detailMessage = not support change storage policy's storage resource, you can change s3 properties by alter resource
     assertEquals(alter_result_sql_failed_storage_resource, null)
 
-    if (!storage_exist.call("has_test_policy_to_alter_1")) {
+    if (!storage_exist.call("has_test_policy_to_alter_1_hdfs")) {
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY has_test_policy_to_alter_1
+            CREATE STORAGE POLICY has_test_policy_to_alter_1_hdfs
             PROPERTIES(
             "storage_resource" = "${no_binding_policy_resource}",
             "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
-        assertEquals(storage_exist.call("has_test_policy_to_alter_1"), true)
+        assertEquals(storage_exist.call("has_test_policy_to_alter_1_hdfs"), true)
     }
 
     // go to check be、fe log about notify alter.
@@ -248,14 +248,15 @@ suite("alter_hdfs_policy") {
     """
 
     sql """
-    DROP STORAGE POLICY has_test_policy_to_alter;
+    DROP STORAGE POLICY has_test_policy_to_alter_hdfs;
     """
 
     sql """
-    DROP STORAGE POLICY has_test_policy_to_alter_1;
+    DROP STORAGE POLICY has_test_policy_to_alter_1_hdfs;
     """
 
     sql """
             DROP RESOURCE '${no_binding_policy_resource}'
         """
 }
+

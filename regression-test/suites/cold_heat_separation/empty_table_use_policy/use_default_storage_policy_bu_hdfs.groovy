@@ -17,13 +17,13 @@
 
 suite("use_default_storage_policy_hdfs") {
     try_sql """
-    DROP TABLE use_default_storage_policy;
+    DROP TABLE use_default_storage_policy_hdfs;
     """
     try_sql """
-    DROP STORAGE POLICY default_storage_policy
+    DROP STORAGE POLICY default_storage_policy_hdfs
     """
     try_sql """
-    DROP RESOURCE default_hdfs_resource
+    DROP RESOURCE default_hdfs_resource_hdfs
     """
 
     def storage_exist = { name ->
@@ -38,21 +38,21 @@ suite("use_default_storage_policy_hdfs") {
         return false;
     }
 
-    if (!storage_exist.call("default_storage_policy")) {
+    if (!storage_exist.call("default_storage_policy_hdfs")) {
         def create_table_use_default_policy_but_not_set_default_policy_result = try_sql """
-            CREATE TABLE IF NOT EXISTS use_default_storage_policy 
+            CREATE TABLE IF NOT EXISTS use_default_storage_policy_hdfs 
             ( k1 DATE, k2 INT, V1 VARCHAR(2048) REPLACE ) 
             PARTITION BY RANGE (k1) 
             ( 
-                PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "default_storage_policy", "replication_num"="1"), 
-                PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "default_storage_policy", "replication_num"="1") 
+                PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "default_storage_policy_hdfs", "replication_num"="1"), 
+                PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "default_storage_policy_hdfs", "replication_num"="1") 
             ) DISTRIBUTED BY HASH(k2) BUCKETS 1;
         """
         // errCode = 2, detailMessage = Use default storage policy, but not give s3 info, please use alter resource to add default storage policy S3 info.
         assertEquals(create_table_use_default_policy_but_not_set_default_policy_result, null);
 
         def create_hdfs_resource = try_sql """
-            CREATE RESOURCE IF NOT EXISTS "default_hdfs_resource"
+            CREATE RESOURCE IF NOT EXISTS "default_hdfs_resource_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -66,21 +66,21 @@ suite("use_default_storage_policy_hdfs") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY IF NOT EXISTS default_storage_policy PROPERTIES(
-                "storage_resource" = "default_hdfs_resource",
+            CREATE STORAGE POLICY IF NOT EXISTS default_storage_policy_hdfs PROPERTIES(
+                "storage_resource" = "default_hdfs_resource_hdfs",
                 "cooldown_ttl" = "1008611"
             );
         """
-        assertEquals(storage_exist.call("default_storage_policy"), true)
+        assertEquals(storage_exist.call("default_storage_policy_hdfs"), true)
     }
 
     def create_table_use_default_policy_has_set_default_policy_result = try_sql """
-        CREATE TABLE IF NOT EXISTS use_default_storage_policy 
+        CREATE TABLE IF NOT EXISTS use_default_storage_policy_hdfs 
         ( k1 DATE, k2 INT, V1 VARCHAR(2048) REPLACE ) 
         PARTITION BY RANGE (k1) 
         ( 
-            PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "default_storage_policy", "replication_num"="1"), 
-            PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "default_storage_policy", "replication_num"="1") 
+            PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "default_storage_policy_hdfs", "replication_num"="1"), 
+            PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "default_storage_policy_hdfs", "replication_num"="1") 
         ) DISTRIBUTED BY HASH(k2) BUCKETS 1;
     """
     // success
@@ -89,16 +89,17 @@ suite("use_default_storage_policy_hdfs") {
     // you can change default_storage_policy's policy property, such as ak、sk,
     // so table create_table_not_have_policy will use AWS_ACCESS_KEY = "has_been_changed"
     def modify_storage_policy_property_result_1 = try_sql """
-        ALTER RESOURCE "default_hdfs_resource" PROPERTIES("AWS_ACCESS_KEY" = "has_been_changed");
+        ALTER RESOURCE "default_hdfs_resource_hdfs" PROPERTIES("AWS_ACCESS_KEY" = "has_been_changed");
     """
 
     sql """
-    DROP TABLE use_default_storage_policy;
+    DROP TABLE use_default_storage_policy_hdfs;
     """
     sql """
-    DROP STORAGE POLICY default_storage_policy
+    DROP STORAGE POLICY default_storage_policy_hdfs
     """
     sql """
-    DROP RESOURCE default_hdfs_resource
+    DROP RESOURCE default_hdfs_resource_hdfs
     """
 }
+

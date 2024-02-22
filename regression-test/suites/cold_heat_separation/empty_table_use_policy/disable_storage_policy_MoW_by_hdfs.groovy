@@ -18,7 +18,7 @@
 suite("disable_storage_policy_MoW_hdfs"){
     def s3_source_name = "default_s3_source_test"
     def hdfs_source_name = "default_hdfs_source_test"
-    def storage_policy_name = "default_storage_policy_test"
+    def storage_policy_name = "default_storage_policy_test_hdfs"
 
     def storage_exist = { name ->
         def show_storage_policy = sql """
@@ -58,9 +58,9 @@ suite("disable_storage_policy_MoW_hdfs"){
         create_storage_policy
     }
 
-    def table_name_test_1 = "disable_storage_policy_on_mow1"
-    def table_name_test_2 = "disable_storage_policy_on_mow2"
-    def table_name_test_3 = "disable_storage_policy_on_mow3"
+    def table_name_test_1 = "disable_storage_policy_on_mow1_hdfs"
+    def table_name_test_2 = "disable_storage_policy_on_mow2_hdfs"
+    def table_name_test_3 = "disable_storage_policy_on_mow3_hdfs"
     //Test case I. Should panic when creates MoW table with storage policy
     test{
         sql """
@@ -134,3 +134,4 @@ suite("disable_storage_policy_MoW_hdfs"){
     sql""" DROP TABLE IF EXISTS ${table_name_test_2} """
     sql""" DROP TABLE IF EXISTS ${table_name_test_3} """
 }
+

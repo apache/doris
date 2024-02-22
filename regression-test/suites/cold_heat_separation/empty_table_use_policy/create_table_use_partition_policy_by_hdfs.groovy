@@ -19,7 +19,7 @@ suite("create_table_use_partition_policy_hdfs") {
     def cooldown_ttl = "10"
 
     def create_table_partition_use_not_create_policy = try_sql """
-        CREATE TABLE IF NOT EXISTS create_table_partition_use_not_create_policy
+        CREATE TABLE IF NOT EXISTS create_table_partition_use_not_create_policy_hdfs
         (
             k1 DATE,
             k2 INT,
@@ -45,9 +45,9 @@ suite("create_table_use_partition_policy_hdfs") {
         return false;
     }
 
-    if (!storage_exist.call("test_create_table_partition_use_policy_1")) {
+    if (!storage_exist.call("test_create_table_partition_use_policy_1_hdfs")) {
         def create_hdfs_resource = try_sql """
-            CREATE RESOURCE IF NOT EXISTS "test_create_table_partition_use_resource_1"
+            CREATE RESOURCE IF NOT EXISTS "test_create_table_partition_use_resource_1_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -61,19 +61,19 @@ suite("create_table_use_partition_policy_hdfs") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY IF NOT EXISTS test_create_table_partition_use_policy_1
+            CREATE STORAGE POLICY IF NOT EXISTS test_create_table_partition_use_policy_1_hdfs
             PROPERTIES(
-            "storage_resource" = "test_create_table_partition_use_resource_1",
+            "storage_resource" = "test_create_table_partition_use_resource_1_hdfs",
             "cooldown_ttl" = "$cooldown_ttl"
             );
         """
-        assertEquals(storage_exist.call("test_create_table_partition_use_policy_1"), true)
+        assertEquals(storage_exist.call("test_create_table_partition_use_policy_1_hdfs"), true)
     }
 
 
-    if (!storage_exist.call("test_create_table_partition_use_policy_2")) {
+    if (!storage_exist.call("test_create_table_partition_use_policy_2_hdfs")) {
         def create_hdfs_resource = try_sql """
-            CREATE RESOURCE IF NOT EXISTS "test_create_table_partition_use_resource_2"
+            CREATE RESOURCE IF NOT EXISTS "test_create_table_partition_use_resource_2_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -87,79 +87,80 @@ suite("create_table_use_partition_policy_hdfs") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY IF NOT EXISTS test_create_table_partition_use_policy_2
+            CREATE STORAGE POLICY IF NOT EXISTS test_create_table_partition_use_policy_2_hdfs
             PROPERTIES(
-            "storage_resource" = "test_create_table_partition_use_resource_2",
+            "storage_resource" = "test_create_table_partition_use_resource_2_hdfs",
             "cooldown_ttl" = "$cooldown_ttl"
             );
         """
-        assertEquals(storage_exist.call("test_create_table_partition_use_policy_2"), true)
+        assertEquals(storage_exist.call("test_create_table_partition_use_policy_2_hdfs"), true)
     }
 
     // success
     def create_table_partition_use_created_policy = try_sql """
-        CREATE TABLE IF NOT EXISTS create_table_partition_use_created_policy
+        CREATE TABLE IF NOT EXISTS create_table_partition_use_created_policy_hdfs
         (
             k1 DATE,
             k2 INT,
             V1 VARCHAR(2048) REPLACE
         ) PARTITION BY RANGE (k1) (
-            PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "test_create_table_partition_use_policy_1" ,"replication_num"="1"),
-            PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "test_create_table_partition_use_policy_2" ,"replication_num"="1")
+            PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "test_create_table_partition_use_policy_1_hdfs" ,"replication_num"="1"),
+            PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "test_create_table_partition_use_policy_2_hdfs" ,"replication_num"="1")
         ) DISTRIBUTED BY HASH(k2) BUCKETS 1;
     """
 
     assertEquals(create_table_partition_use_created_policy.size(), 1);
 
     sql """
-    DROP TABLE create_table_partition_use_created_policy
+    DROP TABLE create_table_partition_use_created_policy_hdfs
     """
 
     def create_table_partition_use_created_policy_1 = try_sql """
-        CREATE TABLE IF NOT EXISTS create_table_partition_use_created_policy_1
+        CREATE TABLE IF NOT EXISTS create_table_partition_use_created_policy_1_hdfs
         (
             k1 DATEV2,
             k2 INT,
             V1 VARCHAR(2048) REPLACE
         ) PARTITION BY RANGE (k1) (
-            PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "test_create_table_partition_use_policy_1" ,"replication_num"="1"),
-            PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "test_create_table_partition_use_policy_2" ,"replication_num"="1")
+            PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "test_create_table_partition_use_policy_1_hdfs" ,"replication_num"="1"),
+            PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "test_create_table_partition_use_policy_2_hdfs" ,"replication_num"="1")
         ) DISTRIBUTED BY HASH(k2) BUCKETS 1;
     """
 
     assertEquals(create_table_partition_use_created_policy_1.size(), 1);
 
     sql """
-    DROP TABLE create_table_partition_use_created_policy_1
+    DROP TABLE create_table_partition_use_created_policy_1_hdfs
     """
 
     def create_table_partition_use_created_policy_2 = try_sql """
-        CREATE TABLE IF NOT EXISTS create_table_partition_use_created_policy_2
+        CREATE TABLE IF NOT EXISTS create_table_partition_use_created_policy_2_hdfs
         (
             k1 DATETIMEV2(3),
             k2 INT,
             V1 VARCHAR(2048) REPLACE
         ) PARTITION BY RANGE (k1) (
-            PARTITION p1 VALUES LESS THAN ("2022-01-01 00:00:00.111") ("storage_policy" = "test_create_table_partition_use_policy_1" ,"replication_num"="1"),
-            PARTITION p2 VALUES LESS THAN ("2022-02-01 00:00:00.111") ("storage_policy" = "test_create_table_partition_use_policy_2" ,"replication_num"="1")
+            PARTITION p1 VALUES LESS THAN ("2022-01-01 00:00:00.111") ("storage_policy" = "test_create_table_partition_use_policy_1_hdfs" ,"replication_num"="1"),
+            PARTITION p2 VALUES LESS THAN ("2022-02-01 00:00:00.111") ("storage_policy" = "test_create_table_partition_use_policy_2_hdfs" ,"replication_num"="1")
         ) DISTRIBUTED BY HASH(k2) BUCKETS 1;
     """
 
     assertEquals(create_table_partition_use_created_policy_2.size(), 1);
 
     sql """
-    DROP TABLE create_table_partition_use_created_policy_2;
+    DROP TABLE create_table_partition_use_created_policy_2_hdfs;
     """
     sql """
-    DROP STORAGE POLICY test_create_table_partition_use_policy_1;
+    DROP STORAGE POLICY test_create_table_partition_use_policy_1_hdfs;
     """
     sql """
-    DROP STORAGE POLICY test_create_table_partition_use_policy_2;
+    DROP STORAGE POLICY test_create_table_partition_use_policy_2_hdfs;
     """
     sql """
-    DROP RESOURCE test_create_table_partition_use_resource_1
+    DROP RESOURCE test_create_table_partition_use_resource_1_hdfs
     """
     sql """
-    DROP RESOURCE test_create_table_partition_use_resource_2
+    DROP RESOURCE test_create_table_partition_use_resource_2_hdfs
     """
 }
+

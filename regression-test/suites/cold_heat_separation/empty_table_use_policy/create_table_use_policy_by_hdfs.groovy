@@ -19,7 +19,7 @@ suite("create_table_use_policy_hdfs") {
     def cooldown_ttl = "10"
 
     def create_table_use_not_create_policy = try_sql """
-        CREATE TABLE IF NOT EXISTS create_table_use_not_create_policy
+        CREATE TABLE IF NOT EXISTS create_table_use_not_create_policy_hdfs
         (
             k1 BIGINT,
             k2 LARGEINT,
@@ -50,7 +50,7 @@ suite("create_table_use_policy_hdfs") {
     }
 
     def create_hdfs_resource = try_sql """
-        CREATE RESOURCE IF NOT EXISTS "test_create_table_use_resource"
+        CREATE RESOURCE IF NOT EXISTS "test_create_table_use_resource_hdfs"
         PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -64,20 +64,20 @@ suite("create_table_use_policy_hdfs") {
         );
     """
     def create_succ_1 = try_sql """
-        CREATE STORAGE POLICY IF NOT EXISTS test_create_table_use_policy
+        CREATE STORAGE POLICY IF NOT EXISTS test_create_table_use_policy_hdfs
         PROPERTIES(
-        "storage_resource" = "test_create_table_use_resource",
+        "storage_resource" = "test_create_table_use_resource_hdfs",
         "cooldown_ttl" = "$cooldown_ttl"
         );
     """
 
-    sql """ALTER STORAGE POLICY test_create_table_use_policy PROPERTIES("cooldown_ttl" = "$cooldown_ttl")"""
+    sql """ALTER STORAGE POLICY test_create_table_use_policy_hdfs PROPERTIES("cooldown_ttl" = "$cooldown_ttl")"""
 
-    assertEquals(storage_exist.call("test_create_table_use_policy"), true)
+    assertEquals(storage_exist.call("test_create_table_use_policy_hdfs"), true)
 
     // success
     def create_table_use_created_policy = try_sql """
-        CREATE TABLE IF NOT EXISTS create_table_use_created_policy
+        CREATE TABLE IF NOT EXISTS create_table_use_created_policy_hdfs
         (
             k1 BIGINT,
             k2 LARGEINT,
@@ -86,7 +86,7 @@ suite("create_table_use_policy_hdfs") {
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH (k1) BUCKETS 3
         PROPERTIES(
-            "storage_policy" = "test_create_table_use_policy",
+            "storage_policy" = "test_create_table_use_policy_hdfs",
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "false"
         );
@@ -95,13 +95,14 @@ suite("create_table_use_policy_hdfs") {
     assertEquals(create_table_use_created_policy.size(), 1);
 
     sql """
-    DROP TABLE IF EXISTS create_table_use_created_policy
+    DROP TABLE IF EXISTS create_table_use_created_policy_hdfs
     """
     sql """
-    DROP STORAGE POLICY test_create_table_use_policy
+    DROP STORAGE POLICY test_create_table_use_policy_hdfs
     """
     sql """
-    DROP RESOURCE test_create_table_use_resource
+    DROP RESOURCE test_create_table_use_resource_hdfs
     """
 
 }
+

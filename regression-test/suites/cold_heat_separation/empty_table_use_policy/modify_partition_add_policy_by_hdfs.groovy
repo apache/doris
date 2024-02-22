@@ -23,9 +23,9 @@ suite("add_table_policy_by_modify_partition_hdfs") {
     Date date = new Date(System.currentTimeMillis() + 3600000)
     def cooldownTime = format.format(date)
 
-    sql """DROP TABLE IF EXISTS create_table_partition"""
+    sql """DROP TABLE IF EXISTS create_table_partition_hdfs"""
     def create_table_partition_not_have_policy_result = try_sql """
-        CREATE TABLE IF NOT EXISTS `create_table_partition` (
+        CREATE TABLE IF NOT EXISTS `create_table_partition_hdfs` (
         `lo_orderkey` bigint(20) NOT NULL COMMENT "",
         `lo_linenumber` bigint(20) NOT NULL COMMENT "",
         `lo_custkey` int(11) NOT NULL COMMENT "",
@@ -59,7 +59,7 @@ suite("add_table_policy_by_modify_partition_hdfs") {
     // 2. ALTER TABLE create_table_partition MODIFY PARTITION (p1992, p1998) SET("storage_policy"="not_exist_policy");
     // 3. ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="not_exist_policy");
     def alter_table_partition_use_not_exist_policy_result = try_sql """
-        ALTER TABLE create_table_partition MODIFY PARTITION p1992 SET("storage_policy"="not_exist_policy");
+        ALTER TABLE create_table_partition_hdfs MODIFY PARTITION p1992 SET("storage_policy"="not_exist_policy");
     """
     // errCode = 2, detailMessage = Resource does not exist. name: not_exist_policy
     assertEquals(alter_table_partition_use_not_exist_policy_result, null);
@@ -77,7 +77,7 @@ suite("add_table_policy_by_modify_partition_hdfs") {
     }
 
     def create_hdfs_resource = try_sql """
-        CREATE RESOURCE IF NOT EXISTS "test_modify_partition_table_use_resource"
+        CREATE RESOURCE IF NOT EXISTS "test_modify_partition_table_use_resource_hdfs"
         PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -91,25 +91,25 @@ suite("add_table_policy_by_modify_partition_hdfs") {
         );
     """
     def create_succ_1 = try_sql """
-        CREATE STORAGE POLICY IF NOT EXISTS created_create_table_partition_alter_policy
+        CREATE STORAGE POLICY IF NOT EXISTS created_create_table_partition_alter_policy_hdfs
         PROPERTIES(
-        "storage_resource" = "test_modify_partition_table_use_resource",
+        "storage_resource" = "test_modify_partition_table_use_resource_hdfs",
         "cooldown_datetime" = "$cooldownTime"
         );
     """
-    sql """ALTER STORAGE POLICY created_create_table_partition_alter_policy PROPERTIES("cooldown_datetime" = "$cooldownTime")"""
-    assertEquals(storage_exist.call("created_create_table_partition_alter_policy"), true)
+    sql """ALTER STORAGE POLICY created_create_table_partition_alter_policy_hdfs PROPERTIES("cooldown_datetime" = "$cooldownTime")"""
+    assertEquals(storage_exist.call("created_create_table_partition_alter_policy_hdfs"), true)
 
     def alter_table_partition_try_again_result = try_sql """
-        ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="created_create_table_partition_alter_policy");
+        ALTER TABLE create_table_partition_hdfs MODIFY PARTITION (*) SET("storage_policy"="created_create_table_partition_alter_policy_hdfs");
     """
     // OK
     assertEquals(alter_table_partition_try_again_result.size(), 1);
 
     try_sql """
-    CREATE STORAGE POLICY IF NOT EXISTS tmp2
+    CREATE STORAGE POLICY IF NOT EXISTS tmp2_hdfs
         PROPERTIES(
-        "storage_resource" = "test_modify_partition_table_use_resource",
+        "storage_resource" = "test_modify_partition_table_use_resource_hdfs",
         "cooldown_datetime" = "$cooldownTime"
         );
     """
@@ -121,12 +121,12 @@ suite("add_table_policy_by_modify_partition_hdfs") {
     k2 INT,
     V1 VARCHAR(2048) REPLACE
     ) PARTITION BY RANGE (k1) (
-    PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "tmp2" ,"replication_num"="1"),
-    PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "tmp2" ,"replication_num"="1")
+    PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "tmp2_hdfs" ,"replication_num"="1"),
+    PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "tmp2_hdfs" ,"replication_num"="1")
     ) DISTRIBUTED BY HASH(k2) BUCKETS 1 
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
-    "storage_policy" = "created_create_table_partition_alter_policy"
+    "storage_policy" = "created_create_table_partition_alter_policy_hdfs"
     );
     """
 
@@ -136,22 +136,23 @@ suite("add_table_policy_by_modify_partition_hdfs") {
     """
 
     for (par in partitions) {
-        assertTrue(par[12] == "created_create_table_partition_alter_policy")
+        assertTrue(par[12] == "created_create_table_partition_alter_policy_hdfs")
     }
 
     sql """
-    DROP TABLE IF EXISTS create_table_partition;
+    DROP TABLE IF EXISTS create_table_partition_hdfs;
     """
     sql """
     DROP TABLE IF EXISTS create_table_partion_use_created_policy_test_hdfs;
     """
     sql """
-    DROP STORAGE POLICY created_create_table_partition_alter_policy
+    DROP STORAGE POLICY created_create_table_partition_alter_policy_hdfs
     """
     sql """
-    DROP STORAGE POLICY tmp2
+    DROP STORAGE POLICY tmp2_hdfs
     """
     sql """
-    DROP RESOURCE test_modify_partition_table_use_resource
+    DROP RESOURCE test_modify_partition_table_use_resource_hdfs
     """
 }
+

@@ -17,7 +17,7 @@
 
 suite("add_table_policy_by_alter_table_hdfs") {
     def create_table_not_have_policy_result = try_sql """
-        CREATE TABLE IF NOT EXISTS create_table_not_have_policy
+        CREATE TABLE IF NOT EXISTS create_table_not_have_policy_hdfs
         (
             k1 BIGINT,
             k2 LARGEINT,
@@ -33,7 +33,7 @@ suite("add_table_policy_by_alter_table_hdfs") {
     assertEquals(create_table_not_have_policy_result.size(), 1);
 
     def alter_table_use_not_exist_policy_result = try_sql """
-        ALTER TABLE create_table_not_have_policy set ("storage_policy" = "policy_not_exist");
+        ALTER TABLE create_table_not_have_policy_hdfs set ("storage_policy" = "policy_not_exist");
     """
     //  errCode = 2, detailMessage = Resource does not exist. name: policy_not_exist
     assertEquals(alter_table_use_not_exist_policy_result, null);
@@ -50,9 +50,9 @@ suite("add_table_policy_by_alter_table_hdfs") {
         return false;
     }
 
-    if (!storage_exist.call("created_create_table_alter_policy")) {
+    if (!storage_exist.call("created_create_table_alter_policy_hdfs")) {
         def create_hdfs_resource = try_sql """
-            CREATE RESOURCE IF NOT EXISTS "test_create_alter_table_use_resource"
+            CREATE RESOURCE IF NOT EXISTS "test_create_alter_table_use_resource_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -66,30 +66,30 @@ suite("add_table_policy_by_alter_table_hdfs") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY IF NOT EXISTS created_create_table_alter_policy
+            CREATE STORAGE POLICY IF NOT EXISTS created_create_table_alter_policy_hdfs
             PROPERTIES(
-            "storage_resource" = "test_create_alter_table_use_resource",
+            "storage_resource" = "test_create_alter_table_use_resource_hdfs",
             "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
-        assertEquals(storage_exist.call("created_create_table_alter_policy"), true)
+        assertEquals(storage_exist.call("created_create_table_alter_policy_hdfs"), true)
     }
 
     def alter_table_try_again_result = try_sql """
-        ALTER TABLE create_table_not_have_policy set ("storage_policy" = "created_create_table_alter_policy");
+        ALTER TABLE create_table_not_have_policy_hdfs set ("storage_policy" = "created_create_table_alter_policy_hdfs");
     """
     // OK
     assertEquals(alter_table_try_again_result.size(), 1);
 
     def alter_table_when_table_has_storage_policy_result = try_sql """
-        ALTER TABLE create_table_not_have_policy set ("storage_policy" = "created_create_table_alter_policy");
+        ALTER TABLE create_table_not_have_policy_hdfs set ("storage_policy" = "created_create_table_alter_policy_hdfs");
     """
     // OK
     assertEquals(alter_table_when_table_has_storage_policy_result.size(), 1);
 
-    if (!storage_exist.call("created_create_table_alter_policy_1")) {
+    if (!storage_exist.call("created_create_table_alter_policy_1_hdfs")) {
         def create_hdfs_resource = try_sql """
-            CREATE RESOURCE IF NOT EXISTS "test_create_alter_table_use_resource_1"
+            CREATE RESOURCE IF NOT EXISTS "test_create_alter_table_use_resource_1_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -103,18 +103,18 @@ suite("add_table_policy_by_alter_table_hdfs") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY IF NOT EXISTS created_create_table_alter_policy_1
+            CREATE STORAGE POLICY IF NOT EXISTS created_create_table_alter_policy_1_hdfs
             PROPERTIES(
-            "storage_resource" = "test_create_alter_table_use_resource_1",
+            "storage_resource" = "test_create_alter_table_use_resource_1_hdfs",
             "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
-        assertEquals(storage_exist.call("created_create_table_alter_policy_1"), true)
+        assertEquals(storage_exist.call("created_create_table_alter_policy_1_hdfs"), true)
     }
 
     // current not support change storage policy name
     def cannot_modify_exist_storage_policy_table_result = try_sql """
-        ALTER TABLE create_table_not_have_policy set ("storage_policy" = "created_create_table_alter_policy_1");
+        ALTER TABLE create_table_not_have_policy_hdfs set ("storage_policy" = "created_create_table_alter_policy_1_hdfs");
     """
     // OK
     assertEquals(cannot_modify_exist_storage_policy_table_result.size(), 1);
@@ -122,23 +122,24 @@ suite("add_table_policy_by_alter_table_hdfs") {
     // you can change created_create_table_alter_policy's policy cooldown time, cooldown ttl property,
     // by alter storage policy
     def modify_storage_policy_property_result = try_sql """
-        ALTER STORAGE POLICY "created_create_table_alter_policy_1" PROPERTIES("cooldown_datetime" = "2026-06-08 00:00:00");
+        ALTER STORAGE POLICY "created_create_table_alter_policy_1_hdfs" PROPERTIES("cooldown_datetime" = "2026-06-08 00:00:00");
     """
     // change s3 resource, ak、sk by alter resource
     def modify_storage_policy_property_result_1 = try_sql """
-        ALTER RESOURCE "test_create_alter_table_use_resource_1" PROPERTIES("dfs.nameservices" = "has_been_changed");
+        ALTER RESOURCE "test_create_alter_table_use_resource_1_hdfs" PROPERTIES("dfs.nameservices" = "has_been_changed");
     """
 
     sql """
-    DROP TABLE create_table_not_have_policy;
+    DROP TABLE create_table_not_have_policy_hdfs;
     """
 
     sql """
-    DROP STORAGE POLICY created_create_table_alter_policy_1;
+    DROP STORAGE POLICY created_create_table_alter_policy_1_hdfs;
     """
 
     sql """
-    DROP RESOURCE test_create_alter_table_use_resource_1;
+    DROP RESOURCE test_create_alter_table_use_resource_1_hdfs;
     """
 
 }
+

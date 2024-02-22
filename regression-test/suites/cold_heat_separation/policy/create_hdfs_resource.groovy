@@ -17,14 +17,14 @@
 
 suite("create_hdfs_policy") {
     def has_created_1 = sql """
-        SHOW RESOURCES WHERE NAME = "crete_policy_1";
+        SHOW RESOURCES WHERE NAME = "crete_policy_1_hdfs";
     """
 
     // doesn't have name crete_policy_1 resources
     // normal
     if(has_created_1.size() == 0) {
         sql """
-        CREATE RESOURCE IF NOT EXISTS "crete_policy_1"
+        CREATE RESOURCE IF NOT EXISTS "crete_policy_1_hdfs"
         PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -39,12 +39,12 @@ suite("create_hdfs_policy") {
         """
 
         def create_sucess = sql """
-             SHOW RESOURCES WHERE NAME = "crete_policy_1";
+             SHOW RESOURCES WHERE NAME = "crete_policy_1_hdfs";
         """
         assertEquals(create_sucess.size(), 10)
 
         def failed_cannot_create_duplicate_name_resources = try_sql """
-            CREATE RESOURCE "crete_policy_1"
+            CREATE RESOURCE "crete_policy_1_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -64,7 +64,7 @@ suite("create_hdfs_policy") {
         // test if we could create one polycy with the same name but
         // with different properties
         def failed_cannot_create_duplicate_name_resources_with_different_properties = try_sql """
-            CREATE RESOURCE "crete_policy_1"
+            CREATE RESOURCE "crete_policy_1_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -82,12 +82,12 @@ suite("create_hdfs_policy") {
         // delete the policy with the same name then try to
         // create policies with different property each time
         def drop_result = try_sql """
-            DROP RESOURCE 'crete_policy_1'
+            DROP RESOURCE 'crete_policy_1_hdfs'
         """
         assertEquals(drop_result.size(), 1)
 
         def create_duplicate_name_resources_different_username = try_sql """
-            CREATE RESOURCE "crete_policy_1"
+            CREATE RESOURCE "crete_policy_1_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -103,13 +103,13 @@ suite("create_hdfs_policy") {
         assertEquals(create_duplicate_name_resources_different_username.size(), 1)
 
         drop_result = try_sql """
-            DROP RESOURCE 'crete_policy_1'
+            DROP RESOURCE 'crete_policy_1_hdfs'
         """
 
         assertEquals(drop_result.size(), 1)
 
         def create_duplicate_name_resources_different_dfs_nameservices = try_sql """
-        CREATE RESOURCE "crete_policy_1"
+        CREATE RESOURCE "crete_policy_1_hdfs"
         PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -125,18 +125,18 @@ suite("create_hdfs_policy") {
         assertEquals(create_duplicate_name_resources_different_dfs_nameservices.size(), 1)
 
         drop_result = try_sql """
-            DROP RESOURCE 'crete_policy_1'
+            DROP RESOURCE 'crete_policy_1_hdfs'
         """
         assertEquals(drop_result.size(), 1)
     }
 
     // can't create success, due to missing required items
     def has_created_2 = sql """
-        SHOW RESOURCES WHERE NAME = "crete_policy_2";
+        SHOW RESOURCES WHERE NAME = "crete_policy_2_hdfs";
     """
     if (has_created_2.size() == 0) {
         def failed_create_1 = try_sql """
-        CREATE RESOURCE "crete_policy_2"
+        CREATE RESOURCE "crete_policy_2_hdfs"
         PROPERTIES(
             "fs.defaultFS"="127.0.0.1:8120",
             "hadoop.username"="hive",
@@ -154,7 +154,7 @@ suite("create_hdfs_policy") {
 
     if (has_created_2.size() == 0) {
         def failed_create_2 = try_sql """
-        CREATE RESOURCE "crete_policy_2"
+        CREATE RESOURCE "crete_policy_2_hdfs"
         PROPERTIES(
             "type"="hdfs",
             "hadoop.username"="hive",
@@ -172,7 +172,7 @@ suite("create_hdfs_policy") {
 
     if (has_created_2.size() == 0) {
         def failed_create_2 = try_sql """
-        CREATE RESOURCE "crete_policy_2"
+        CREATE RESOURCE "crete_policy_2_hdfs"
         PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -190,7 +190,7 @@ suite("create_hdfs_policy") {
 
     if (has_created_2.size() == 0) {
         def failed_create_2 = try_sql """
-        CREATE RESOURCE "crete_policy_2"
+        CREATE RESOURCE "crete_policy_2_hdfs"
         PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -208,7 +208,7 @@ suite("create_hdfs_policy") {
 
     if (has_created_2.size() == 0) {
         def failed_create_2 = try_sql """
-        CREATE RESOURCE "crete_policy_2"
+        CREATE RESOURCE "crete_policy_2_hdfs"
         PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -239,9 +239,9 @@ suite("create_hdfs_policy") {
         return false;
     }
 
-    if (!storage_exist.call("testPolicy_10")) {
+    if (!storage_exist.call("testPolicy_10_hdfs")) {
         def create_s3_resource = try_sql """
-            CREATE RESOURCE "testPolicy_10_resource"
+            CREATE RESOURCE "testPolicy_10_resource_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -255,26 +255,26 @@ suite("create_hdfs_policy") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY testPolicy_10
+            CREATE STORAGE POLICY testPolicy_10_hdfs
             PROPERTIES(
-            "storage_resource" = "testPolicy_10_resource",
+            "storage_resource" = "testPolicy_10_resource_hdfs",
             "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
-        assertEquals(storage_exist.call("testPolicy_10"), true)
+        assertEquals(storage_exist.call("testPolicy_10_hdfs"), true)
 
         sql"""
-        DROP STORAGE POLICY testPolicy_10;
+        DROP STORAGE POLICY testPolicy_10_hdfs;
         """
 
         sql"""
-        DROP RESOURCE testPolicy_10_resource;
+        DROP RESOURCE testPolicy_10_resource_hdfs;
         """
     }
 
-    if (!storage_exist.call("testPolicy_11")) {
+    if (!storage_exist.call("testPolicy_11_hdfs")) {
         def create_s3_resource = try_sql """
-            CREATE RESOURCE "testPolicy_11_resource"
+            CREATE RESOURCE "testPolicy_11_resource_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -288,26 +288,26 @@ suite("create_hdfs_policy") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY testPolicy_11
+            CREATE STORAGE POLICY testPolicy_11_hdfs
             PROPERTIES(
-            "storage_resource" = "testPolicy_11_resource",
+            "storage_resource" = "testPolicy_11_resource_hdfs",
             "cooldown_ttl" = "10086"
             );
         """
-        assertEquals(storage_exist.call("testPolicy_11"), true)
+        assertEquals(storage_exist.call("testPolicy_11_hdfs"), true)
 
         sql """
-        DROP STORAGE POLICY testPolicy_11;
+        DROP STORAGE POLICY testPolicy_11_hdfs;
         """
 
         sql """
-        DROP RESOURCE "testPolicy_11_resource";
+        DROP RESOURCE "testPolicy_11_resource_hdfs";
         """
     }
 
-    if (!storage_exist.call("testPolicy_12")) {
+    if (!storage_exist.call("testPolicy_12_hdfs")) {
         def create_s3_resource = try_sql """
-            CREATE RESOURCE "testPolicy_12_resource"
+            CREATE RESOURCE "testPolicy_12_resource_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -321,24 +321,24 @@ suite("create_hdfs_policy") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY testPolicy_12
+            CREATE STORAGE POLICY testPolicy_12_hdfs
             PROPERTIES(
-            "storage_resource" = "testPolicy_12_resource",
+            "storage_resource" = "testPolicy_12_resource_hdfs",
             "cooldown_ttl" = "10086",
             "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
         // errCode = 2, detailMessage = cooldown_datetime and cooldown_ttl can't be set together.
-        assertEquals(storage_exist.call("testPolicy_12"), false)
+        assertEquals(storage_exist.call("testPolicy_12_hdfs"), false)
 
         sql """
-            DROP RESOURCE "testPolicy_12_resource"
+            DROP RESOURCE "testPolicy_12_resource_hdfs"
         """
     }
 
-    if (!storage_exist.call("testPolicy_13")) {
+    if (!storage_exist.call("testPolicy_13_hdfs")) {
         def create_s3_resource = try_sql """
-            CREATE RESOURCE "testPolicy_13_resource"
+            CREATE RESOURCE "testPolicy_13_resource_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -352,22 +352,22 @@ suite("create_hdfs_policy") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY testPolicy_13
+            CREATE STORAGE POLICY testPolicy_13_hdfs
             PROPERTIES(
-            "storage_resource" = "testPolicy_13_resource",
+            "storage_resource" = "testPolicy_13_resource_hdfs",
             "cooldown_ttl" = "-10086"
             );
         """
         // errCode = 2, detailMessage = cooldown_ttl must >= 0.
-        assertEquals(storage_exist.call("testPolicy_13"), false)
+        assertEquals(storage_exist.call("testPolicy_13_hdfs"), false)
         sql """
-            DROP RESOURCE "testPolicy_13_resource"
+            DROP RESOURCE "testPolicy_13_resource_hdfs"
         """
     }
 
-    if (!storage_exist.call("testPolicy_14")) {
+    if (!storage_exist.call("testPolicy_14_hdfs")) {
         def create_s3_resource = try_sql """
-            CREATE RESOURCE "testPolicy_14_resource"
+            CREATE RESOURCE "testPolicy_14_resource_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -381,31 +381,31 @@ suite("create_hdfs_policy") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY testPolicy_14
+            CREATE STORAGE POLICY testPolicy_14_hdfs
             PROPERTIES(
-            "storage_resource" = "testPolicy_14_resource",
+            "storage_resource" = "testPolicy_14_resource_hdfs",
             "cooldown_datetime" = "2025-06-08"
             );
         """
         //  errCode = 2, detailMessage = cooldown_datetime format error: 2022-06-08
-        assertEquals(storage_exist.call("testPolicy_14"), false)
+        assertEquals(storage_exist.call("testPolicy_14_hdfs"), false)
     }
 
-    if (!storage_exist.call("testPolicy_15")) {
+    if (!storage_exist.call("testPolicy_15_hdfs")) {
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY testPolicy_15
+            CREATE STORAGE POLICY testPolicy_15_hdfs
             PROPERTIES(
-            "storage_resource" = "s3_resource_not_exist",
+            "storage_resource" = "s3_resource_not_exist_hdfs",
             "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
-        //  errCode = 2, detailMessage = storage resource doesn't exist: s3_resource_not_exist
-        assertEquals(storage_exist.call("testPolicy_15"), false)
+        //  errCode = 2, detailMessage = storage resource doesn't exist: s3_resource_not_exist_hdfs
+        assertEquals(storage_exist.call("testPolicy_15_hdfs"), false)
     }
 
-    if (!storage_exist.call("testPolicy_redundant_name")) {
+    if (!storage_exist.call("testPolicy_redundant_name_hdfs")) {
         def create_s3_resource = try_sql """
-            CREATE RESOURCE "testPolicy_redundant_name_resource"
+            CREATE RESOURCE "testPolicy_redundant_name_resource_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -419,7 +419,7 @@ suite("create_hdfs_policy") {
             );
         """
         def create_s3_resource_1 = try_sql """
-            CREATE RESOURCE "testPolicy_redundant_name_resource_1"
+            CREATE RESOURCE "testPolicy_redundant_name_resource_1_hdfs"
             PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="127.0.0.1:8120",
@@ -433,17 +433,17 @@ suite("create_hdfs_policy") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY testPolicy_redundant_name
+            CREATE STORAGE POLICY testPolicy_redundant_name_hdfs
             PROPERTIES(
-            "storage_resource" = "testPolicy_redundant_name_resource",
+            "storage_resource" = "testPolicy_redundant_name_resource_hdfs",
             "cooldown_ttl" = "10086"
             );
         """
         try {
             sql """
-                CREATE STORAGE POLICY testPolicy_redundant_name
+                CREATE STORAGE POLICY testPolicy_redundant_name_hdfs
                 PROPERTIES(
-                "storage_resource" = "testPolicy_redundant_name_resource_1",
+                "storage_resource" = "testPolicy_redundant_name_resource_1_hdfs",
                 "cooldown_ttl" = "10086"
                 );
             """
@@ -453,3 +453,4 @@ suite("create_hdfs_policy") {
         }
     }
 }
+
