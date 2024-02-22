@@ -98,7 +98,7 @@ public class ResultReceiver {
                                 DebugUtil.printId(this.queryId), (timeoutTs - currentTs) / 1000);
                         isCancel = true;
                         status.setStatus(Status.TIMEOUT);
-                        updateCancelReason("Fetch data timeout");
+                        updateCancelReason("fetch data timeout");
                         return null;
                     } catch (InterruptedException e) {
                         // continue to get result
