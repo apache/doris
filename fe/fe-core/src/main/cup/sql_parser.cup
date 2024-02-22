@@ -6914,6 +6914,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_PERCENT:id
     {: RESULT = id; :}
+    | KW_BELONG:id
+    {: RESULT = id; :}
     ;
 
 // Identifier that contain keyword
