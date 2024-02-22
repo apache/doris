@@ -456,7 +456,8 @@ archive_doris_logs() {
         archive_content="${archive_content} session_variables"
     fi
     if [[ -d "${DORIS_HOME}"/ms ]]; then
-        cp -rf /var/log/foundationdb "${DORIS_HOME}"/foundationdb/log
+        mkdir -p "${DORIS_HOME}"/foundationdb/log
+        cp -rf /var/log/foundationdb/* "${DORIS_HOME}"/foundationdb/log/
         archive_content="${archive_content} ms/conf ms/log foundationdb/log"
     fi
     if [[ -d "${DORIS_HOME}"/recycler ]]; then
