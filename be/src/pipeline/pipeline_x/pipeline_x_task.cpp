@@ -44,13 +44,13 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
-                             PipelineFragmentContext* fragment_context,
-                             RuntimeProfile* parent_profile,
-                             std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                                     std::shared_ptr<LocalExchangeSinkDependency>>>
-                                     le_state_map,
-                             int task_idx)
+PipelineXTask::PipelineXTask(
+        PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
+        PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
+        std::map<int,
+                 std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
+                le_state_map,
+        int task_idx)
         : PipelineTask(pipeline, task_id, state, fragment_context, parent_profile),
           _operators(pipeline->operator_xs()),
           _source(_operators.front()),
@@ -91,9 +91,9 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
     std::vector<TScanRangeParams> no_scan_ranges;
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                          _operators.front()->node_id(), no_scan_ranges);
-    auto* parent_profile = _state->get_sink_local_state(_sink->operator_id())->profile();
+    auto* parent_profile = _state->get_sink_local_state()->profile();
     query_ctx->register_query_statistics(
-            _state->get_sink_local_state(_sink->operator_id())->get_query_statistics_ptr());
+            _state->get_sink_local_state()->get_query_statistics_ptr());
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
@@ -135,7 +135,7 @@ Status PipelineXTask::_extract_dependencies() {
         }
     }
     {
-        auto* local_state = _state->get_sink_local_state(_sink->operator_id());
+        auto* local_state = _state->get_sink_local_state();
         auto* dep = local_state->dependency();
         DCHECK(dep != nullptr);
         _write_dependencies = dep;
@@ -206,7 +206,7 @@ Status PipelineXTask::_open() {
             RETURN_IF_ERROR(st);
         }
     }
-    RETURN_IF_ERROR(_state->get_sink_local_state(_sink->operator_id())->open(_state));
+    RETURN_IF_ERROR(_state->get_sink_local_state()->open(_state));
     _opened = true;
     return Status::OK();
 }

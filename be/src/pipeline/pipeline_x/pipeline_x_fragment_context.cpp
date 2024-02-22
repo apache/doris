@@ -210,8 +210,9 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _runtime_state->set_total_load_streams(request.total_load_streams);
     _runtime_state->set_num_local_sink(request.num_local_sink);
 
-    _use_global_rf = request.__isset.parallel_instances && (request.__isset.per_node_shared_scans &&
-                                                            !request.per_node_shared_scans.empty());
+    _need_local_merge =
+            request.__isset.parallel_instances &&
+            (request.__isset.per_node_shared_scans && !request.per_node_shared_scans.empty());
     // 2. Build pipelines with operators in this fragment.
     auto root_pipeline = add_pipeline();
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(
@@ -523,11 +524,12 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             filterparams->query_ctx = _query_ctx.get();
         }
 
-        // build runtime_filter_mgr for each instance
+        // build local_runtime_filter_mgr for each instance
         runtime_filter_mgr =
                 std::make_unique<RuntimeFilterMgr>(request.query_id, filterparams.get());
-        if (local_params.__isset.runtime_filter_params) {
-            runtime_filter_mgr->set_runtime_filter_params(local_params.runtime_filter_params);
+        if (i == 0 && local_params.__isset.runtime_filter_params) {
+            _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                    local_params.runtime_filter_params);
         }
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
@@ -535,9 +537,9 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                           std::shared_ptr<LocalExchangeSinkDependency>>> {
+                                           std::shared_ptr<Dependency>>> {
             std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                    std::shared_ptr<LocalExchangeSinkDependency>>>
+                                    std::shared_ptr<Dependency>>>
                     le_state_map;
             auto source_id = pipeline->operator_xs().front()->operator_id();
             if (auto iter = _op_id_to_le_state.find(source_id); iter != _op_id_to_le_state.end()) {
@@ -772,8 +774,9 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)data_distribution.distribution_type));
     }
-    auto sink_dep = std::make_shared<LocalExchangeSinkDependency>(sink_id, local_exchange_id,
-                                                                  _runtime_state->get_query_ctx());
+    auto sink_dep = std::make_shared<Dependency>(sink_id, local_exchange_id,
+                                                 "LOCAL_EXCHANGE_SINK_DEPENDENCY", true,
+                                                 _runtime_state->get_query_ctx());
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_dependency = sink_dep;
     _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});
@@ -986,7 +989,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 
         DataSinkOperatorXPtr sink;
         sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                                  _use_global_rf));
+                                                  _need_local_merge));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));

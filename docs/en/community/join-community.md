@@ -27,7 +27,7 @@ under the License.
 
 
 **Thrive together in [Apache Doris](https://github.com/apache/doris) community with users and developers from all around the world.** 
-We have graduated from Apache incubator succesffully and become an Top-Level Project in June 2022.
+We have graduated from Apache incubator successfully and become an Top-Level Project in June 2022.
 
 <hr />
 

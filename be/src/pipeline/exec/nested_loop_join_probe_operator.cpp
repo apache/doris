@@ -44,8 +44,8 @@ Status NestLoopJoinProbeOperator::close(doris::RuntimeState* state) {
 
 NestedLoopJoinProbeLocalState::NestedLoopJoinProbeLocalState(RuntimeState* state,
                                                              OperatorXBase* parent)
-        : JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState>(state,
-                                                                                            parent),
+        : JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>(state,
+                                                                                        parent),
           _matched_rows_done(false),
           _left_block_pos(0) {}
 
@@ -74,7 +74,7 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
 
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
-    return JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState>::close(
+    return JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>::close(
             state);
 }
 

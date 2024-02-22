@@ -185,7 +185,7 @@ void RuntimeFilterDependency::sub_filters() {
 void LocalExchangeSharedState::sub_running_sink_operators() {
     std::unique_lock<std::mutex> lc(le_lock);
     if (exchanger->_running_sink_operators.fetch_sub(1) == 1) {
-        _set_ready_for_read();
+        _set_always_ready();
     }
 }
 

@@ -53,7 +53,7 @@ class TDataSink;
 class TPipelineFragmentParams;
 
 namespace pipeline {
-struct LocalExchangeSinkDependency;
+class Dependency;
 
 class PipelineXFragmentContext : public PipelineFragmentContext {
 public:
@@ -177,7 +177,7 @@ private:
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
 
-    bool _use_global_rf = false;
+    bool _need_local_merge = false;
 
     // It is used to manage the lifecycle of RuntimeFilterMergeController
     std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
@@ -227,8 +227,7 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                            std::shared_ptr<LocalExchangeSinkDependency>>>
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _op_id_to_le_state;
 
     // UniqueId -> runtime mgr
