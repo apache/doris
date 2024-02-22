@@ -36,7 +36,7 @@ comment_to_pipeline=(
     ['arm']='Doris_ArmPipeline_P0Regression'
     ['performance']='Doris_DorisPerformance_Performance'
     ['cloud_p0']='Doris_DorisRegression_CloudP0'
-    ['cloud_p1']='Doris_DorisRegression_CloudP1'
+    ['cloud_p1']='Doris_DorisCloudRegression_CloudP1'
 )
 
 # github中评论的要触发的流水线名字
