@@ -25,7 +25,7 @@
 #include <typeinfo>
 
 #include "runtime/define_primitive_type.h"
-#include "serde/data_type_fixedlengthobject_serde.h"
+#include "serde/data_type_string_serde.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
