@@ -117,10 +117,10 @@ namespace doris::pipeline {
 bvar::Adder<int64_t> g_pipeline_tasks_count("doris_pipeline_tasks_count");
 
 PipelineFragmentContext::PipelineFragmentContext(
-        const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
-        int backend_num, std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
+        const TUniqueId& query_id, const TUniqueId& instance_id, int fragment_id, int backend_num,
+        std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
         const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb)
+        report_status_callback report_status_cb)
         : _query_id(query_id),
           _fragment_instance_id(instance_id),
           _fragment_id(fragment_id),
@@ -129,7 +129,7 @@ PipelineFragmentContext::PipelineFragmentContext(
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
           _is_report_on_cancel(true),
-          _report_status_cb(report_status_cb),
+          _report_status_cb(std::move(report_status_cb)),
           _create_time(MonotonicNanos()) {
     _fragment_watcher.start();
 }
@@ -951,29 +951,11 @@ Status PipelineFragmentContext::send_report(bool done) {
              _fragment_instance_id,
              _backend_num,
              _runtime_state.get(),
-             [this](auto&& PH1) { return update_status(std::forward<decltype(PH1)>(PH1)); },
-             [this](auto&& PH1, auto&& PH2) {
-                 cancel(std::forward<decltype(PH1)>(PH1), std::forward<decltype(PH2)>(PH2));
+             [this](Status st) { return update_status(st); },
+             [this](const PPlanFragmentCancelReason& reason, const std::string& msg) {
+                 cancel(reason, msg);
              }},
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
-}
-
-bool PipelineFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
-    OlapTableSchemaParam schema;
-    if (!schema.init(sink.schema).ok()) {
-        return false;
-    }
-    if (schema.is_partial_update()) {
-        return true;
-    }
-    for (const auto& index_schema : schema.indexes()) {
-        for (const auto& index : index_schema->indexes) {
-            if (index->index_type() == INVERTED) {
-                return true;
-            }
-        }
-    }
-    return false;
 }
 
 std::string PipelineFragmentContext::debug_string() {
