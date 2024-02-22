@@ -133,7 +133,7 @@ public class JdbcExecutor {
 
             boolean shouldAbort = conn != null && resultSet != null
                     && (tableType == TOdbcTableType.MYSQL || tableType == TOdbcTableType.SQLSERVER);
-            boolean aborted = false; // 用于记录是否执行了abort操作
+            boolean aborted = false; // Used to record whether the abort operation is performed
             if (shouldAbort) {
                 aborted = abortReadConnection(conn, resultSet, tableType);
             }
