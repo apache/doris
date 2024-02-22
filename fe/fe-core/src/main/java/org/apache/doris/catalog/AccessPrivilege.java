@@ -77,7 +77,7 @@ public enum AccessPrivilege {
             case 12:
                 return Lists.newArrayList(Privilege.USAGE_PRIV);
             case 13:
-                return Lists.newArrayList(Privilege.SHOW_VIEW_PRIV, Privilege.SHOW_VIEW_PRIV_COMPATIBLE);
+                return Lists.newArrayList(Privilege.SHOW_VIEW_PRIV);
             default:
                 return null;
         }

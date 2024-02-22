@@ -35,15 +35,17 @@ public enum Privilege {
     DROP_PRIV("Drop_priv", 7, "Privilege for dropping database or table"),
     USAGE_PRIV("Usage_priv", 8, "Privilege for using resource or workloadGroup"),
     // in doris code < VERSION_130
-    SHOW_VIEW_PRIV("Show_view_priv", 9, "Privilege for show create view"),
+    SHOW_VIEW_PRIV_DEPRECATED("show_view_priv", 9, "Privilege for show create view"),
 
     // in cloud code < VERSION_130
-    CLUSTER_USAGE_PRIV("Cluster_Usage_priv", 9, "Privilege for using cluster"),
+    CLUSTER_USAGE_PRIV_DEPRECATED("Cluster_Usage_priv", 9, "Privilege for using cluster"),
+    STAGE_USAGE_PRIV_DEPRECATED("Stage_Usage_priv", 10, "Privilege for using stage"),
+    SHOW_VIEW_PRIV_CLOUD_DEPRECATED("Show_view_priv", 11, "Privilege for show create view"),
     // compatible doris and cloud, and 9 ~ 11 has been contaminated
-    CLUSTER_USAGE_PRIV_COMPATIBLE("Cluster_Usage_priv", 12, "Privilege for using cluster"),
+    CLUSTER_USAGE_PRIV("Cluster_Usage_priv", 12, "Privilege for using cluster"),
     // 13 placeholder for stage
-    STAGE_USAGE_PRIV_COMPATIBLE("Stage_Usage_priv", 13, "Privilege for using stage"),
-    SHOW_VIEW_PRIV_COMPATIBLE("Show_view_priv", 14, "Privilege for show create view");
+    STAGE_USAGE_PRIV("Stage_Usage_priv", 13, "Privilege for using stage"),
+    SHOW_VIEW_PRIV("Show_view_priv", 14, "Privilege for show create view");
 
     public static final Map<Integer, Privilege> privileges;
 
@@ -59,13 +61,15 @@ public enum Privilege {
         privileges.put(7, DROP_PRIV);
         privileges.put(8, USAGE_PRIV);
         if (Config.isCloudMode()) {
-            privileges.put(9, CLUSTER_USAGE_PRIV);
+            privileges.put(9, CLUSTER_USAGE_PRIV_DEPRECATED);
+            privileges.put(10, STAGE_USAGE_PRIV_DEPRECATED);
+            privileges.put(11, SHOW_VIEW_PRIV_CLOUD_DEPRECATED);
         } else {
-            privileges.put(9, SHOW_VIEW_PRIV);
+            privileges.put(9, SHOW_VIEW_PRIV_DEPRECATED);
         }
-        privileges.put(12, CLUSTER_USAGE_PRIV_COMPATIBLE);
-        privileges.put(13, STAGE_USAGE_PRIV_COMPATIBLE);
-        privileges.put(14, SHOW_VIEW_PRIV_COMPATIBLE);
+        privileges.put(12, CLUSTER_USAGE_PRIV);
+        privileges.put(13, STAGE_USAGE_PRIV);
+        privileges.put(14, SHOW_VIEW_PRIV);
     }
 
 
@@ -79,7 +83,6 @@ public enum Privilege {
             CREATE_PRIV,
             DROP_PRIV,
             SHOW_VIEW_PRIV,
-            SHOW_VIEW_PRIV_COMPATIBLE
     };
 
     // only GRANT_PRIV and USAGE_PRIV can grant on workloadGroup
@@ -92,7 +95,6 @@ public enum Privilege {
             CREATE_PRIV,
             DROP_PRIV,
             SHOW_VIEW_PRIV,
-            SHOW_VIEW_PRIV_COMPATIBLE
     };
 
     public static final Map<Privilege, String> privInDorisToMysql =
@@ -103,9 +105,8 @@ public enum Privilege {
                     .put(CREATE_PRIV, "CREATE")
                     .put(DROP_PRIV, "DROP")
                     .put(USAGE_PRIV, "USAGE")
-                    .put(CLUSTER_USAGE_PRIV_COMPATIBLE, "USAGE")
+                    .put(CLUSTER_USAGE_PRIV, "USAGE")
                     .put(SHOW_VIEW_PRIV, "SHOW VIEW")
-                    .put(SHOW_VIEW_PRIV_COMPATIBLE, "SHOW VIEW")
                     .build();
 
     private String name;

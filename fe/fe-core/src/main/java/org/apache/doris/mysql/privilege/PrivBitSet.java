@@ -104,7 +104,7 @@ public class PrivBitSet implements Writable {
     }
 
     public boolean containsResourcePriv() {
-        return containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV_COMPATIBLE);
+        return containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV);
     }
 
     public boolean containsDbTablePriv() {
@@ -189,7 +189,7 @@ public class PrivBitSet implements Writable {
             }
 
             if (resourcePattern.isClusterResource()) {
-                privs.or(PrivBitSet.of(Privilege.CLUSTER_USAGE_PRIV_COMPATIBLE));
+                privs.or(PrivBitSet.of(Privilege.CLUSTER_USAGE_PRIV));
             }
         }
         return new HashSet<>(privs.toPrivilegeList());

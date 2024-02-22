@@ -25,6 +25,7 @@ import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcherException;
@@ -919,7 +920,6 @@ public class Role implements Writable, GsonPostProcessable {
                 privBitSet.or(modifiedGlobalPrivs);
             }
         }
-
         // rebuild these priv tables
         rebuildPrivTables();
     }
@@ -988,7 +988,47 @@ public class Role implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() {
         removeClusterPrefix();
+        compatibilityErrEnum();
         rebuildPrivTables();
+    }
+
+    private void compatibilityErrEnum() {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_129) {
+            if (Config.isNotCloudMode()) {
+                // not cloud mode,
+                // SHOW_VIEW_PRIV_DEPRECATED -> SHOW_VIEW_PRIV (9 -> 14)
+                tblPatternToPrivs.values().forEach(privBitSet -> {
+                    if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV_DEPRECATED)) {
+                        // remove SHOW_VIEW_PRIV_DEPRECATED
+                        privBitSet.unset(Privilege.SHOW_VIEW_PRIV_DEPRECATED.getIdx());
+                        // add SHOW_VIEW_PRIV
+                        privBitSet.set(Privilege.SHOW_VIEW_PRIV.getIdx());
+                    }
+                });
+            } else {
+                // cloud mode
+                // CLUSTER_USAGE_PRIV_DEPRECATED -> CLUSTER_USAGE_PRIV (9 -> 12)
+                clusterPatternToPrivs.values().forEach(privBitSet -> {
+                    if (privBitSet.containsPrivs(Privilege.CLUSTER_USAGE_PRIV_DEPRECATED)) {
+                        // remove CLUSTER_USAGE_PRIV_DEPRECATED
+                        privBitSet.unset(Privilege.CLUSTER_USAGE_PRIV_DEPRECATED.getIdx());
+                        // add CLUSTER_USAGE_PRIV
+                        privBitSet.set(Privilege.CLUSTER_USAGE_PRIV.getIdx());
+                    }
+                });
+                // todo(dx): if doris has stage
+                // STAGE_USAGE_PRIV_DEPRECATED -> STAGE_USAGE_PRIV (10 -> 13)
+                // SHOW_VIEW_PRIV_CLOUD_DEPRECATED -> SHOW_VIEW_PRIV (11 -> 14)
+                tblPatternToPrivs.values().forEach(privBitSet -> {
+                    if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV_CLOUD_DEPRECATED)) {
+                        // remove SHOW_VIEW_PRIV_CLOUD_DEPRECATED
+                        privBitSet.unset(Privilege.SHOW_VIEW_PRIV_CLOUD_DEPRECATED.getIdx());
+                        // add SHOW_VIEW_PRIV
+                        privBitSet.set(Privilege.SHOW_VIEW_PRIV.getIdx());
+                    }
+                });
+            }
+        }
     }
 
     private void rebuildPrivTables() {
@@ -1012,6 +1052,17 @@ public class Role implements Writable, GsonPostProcessable {
                 LOG.warn("grant failed,", e);
             }
         }
+        for (Entry<ResourcePattern, PrivBitSet> entry : clusterPatternToPrivs.entrySet()) {
+            try {
+                grantPrivs(entry.getKey(), entry.getValue().copy());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("cloud cluster entry {}", entry);
+                }
+            } catch (DdlException e) {
+                LOG.warn("grant failed exception {} entry {}", e, entry);
+            }
+        }
+        // todo(dx): if add stage priv
         for (Entry<WorkloadGroupPattern, PrivBitSet> entry : workloadGroupPatternToPrivs.entrySet()) {
             try {
                 grantPrivs(entry.getKey(), entry.getValue().copy());
