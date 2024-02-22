@@ -282,7 +282,7 @@ suite("filter_equal_or_notequal_case") {
         notContains "${mv_name}(${mv_name})"
     }
 
-    // Todo
+    // Todo: It is not currently supported and is expected to be
     // mv is range and sql equal and filter in mv range
 //    query_sql = """
 //        select l_shipdate, o_orderdate, l_partkey, l_suppkey
@@ -350,7 +350,7 @@ suite("filter_equal_or_notequal_case") {
         notContains "${mv_name}(${mv_name})"
     }
 
-    // Todo
+    // Todo: It is not currently supported and is expected to be
     // mv is range and sql is range and sql range is bigger than mv
 //    query_sql = """
 //        select l_shipdate, o_orderdate, l_partkey, l_suppkey
@@ -363,7 +363,7 @@ suite("filter_equal_or_notequal_case") {
 //        sql("${query_sql}")
 //        contains "${mv_name}(${mv_name})"
 //    }
-//    compare_res(query_sql + " order by 1")
+//    compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
@@ -418,7 +418,7 @@ suite("filter_equal_or_notequal_case") {
         notContains "${mv_name}(${mv_name})"
     }
 
-    // Todo
+    // Todo: It is not currently supported and is expected to be
     // sql range is in mv range
 //    query_sql = """
 //        select l_shipdate, o_orderdate, l_partkey, l_suppkey
@@ -431,7 +431,7 @@ suite("filter_equal_or_notequal_case") {
 //        sql("${query_sql}")
 //        contains "${mv_name}(${mv_name})"
 //    }
-//    compare_res(query_sql + " order by 1")
+//    compare_res(query_sql + " order by 1,2,3,4")
 
     // sql range like mv range
     query_sql = """
@@ -578,7 +578,7 @@ suite("filter_equal_or_notequal_case") {
     }
     compare_res(query_sql + " order by 1,2,3,4")
 
-    // Todo
+    // Todo: It is not currently supported and is expected to be
     // between .. and ..
 //    mtmv_sql = """
 //        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
