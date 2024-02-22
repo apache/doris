@@ -28,11 +28,13 @@
 #include <cfloat>
 #include <cmath>
 #include <compare>
+#include <cstdint>
 #include <limits>
 #include <tuple>
 #include <type_traits>
 
 #include "common/exception.h"
+#include "vec/core/wide_integer.h"
 
 // NOLINTBEGIN(*)
 
@@ -1202,6 +1204,23 @@ constexpr integer<Bits, Signed>::operator T() const noexcept {
     UnsignedT res {};
     for (unsigned i = 0;
          i < _impl::item_count && i < (sizeof(T) + sizeof(base_type) - 1) / sizeof(base_type);
+         ++i) {
+        res += UnsignedT(items[_impl::little(i)])
+               << (sizeof(base_type) * 8 *
+                   i); // NOLINT(clang-analyzer-core.UndefinedBinaryOperatorResult)
+    }
+
+    return res;
+}
+
+template <size_t Bits, typename Signed>
+constexpr integer<Bits, Signed>::operator doris::vectorized::Int8() const noexcept {
+    using UnsignedT = uint8_t;
+
+    UnsignedT res {};
+    for (unsigned i = 0;
+         i < _impl::item_count &&
+         i < (sizeof(doris::vectorized::Int8) + sizeof(base_type) - 1) / sizeof(base_type);
          ++i) {
         res += UnsignedT(items[_impl::little(i)])
                << (sizeof(base_type) * 8 *

@@ -140,7 +140,7 @@ public:
     constexpr operator long double() const noexcept;
     constexpr operator double() const noexcept;
     constexpr operator float() const noexcept;
-    //     constexpr operator doris::vectorized::Int8() const noexcept;
+    constexpr operator doris::vectorized::Int8() const noexcept;
 
     struct _impl;
 
