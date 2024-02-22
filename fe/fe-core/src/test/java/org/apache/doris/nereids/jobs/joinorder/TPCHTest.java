@@ -17,18 +17,16 @@
 
 package org.apache.doris.nereids.jobs.joinorder;
 
-import java.util.List;
-
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class TPCHTest extends TPCHTestBase {
     @Test
