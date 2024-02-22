@@ -46,6 +46,7 @@ suite("test_unique_model_schema_key_change","p0") {
              "               (678901234, 'Frank', 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
              "               (789012345, 'Grace', 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
 
+     //Test the unique model by adding a key column with VARCHAR
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column province VARCHAR(20) KEY DEFAULT "广东省" AFTER username """
@@ -146,7 +147,7 @@ suite("test_unique_model_schema_key_change","p0") {
      //java.sql.SQLException: errCode = 2, detailMessage = Float or double can not used as a key, use decimal instead.
 /*     sql initTable
      sql initTableData
-     sql """ alter  table ${tbName} add  column watch FLOAT KEY DEFAULT "166.689" AFTER username """
+     sql """ alter  table ${tbName} add  column watch DOUBLE KEY DEFAULT "166.689" AFTER username """
      insertSql = " insert into ${tbName} values(123456689, 'Alice', 189.479, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
@@ -186,18 +187,6 @@ suite("test_unique_model_schema_key_change","p0") {
      sql initTableData
      sql """ alter  table ${tbName} add  column anniversary DATETIME KEY DEFAULT "1997-01-01 00:00:00" AFTER username """
      insertSql = " insert into ${tbName} values(123456689, 'Alice', \"2024-01-04 09:00:00\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
-     waitForSchemaChangeDone({
-          sql getTableStatusSql
-          time 60
-     }, insertSql, true,"${tbName}")
-
-
-
-     //Test the unique model by adding a key column with DATETIME
-     sql initTable
-     sql initTableData
-     sql """ alter  table ${tbName} add  column anniversary DATETIME KEY DEFAULT "1997-01-01 00:00:00" AFTER username """
-     insertSql = " insert into ${tbName} values(123456689, 'Alice', \"2024-01-04 09:00:00\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
