@@ -19,17 +19,13 @@ package org.apache.doris.nereids.jobs.joinorder;
 
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
-public class TPCHTest extends TPCHTestBase  implements MemoPatternMatchSupported {
+public class TPCHTest extends TPCHTestBase implements MemoPatternMatchSupported {
     @Test
     void testQ5() {
         PlanChecker.from(connectContext)
