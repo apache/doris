@@ -161,6 +161,7 @@ private:
 
     // for auto partitions
     std::vector<std::vector<TStringLiteral>> _partitions_need_create;
+
 public:
     std::unique_ptr<MutableBlock> _batching_block;
     bool _deal_batched = false; // If true, send batched block before any block's append.
