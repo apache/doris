@@ -130,7 +130,7 @@ Doris 执行这些sql时会自动命中这个 ROLLUP 表。
 
 ### Duplicate 模型中的 ROLLUP
 
-因为 Duplicate 模型没有聚合的语意。所以该模型中的 ROLLUP，已经失去了“上卷”这一层含义。而仅仅是作为调整列顺序，以命中前缀索引的作用。我们将在[前缀索引](./index/prefix-index.md)详细介绍前缀索引，以及如何使用ROLLUP改变前缀索引，以获得更好的查询效率。
+因为 Duplicate 模型没有聚合的语意。所以该模型中的 ROLLUP，已经失去了“上卷”这一层含义。而仅仅是作为调整列顺序，以命中前缀索引的作用。我们将在[前缀索引](https://doris.apache.org/zh-CN/docs/data-table/index/index-overview/#前缀索引)详细介绍前缀索引，以及如何使用ROLLUP改变前缀索引，以获得更好的查询效率。
 
 ## ROLLUP 调整前缀索引
 
