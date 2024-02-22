@@ -1938,11 +1938,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Map<Long, Integer> failedTabletCounter = Maps.newHashMap();
                 countDownLatch.getLeftMarks().stream().forEach(
                         item -> failedTabletCounter.put(item.getValue(),
-                                failedTabletCounter.getOrDefault(item.getValue(), 0) + 1));
+                        failedTabletCounter.getOrDefault(item.getValue(), 0) + 1));
                 boolean createFailed = failedTabletCounter.values().stream().anyMatch(
                         failedNum -> (totalReplicaNum - failedNum) < quorumReplicaNum);
                 errMsg = createFailed ? "Failed to create partition[" + partitionName + "]."
-                        : "Failed to create some replicas when create partition[" + partitionName + "].";
+                    : "Failed to create some replicas when create partition[" + partitionName + "].";
 
                 if (!countDownLatch.getStatus().ok()) {
                     errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
@@ -2550,7 +2550,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // create partition
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
-                if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
+                if (properties != null && !properties.isEmpty()) {
                     // here, all properties should be checked
                     throw new DdlException("Unknown properties: " + properties);
                 }
