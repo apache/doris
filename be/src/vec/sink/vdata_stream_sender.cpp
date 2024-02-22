@@ -23,6 +23,7 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
 #include <stddef.h>
 
 #include <algorithm>
@@ -421,14 +422,33 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        _txn_id = t_stream_sink.tablet_sink_txn_id;
         _schema = std::make_shared<OlapTableSchemaParam>();
-        RETURN_IF_ERROR(_schema->init(t_stream_sink.schema));
-        _vpartition = std::make_unique<VOlapTablePartitionParam>(_schema, t_stream_sink.partition);
+        RETURN_IF_ERROR(_schema->init(t_stream_sink.tablet_sink_schema));
+        _vpartition = std::make_unique<VOlapTablePartitionParam>(
+                _schema, t_stream_sink.tablet_sink_partition);
         RETURN_IF_ERROR(_vpartition->init());
         auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
         _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
-        _intermediate_tuple_desc =
-                _state->desc_tbl().get_tuple_descriptor(t_stream_sink.intermediate_tuple_id);
+        _tablet_sink_tuple_desc =
+                _state->desc_tbl().get_tuple_descriptor(t_stream_sink.tablet_sink_tuple_id);
+        _tablet_sink_row_desc = _pool->add(new RowDescriptor(_tablet_sink_tuple_desc, false));
+        //_block_convertor no need init_autoinc_info here
+        _block_convertor =
+                std::make_unique<vectorized::OlapTableBlockConvertor>(_tablet_sink_tuple_desc);
+        _location = _pool->add(new OlapTableLocationParam(t_stream_sink.tablet_sink_location));
+        _row_distribution.init({.state = _state,
+                                .block_convertor = _block_convertor.get(),
+                                .tablet_finder = _tablet_finder.get(),
+                                .vpartition = _vpartition.get(),
+                                .add_partition_request_timer = _add_partition_request_timer,
+                                .txn_id = _txn_id,
+                                .pool = _pool,
+                                .location = _location,
+                                .vec_output_expr_ctxs = &_fake_expr_ctxs,
+                                .schema = _schema,
+                                .caller = (void*)this,
+                                .create_partition_callback = &empty_callback_function});
     } else {
         // UNPARTITIONED
     }
@@ -505,6 +525,8 @@ Status VDataStreamSender::open(RuntimeState* state) {
     if (_part_type == TPartitionType::HASH_PARTITIONED ||
         _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         RETURN_IF_ERROR(_partitioner->open(state));
+    } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        RETURN_IF_ERROR(_row_distribution.open(_tablet_sink_row_desc));
     }
 
     _compression_type = state->fragement_transmission_compression_type();
@@ -517,6 +539,25 @@ void VDataStreamSender::_handle_eof_channel(RuntimeState* state, ChannelPtrType 
     channel->set_receiver_eof(st);
     // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
     static_cast<void>(channel->close(state, Status::OK()));
+}
+
+Status VDataStreamSender::_send_new_partition_batch() {
+    if (_row_distribution.need_deal_batching()) { // maybe try_close more than 1 time
+        RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
+        Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
+
+        // these order is only.
+        //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
+        //  2. deal batched block
+        //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
+        _row_distribution.clear_batching_stats();
+        RETURN_IF_ERROR(this->send(_state, &tmp_block, false));
+        // Recovery back
+        _row_distribution._batching_block->set_mutable_columns(tmp_block.mutate_columns());
+        _row_distribution._batching_block->clear_column_data();
+        _row_distribution._deal_batched = false;
+    }
+    return Status::OK();
 }
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
@@ -645,89 +686,41 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                                              block, _enable_pipeline_exec ? eos : false));
         }
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
-        auto num_rows = block->rows();
-        _tablet_finder->filter_bitmap().Reset(num_rows);
-        //reuse vars for find_tablets
-        _partitions.assign(num_rows, nullptr);
-        _skip.assign(num_rows, false);
-        _tablet_indexes.assign(num_rows, 0);
-
-        auto validate_column_nullable_function = [&](const ColumnUInt8& null_map,
-                                                     SlotDescriptor* desc, bool* stop_processing,
-                                                     int* skip_rows) {
-            for (int row = 0; row < num_rows; ++row) {
-                if (null_map.get_data()[row]) {
-                    *skip_rows = *skip_rows + 1;
-                    fmt::memory_buffer error_msg;
-                    fmt::format_to(error_msg,
-                                   "column_name[{}], null value for not null column, type={}",
-                                   desc->col_name(), desc->type().debug_string());
-                    return _state->append_error_msg_to_file(
-                            []() -> std::string { return ""; },
-                            [&error_msg]() -> std::string { return fmt::to_string(error_msg); },
-                            stop_processing);
-                }
-            }
+        // check out of limit
+        RETURN_IF_ERROR(_send_new_partition_batch());
+        if (UNLIKELY(block->rows() == 0)) {
             return Status::OK();
-        };
-
-        //TODO: maybe could do validate_and_convert_block only at here
-        bool stop_processing = false;
-        int32_t skip_rows = 0;
-        std::shared_ptr<vectorized::Block> convert_block =
-                vectorized::Block::create_shared(block->get_columns_with_type_and_name());
-        for (int i = 0;
-             i < _intermediate_tuple_desc->slots().size() && i < convert_block->columns(); ++i) {
-            SlotDescriptor* desc = _intermediate_tuple_desc->slots()[i];
-            convert_block->get_by_position(i).column =
-                    convert_block->get_by_position(i).column->convert_to_full_column_if_const();
-
-            if (desc->is_nullable() != convert_block->get_by_position(i).type->is_nullable()) {
-                if (desc->is_nullable()) {
-                    convert_block->get_by_position(i).type =
-                            vectorized::make_nullable(convert_block->get_by_position(i).type);
-                    convert_block->get_by_position(i).column =
-                            vectorized::make_nullable(convert_block->get_by_position(i).column);
-                } else {
-                    const auto& null_map_data = assert_cast<const vectorized::ColumnNullable&>(
-                                                        *convert_block->get_by_position(i).column)
-                                                        .get_null_map_column();
-                    RETURN_IF_ERROR(validate_column_nullable_function(
-                            null_map_data, desc, &stop_processing, &skip_rows));
-                    convert_block->get_by_position(i).type =
-                            assert_cast<const vectorized::DataTypeNullable&>(
-                                    *convert_block->get_by_position(i).type)
-                                    .get_nested_type();
-                    convert_block->get_by_position(i).column =
-                            assert_cast<const vectorized::ColumnNullable&>(
-                                    *convert_block->get_by_position(i).column)
-                                    .get_nested_column_ptr();
-                }
-            }
         }
+        std::shared_ptr<vectorized::Block> convert_block;
+        bool has_filtered_rows = false;
+        int64_t filtered_rows = 0;
+        _number_input_rows += block->rows();
+        RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
+                *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
+                _number_input_rows));
 
-        RETURN_IF_ERROR(_tablet_finder->find_tablets(state, convert_block.get(), num_rows,
-                                                     _partitions, _tablet_indexes, stop_processing,
-                                                     _skip));
-
-        auto num_channels = _channels.size();
+        const auto& row_ids = _row_part_tablet_ids[0].row_ids;
+        const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
+        const auto& num_channels = _channels.size();
         std::vector<std::vector<uint32>> channel2rows;
         channel2rows.resize(num_channels);
-        for (int row_idx = 0; row_idx < convert_block->rows(); row_idx++) {
-            if (_skip[row_idx]) {
-                skip_rows++;
-                continue;
-            }
-            auto& partition = _partitions[row_idx];
-            auto& tablet_index = _tablet_indexes[row_idx];
-            auto& index = partition->indexes[0];
-            auto tablet_id = index.tablets[tablet_index];
-            channel2rows[tablet_id % num_channels].emplace_back(row_idx);
+        for (int idx = 0; idx < row_ids.size(); ++idx) {
+            const auto& row = row_ids[idx];
+            const auto& tablet_id = tablet_ids[idx];
+            channel2rows[tablet_id % num_channels].emplace_back(row);
         }
-        _state->update_num_rows_load_filtered(skip_rows + _tablet_finder->num_filtered_rows());
+
         RETURN_IF_ERROR(channel_add_rows_with_idx(state, _channels, num_channels, channel2rows,
                                                   convert_block.get(),
                                                   _enable_pipeline_exec ? eos : false));
+        if (eos) {
+            _row_distribution._deal_batched = true;
+            RETURN_IF_ERROR(_send_new_partition_batch());
+            _state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
+                                                  _tablet_finder->num_filtered_rows());
+            _state->update_num_rows_load_unselected(
+                    _tablet_finder->num_immutable_partition_filtered_rows());
+        }
     } else {
         // Range partition
         // 1. calculate range
@@ -763,6 +756,12 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         {
             // send last block
             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+            // non pipeline engin not pass eos in send function, and maybe have create partition at last block
+            // so at here to check again
+            if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+                _row_distribution._deal_batched = true;
+                RETURN_IF_ERROR(_send_new_partition_batch());
+            }
             if (_serializer.get_block() && _serializer.get_block()->rows() > 0) {
                 Block block = _serializer.get_block()->to_block();
                 RETURN_IF_ERROR(

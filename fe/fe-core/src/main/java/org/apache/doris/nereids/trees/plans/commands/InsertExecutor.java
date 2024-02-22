@@ -77,6 +77,7 @@ import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
@@ -188,11 +189,15 @@ public class InsertExecutor {
                     && fragment.getDataPartition().getType() == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED) {
                 DataStreamSink dataStreamSink = (DataStreamSink) (fragment.getChild(0).getSink());
                 Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
-                dataStreamSink.setSchemaParam(olapTableSink.createSchema(
+                dataStreamSink.setTabletSinkSchemaParam(olapTableSink.createSchema(
                         database.getId(), olapTableSink.getDstTable(), analyzer));
-                dataStreamSink.setPartitionParam(olapTableSink.createPartition(
+                dataStreamSink.setTabletSinkPartitionParam(olapTableSink.createPartition(
                         database.getId(), olapTableSink.getDstTable(), analyzer));
-                dataStreamSink.setIntermediateTupleDesc(olapTableSink.getTupleDescriptor());
+                dataStreamSink.setTabletSinkTupleDesc(olapTableSink.getTupleDescriptor());
+                List<TOlapTableLocationParam> locationParams = olapTableSink
+                        .createLocation(olapTableSink.getDstTable());
+                dataStreamSink.setTabletSinkLocationParam(locationParams.get(0));
+                dataStreamSink.setTabletSinkTxnId(olapTableSink.getTxnId());
             }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);

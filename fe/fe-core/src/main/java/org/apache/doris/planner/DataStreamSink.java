@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDataStreamSink;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TOlapTablePartitionParam;
 import org.apache.doris.thrift.TOlapTableSchemaParam;
 
@@ -56,9 +57,11 @@ public class DataStreamSink extends DataSink {
     protected List<RuntimeFilter> runtimeFilters = Lists.newArrayList();
 
     // use for tablet id shuffle sink only
-    protected TOlapTableSchemaParam schemaParam = null;
-    protected TOlapTablePartitionParam partitionParam = null;
-    protected TupleDescriptor intermediateTupleDesc;
+    protected TOlapTableSchemaParam tabletSinkSchemaParam = null;
+    protected TOlapTablePartitionParam tabletSinkPartitionParam = null;
+    protected TOlapTableLocationParam tabletSinkLocationParam = null;
+    protected TupleDescriptor tabletSinkTupleDesc = null;
+    protected long tabletSinkTxnId = -1;
 
     public DataStreamSink() {
 
@@ -126,16 +129,24 @@ public class DataStreamSink extends DataSink {
         this.runtimeFilters.add(runtimeFilter);
     }
 
-    public void setSchemaParam(TOlapTableSchemaParam schemaParam) {
-        this.schemaParam = schemaParam;
+    public void setTabletSinkSchemaParam(TOlapTableSchemaParam schemaParam) {
+        this.tabletSinkSchemaParam = schemaParam;
     }
 
-    public void setPartitionParam(TOlapTablePartitionParam partitionParam) {
-        this.partitionParam = partitionParam;
+    public void setTabletSinkPartitionParam(TOlapTablePartitionParam partitionParam) {
+        this.tabletSinkPartitionParam = partitionParam;
     }
 
-    public void setIntermediateTupleDesc(TupleDescriptor intermediateTupleDesc) {
-        this.intermediateTupleDesc = intermediateTupleDesc;
+    public void setTabletSinkTupleDesc(TupleDescriptor tupleDesc) {
+        this.tabletSinkTupleDesc = tupleDesc;
+    }
+
+    public void setTabletSinkLocationParam(TOlapTableLocationParam locationParam) {
+        this.tabletSinkLocationParam = locationParam;
+    }
+
+    public void setTabletSinkTxnId(long txnId) {
+        this.tabletSinkTxnId = txnId;
     }
 
     @Override
@@ -199,17 +210,21 @@ public class DataStreamSink extends DataSink {
                 tStreamSink.addToRuntimeFilters(rf.toThrift());
             }
         }
-        Preconditions.checkState((schemaParam != null) == (partitionParam != null),
+        Preconditions.checkState((tabletSinkSchemaParam != null) == (tabletSinkPartitionParam != null),
                 "schemaParam and partitionParam should be set together.");
-        if (schemaParam != null) {
-            tStreamSink.setSchema(schemaParam);
+        if (tabletSinkSchemaParam != null) {
+            tStreamSink.setTabletSinkSchema(tabletSinkSchemaParam);
         }
-        if (partitionParam != null) {
-            tStreamSink.setPartition(partitionParam);
+        if (tabletSinkPartitionParam != null) {
+            tStreamSink.setTabletSinkPartition(tabletSinkPartitionParam);
         }
-        if (intermediateTupleDesc != null) {
-            tStreamSink.setIntermediateTupleId(intermediateTupleDesc.getId().asInt());
+        if (tabletSinkTupleDesc != null) {
+            tStreamSink.setTabletSinkTupleId(tabletSinkTupleDesc.getId().asInt());
         }
+        if (tabletSinkLocationParam != null) {
+            tStreamSink.setTabletSinkLocation(tabletSinkLocationParam);
+        }
+        tStreamSink.setTabletSinkTxnId(tabletSinkTxnId);
         result.setStreamSink(tStreamSink);
         return result;
     }
