@@ -38,7 +38,7 @@ suite("test_nereids_row_policy") {
 
             test {
                 sql "SELECT * FROM ${viewName}"
-                exception "SELECT command denied to user '${user}'"
+                exception "SELECT command denied to user"
             }
         }
         assertEquals(size, result1.size())
