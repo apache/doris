@@ -29,7 +29,9 @@ under the License.
 
 `INT XXHASH_32(VARCHAR input, ...)`
 
-返回输入字符串的32位xxhash值
+返回输入字符串的32位xxhash值。
+
+注：在计算hash值时，更推荐使用`xxhash_32`，而不是`murmur_hash3_32`。
 
 ### example
 
