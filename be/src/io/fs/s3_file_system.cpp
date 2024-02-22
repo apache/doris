@@ -355,7 +355,6 @@ public:
 
     Status get_list_outcome() {
         do {
-            Aws::S3::Model::ListObjectsV2Outcome outcome;
             {
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
                 outcome = client->ListObjectsV2(request);
