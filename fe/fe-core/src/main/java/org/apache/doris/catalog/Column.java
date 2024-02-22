@@ -697,7 +697,7 @@ public class Column implements Writable, GsonPostProcessable {
             case IPV6:
                 return 16;
             case VARIANT:
-                return stringLength + 2147483647;
+                return stringLength + 4; // sizeof(OLAP_STRING_MAX_LENGTH)
             default:
                 LOG.warn("unknown field type. [type= << {} << ]", type);
                 throw new DdlException("unknown field type. type: " + type);
