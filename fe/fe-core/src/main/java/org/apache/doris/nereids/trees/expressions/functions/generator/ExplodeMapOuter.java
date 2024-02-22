@@ -21,14 +21,14 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.MapType;
-import org.apache.doris.nereids.types.StructField;
-import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -66,9 +66,9 @@ public class ExplodeMapOuter extends TableGeneratingFunction implements UnaryExp
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(
-                FunctionSignature.ret(new StructType(ImmutableList.of(
-                                new StructField("col1", ((MapType) child().getDataType()).getKeyType(), true, ""),
-                                new StructField("col2", ((MapType) child().getDataType()).getValueType(), true, ""))))
+                FunctionSignature.ret(StructLiteral.constructStructType(
+                                Lists.newArrayList(((MapType) child().getDataType()).getKeyType(),
+                                        ((MapType) child().getDataType()).getValueType())))
                         .args(child().getDataType())
         );
     }
