@@ -686,6 +686,8 @@ public class Column implements Writable, GsonPostProcessable {
                 return 8;
             case DECIMAL128I:
                 return 16;
+            case DECIMAL256:
+                return 32;
             case DECIMALV2:
                 return 12; // use 12 bytes in olap engine.
             case STRUCT:
