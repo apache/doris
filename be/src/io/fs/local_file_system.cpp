@@ -247,9 +247,6 @@ public:
                     }
                 }
                 iter.increment(ec);
-                if (ec) {
-                    break;
-                }
                 break;
             }
         } catch (const std::filesystem::filesystem_error& e) {
@@ -265,6 +262,7 @@ public:
         return file_info;
     }
 
+private:
     const Path& dir;
     bool only_file;
     std::filesystem::directory_iterator iter;

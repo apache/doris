@@ -325,11 +325,11 @@ public:
     ~S3FileListIterator() override = default;
 
     bool has_next() const override {
-        return !is_trucated && iter != outcome.GetResult().GetContents().end();
+        return iter != outcome.GetResult().GetContents().end() || is_trucated;
     }
     Result<FileInfo> next() override {
         FileInfo file_info;
-        while (!is_trucated && iter != outcome.GetResult().GetContents().end()) {
+        while (true) {
             for (; iter != outcome.GetResult().GetContents().end(); iter++) {
                 const auto& obj = *iter;
                 std::string key = obj.GetKey();
@@ -342,6 +342,10 @@ public:
                 file_info.is_file = !is_dir;
                 return file_info;
             }
+            // Return early to prevent one useless S3 io
+            if (!is_trucated) {
+                break;
+            }
             if (auto st = get_list_outcome(); !st.ok()) [[unlikely]] {
                 return ResultError(std::move(st));
             }
@@ -349,7 +353,6 @@ public:
         return ResultError(Status::InternalError("Out of elements"));
     }
 
-private:
     Status get_list_outcome() {
         do {
             Aws::S3::Model::ListObjectsV2Outcome outcome;
@@ -391,9 +394,11 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, FileListIterator
 
     Aws::S3::Model::ListObjectsV2Request request;
     request.WithBucket(_s3_conf.bucket).WithPrefix(prefix);
-    *files = std::make_unique<S3FileListIterator>(std::move(client), std::move(request), only_file,
-                                                  prefix, full_path(prefix));
-    return Status::OK();
+    auto file_iter = std::make_unique<S3FileListIterator>(std::move(client), std::move(request),
+                                                          only_file, prefix, full_path(prefix));
+    auto st = file_iter->get_list_outcome();
+    *files = std::move(file_iter);
+    return st;
 }
 
 Status S3FileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
