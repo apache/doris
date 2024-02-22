@@ -189,7 +189,9 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
 }
 
 void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_env) {
-    // TODO(plat1ko): DELETE worker
+    _workers[TTaskType::PUSH] = std::make_unique<TaskWorkerPool>(
+            "PUSH", config::delete_worker_count,
+            [&engine](auto&& task) { cloud_push_callback(engine, task); });
     // TODO(plat1ko): ALTER worker
     // TODO(plat1ko): SUBMIT_TABLE_COMPACTION worker
     // TODO(plat1ko): CALCULATE_DELETE_BITMAP worker

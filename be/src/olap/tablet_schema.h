@@ -401,6 +401,9 @@ public:
 
     std::shared_ptr<TabletSchema> copy_without_extracted_columns();
 
+    void update_tablet_columns(const TabletSchema& tablet_schema,
+                               const std::vector<TColumn>& t_columns);
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
