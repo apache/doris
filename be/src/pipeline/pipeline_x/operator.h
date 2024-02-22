@@ -27,16 +27,13 @@ class AsyncResultWriter;
 }
 namespace doris::pipeline {
 
-struct LocalExchangeSinkDependency;
-
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const std::vector<TScanRangeParams> scan_ranges;
     std::vector<DependencySPtr>& upstream_dependencies;
     BasicSharedState* shared_state;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                            std::shared_ptr<LocalExchangeSinkDependency>>>
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             le_state_map;
     const int task_idx;
 
@@ -49,8 +46,7 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     std::vector<DependencySPtr>& dependencies;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                            std::shared_ptr<LocalExchangeSinkDependency>>>
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             le_state_map;
     const TDataSink& tsink;
 };
@@ -347,10 +343,10 @@ public:
             std::map<int, std::shared_ptr<BasicSharedState>>& shared_states) override;
 };
 
-template <typename DependencyArg = FakeDependency>
+template <typename SharedStateArg = FakeSharedState>
 class PipelineXLocalState : public PipelineXLocalStateBase {
 public:
-    using DependencyType = DependencyArg;
+    using SharedStateType = SharedStateArg;
     PipelineXLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalStateBase(state, parent) {}
     ~PipelineXLocalState() override = default;
@@ -367,13 +363,9 @@ public:
 
     Dependency* dependency() override { return _dependency; }
 
-    auto dependency_sptr() {
-        return std::dynamic_pointer_cast<DependencyArg>(_dependency->shared_from_this());
-    }
-
 protected:
-    DependencyType* _dependency = nullptr;
-    typename DependencyType::SharedState* _shared_state = nullptr;
+    Dependency* _dependency = nullptr;
+    SharedStateArg* _shared_state = nullptr;
 };
 
 class DataSinkOperatorXBase;
@@ -612,10 +604,10 @@ public:
     }
 };
 
-template <typename DependencyArg = FakeDependency>
+template <typename SharedStateArg = FakeSharedState>
 class PipelineXSinkLocalState : public PipelineXSinkLocalStateBase {
 public:
-    using DependencyType = DependencyArg;
+    using SharedStateType = SharedStateArg;
     PipelineXSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalStateBase(parent, state) {}
     ~PipelineXSinkLocalState() override = default;
@@ -632,13 +624,9 @@ public:
 
     Dependency* dependency() override { return _dependency; }
 
-    auto dependency_sptr() {
-        return std::dynamic_pointer_cast<DependencyArg>(_dependency->shared_from_this());
-    }
-
 protected:
-    DependencyType* _dependency = nullptr;
-    typename DependencyType::SharedState* _shared_state = nullptr;
+    Dependency* _dependency = nullptr;
+    SharedStateType* _shared_state = nullptr;
 };
 
 /**
@@ -687,9 +675,9 @@ public:
 
 template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
-class AsyncWriterSink : public PipelineXSinkLocalState<FakeDependency> {
+class AsyncWriterSink : public PipelineXSinkLocalState<FakeSharedState> {
 public:
-    using Base = PipelineXSinkLocalState<FakeDependency>;
+    using Base = PipelineXSinkLocalState<FakeSharedState>;
     AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _async_writer_dependency(nullptr) {
         _finish_dependency = std::make_shared<FinishDependency>(

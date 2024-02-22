@@ -111,13 +111,11 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 
 template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<ScanDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXLocalState<EmptySharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state, p.ignore_data_distribution()));
-
-    _scan_dependency = dependency_sptr();
 
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
     for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
@@ -254,7 +252,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
                 [&](auto&& range) {
                     if (range.is_empty_value_range()) {
                         _eos = true;
-                        _scan_dependency->set_ready();
+                        _dependency->set_ready();
                     }
                 },
                 it.second.second);
@@ -546,7 +544,7 @@ template <typename Derived>
 std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}, _eos = {}",
-                   PipelineXLocalState<ScanDependency>::debug_string(indentation_level),
+                   PipelineXLocalState<EmptySharedState>::debug_string(indentation_level),
                    _eos.load());
     if (_scanner_ctx) {
         fmt::format_to(debug_string_buffer, "");
@@ -590,7 +588,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
             if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                 *pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
                 _eos = true;
-                _scan_dependency->set_ready();
+                _dependency->set_ready();
             }
         } else if (const vectorized::ColumnVector<vectorized::UInt8>* bool_column =
                            check_and_get_column<vectorized::ColumnVector<vectorized::UInt8>>(
@@ -608,7 +606,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                 if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                     *pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
                     _eos = true;
-                    _scan_dependency->set_ready();
+                    _dependency->set_ready();
                 }
             } else {
                 LOG(WARNING) << "Constant predicate in scan node should return a bool column with "
@@ -806,7 +804,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         auto fn_name = std::string("");
         if (!is_fixed_range && state->null_in_set) {
             _eos = true;
-            _scan_dependency->set_ready();
+            _dependency->set_ready();
         }
         while (iter->has_next()) {
             // column not in (nullptr) is always true
@@ -1204,7 +1202,7 @@ Status ScanLocalState<Derived>::_prepare_scanners() {
     }
     if (scanners.empty()) {
         _eos = true;
-        _scan_dependency->set_ready();
+        _dependency->set_ready();
     } else {
         for (auto& scanner : scanners) {
             scanner->set_query_statistics(_query_statistics.get());
@@ -1221,7 +1219,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = PipXScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            state()->scan_queue_mem_limit(), _scan_dependency);
+            state()->scan_queue_mem_limit(), _dependency->shared_from_this());
     if constexpr (std::is_same_v<OlapScanLocalState, Derived>) {
         /**
          * If `use_topn_opt` is true,
@@ -1420,7 +1418,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    COUNTER_UPDATE(exec_time_counter(), _scan_dependency->watcher_elapse_time());
+    COUNTER_UPDATE(exec_time_counter(), _dependency->watcher_elapse_time());
     COUNTER_UPDATE(exec_time_counter(), _filter_dependency->watcher_elapse_time());
     SCOPED_TIMER(_close_timer);
 
@@ -1428,10 +1426,10 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     if (_scanner_ctx) {
         _scanner_ctx->stop_scanners(state);
     }
-    COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
+    COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, _filter_dependency->watcher_elapse_time());
 
-    return PipelineXLocalState<ScanDependency>::close(state);
+    return PipelineXLocalState<EmptySharedState>::close(state);
 }
 
 template <typename LocalStateType>

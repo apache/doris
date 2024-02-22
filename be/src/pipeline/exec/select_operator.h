@@ -41,12 +41,12 @@ public:
 };
 
 class SelectOperatorX;
-class SelectLocalState final : public PipelineXLocalState<FakeDependency> {
+class SelectLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(SelectLocalState);
 
     SelectLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeDependency>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~SelectLocalState() = default;
 
 private:

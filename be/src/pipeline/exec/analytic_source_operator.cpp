@@ -27,7 +27,7 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, SourceOperator)
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState<AnalyticSourceDependency>(state, parent),
+        : PipelineXLocalState<AnalyticSharedState>(state, parent),
           _output_block_index(0),
           _window_end_position(0),
           _next_partition(false),
@@ -159,7 +159,7 @@ bool AnalyticLocalState::_whether_need_next_partition(
 }
 
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSourceDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
@@ -564,7 +564,7 @@ Status AnalyticLocalState::close(RuntimeState* state) {
 
     std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
     _result_window_columns.swap(tmp_result_window_columns);
-    return PipelineXLocalState<AnalyticSourceDependency>::close(state);
+    return PipelineXLocalState<AnalyticSharedState>::close(state);
 }
 
 Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {

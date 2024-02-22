@@ -33,7 +33,7 @@ namespace doris::pipeline {
 
 DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* state,
                                                                OperatorXBase* parent)
-        : PipelineXLocalState<FakeDependency>(state, parent),
+        : PipelineXLocalState<FakeSharedState>(state, parent),
           dummy_mapped_data(std::make_shared<char>('A')),
           _agg_arena_pool(std::make_unique<vectorized::Arena>()),
           _agg_data(std::make_unique<vectorized::AggregatedDataVariants>()),
