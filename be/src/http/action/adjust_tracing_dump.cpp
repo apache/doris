@@ -15,35 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "adjust_tracing_dump.h"
 
-#include <cstddef>
+#include "common/logging.h"
+#include "http/http_channel.h"
+#include "http/http_request.h"
+#include "http/http_status.h"
+#include "runtime/exec_env.h"
 
-#include "common/status.h"
-#include "io/fs/file_system.h"
-#include "io/fs/file_writer.h"
-#include "io/fs/path.h"
-#include "util/slice.h"
-
-namespace doris::io {
-
-class LocalFileWriter final : public FileWriter {
-public:
-    LocalFileWriter(Path path, int fd, FileSystemSPtr fs, bool sync_data = true);
-    LocalFileWriter(Path path, int fd);
-    ~LocalFileWriter() override;
-
-    Status close() override;
-    Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
-
-private:
-    void _abort();
-    Status _close(bool sync);
-
-    int _fd; // owned
-    bool _dirty = false;
-    const bool _sync_data = false;
-};
-
-} // namespace doris::io
+namespace doris {
+void AdjustTracingDump::handle(HttpRequest* req) {
+    auto* ctx = ExecEnv::GetInstance()->pipeline_tracer_context();
+    auto* params = req->params();
+    if (auto status = ctx->change_record_params(*params); status.ok()) {
+        HttpChannel::send_reply(req, "change record type succeed!\n"); // ok
+    } else {                                                           // not ok
+        LOG(WARNING) << "adjust pipeline tracing dump method failed:" << status.msg() << '\n';
+        HttpChannel::send_reply(req, HttpStatus::NOT_FOUND, status.msg().data());
+    }
+}
+} // namespace doris
