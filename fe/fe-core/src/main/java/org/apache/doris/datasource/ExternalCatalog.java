@@ -594,36 +594,60 @@ public abstract class ExternalCatalog
     public void createDb(CreateDbStmt stmt) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
+            LOG.warn("dropDatabase not implemented");
             throw new NotImplementedException("dropDatabase not implemented");
         }
-        metadataOps.createDb(stmt);
+        try {
+            metadataOps.createDb(stmt);
+        } catch (Exception e) {
+            LOG.warn("Failed to create a database.", e);
+            throw e;
+        }
     }
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
+            LOG.warn("dropDatabase not implemented");
             throw new NotImplementedException("dropDatabase not implemented");
         }
-        metadataOps.dropDb(stmt);
+        try {
+            metadataOps.dropDb(stmt);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop a database.", e);
+            throw e;
+        }
     }
 
     @Override
     public void createTable(CreateTableStmt stmt) throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
+            LOG.warn("createTable not implemented");
             throw new NotImplementedException("createTable not implemented");
         }
-        metadataOps.createTable(stmt);
+        try {
+            metadataOps.createTable(stmt);
+        } catch (Exception e) {
+            LOG.warn("Failed to create a table.", e);
+            throw e;
+        }
     }
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
+            LOG.warn("dropTable not implemented");
             throw new NotImplementedException("dropTable not implemented");
         }
-        metadataOps.dropTable(stmt);
+        try {
+            metadataOps.dropTable(stmt);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop a table", e);
+            throw e;
+        }
     }
 
     public void unregisterDatabase(String dbName) {

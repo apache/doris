@@ -622,7 +622,7 @@ public class CreateTableInfo {
 
     private void checkEngineName() {
         if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
-                || engineName.equals("elasticsearch") || engineName.equals("hive")
+                || engineName.equals("elasticsearch") || engineName.equals("hive") || engineName.equals("iceberg")
                 || engineName.equals("jdbc")) {
             if (!isExternal) {
                 // this is for compatibility
