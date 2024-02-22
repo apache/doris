@@ -46,6 +46,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "               (678901234, 'Frank', 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
              "               (789012345, 'Grace', 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
 
+     //Test the unique model by adding a value column with VARCHAR
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column province VARCHAR(20)  DEFAULT "广东省" AFTER username """
@@ -57,7 +58,7 @@ suite("test_unique_model_schema_value_change","p0") {
      }, insertSql, true,"${tbName}")
 
 
-     //Test the unique model by adding a key column with BOOLEAN
+     //Test the unique model by adding a value column with BOOLEAN
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column special_area BOOLEAN  DEFAULT "0" AFTER username """
@@ -69,7 +70,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with TINYINT
+     //Test the unique model by adding a value column with TINYINT
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column special_area TINYINT  DEFAULT "0" AFTER username """
@@ -81,7 +82,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with SMALLINT
+     //Test the unique model by adding a value column with SMALLINT
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column area_num SMALLINT  DEFAULT "999" AFTER username """
@@ -92,7 +93,7 @@ suite("test_unique_model_schema_value_change","p0") {
      }, insertSql, true,"${tbName}")
 
 
-     //Test the unique model by adding a key column with INT
+     //Test the unique model by adding a value column with INT
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column house_price INT  DEFAULT "999" AFTER username """
@@ -103,7 +104,7 @@ suite("test_unique_model_schema_value_change","p0") {
      }, insertSql, true,"${tbName}")
 
 
-     //Test the unique model by adding a key column with BIGINT
+     //Test the unique model by adding a value column with BIGINT
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column house_price1 BIGINT  DEFAULT "99999991" AFTER username """
@@ -115,7 +116,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with LARGEINT
+     //Test the unique model by adding a value column with LARGEINT
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column car_price LARGEINT  DEFAULT "9999" AFTER username """
@@ -128,7 +129,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with FLOAT
+     //Test the unique model by adding a value column with FLOAT
      //java.sql.SQLException: errCode = 2, detailMessage = Default value will loose precision: 166.68f
 /*     sql initTable
      sql initTableData
@@ -142,7 +143,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with DOUBLE
+     //Test the unique model by adding a value column with DOUBLE
      //java.sql.SQLException: errCode = 2, detailMessage = Default value will loose precision: 166.689
 /*     sql initTable
      sql initTableData
@@ -156,7 +157,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with DECIMAL
+     //Test the unique model by adding a value column with DECIMAL
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column watch DECIMAL(38,10)  DEFAULT "16899.6464689" AFTER username """
@@ -168,7 +169,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with DATE
+     //Test the unique model by adding a value column with DATE
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column watch DATE  DEFAULT "1997-01-01" AFTER username """
@@ -181,7 +182,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with DATETIME
+     //Test the unique model by adding a value column with DATETIME
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column anniversary DATETIME  DEFAULT "1997-01-01 00:00:00" AFTER username """
@@ -195,7 +196,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with CHAR
+     //Test the unique model by adding a value column with CHAR
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column teacher CHAR  DEFAULT "0" AFTER username """
@@ -207,7 +208,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with STRING
+     //Test the unique model by adding a value column with STRING
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column comment STRING  DEFAULT "我是小说家" AFTER username """
@@ -217,7 +218,7 @@ suite("test_unique_model_schema_value_change","p0") {
           time 60
      }, insertSql, true,"${tbName}")
 
-     //Test the unique model by adding a key column with HLL
+     //Test the unique model by adding a value column with HLL
      //java.sql.SQLException: errCode = 2, detailMessage = Can not assign aggregation method on column in Unique data model table: comment
 /*     sql initTable
      sql initTableData
@@ -228,7 +229,7 @@ suite("test_unique_model_schema_value_change","p0") {
           time 60
      }, insertSql, true,"${tbName}")*/
 
-     //Test the unique model by adding a key column with bitmap
+     //Test the unique model by adding a value column with bitmap
      //java.sql.SQLException: errCode = 2, detailMessage = Can not assign aggregation method on column in Unique data model table: device_id
 /*
      sql initTable
@@ -243,7 +244,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with Map
+     //Test the unique model by adding a value column with Map
      //java.sql.SQLException: errCode = 2, detailMessage = Map can only be used in the non-key column of the duplicate table at present.
      sql initTable
      sql initTableData
@@ -256,7 +257,7 @@ suite("test_unique_model_schema_value_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with JSON
+     //Test the unique model by adding a value column with JSON
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column   j    JSON   AFTER username """
