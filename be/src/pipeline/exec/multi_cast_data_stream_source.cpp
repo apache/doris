@@ -38,7 +38,7 @@ OperatorPtr MultiCastDataStreamerSourceOperatorBuilder::build_operator() {
             this, _consumer_id, _multi_cast_data_streamer, _t_data_stream_sink);
 }
 
-const RowDescriptor& MultiCastDataStreamerSourceOperatorBuilder::row_desc() {
+const RowDescriptor& MultiCastDataStreamerSourceOperatorBuilder::row_desc() const {
     return _multi_cast_data_streamer->row_desc();
 }
 
@@ -140,8 +140,7 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
-    _shared_state->multi_cast_data_streamer.set_dep_by_sender_idx(
-            p._consumer_id, static_cast<MultiCastSourceDependency*>(_dependency));
+    _shared_state->multi_cast_data_streamer.set_dep_by_sender_idx(p._consumer_id, _dependency);
     _output_expr_contexts.resize(p._output_expr_contexts.size());
     for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
         RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));

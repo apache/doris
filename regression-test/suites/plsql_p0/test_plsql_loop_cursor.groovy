@@ -59,4 +59,8 @@ suite("test_plsql_loop_cursor") {
     // TODO support print
     sql """call procedure_cursor_select(111, "plsql111")"""
     sql """call procedure_cursor_select(111, "plsql333")"""
+    // TODO call show command before drop
+    sql """DROP PROCEDURE procedure_cursor_select"""
+    sql """DROP PROC procedure_insert"""
+    // TODO call show command after drop
 }

@@ -448,12 +448,16 @@ archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
-    archive_content="regression-test/log fe/conf fe/log be/conf be/log"
+    archive_content="fe/conf fe/log be/conf be/log"
+    if [[ -d "${DORIS_HOME}"/regression-test/log ]]; then
+        archive_content="${archive_content} regression-test/log"
+    fi
     if [[ -f "${DORIS_HOME:-}"/session_variables ]]; then
         archive_content="${archive_content} session_variables"
     fi
     if [[ -d "${DORIS_HOME}"/ms ]]; then
-        cp -rf /var/log/foundationdb "${DORIS_HOME}"/foundationdb/log
+        mkdir -p "${DORIS_HOME}"/foundationdb/log
+        cp -rf /var/log/foundationdb/* "${DORIS_HOME}"/foundationdb/log/
         archive_content="${archive_content} ms/conf ms/log foundationdb/log"
     fi
     if [[ -d "${DORIS_HOME}"/recycler ]]; then
@@ -562,11 +566,11 @@ function create_warehouse() {
         \"user_id\":\"user-id\",
         \"obj_info\": {
             \"provider\": \"COS\",
-            \"region\": \"ap-beijing\",
-            \"bucket\": \"doris-build-1308700295\",
-            \"prefix\": \"ci\",
-            \"endpoint\": \"cos.ap-beijing.myqcloud.com\",
-            \"external_endpoint\": \"cos.ap-beijing.myqcloud.com\",
+            \"region\": \"ap-hongkong\",
+            \"bucket\": \"doris-community-test-1308700295\",
+            \"prefix\": \"cloud_regression\",
+            \"endpoint\": \"cos.ap-hongkong.myqcloud.com\",
+            \"external_endpoint\": \"cos.ap-hongkong.myqcloud.com\",
             \"ak\": \"${COS_ak}\",
             \"sk\": \"${COS_sk}\"
         }

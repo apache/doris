@@ -137,11 +137,12 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
 
 template <bool is_intersect>
 Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SetProbeSinkDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     Parent& parent = _parent->cast<Parent>();
-    _dependency->set_cur_child_id(parent._cur_child_id);
+    _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
+    _dependency->block();
     _child_exprs.resize(parent._child_exprs.size());
     for (size_t i = 0; i < _child_exprs.size(); i++) {
         RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));

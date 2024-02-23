@@ -93,25 +93,6 @@ void ColumnNullable::update_hash_with_value(size_t n, SipHash& hash) const {
     }
 }
 
-void ColumnNullable::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                              const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    auto s = hashes.size();
-    DCHECK(s == size());
-    const auto* __restrict real_null_data =
-            assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
-    if (!has_null()) {
-        nested_column->update_hashes_with_value(hashes, nullptr);
-    } else {
-        for (int i = 0; i < s; ++i) {
-            if (real_null_data[i] != 0) {
-                hashes[i].update(0);
-            }
-        }
-        nested_column->update_hashes_with_value(hashes, real_null_data);
-    }
-}
-
 void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
                                             uint32_t rows, uint32_t offset,
                                             const uint8_t* __restrict null_data) const {

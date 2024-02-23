@@ -34,22 +34,16 @@ suite("test_analyze_mv") {
         }
     }
 
-    def wait_row_count_reported = { ->
-        while(true) {
+    def wait_row_count_reported = { table, expected ->
+        for (int i = 0; i < 120; i++) {
             Thread.sleep(5000)
-            boolean reported = true;
-            def result = sql """SHOW DATA;"""
+            def result = sql """SHOW DATA FROM ${table};"""
             logger.info("result " + result)
-            for (int i = 0; i < result.size(); i++) {
-                if (result[i][1] == "0.000 ") {
-                    reported = false;
-                    break;
-                }
-            }
-            if (reported) {
-                break;
+            if (result[3][4] == expected) {
+                return;
             }
         }
+        throw new Exception("Row count report timeout.")
     }
 
     def wait_analyze_finish = { table ->
@@ -72,6 +66,25 @@ suite("test_analyze_mv") {
                 break;
             }
         }
+    }
+
+    def verify_column_stats = { all_column_result, one_column_result ->
+        logger.info("all column result: " + all_column_result)
+        logger.info("one column result: " + one_column_result)
+        boolean found = false;
+        for (int i = 0; i < all_column_result.size(); i++) {
+            if (all_column_result[i][0] == one_column_result[0] && all_column_result[i][1] == one_column_result[1]) {
+                assertEquals(all_column_result[i][2], one_column_result[2])
+                assertEquals(all_column_result[i][3], one_column_result[3])
+                assertEquals(all_column_result[i][4], one_column_result[4])
+                assertEquals(all_column_result[i][5], one_column_result[5])
+                assertEquals(all_column_result[i][6], one_column_result[6])
+                assertEquals(all_column_result[i][7], one_column_result[7])
+                assertEquals(all_column_result[i][8], one_column_result[8])
+                found = true;
+            }
+        }
+        assertTrue(found)
     }
 
     sql """drop database if exists test_analyze_mv"""
@@ -102,10 +115,13 @@ suite("test_analyze_mv") {
 
     sql """analyze table mvTestDup with sync;"""
 
-    def result_sample = sql """show column stats mvTestDup"""
-    assertEquals(12, result_sample.size())
+    // Compare show whole table column stats result with show single column.
+    def result_all = sql """show column stats mvTestDup"""
+    assertEquals(12, result_all.size())
+    def result_all_cached = sql """show column cached stats mvTestDup"""
+    assertEquals(12, result_all_cached.size())
 
-    result_sample = sql """show column stats mvTestDup(key1)"""
+    def result_sample = sql """show column stats mvTestDup(key1)"""
     assertEquals(1, result_sample.size())
     assertEquals("key1", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -114,6 +130,8 @@ suite("test_analyze_mv") {
     assertEquals("1", result_sample[0][7])
     assertEquals("1001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
 
     result_sample = sql """show column stats mvTestDup(value1)"""
     assertEquals(1, result_sample.size())
@@ -124,6 +142,8 @@ suite("test_analyze_mv") {
     assertEquals("3", result_sample[0][7])
     assertEquals("3001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
 
     result_sample = sql """show column stats mvTestDup(mv_key1)"""
     assertEquals(2, result_sample.size())
@@ -138,6 +158,10 @@ suite("test_analyze_mv") {
     assertEquals("1", result_sample[0][7])
     assertEquals("1001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
+    verify_column_stats(result_all, result_sample[1])
+    verify_column_stats(result_all_cached, result_sample[1])
 
     result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
     assertEquals(1, result_sample.size())
@@ -148,6 +172,8 @@ suite("test_analyze_mv") {
     assertEquals("6", result_sample[0][7])
     assertEquals("3001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
 
     result_sample = sql """show column stats mvTestDup(`mva_MAX__``value2```)"""
     assertEquals(1, result_sample.size())
@@ -158,6 +184,8 @@ suite("test_analyze_mv") {
     assertEquals("4", result_sample[0][7])
     assertEquals("4001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
 
     result_sample = sql """show column stats mvTestDup(`mva_MIN__``value3```)"""
     assertEquals(1, result_sample.size())
@@ -168,6 +196,8 @@ suite("test_analyze_mv") {
     assertEquals("5", result_sample[0][7])
     assertEquals("5001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
 
 
     sql """CREATE TABLE mvTestAgg (
@@ -305,12 +335,12 @@ suite("test_analyze_mv") {
     assertEquals("4001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
 
-    wait_row_count_reported()
     sql """drop stats mvTestDup"""
     result_sample = sql """show column stats mvTestDup"""
     assertEquals(0, result_sample.size())
 
     // Test sample
+    wait_row_count_reported("mvTestDup", "6")
     sql """analyze table mvTestDup with sample rows 4000000"""
     wait_analyze_finish("mvTestDup")
     result_sample = sql """SHOW ANALYZE mvTestDup;"""
@@ -409,6 +439,48 @@ suite("test_analyze_mv") {
     verifyTaskStatus(result_sample, "mva_MAX__`value2`", "mv3")
     verifyTaskStatus(result_sample, "mva_MIN__`value3`", "mv3")
     verifyTaskStatus(result_sample, "mva_SUM__CAST(`value1` AS BIGINT)", "mv3")
+
+    // Test alter column stats
+    sql """drop stats mvTestDup"""
+    sql """alter table mvTestDup modify column key1 set stats ('ndv'='1', 'num_nulls'='1', 'min_value'='10', 'max_value'='40', 'row_count'='50');"""
+    sql """alter table mvTestDup index mv3 modify column mv_key1 set stats ('ndv'='5', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='5');"""
+    sql """alter table mvTestDup index mv3 modify column `mva_SUM__CAST(``value1`` AS BIGINT)` set stats ('ndv'='10', 'num_nulls'='2', 'min_value'='1', 'max_value'='5', 'row_count'='11');"""
+
+    def result = sql """show column cached stats mvTestDup(key1)"""
+    assertEquals(1, result.size())
+    assertEquals("key1", result[0][0])
+    assertEquals("N/A", result[0][1])
+    assertEquals("50.0", result[0][2])
+    assertEquals("1.0", result[0][3])
+    assertEquals("1.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("10", result[0][7])
+    assertEquals("40", result[0][8])
+
+    result = sql """show column cached stats mvTestDup(mv_key1)"""
+    assertEquals(1, result.size())
+    assertEquals("mv_key1", result[0][0])
+    assertEquals("mv3", result[0][1])
+    assertEquals("5.0", result[0][2])
+    assertEquals("5.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("0", result[0][7])
+    assertEquals("4", result[0][8])
+
+    result = sql """show column cached stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
+    assertEquals(1, result.size())
+    assertEquals("mva_SUM__CAST(`value1` AS BIGINT)", result[0][0])
+    assertEquals("mv3", result[0][1])
+    assertEquals("11.0", result[0][2])
+    assertEquals("10.0", result[0][3])
+    assertEquals("2.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("1", result[0][7])
+    assertEquals("5", result[0][8])
 
     sql """drop database if exists test_analyze_mv"""
 }

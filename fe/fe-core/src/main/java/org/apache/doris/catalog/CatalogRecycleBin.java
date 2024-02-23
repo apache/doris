@@ -799,10 +799,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         PartitionInfo partitionInfo = table.getPartitionInfo();
-        Range<PartitionKey> recoverRange = recoverPartitionInfo.getRange();
         PartitionItem recoverItem = null;
         if (partitionInfo.getType() == PartitionType.RANGE) {
-            recoverItem = new RangePartitionItem(recoverRange);
+            recoverItem = new RangePartitionItem(recoverPartitionInfo.getRange());
         } else if (partitionInfo.getType() == PartitionType.LIST) {
             recoverItem = recoverPartitionInfo.getListPartitionItem();
         }
@@ -811,18 +810,27 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             throw new DdlException("Can not recover partition[" + partitionName + "]. Partition item conflict.");
         }
 
-        // recover partition
+        // check if schema change
         Partition recoverPartition = recoverPartitionInfo.getPartition();
+        Set<Long> tableIndex = table.getIndexIdToMeta().keySet();
+        Set<Long> partitionIndex = recoverPartition.getMaterializedIndices(IndexExtState.ALL).stream()
+                .map(i -> i.getId()).collect(Collectors.toSet());
+        if (!tableIndex.equals(partitionIndex)) {
+            throw new DdlException("table's index not equal with partition's index. table's index=" + tableIndex
+                    + ", partition's index=" + partitionIndex);
+        }
+
+        // check if partition name exists
         Preconditions.checkState(recoverPartition.getName().equalsIgnoreCase(partitionName));
         if (!Strings.isNullOrEmpty(newPartitionName)) {
             if (table.checkPartitionNameExist(newPartitionName)) {
                 throw new DdlException("Partition name[" + newPartitionName + "] is already used");
             }
+            recoverPartition.setName(newPartitionName);
         }
+
+        // recover partition
         table.addPartition(recoverPartition);
-        if (!Strings.isNullOrEmpty(newPartitionName)) {
-            table.renamePartition(partitionName, newPartitionName);
-        }
 
         // recover partition info
         long partitionId = recoverPartition.getId();

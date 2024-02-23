@@ -51,7 +51,7 @@ public:
     void get_related_taskgroups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
                                 std::vector<TaskGroupPtr>* task_groups);
 
-    Status upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv* exec_env);
+    void upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv* exec_env);
 
     void delete_task_group_by_ids(std::set<uint64_t> id_set);
 

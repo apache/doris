@@ -247,6 +247,7 @@ DECLARE_mInt32(download_low_speed_time);
 // log dir
 DECLARE_String(sys_log_dir);
 DECLARE_String(user_function_dir);
+DECLARE_String(pipeline_tracing_log_dir);
 // INFO, WARNING, ERROR, FATAL
 DECLARE_String(sys_log_level);
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -312,8 +313,9 @@ DECLARE_mInt64(column_dictionary_key_size_threshold);
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
 DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
-// the prune stale interval of all cache
-DECLARE_mInt32(cache_prune_stale_interval);
+// all cache prune interval, used by GC and periodic thread.
+DECLARE_mInt32(cache_prune_interval_sec);
+DECLARE_mInt32(cache_periodic_prune_stale_sweep_sec);
 // the clean interval of tablet lookup cache
 DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
 DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);

@@ -21,17 +21,6 @@
 
 namespace doris::pipeline {
 
-void LocalExchangeSourceDependency::block() {
-    if (((LocalExchangeSharedState*)_shared_state)->exchanger->_running_sink_operators == 0) {
-        return;
-    }
-    std::unique_lock<std::mutex> lc(((LocalExchangeSharedState*)_shared_state)->le_lock);
-    if (((LocalExchangeSharedState*)_shared_state)->exchanger->_running_sink_operators == 0) {
-        return;
-    }
-    Dependency::block();
-}
-
 Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());

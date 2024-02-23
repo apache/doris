@@ -276,7 +276,6 @@ terminal String
     KW_BINLOG,
     KW_BITMAP,
     KW_BITMAP_UNION,
-    KW_NGRAM_BF,
     KW_BLOB,
     KW_BOOLEAN,
     KW_BRIEF,
@@ -495,6 +494,7 @@ terminal String
     KW_NEGATIVE,
     KW_NEVER,
     KW_NEXT,
+    KW_NGRAM_BF,
     KW_NO,
     KW_NOT,
     KW_NULL,
@@ -1403,7 +1403,12 @@ alter_stmt ::=
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
       KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
     {:
-        RESULT = new AlterColumnStatsStmt(tbl, columnName, map, partitionNames);
+        RESULT = new AlterColumnStatsStmt(tbl, null, columnName, map, partitionNames);
+    :}
+    | KW_ALTER KW_TABLE table_name:tbl KW_INDEX ident:idx KW_MODIFY KW_COLUMN ident:columnName
+      KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
+    {:
+        RESULT = new AlterColumnStatsStmt(tbl, idx, columnName, map, partitionNames);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
@@ -8080,6 +8085,8 @@ keyword ::=
     | KW_CRON:id
     {: RESULT = id; :}
     | KW_UNSET:id
+    {: RESULT = id; :}
+    | KW_BELONG:id
     {: RESULT = id; :}
     ;
 

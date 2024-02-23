@@ -197,6 +197,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.query.QueryStatsUtil;
@@ -1035,7 +1036,7 @@ public class ShowExecutor {
             }
 
             if (table instanceof View) {
-                rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8", "utf8_general_ci"));
+                rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8mb4", "utf8mb4_0900_bin"));
                 resultSet = new ShowResultSet(ShowCreateTableStmt.getViewMetaData(), rows);
             } else {
                 if (showStmt.isView()) {
@@ -1661,10 +1662,10 @@ public class ShowExecutor {
         ShowCollationStmt showStmt = (ShowCollationStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
-        // | utf8_general_ci | utf8 | 33 | Yes | Yes | 1 |
-        row.add("utf8_general_ci");
-        row.add("utf8");
-        row.add("33");
+        // | utf8mb4_0900_bin | utf8mb4 | 309 | Yes | Yes | 1 |
+        row.add("utf8mb4_0900_bin");
+        row.add("utf8mb4");
+        row.add("309");
         row.add("Yes");
         row.add("Yes");
         row.add("1");
@@ -2553,7 +2554,35 @@ public class ShowExecutor {
         Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
         boolean showCache = showColumnStatsStmt.isCached();
+        boolean isAllColumns = showColumnStatsStmt.isAllColumns();
+        if (isAllColumns && !showCache && partitionNames == null) {
+            getStatsForAllColumns(columnStatistics, tableIf);
+        } else {
+            getStatsForSpecifiedColumns(columnStatistics, columnNames, tableIf, showCache, tableName, partitionNames);
+        }
+        resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
+    }
 
+    private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
+                                       TableIf tableIf) throws AnalysisException {
+        List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(tableIf.getId());
+        for (ResultRow row : resultRows) {
+            String indexName = "N/A";
+            long indexId = Long.parseLong(row.get(4));
+            if (indexId != -1) {
+                indexName = ((OlapTable) tableIf).getIndexNameById(indexId);
+                if (indexName == null) {
+                    continue;
+                }
+            }
+            columnStatistics.add(Pair.of(Pair.of(row.get(5), indexName), ColumnStatistic.fromResultRow(row)));
+        }
+    }
+
+    private void getStatsForSpecifiedColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
+                                             Set<String> columnNames, TableIf tableIf, boolean showCache,
+                                             TableName tableName, PartitionNames partitionNames)
+            throws AnalysisException {
         for (String colName : columnNames) {
             // Olap base index use -1 as index id.
             List<Long> indexIds = Lists.newArrayList();
@@ -2584,13 +2613,12 @@ public class ShowExecutor {
                 } else {
                     String finalIndexName = indexName;
                     columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                            colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
+                            colName, partitionNames.getPartitionNames())
                             .stream().map(s -> Pair.of(Pair.of(colName, finalIndexName), s))
                             .collect(Collectors.toList()));
                 }
             }
         }
-        resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
     }
 
     public void handleShowColumnHist() {

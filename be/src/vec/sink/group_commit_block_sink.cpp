@@ -35,6 +35,8 @@
 namespace doris {
 
 namespace vectorized {
+bvar::Adder<int64_t> g_group_commit_load_rows("doris_group_commit_load_rows");
+bvar::Adder<int64_t> g_group_commit_load_bytes("doris_group_commit_load_bytes");
 
 GroupCommitBlockSink::GroupCommitBlockSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                            const std::vector<TExpr>& texprs, Status* status)
@@ -48,6 +50,7 @@ GroupCommitBlockSink::~GroupCommitBlockSink() {
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();
         _load_block_queue->remove_load_id(_load_id);
+        _load_block_queue->group_commit_load_count.fetch_add(1);
     }
 }
 
@@ -144,12 +147,13 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
         return status;
     }
     SCOPED_TIMER(_profile->total_time_counter());
+
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
     state->update_num_rows_load_total(rows);
     state->update_num_bytes_load_total(bytes);
-    DorisMetrics::instance()->load_rows->increment(rows);
-    DorisMetrics::instance()->load_bytes->increment(bytes);
+    g_group_commit_load_rows << rows;
+    g_group_commit_load_bytes << bytes;
 
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;

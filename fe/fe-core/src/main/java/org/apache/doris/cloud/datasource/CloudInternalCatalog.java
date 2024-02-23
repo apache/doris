@@ -51,7 +51,6 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TSortType;
-import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
@@ -78,36 +77,34 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     // TODO(merge-cloud): merge code with InternalCatalog
     @Override
-    protected Partition createPartitionWithIndices(long dbId, long tableId, String tableName,
-            long baseIndexId, long partitionId, String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
-            DistributionInfo distributionInfo, TStorageMedium storageMedium, ReplicaAllocation replicaAlloc,
-            Long versionInfo, Set<String> bfColumns, double bfFpp, Set<Long> tabletIdSet, List<Index> indexes,
-            boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
-            DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite, String storagePolicy,
-            IdGeneratorBuffer idGeneratorBuffer, boolean disableAutoCompaction,
-            boolean enableSingleReplicaCompaction, boolean skipWriteIndexOnLoad,
-            String compactionPolicy, Long timeSeriesCompactionGoalSizeMbytes,
-            Long timeSeriesCompactionFileCountThreshold, Long timeSeriesCompactionTimeThresholdSeconds,
-            Long timeSeriesCompactionEmptyRowsetsThreshold,
-            boolean storeRowColumn, BinlogConfig binlogConfig,
-            boolean isStorageMediumSpecified, List<Integer> clusterKeyIndexes,
-            long ttlSeconds) throws DdlException {
+    protected Partition createPartitionWithIndices(long dbId, OlapTable tbl, long partitionId,
+                                                   String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
+                                                   DistributionInfo distributionInfo, TStorageMedium storageMedium,
+                                                   ReplicaAllocation replicaAlloc,
+                                                   Long versionInfo, Set<String> bfColumns, Set<Long> tabletIdSet,
+                                                   boolean isInMemory,
+                                                   TTabletType tabletType,
+                                                   String storagePolicy,
+                                                   IdGeneratorBuffer idGeneratorBuffer,
+                                                   BinlogConfig binlogConfig,
+                                                   boolean isStorageMediumSpecified, List<Integer> clusterKeyIndexes)
+            throws DdlException {
         // create base index first.
-        Preconditions.checkArgument(baseIndexId != -1);
-        MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
+        Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
+        MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
 
         LOG.info("begin create cloud partition");
         // create partition with base index
         Partition partition = new CloudPartition(partitionId, partitionName, baseIndex,
-                distributionInfo, dbId, tableId);
+                distributionInfo, dbId, tbl.getId());
 
         // add to index map
         Map<Long, MaterializedIndex> indexMap = Maps.newHashMap();
-        indexMap.put(baseIndexId, baseIndex);
+        indexMap.put(tbl.getBaseIndexId(), baseIndex);
 
         // create rollup index if has
         for (long indexId : indexIdToMeta.keySet()) {
-            if (indexId == baseIndexId) {
+            if (indexId == tbl.getBaseIndexId()) {
                 continue;
             }
 
@@ -129,7 +126,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
-            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium);
+            TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId, indexId, schemaHash, storageMedium);
             createCloudTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
                     tabletMeta, tabletIdSet);
 
@@ -140,26 +137,26 @@ public class CloudInternalCatalog extends InternalCatalog {
 
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
             for (Tablet tablet : index.getTablets()) {
-                OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tableId, indexId,
+                OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
-                        bfColumns, bfFpp, indexes, columns, dataSortInfo, compressionType,
-                        storagePolicy, isInMemory, false, tableName, ttlSeconds,
-                        enableUniqueKeyMergeOnWrite, storeRowColumn, indexMeta.getSchemaVersion());
+                        bfColumns, tbl.getBfFpp(), tbl.getIndexes(), columns, tbl.getDataSortInfo(),
+                        tbl.getCompressionType(), storagePolicy, isInMemory, false, tbl.getName(), tbl.getTTLSeconds(),
+                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion());
                 requestBuilder.addTabletMetas(builder);
             }
 
             LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
                     + "indexId: {}",
-                    dbId, tableId, tableName, partitionId, partitionName, indexId);
+                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId);
             sendCreateTabletsRpc(requestBuilder);
-            if (index.getId() != baseIndexId) {
+            if (index.getId() != tbl.getBaseIndexId()) {
                 // add rollup index to partition
                 partition.createRollupIndex(index);
             }
         }
 
         LOG.info("succeed in creating partition[{}-{}], table : [{}-{}]", partitionId, partitionName,
-                tableId, tableName);
+                tbl.getId(), tbl.getName());
 
         return partition;
     }

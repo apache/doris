@@ -37,6 +37,7 @@ statement
     : statementBase # statementBaseAlias
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
     | (ALTER | CREATE (OR REPLACE)? | REPLACE) (PROCEDURE | PROC) name=multipartIdentifier LEFT_PAREN .*? RIGHT_PAREN .*? #createProcedure
+    | DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier #dropProcedure
     ;
 
 statementBase
@@ -393,7 +394,7 @@ updateAssignmentSeq
 
 lateralView
     : LATERAL VIEW functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
-      tableName=identifier AS columnName=identifier
+      tableName=identifier AS columnNames+=identifier (COMMA columnNames+=identifier)*
     ;
 
 queryOrganization
@@ -918,6 +919,7 @@ nonReserved
     | BACKENDS
     | BACKUP
     | BEGIN
+    | BELONG
     | BIN
     | BITAND
     | BITMAP

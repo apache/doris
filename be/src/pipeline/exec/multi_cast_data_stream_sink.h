@@ -41,23 +41,15 @@ public:
     bool can_write() override { return _sink->can_write(); }
 };
 
-class MultiCastSinkDependency final : public Dependency {
-public:
-    using SharedState = MultiCastSharedState;
-    MultiCastSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "MultiCastSinkDependency", true, query_ctx) {}
-    ~MultiCastSinkDependency() override = default;
-};
-
 class MultiCastDataStreamSinkOperatorX;
 class MultiCastDataStreamSinkLocalState final
-        : public PipelineXSinkLocalState<MultiCastSinkDependency> {
+        : public PipelineXSinkLocalState<MultiCastSharedState> {
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSinkLocalState);
     MultiCastDataStreamSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
     friend class MultiCastDataStreamSinkOperatorX;
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
-    using Base = PipelineXSinkLocalState<MultiCastSinkDependency>;
+    using Base = PipelineXSinkLocalState<MultiCastSharedState>;
     using Parent = MultiCastDataStreamSinkOperatorX;
     std::string name_suffix() override;
 
@@ -99,7 +91,7 @@ public:
         return Status::OK();
     }
 
-    RowDescriptor& row_desc() override { return _row_desc; }
+    const RowDescriptor& row_desc() const override { return _row_desc; }
 
     std::shared_ptr<MultiCastSharedState> create_multi_cast_data_streamer() {
         auto multi_cast_data_streamer =
