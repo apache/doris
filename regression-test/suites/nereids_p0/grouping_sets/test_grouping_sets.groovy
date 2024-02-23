@@ -46,13 +46,13 @@ suite("test_grouping_sets") {
                """
 
     qt_select7 """
-              SELECT k1, k2, SUM(k3) FROM nereids_test_query_db.test
-              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
+              SELECT k1, k2, SUM(k3) k3_ FROM nereids_test_query_db.test
+              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2, k3_
             """
 
     qt_select8 """
-              SELECT k1, k2, SUM(k3)/(SUM(k3)+1) FROM nereids_test_query_db.test
-              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
+              SELECT k1, k2, SUM(k3)/(SUM(k3)+1) k3_ FROM nereids_test_query_db.test
+              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2, k3_
             """
 
     qt_select9 """ select k1,k2,sum(k3) from nereids_test_query_db.test where 1 = 2 group by grouping sets((k1), (k1,k2)) """
