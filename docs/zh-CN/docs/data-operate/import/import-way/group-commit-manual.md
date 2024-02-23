@@ -336,9 +336,9 @@ curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:sync_mo
 
 ## 自动提交条件
 
-当时间间隔(默认为 10 秒)和数据量(默认为 64 MB)满足其中一个条件时，会自动提交数据。
+当满足时间间隔(默认为 10 秒)或数据量(默认为 64 MB)其中一个条件时，会自动提交数据。
 
-### 修改group commit默认提交间隔
+### 修改提交间隔
 
 默认提交间隔为 10 秒，用户可以通过修改表的配置调整：
 
@@ -347,7 +347,7 @@ curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:sync_mo
 ALTER TABLE dt SET ("group_commit_interval_ms" = "2000");
 ```
 
-### 修改group commit默认提交数据量
+### 修改提交数据量
 
 group commit 的默认提交数据量为 64 MB，用户可以通过修改表的配置调整：
 

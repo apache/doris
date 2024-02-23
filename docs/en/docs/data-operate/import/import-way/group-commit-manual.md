@@ -339,7 +339,7 @@ See [Stream Load](stream-load-manual.md) for more detailed syntax used by **Http
 
 The data will be automatically committed either when the time interval (default is 10 seconds) or the data size (default is 64 MB) conditions meet.
 
-### Modify the group commit interval
+### Modify the time interval condition
 
 The default group commit interval is 10 seconds. Users can modify the configuration of the table:
 
@@ -348,7 +348,7 @@ The default group commit interval is 10 seconds. Users can modify the configurat
 ALTER TABLE dt SET ("group_commit_interval_ms" = "2000");
 ```
 
-### Modify the group commit data size
+### Modify the data size condition
 
 The default group commit data size is 64 MB. Users can modify the configuration of the table:
 
