@@ -361,7 +361,7 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
   + 两阶段提交
 
-  + 指定 label
+  + 指定 label，即通过 `-H "label:my_label"`设置
 
   + 列更新写入
 
@@ -411,3 +411,195 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
 * 描述:  当 group commit 导入的总行数不高于该值，`max_filter_ratio` 正常工作，否则不工作
 * 默认值: 10000
+
+## 性能
+
+我们分别测试了使用`Stream Load`和`JDBC`在高并发小数据量场景下`group commit`(使用`async mode`)的写入性能。
+
+### Stream Load日志场景测试
+
+#### 机器配置
+
+* 1台 FE：8核 CPU、16GB 内存、1块 200GB 通用性 SSD 云磁盘
+* 3台 BE：16核 CPU、64GB 内存、1块 2TB 通用性 SSD 云磁盘
+* 1台测试客户端：16核 CPU、64GB 内存、1块 100GB 通用型 SSD 云磁盘
+
+#### 数据集
+
+* `httplogs`数据集，总共 31GB、2.47亿条
+
+#### 测试工具
+
+* [doris-streamloader](https://github.com/apache/doris-streamloader)
+
+#### 测试方法
+
+* 对比`非group_commit`和`group_commit`的`async_mode`模式下，设置不同的单并发数据量和并发数，导入`247249096`行数据
+
+#### 测试结果
+
+| 导入方式    | 单并发数据量  | 并发数  | 耗时(秒)     | 导入速率(行/秒) | 导入吞吐(MB/秒) |
+|----------------|---------|------|-----------|----------|-----------|
+| `group_commit` | 10 KB   | 10   | 3707      | 66,697   | 8.56 |
+| `group_commit` | 10 KB   | 30   | 3385      | 73,042   | 9.38 |
+| `group_commit` | 100 KB  | 10   | 473       | 522,725  | 67.11 |
+| `group_commit` | 100 KB  | 30   | 390       | 633,972  | 81.39 |
+| `group_commit` | 500 KB  | 10   | 323       | 765,477  | 98.28 |
+| `group_commit` | 500 KB  | 30   | 309       | 800,158  | 102.56 |
+| `group_commit` | 1 MB    | 10   | 304       | 813,319  | 104.24 |
+| `group_commit` | 1 MB    | 30   | 286       | 864,507  | 110.88 |
+| `group_commit` | 10 MB   | 10   | 290       | 852,583  | 109.28 |
+| `非group_commit` | 1 MB    | 10   | 导入报错-235  |  | |
+| `非group_commit` | 10 MB   | 10   | 519       | 476,395  | 61.12 |
+| `非group_commit` | 10 MB   | 30   | 导入报错-235  |  | |
+
+在上面的`group_commit`测试中，BE的CPU使用率在10-40%之间。
+
+可以看出，`group_commit`模式在小数据量并发导入的场景下，能有效的提升导入性能，同时减少版本数，降低系统合并数据的压力。
+
+### JDBC
+
+#### 机器配置
+
+* 1台 FE：8核 CPU、16 GB 内存、1块 200 GB 通用性 SSD 云磁盘
+* 1台 BE：16核 CPU、64 GB 内存、1块 2 TB 通用性 SSD 云磁盘
+* 1台测试客户端：16核 CPU、64GB内存、1块 100 GB 通用型 SSD 云磁盘
+
+#### 数据集
+
+* tpch sf10 `lineitem`表数据集，30个文件，总共约 22 GB，1.8亿行
+
+#### 测试工具
+
+* [DataX](https://github.com/alibaba/DataX)
+
+#### 测试方法
+
+* 通过`txtfilereader`向`mysqlwriter`写入数据，配置不同并发数和单个`INSERT`的行数
+
+  <details>
+  <summary>[配置文件]</summary>
+  <pre><code>{
+    "job": {
+      "setting": {
+        "speed": {
+          "channel": 20
+        }
+      },
+      "content": [
+        {
+          "reader": {
+            "name": "txtfilereader",
+            "parameter": {
+              "path": ["/mnt/hdd02/data/*"],
+              "encoding": "UTF-8",
+              "column": [
+                {
+                  "index": 0,
+                  "type": "string"
+                },
+                {
+                  "index": 1,
+                  "type": "string"
+                },
+                {
+                  "index": 2,
+                  "type": "string"
+                },
+                {
+                  "index": 3,
+                  "type": "string"
+                },
+                {
+                  "index": 4,
+                  "type": "string"
+                },
+                {
+                  "index": 5,
+                  "type": "string"
+                },
+                {
+                  "index": 6,
+                  "type": "string"
+                },
+                {
+                  "index": 7,
+                  "type": "string"
+                },
+                {
+                  "index": 8,
+                  "type": "string"
+                },
+                {
+                  "index": 9,
+                  "type": "string"
+                },
+                {
+                  "index": 10,
+                  "type": "string"
+                },
+                {
+                  "index": 11,
+                  "type": "string"
+                },
+                {
+                  "index": 12,
+                  "type": "string"
+                },
+                {
+                  "index": 13,
+                  "type": "string"
+                },
+                {
+                  "index": 14,
+                  "type": "string"
+                },
+                {
+                  "index": 15,
+                  "type": "string"
+                }
+              ],
+              "fieldDelimiter": "|"
+            }
+          },
+          "writer": {
+            "name": "mysqlwriter",
+            "parameter": {
+              "writeMode": "insert",
+              "username": "root",
+              "password": "123456",
+              "column": [
+                "l_orderkey", "l_partkey", "l_suppkey", "l_linenumber", "l_quantity", "l_extendedprice", "l_discount", "l_tax", "l_returnflag","l_linestatus", "l_shipdate","l_commitdate","l_receiptdate","l_shipinstruct","l_shipmode","l_comment"
+              ],
+              "preSql": [
+                "truncate table test.lineitem;"
+              ],
+              "connection": [
+                {
+                  "jdbcUrl": "jdbc:mysql://172.30.0.34:9330/test?useServerPrepStmts=true&useLocalSessionState=true&rewriteBatchedStatements=true&cachePrepStmts=true&prepStmtCacheSqlLimit=99999&prepStmtCacheSize=50",
+                  "table": [
+                    "lineitem"
+                  ]
+                }
+              ],
+              "session": [
+                "set group_commit = async_mode;",
+                "set enable_nereids_dml = false;"
+              ],
+              "batchSize": 100
+            }
+          }
+        }
+      ]
+    }
+  }
+  </code></pre>
+  </details>
+
+#### 测试结果
+
+| 单个insert的行数 | 并发数 | 导入速率(行/秒) | 导入吞吐(MB/秒) |
+|-------------|-----|-----------|----------|
+| 100 | 20  | 106931    | 11.46 |
+
+在上面的测试中，FE 的 CPU使用率在60-70%左右，BE 的 CPU使用率在10-20%左右。
