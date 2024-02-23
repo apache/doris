@@ -339,7 +339,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public long getRowCount() {
-        return 0;
+        return fetchRowCount();
     }
 
     public long getAvgRowLength() {
@@ -539,24 +539,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         throw new NotImplementedException("createAnalysisTask not implemented");
     }
 
-    /**
-     * for NOT-ANALYZED Olap table, return estimated row count,
-     * for other table, return 1
-     * @return estimated row count
-     */
-    public long estimatedRowCount() {
-        long cardinality = 0;
-        if (this instanceof OlapTable) {
-            OlapTable table = (OlapTable) this;
-            for (long selectedPartitionId : table.getPartitionIds()) {
-                final Partition partition = table.getPartition(selectedPartitionId);
-                final MaterializedIndex baseIndex = partition.getBaseIndex();
-                cardinality += baseIndex.getRowCount();
-            }
-        }
-        return Math.max(cardinality, 1);
-    }
-
     @Override
     public DatabaseIf getDatabase() {
         return Env.getCurrentInternalCatalog().getDbNullable(qualifiedDbName);
@@ -582,5 +564,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @Override
     public List<Long> getChunkSizes() {
         throw new NotImplementedException("getChunkSized not implemented");
+    }
+
+    @Override
+    public long fetchRowCount() {
+        return 0;
     }
 }
