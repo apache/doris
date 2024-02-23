@@ -18,21 +18,18 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.security.authentication.AuthType;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.hive.HMSCachedClient;
-import org.apache.doris.datasource.hive.HMSClientException;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.hive.HiveCatalog;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -60,24 +57,9 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
         }
         hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                 String.valueOf(Config.hive_metastore_client_timeout_second));
-        String authentication = catalogProperty.getOrDefault(
-                AuthenticationConfig.HADOOP_SECURITY_AUTHENTICATION, "");
-        if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            hiveConf.set(AuthenticationConfig.HADOOP_SECURITY_AUTHENTICATION, authentication);
-            UserGroupInformation.setConfiguration(hiveConf);
-            try {
-                /**
-                 * Because metastore client is created by using
-                 * {@link org.apache.hadoop.hive.metastore.RetryingMetaStoreClient#getProxy}
-                 * it will relogin when TGT is expired, so we don't need to relogin manually.
-                 */
-                UserGroupInformation.loginUserFromKeytab(
-                        catalogProperty.getOrDefault(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL, ""),
-                        catalogProperty.getOrDefault(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB, ""));
-            } catch (IOException e) {
-                throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
-            }
-        }
+        HadoopUGI.tryKrbLogin(this.getName(), AuthenticationConfig.getKerberosConfig(hiveConf,
+                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB));
         HMSCachedClient cachedClient = HiveMetadataOps.createCachedClient(hiveConf, 1, null);
         String location = cachedClient.getCatalogLocation("hive");
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, location);

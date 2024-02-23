@@ -30,7 +30,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.DorisTypeVisitor;
-import org.apache.doris.datasource.hive.ExternalMetadataOps;
+import org.apache.doris.datasource.operations.ExternalMetadataOps;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;

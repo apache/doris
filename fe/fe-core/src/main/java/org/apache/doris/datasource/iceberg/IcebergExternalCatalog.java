@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.catalog.external.ExternalMetadataOperations;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 
 import org.apache.iceberg.catalog.Catalog;
 

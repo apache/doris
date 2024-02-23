@@ -19,7 +19,6 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
-import org.apache.doris.catalog.external.ExternalMetadataOperations;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -32,6 +31,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
@@ -200,7 +200,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (LOG.isDebugEnabled()) {
             LOG.debug("create database [{}]", dbName);
         }
-        dbNameToId.put(ClusterNamespace.getNameFromFullName(dbName), dbId);
+        dbNameToId.put(dbName, dbId);
         ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);
         idToDb.put(dbId, db);
     }

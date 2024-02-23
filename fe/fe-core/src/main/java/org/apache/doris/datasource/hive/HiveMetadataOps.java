@@ -23,14 +23,13 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
-import org.apache.doris.catalog.external.NamedExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.operations.ExternalMetadataOps;
 
 import com.google.common.base.Preconditions;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -92,7 +91,6 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             catalogDatabase.setComment(properties.getOrDefault("comment", ""));
             client.createDatabase(catalogDatabase);
             catalog.onRefresh(true);
-            catalog.registerDatabase(dbId, fullDbName);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -105,7 +103,6 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         try {
             client.dropDatabase(dbName);
             catalog.onRefresh(true);
-            catalog.unregisterDatabase(dbName);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -134,12 +131,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                     serDe);
 
             client.createTable(catalogTable, stmt.isSetIfNotExists());
-            catalog.onRefresh(true);
-            long tableId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tblName);
-            if (tableId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
-                return;
-            }
-            db.registerTable(NamedExternalTable.of(tableId, tblName, dbName, catalog));
+            db.setUnInitialized(true);
         } catch (Exception e) {
             throw new UserException(e.getMessage(), e);
         }
@@ -165,8 +157,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             client.dropTable(dbName, stmt.getTableName());
-            catalog.onRefresh(true);
-            db.unregisterTable(stmt.getTableName());
+            db.setUnInitialized(true);
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);
         }
