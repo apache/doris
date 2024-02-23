@@ -158,7 +158,7 @@ suite("test_bitmap_index", "inverted_index") {
     }
     test{
         sql "ALTER TABLE ${tbName2} ADD INDEX index12 (v1) USING BITMAP;"
-        exception "errCode = 2, detailMessage = INVERTED index only used in columns of DUP_KEYS/UNIQUE_KEYS MOW table or key columns of all table. invalid index: index12"
+        exception "errCode = 2, detailMessage = index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of AGG_KEYS table. invalid index: index12"
     }
 
     sql "insert into ${tbName2} values(1,1,1,1,'1','1','2022-05-31','2022-05-31 10:00:00',1,1.0,1,1);"
