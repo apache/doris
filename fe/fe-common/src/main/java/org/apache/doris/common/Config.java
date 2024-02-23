@@ -2204,17 +2204,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "Hive创建外部表默认指定的input format",
             "Default hive input format for creating table."})
-    public static String hive_default_input_format = "org.apache.hadoop.mapred.TextInputFormat";
+    public static String hive_default_input_format = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "Hive创建外部表默认指定的output format",
             "Default hive output format for creating table."})
-    public static String hive_default_output_format = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat";
+    public static String hive_default_output_format = "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat";
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "Hive创建外部表默认指定的SerDe类",
             "Default hive serde class for creating table."})
-    public static String hive_default_serde = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+    public static String hive_default_serde = "org.apache.hadoop.hive.ql.io.orc.OrcSerde";
 
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
