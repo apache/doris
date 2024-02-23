@@ -40,14 +40,13 @@ import org.junit.jupiter.api.RepeatedTest;
 import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
-import java.net.DatagramSocket;
-import java.net.ServerSocket;
-import java.net.SocketException;
+import java.net.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 public class BDBDebuggerTest {
     private static final Logger LOG = LogManager.getLogger(BDBDebuggerTest.class);
@@ -93,6 +92,25 @@ public class BDBDebuggerTest {
                 } catch (SocketException e) {
                     LOG.info("The port {} is invalid and try another port", port);
                 }
+
+                CountDownLatch latch = new CountDownLatch(1);
+                final int serverPort = port;
+                new Thread(() -> {
+                    try (Socket clientSocket = new Socket()) {
+                        clientSocket.connect(new InetSocketAddress("localhost", serverPort));
+                        latch.await();  // Wait until the server closes the connection
+                    } catch (IOException | InterruptedException e) {
+                        // CHECKSTYLE IGNORE THIS LINE
+                    }
+                }).start();
+                // Accept a connection from the client
+                try (Socket serverConn = socket.accept()) {
+                    // FIXME: handle empty block
+                    System.out.println("A client connected");
+                } catch (IOException e) {
+                    // CHECKSTYLE IGNORE THIS LINE
+                }
+                latch.countDown();  // Signal that the server has closed the connection
             } catch (IOException e) {
                 throw new IllegalStateException("Could not find a free TCP/IP port");
             }

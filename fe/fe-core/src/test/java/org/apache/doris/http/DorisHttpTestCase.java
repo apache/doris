@@ -74,12 +74,15 @@ import org.junit.BeforeClass;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
@@ -332,6 +335,26 @@ public abstract class DorisHttpTestCase {
             socket.setReuseAddress(true);
             HTTP_PORT = socket.getLocalPort();
             URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+
+            // make sure socket's port enters TIME_WAIT state, so other ServerSocket(0) wouldn't pick up the same port
+            CountDownLatch latch = new CountDownLatch(1);
+            new Thread(() -> {
+                try (Socket clientSocket = new Socket()) {
+                    clientSocket.connect(new InetSocketAddress("localhost", HTTP_PORT));
+                    latch.await();  // Wait until the server closes the connection
+                } catch (IOException | InterruptedException e) {
+                    // CHECKSTYLE IGNORE THIS LINE
+                }
+            }).start();
+
+            // Accept a connection from the client
+            try (Socket serverConn = socket.accept()) {
+                // FIXME: handle empty block
+                System.out.println("A client connected");
+            } catch (IOException e) {
+                // CHECKSTYLE IGNORE THIS LINE
+            }
+            latch.countDown();  // Signal that the server has closed the connection
         } catch (Exception e) {
             throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
         } finally {
