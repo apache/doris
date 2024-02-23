@@ -1344,6 +1344,8 @@ public class OlapScanNode extends ScanNode {
     // If scan is key search, should not enable the shared scan opt to prevent the performance problem
     // 1. where contain the eq or in expr of key column slot
     // 2. key column slot is distribution column and first column
+    // FIXME: this is not a good check, we can not guarantee that the predicate we check can truly
+    // help to prune the data, so we should check the predicate's effect on the data.
     protected boolean isKeySearch() {
         List<SlotRef> whereSlot = Lists.newArrayList();
         for (Expr conjunct : conjuncts) {

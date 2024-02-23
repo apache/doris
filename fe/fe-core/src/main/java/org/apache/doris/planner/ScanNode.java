@@ -708,7 +708,7 @@ public abstract class ScanNode extends PlanNode {
         return isKeySearch() || !enableShardScan;
     }
 
-    public boolean haveLimitAndConjunts() {
-        return hasLimit() && !conjuncts.isEmpty();
+    public boolean shouldUseOneInstance() {
+        return hasLimit() && conjuncts.isEmpty();
     }
 }
