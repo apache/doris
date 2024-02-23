@@ -37,12 +37,12 @@ Status RuntimeFilterConsumer::init(RuntimeState* state, bool need_local_merge) {
 }
 
 void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
-    std::stringstream ss;
+    fmt::memory_buffer buffer;
     for (auto& rf_ctx : _runtime_filter_ctxs) {
         rf_ctx.runtime_filter->init_profile(profile);
-        ss << rf_ctx.runtime_filter->get_name() << ", ";
+        fmt::format_to(buffer, "{}, ", rf_ctx.runtime_filter->get_name());
     }
-    profile->add_info_string("RuntimeFilters: ", ss.str());
+    profile->add_info_string("RuntimeFilters: ", to_string(buffer));
 }
 
 Status RuntimeFilterConsumer::_register_runtime_filter(bool need_local_merge) {
