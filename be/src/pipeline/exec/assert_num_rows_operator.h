@@ -39,12 +39,12 @@ public:
             : StreamingOperator(operator_builder, node) {}
 };
 
-class AssertNumRowsLocalState final : public PipelineXLocalState<FakeDependency> {
+class AssertNumRowsLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(AssertNumRowsLocalState);
 
     AssertNumRowsLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeDependency>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~AssertNumRowsLocalState() = default;
 };
 

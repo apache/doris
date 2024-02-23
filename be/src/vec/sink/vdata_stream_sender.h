@@ -65,7 +65,7 @@ enum CompressionTypePB : int;
 namespace pipeline {
 class ExchangeSinkOperator;
 class ExchangeSinkOperatorX;
-class LocalExchangeChannelDependency;
+class Dependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -534,7 +534,7 @@ public:
         return _send_callback;
     }
 
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency();
+    std::shared_ptr<pipeline::Dependency> get_local_channel_dependency();
 
 private:
     friend class VDataStreamSender;

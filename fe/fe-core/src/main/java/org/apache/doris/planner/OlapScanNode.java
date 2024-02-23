@@ -61,6 +61,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
@@ -775,6 +776,10 @@ public class OlapScanNode extends ScanNode {
             useFixReplica = ConnectContext.get().getSessionVariable().useFixReplica;
             // if use_fix_replica is set to true, set skip_missing_version to false
             skipMissingVersion = useFixReplica == -1 && ConnectContext.get().getSessionVariable().skipMissingVersion;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("query id: {}, partition id:{} visibleVersion: {}",
+                        DebugUtil.printId(ConnectContext.get().queryId()), partition.getId(), visibleVersion);
+            }
         }
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();

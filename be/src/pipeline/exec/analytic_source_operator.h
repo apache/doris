@@ -46,16 +46,8 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
-class AnalyticSourceDependency final : public Dependency {
-public:
-    using SharedState = AnalyticSharedState;
-    AnalyticSourceDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AnalyticSourceDependency", query_ctx) {}
-    ~AnalyticSourceDependency() override = default;
-};
-
 class AnalyticSourceOperatorX;
-class AnalyticLocalState final : public PipelineXLocalState<AnalyticSourceDependency> {
+class AnalyticLocalState final : public PipelineXLocalState<AnalyticSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(AnalyticLocalState);
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);

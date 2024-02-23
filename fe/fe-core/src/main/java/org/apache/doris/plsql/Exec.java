@@ -47,6 +47,7 @@ import org.apache.doris.nereids.PLParser.Declare_cursor_itemContext;
 import org.apache.doris.nereids.PLParser.Declare_handler_itemContext;
 import org.apache.doris.nereids.PLParser.Declare_var_itemContext;
 import org.apache.doris.nereids.PLParser.Doris_statementContext;
+import org.apache.doris.nereids.PLParser.Drop_procedure_stmtContext;
 import org.apache.doris.nereids.PLParser.DtypeContext;
 import org.apache.doris.nereids.PLParser.Dtype_lenContext;
 import org.apache.doris.nereids.PLParser.Exception_block_itemContext;
@@ -1457,6 +1458,38 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
             e.printStackTrace();
         }
         return null;
+    }
+
+    /**
+     * DROP PROCEDURE statement
+     */
+    @Override
+    public Integer visitDrop_procedure_stmt(Drop_procedure_stmtContext ctx) {
+        FuncNameInfo procedureName = new FuncNameInfo(
+                exec.logicalPlanBuilder.visitMultipartIdentifier(ctx.multipartIdentifier()));
+        if (builtinFunctions.exists(procedureName.toString())) {
+            exec.info(ctx, procedureName.toString() + " is a built-in function which cannot be removed.");
+            return 0;
+        }
+        if (trace) {
+            trace(ctx, "DROP PROCEDURE " + procedureName.toString());
+        }
+        exec.functions.remove(procedureName);
+        removeLocalUdf(ctx);
+        return 0;
+    }
+
+    /**
+     * Remove functions and procedures defined in the current script
+     */
+    void removeLocalUdf(ParserRuleContext ctx) {
+        if (exec == this) {
+            String str = Exec.getFormattedText(ctx);
+            int i = localUdf.indexOf(str);
+            if (i != -1) {
+                localUdf.delete(i, i + str.length());
+            }
+        }
     }
 
     @Override

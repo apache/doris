@@ -169,13 +169,8 @@ private:
                     _finalize_current_phase<false, JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
                             _join_block, state->batch_size());
                 }
-            }
-
-            if (_left_side_process_count) {
-                if (_is_mark_join && _build_blocks.empty()) {
-                    DCHECK_EQ(JoinOpType::value, TJoinOp::CROSS_JOIN);
-                    _append_left_data_with_null(_join_block);
-                }
+            } else if (_left_side_process_count && _is_mark_join && _build_blocks.empty()) {
+                _append_left_data_with_null(_join_block);
             }
         }
 
