@@ -236,11 +236,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private LogicalPlan getAndCheckLogicalPlan(TableIf table, UnboundRelation unboundRelation,
                                                List<String> tableQualifier, CascadesContext cascadesContext) {
-        // if current context is in the view, we can skip check authentication because
-        // the view already checked authentication
-        if (cascadesContext.shouldCheckRelationAuthentication()) {
-            UserAuthentication.checkPermission(table, cascadesContext.getConnectContext());
-        }
         return doGetLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
