@@ -2938,8 +2938,7 @@ public class StmtExecutor {
         InsertIntoTableCommand insert = (InsertIntoTableCommand) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         try {
             if (!StringUtils.isEmpty(context.getSessionVariable().groupCommit)) {
-                if (!Config.wait_internal_group_commit_finish
-                        && context.getTxnEntry() != null && context.getTxnEntry().getLabel() != null) {
+                if (!Config.wait_internal_group_commit_finish && insert.getLabelName().isPresent()) {
                     throw new AnalysisException("label and group_commit can't be set at the same time");
                 }
                 context.setGroupCommitStreamLoadSql(true);
