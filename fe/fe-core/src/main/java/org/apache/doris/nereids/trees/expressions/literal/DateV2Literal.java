@@ -85,7 +85,11 @@ public class DateV2Literal extends DateLiteral {
         return toBeginOfTheDay(DateTimeV2Type.SYSTEM_DEFAULT);
     }
 
-    public DateTimeV2Literal toBeginOfTheDay(DateTimeV2Type dateType) { 
+    /**
+     * 2020-01-01
+     * @return 2020-01-01 00:00:00
+     */
+    public DateTimeV2Literal toBeginOfTheDay(DateTimeV2Type dateType) {
         return new DateTimeV2Literal(dateType, year, month, day, 0, 0, 0, 000000);
     }
 
@@ -97,6 +101,10 @@ public class DateV2Literal extends DateLiteral {
         return toEndOfTheDay(DateTimeV2Type.SYSTEM_DEFAULT);
     }
 
+    /**
+     * 2020-01-01
+     * @return 2020-01-01 23:59:59.9[scale]
+     */
     public DateTimeV2Literal toEndOfTheDay(DateTimeV2Type dateType) {
         long microSecond = 0;
         // eg. scale == 4 -> 999900
