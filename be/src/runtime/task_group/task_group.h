@@ -123,7 +123,7 @@ public:
     int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile);
 
 private:
-    std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
+    mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
     int64_t _version;
