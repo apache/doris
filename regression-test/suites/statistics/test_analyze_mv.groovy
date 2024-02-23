@@ -321,6 +321,13 @@ suite("test_analyze_mv") {
     assertEquals(12, result_sample.size())
 
     result_sample = sql """show column stats mvTestDup(key1)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mvTestDup with sync with sample rows 4000000"""
+        result_sample = sql """show column stats mvTestDup(key1)"""
+        logger.info("result after reanalyze " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("key1", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -329,8 +336,16 @@ suite("test_analyze_mv") {
     assertEquals("1", result_sample[0][7])
     assertEquals("1001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column stats mvTestDup(value1)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mvTestDup with sync with sample rows 4000000"""
+        result_sample = sql """show column stats mvTestDup(value1)"""
+        logger.info("result after reanalyze " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("value1", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -339,8 +354,16 @@ suite("test_analyze_mv") {
     assertEquals("3", result_sample[0][7])
     assertEquals("3001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column stats mvTestDup(mv_key1)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11] || "MANUAL" != result_sample[1][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mvTestDup with sync with sample rows 4000000"""
+        result_sample = sql """show column stats mvTestDup(mv_key1)"""
+        logger.info("result after reanalyze " + result_sample)
+    }
     assertEquals(2, result_sample.size())
     assertEquals("mv_key1", result_sample[0][0])
     assertTrue(result_sample[0][1] == 'mv1' && result_sample[1][1] == 'mv3' || result_sample[0][1] == 'mv3' && result_sample[1][1] == 'mv1')
@@ -353,8 +376,16 @@ suite("test_analyze_mv") {
     assertEquals("1", result_sample[0][7])
     assertEquals("1001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mvTestDup with sync with sample rows 4000000"""
+        result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
+        logger.info("result after reanalyze " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("mva_SUM__CAST(`value1` AS BIGINT)", result_sample[0][0])
     assertEquals("mv3", result_sample[0][1])
@@ -363,8 +394,16 @@ suite("test_analyze_mv") {
     assertEquals("6", result_sample[0][7])
     assertEquals("3001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column stats mvTestDup(`mva_MAX__``value2```)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mvTestDup with sync with sample rows 4000000"""
+        result_sample = sql """show column stats mvTestDup(`mva_MAX__``value2```)"""
+        logger.info("result after reanalyze " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("mva_MAX__`value2`", result_sample[0][0])
     assertEquals("mv3", result_sample[0][1])
@@ -373,8 +412,16 @@ suite("test_analyze_mv") {
     assertEquals("4", result_sample[0][7])
     assertEquals("4001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column stats mvTestDup(`mva_MIN__``value3```)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mvTestDup with sync with sample rows 4000000"""
+        result_sample = sql """show column stats mvTestDup(`mva_MIN__``value3```)"""
+        logger.info("result after reanalyze " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("mva_MIN__`value3`", result_sample[0][0])
     assertEquals("mv3", result_sample[0][1])
@@ -383,6 +430,7 @@ suite("test_analyze_mv") {
     assertEquals("5", result_sample[0][7])
     assertEquals("5001", result_sample[0][8])
     assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show analyze task status ${jobId}"""
     assertEquals(12, result_sample.size())
