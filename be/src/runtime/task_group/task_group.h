@@ -85,10 +85,6 @@ public:
 
     void task_group_info(TaskGroupInfo* tg_info) const;
 
-    std::vector<TgTrackerLimiterGroup>& mem_tracker_limiter_pool() {
-        return _mem_tracker_limiter_pool;
-    }
-
     // when mem_limit <=0 , it's an invalid value, then current group not participating in memory GC
     // because mem_limit is not a required property
     bool is_mem_limit_valid() {
@@ -124,8 +120,10 @@ public:
         return _query_id_set.size();
     }
 
+    int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile);
+
 private:
-    mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
+    std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
     int64_t _version;

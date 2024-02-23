@@ -289,9 +289,7 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
         taskgroup::TaskGroupInfo tg_info;
         task_group->task_group_info(&tg_info);
         auto used = task_group->memory_used();
-        total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
-                used - tg_info.memory_limit, used, tg_info.id, tg_info.name, tg_info.memory_limit,
-                task_group->mem_tracker_limiter_pool(), tg_profile.get());
+        total_free_memory += task_group->gc_memory(used - tg_info.memory_limit, tg_profile.get());
     }
     return total_free_memory;
 }
@@ -364,9 +362,7 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
         auto task_group = task_groups[i];
         taskgroup::TaskGroupInfo tg_info;
         task_group->task_group_info(&tg_info);
-        total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
-                tg_need_free_memory, used_memorys[i], tg_info.id, tg_info.name,
-                tg_info.memory_limit, task_group->mem_tracker_limiter_pool(), profile);
+        total_free_memory += task_group->gc_memory(tg_need_free_memory, profile);
     }
     return total_free_memory;
 }

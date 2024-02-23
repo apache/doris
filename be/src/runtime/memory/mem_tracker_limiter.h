@@ -219,12 +219,6 @@ public:
                                          Type::LOAD);
     }
 
-    static int64_t tg_memory_limit_gc(
-            int64_t request_free_memory, int64_t used_memory, uint64_t id, const std::string& name,
-            int64_t memory_limit,
-            std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups,
-            RuntimeProfile* profile);
-
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {
         if (label.rfind("Query#Id=", 0) != 0 && label.rfind("Load#Id=", 0) != 0) {
