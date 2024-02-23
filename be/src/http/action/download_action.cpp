@@ -58,9 +58,9 @@ DownloadAction::DownloadAction(ExecEnv* exec_env,
     if (_num_workers > 0) {
         // for single-replica-load
         THROW_IF_ERROR(ThreadPoolBuilder("DownloadThreadPool")
-                                  .set_min_threads(num_workers)
-                                  .set_max_threads(num_workers)
-                                  .build(&_download_workers));
+                               .set_min_threads(num_workers)
+                               .set_max_threads(num_workers)
+                               .build(&_download_workers));
     }
 }
 

@@ -899,7 +899,7 @@ void StorageEngine::_clean_unused_binlog_metas() {
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
         THROW_IF_ERROR(RowsetMetaManager::traverse_binlog_metas(data_dir->get_meta(),
-                                                                   unused_binlog_collector));
+                                                                unused_binlog_collector));
         for (const auto& suffix : unused_binlog_key_suffixes) {
             THROW_IF_ERROR(RowsetMetaManager::remove_binlog(data_dir->get_meta(), suffix));
         }
@@ -925,7 +925,7 @@ void StorageEngine::_clean_unused_delete_bitmap() {
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
         THROW_IF_ERROR(TabletMetaManager::traverse_delete_bitmap(data_dir->get_meta(),
-                                                                    clean_delete_bitmap_func));
+                                                                 clean_delete_bitmap_func));
         for (auto id : removed_tablets) {
             THROW_IF_ERROR(
                     TabletMetaManager::remove_old_version_delete_bitmap(data_dir, id, INT64_MAX));
@@ -953,7 +953,7 @@ void StorageEngine::_clean_unused_pending_publish_info() {
                 data_dir->get_meta(), clean_pending_publish_info_func));
         for (auto& [tablet_id, publish_version] : removed_infos) {
             THROW_IF_ERROR(TabletMetaManager::remove_pending_publish_info(data_dir, tablet_id,
-                                                                             publish_version));
+                                                                          publish_version));
         }
         LOG(INFO) << "removed invalid pending publish info from dir: " << data_dir->path()
                   << ", deleted pending publish info size: " << removed_infos.size();

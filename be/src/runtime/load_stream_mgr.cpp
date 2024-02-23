@@ -38,9 +38,9 @@ LoadStreamMgr::LoadStreamMgr(uint32_t segment_file_writer_thread_num,
           _heavy_work_pool(heavy_work_pool),
           _light_work_pool(light_work_pool) {
     THROW_IF_ERROR(ThreadPoolBuilder("SegmentFileWriterThreadPool")
-                              .set_min_threads(segment_file_writer_thread_num)
-                              .set_max_threads(segment_file_writer_thread_num)
-                              .build(&_file_writer_thread_pool));
+                           .set_min_threads(segment_file_writer_thread_num)
+                           .set_max_threads(segment_file_writer_thread_num)
+                           .build(&_file_writer_thread_pool));
 }
 
 LoadStreamMgr::~LoadStreamMgr() {
