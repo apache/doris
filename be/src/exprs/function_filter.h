@@ -35,7 +35,7 @@ public:
     bool _opposite;
     std::string _col_name;
     // these pointer's life time controlled by scan node
-    doris::FunctionContext* _fn_ctx;
+    doris::FunctionContext* _fn_ctx = nullptr;
     // only one param from conjunct, because now only support like predicate
     doris::StringRef _string_param;
 };

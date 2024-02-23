@@ -98,12 +98,12 @@ For more information about Hive, please see [Hive](./hive.md).
 	
 	```
 	mysql> SHOW CATALOGS;
-	+-----------+-------------+----------+
-	| CatalogId | CatalogName | Type     |
-	+-----------+-------------+----------+
-	|     10024 | hive        | hms      |
-	|         0 | internal    | internal |
-	+-----------+-------------+----------+
+	+-----------+-------------+----------+-----------+-------------------------+---------------------+------------------------+
+	| CatalogId | CatalogName | Type     | IsCurrent | CreateTime              | LastUpdateTime      | Comment                |
+	+-----------+-------------+----------+-----------+-------------------------+---------------------+------------------------+
+	|     10024 | hive        | hms      | yes       | 2023-12-25 16:11:41.687 | 2023-12-25 20:43:18 | NULL                   |
+	|         0 | internal    | internal |           | UNRECORDED              | NULL                | Doris internal catalog |
+	+-----------+-------------+----------+-----------+-------------------------+---------------------+------------------------+
 	```
 	
 	> Syntax Help: [SHOW CATALOGS](https://doris.apache.org/docs/dev/sql-manual/sql-reference/Show-Statements/SHOW-CATALOGS/)

@@ -33,8 +33,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -45,10 +47,13 @@ import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSslContext;
+import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.plsql.Exec;
+import org.apache.doris.plsql.executor.PlSqlOperation;
+import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -77,7 +82,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nullable;
+
 
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
@@ -104,7 +111,7 @@ public class ConnectContext {
     protected volatile long backendId;
     protected volatile LoadTaskInfo streamLoadInfo;
 
-    protected volatile TUniqueId queryId;
+    protected volatile TUniqueId queryId = null;
     protected volatile String traceId;
     // id for this connection
     protected volatile int connectionId;
@@ -112,6 +119,7 @@ public class ConnectContext {
     protected volatile long loginTime;
     // for arrow flight
     protected volatile String peerIdentity;
+    private final Map<String, String> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private TNetworkAddress resultFlightServerAddr;
     private TNetworkAddress resultInternalServiceAddr;
@@ -136,6 +144,8 @@ public class ConnectContext {
     protected volatile TransactionEntry txnEntry = null;
     // cluster name
     protected volatile String clusterName = "";
+    // used for ShowSqlAction which don't allow a user account
+    protected volatile boolean noAuth = false;
     // username@host of current login user
     protected volatile String qualifiedUser;
     // LDAP authenticated but the Doris account does not exist,
@@ -176,6 +186,9 @@ public class ConnectContext {
     // So in the query planning stage, do not use any value in this attribute.
     protected QueryDetail queryDetail = null;
 
+    // cloud cluster name
+    protected volatile String cloudCluster = null;
+
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
     // The resource tag is used to limit the node resources that the user can use for query.
@@ -186,6 +199,8 @@ public class ConnectContext {
     // If set to true, the resource tags set in resourceTags will be used to limit the query resources.
     // If set to false, the system will not restrict query resources.
     private boolean isResourceTagsSet = false;
+
+    private PlSqlOperation plSqlOperation = null;
 
     private String sqlHash;
 
@@ -216,6 +231,8 @@ public class ConnectContext {
     // but the internal implementation will call the logic of `AlterTable`.
     // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
     private boolean skipAuth = false;
+    private Exec exec;
+    private boolean runProcedure = false;
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -320,18 +337,36 @@ public class ConnectContext {
     }
 
     public ConnectContext() {
-        this((StreamConnection) null);
+        this(null);
     }
 
     public ConnectContext(StreamConnection connection) {
+        this(connection, false);
+    }
+
+    public ConnectContext(StreamConnection connection, boolean isProxy) {
         connectType = ConnectType.MYSQL;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         if (connection != null) {
-            mysqlChannel = new MysqlChannel(connection);
+            mysqlChannel = new MysqlChannel(connection, this);
+        } else if (isProxy) {
+            mysqlChannel = new ProxyMysqlChannel();
         } else {
             mysqlChannel = new DummyMysqlChannel();
         }
         init();
+    }
+
+    public ConnectContext cloneContext() {
+        ConnectContext context = new ConnectContext();
+        context.mysqlChannel = mysqlChannel;
+        context.setSessionVariable(VariableMgr.cloneSessionVariable(sessionVariable)); // deep copy
+        context.setEnv(env);
+        context.setDatabase(currentDb);
+        context.setQualifiedUser(qualifiedUser);
+        context.setCurrentUserIdentity(currentUserIdentity);
+        context.setProcedureExec(exec);
+        return context;
     }
 
     public boolean isTxnModel() {
@@ -525,6 +560,14 @@ public class ConnectContext {
         return env;
     }
 
+    public boolean getNoAuth() {
+        return noAuth;
+    }
+
+    public void setNoAuth(boolean noAuth) {
+        this.noAuth = noAuth;
+    }
+
     public String getQualifiedUser() {
         return qualifiedUser;
     }
@@ -609,6 +652,18 @@ public class ConnectContext {
 
     public void resetLoginTime() {
         this.loginTime = System.currentTimeMillis();
+    }
+
+    public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
+        preparedQuerys.put(preparedStatementId, preparedQuery);
+    }
+
+    public String getPreparedQuery(String preparedStatementId) {
+        return preparedQuerys.get(preparedStatementId);
+    }
+
+    public void removePreparedQuery(String preparedStatementId) {
+        preparedQuerys.remove(preparedStatementId);
     }
 
     public void setRunningQuery(String runningQuery) {
@@ -744,6 +799,13 @@ public class ConnectContext {
 
     public StmtExecutor getExecutor() {
         return executor;
+    }
+
+    public PlSqlOperation getPlSqlOperation() {
+        if (plSqlOperation == null) {
+            plSqlOperation = new PlSqlOperation();
+        }
+        return plSqlOperation;
     }
 
     protected void closeChannel() {
@@ -944,9 +1006,6 @@ public class ConnectContext {
 
         public List<String> toRow(int connId, long nowMs, boolean showFe) {
             List<String> row = Lists.newArrayList();
-            if (showFe) {
-                row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            }
             if (connId == connectionId) {
                 row.add("Yes");
             } else {
@@ -973,6 +1032,11 @@ public class ConnectContext {
             } else {
                 row.add("");
             }
+
+            if (showFe) {
+                row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            }
+
             return row;
         }
     }
@@ -996,6 +1060,85 @@ public class ConnectContext {
 
     public String getQueryIdentifier() {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
+    }
+
+    // maybe user set cluster by SQL hint of session variable: cloud_cluster
+    // so first check it and then get from connect context.
+    public String getCurrentCloudCluster() {
+        String cluster = getSessionVariable().getCloudCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = getCloudCluster();
+        }
+        return cluster;
+    }
+
+    public void setCloudCluster(String cluster) {
+        this.cloudCluster = cluster;
+    }
+
+    /**
+     * @return Returns an available cluster in the following order
+     *         1 Use an explicitly specified cluster
+     *         2 If no cluster is specified, the user's default cluster is used
+     *         3 If the user does not have a default cluster, select a cluster with permissions for the user
+     *         Returns null when there is no available cluster
+     */
+    public String getCloudCluster() {
+        String cluster = null;
+        if (!Strings.isNullOrEmpty(this.cloudCluster)) {
+            cluster = this.cloudCluster;
+        }
+
+        String defaultCluster = getDefaultCloudCluster();
+        if (!Strings.isNullOrEmpty(defaultCluster)) {
+            cluster = defaultCluster;
+        }
+
+        String authorizedCluster = getAuthorizedCloudCluster();
+        if (!Strings.isNullOrEmpty(authorizedCluster)) {
+            cluster = authorizedCluster;
+        }
+
+        if (Strings.isNullOrEmpty(cluster)) {
+            LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
+            getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
+                    "Cant get a Valid cluster for you to use, plz connect admin");
+        } else {
+            this.cloudCluster = cluster;
+            LOG.info("finally set context cluster name {}", cloudCluster);
+        }
+
+        return cluster;
+    }
+
+    // TODO implement this function
+    public String getDefaultCloudCluster() {
+        return null;
+    }
+
+    public String getAuthorizedCloudCluster() {
+        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+        // get all available cluster of the user
+        for (String cloudClusterName : cloudClusterNames) {
+            // find a cluster has more than one alive be
+            List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getBackendsByClusterName(cloudClusterName);
+            AtomicBoolean hasAliveBe = new AtomicBoolean(false);
+            bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", clusterName, backend);
+                }
+                hasAliveBe.set(true);
+            });
+            if (hasAliveBe.get()) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("set context cluster name {}", cloudClusterName);
+                }
+                return cloudClusterName;
+            }
+        }
+
+        return null;
     }
 
     public StatsErrorEstimator getStatsErrorEstimator() {
@@ -1029,5 +1172,28 @@ public class ConnectContext {
     public void setSkipAuth(boolean skipAuth) {
         this.skipAuth = skipAuth;
     }
-}
 
+    public boolean isRunProcedure() {
+        return runProcedure;
+    }
+
+    public void setRunProcedure(boolean runProcedure) {
+        this.runProcedure = runProcedure;
+    }
+
+    public void setProcedureExec(Exec exec) {
+        this.exec = exec;
+    }
+
+    public Exec getProcedureExec() {
+        return exec;
+    }
+
+    public int getNetReadTimeout() {
+        return this.sessionVariable.getNetReadTimeout();
+    }
+
+    public int getNetWriteTimeout() {
+        return this.sessionVariable.getNetWriteTimeout();
+    }
+}

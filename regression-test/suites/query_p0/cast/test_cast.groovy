@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_cast') {
+suite('test_cast', "arrow_flight_sql") {
     def date = "date '2020-01-01'"
     def datev2 = "datev2 '2020-01-01'"
     def datetime = "timestamp '2020-01-01 12:34:45'"

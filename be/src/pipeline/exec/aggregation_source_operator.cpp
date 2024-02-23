@@ -17,6 +17,7 @@
 
 #include "aggregation_source_operator.h"
 
+#include <memory>
 #include <string>
 
 #include "common/exception.h"
@@ -49,11 +50,6 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _serialize_data_timer = ADD_TIMER(profile(), "SerializeDataTime");
     _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
     auto& p = _parent->template cast<AggSourceOperatorX>();
-    if (p._is_streaming) {
-        _shared_state->data_queue.reset(new DataQueue(1));
-        _shared_state->data_queue->set_dependency(_dependency,
-                                                  info.upstream_dependencies.front().get());
-    }
     if (p._without_key) {
         if (p._needs_finalize) {
             _executor.get_result = std::bind<Status>(&AggLocalState::_get_without_key_result, this,
@@ -64,8 +60,6 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                                                      std::placeholders::_1, std::placeholders::_2,
                                                      std::placeholders::_3);
         }
-
-        _executor.close = std::bind<void>(&AggLocalState::_close_without_key, this);
     } else {
         if (p._needs_finalize) {
             _executor.get_result = std::bind<Status>(
@@ -76,10 +70,9 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                     &AggLocalState::_serialize_with_serialized_key_result, this,
                     std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
         }
-        _executor.close = std::bind<void>(&AggLocalState::_close_with_serialized_key, this);
     }
 
-    _agg_data_created_without_key = p._without_key;
+    _shared_state->agg_data_created_without_key = p._without_key;
     return Status::OK();
 }
 
@@ -90,39 +83,6 @@ Status AggLocalState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
                 data + shared_state.offsets_of_aggregate_states[i]);
     }
     return Status::OK();
-}
-
-void AggLocalState::_close_with_serialized_key() {
-    std::visit(
-            [&](auto&& agg_method) -> void {
-                auto& data = *agg_method.hash_table;
-                data.for_each_mapped([&](auto& mapped) {
-                    if (mapped) {
-                        static_cast<void>(_destroy_agg_status(mapped));
-                        mapped = nullptr;
-                    }
-                });
-                if (data.has_null_key_data()) {
-                    auto st = _destroy_agg_status(
-                            data.template get_null_key_data<vectorized::AggregateDataPtr>());
-                    if (!st) {
-                        throw Exception(st.code(), st.to_string());
-                    }
-                }
-            },
-            _agg_data->method_variant);
-    _release_tracker();
-}
-
-void AggLocalState::_close_without_key() {
-    //because prepare maybe failed, and couldn't create agg data.
-    //but finally call close to destory agg data, if agg data has bitmapValue
-    //will be core dump, it's not initialized
-    if (_agg_data_created_without_key) {
-        static_cast<void>(_destroy_agg_status(_agg_data->without_key));
-        _agg_data_created_without_key = false;
-    }
-    _release_tracker();
 }
 
 Status AggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
@@ -179,13 +139,13 @@ Status AggLocalState::_reset_hash_table() {
                     }
                 });
 
-                ss.aggregate_data_container.reset(new vectorized::AggregateDataContainer(
+                ss.aggregate_data_container = std::make_unique<vectorized::AggregateDataContainer>(
                         sizeof(typename HashTableType::key_type),
                         ((ss.total_size_of_aggregate_states + ss.align_aggregate_states - 1) /
                          ss.align_aggregate_states) *
-                                ss.align_aggregate_states));
-                hash_table = HashTableType();
-                ss.agg_arena_pool.reset(new vectorized::Arena);
+                                ss.align_aggregate_states);
+                agg_method.hash_table.reset(new HashTableType());
+                ss.agg_arena_pool = std::make_unique<vectorized::Arena>();
                 return Status::OK();
             },
             ss.agg_data->method_variant);
@@ -544,8 +504,9 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
                 if (!column_type->is_nullable() || data_types[i]->is_nullable() ||
                     !remove_nullable(column_type)->equals(*data_types[i])) {
                     return Status::InternalError(
-                            "column_type not match data_types, column_type={}, data_types={}",
-                            column_type->get_name(), data_types[i]->get_name());
+                            "node id = {}, column_type not match data_types, column_type={}, "
+                            "data_types={}",
+                            _parent->node_id(), column_type->get_name(), data_types[i]->get_name());
                 }
             }
 
@@ -565,9 +526,8 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
 }
 
 AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                                       const DescriptorTbl& descs, bool is_streaming)
+                                       const DescriptorTbl& descs)
         : Base(pool, tnode, operator_id, descs),
-          _is_streaming(is_streaming),
           _needs_finalize(tnode.agg_node.need_finalize),
           _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 
@@ -597,12 +557,6 @@ Status AggLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
-    }
-    for (auto* aggregate_evaluator : _shared_state->aggregate_evaluators) {
-        aggregate_evaluator->close(state);
-    }
-    if (_executor.close) {
-        _executor.close();
     }
 
     /// _hash_table_size_counter may be null if prepare failed.

@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
+#pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stdint.h>
 
 #include <atomic>
 #include <condition_variable>
@@ -30,8 +28,8 @@
 
 #include "common/status.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
 #include "olap/task/engine_task.h"
 #include "util/time.h"
 
@@ -39,6 +37,7 @@ namespace doris {
 
 class EnginePublishVersionTask;
 class TPublishVersionRequest;
+class StorageEngine;
 
 struct TabletPublishStatistics {
     int64_t submit_time_us = 0;
@@ -63,15 +62,17 @@ struct TabletPublishStatistics {
 
 class TabletPublishTxnTask {
 public:
-    TabletPublishTxnTask(EnginePublishVersionTask* engine_task, TabletSharedPtr tablet,
-                         RowsetSharedPtr rowset, int64_t partition_id, int64_t transaction_id,
-                         Version version, const TabletInfo& tablet_info);
-    ~TabletPublishTxnTask() = default;
+    TabletPublishTxnTask(StorageEngine& engine, EnginePublishVersionTask* engine_task,
+                         TabletSharedPtr tablet, RowsetSharedPtr rowset, int64_t partition_id,
+                         int64_t transaction_id, Version version, const TabletInfo& tablet_info);
+    ~TabletPublishTxnTask();
 
     void handle();
+    Status result() { return _result; }
 
 private:
-    EnginePublishVersionTask* _engine_publish_version_task;
+    StorageEngine& _engine;
+    EnginePublishVersionTask* _engine_publish_version_task = nullptr;
 
     TabletSharedPtr _tablet;
     RowsetSharedPtr _rowset;
@@ -80,40 +81,41 @@ private:
     Version _version;
     TabletInfo _tablet_info;
     TabletPublishStatistics _stats;
+    Status _result;
 };
 
-class EnginePublishVersionTask : public EngineTask {
+class EnginePublishVersionTask final : public EngineTask {
 public:
     EnginePublishVersionTask(
-            const TPublishVersionRequest& publish_version_req,
+            StorageEngine& engine, const TPublishVersionRequest& publish_version_req,
             std::set<TTabletId>* error_tablet_ids, std::map<TTabletId, TVersion>* succ_tablets,
             std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinous_version_tablets,
             std::map<TTableId, int64_t>* table_id_to_num_delta_rows);
     ~EnginePublishVersionTask() override = default;
 
-    Status finish() override;
+    Status execute() override;
 
     void add_error_tablet_id(int64_t tablet_id);
-
-    int64_t finish_task();
 
 private:
     void _calculate_tbl_num_delta_rows(
             const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows);
 
+    StorageEngine& _engine;
     const TPublishVersionRequest& _publish_version_req;
     std::mutex _tablet_ids_mutex;
-    std::set<TTabletId>* _error_tablet_ids;
+    std::set<TTabletId>* _error_tablet_ids = nullptr;
     std::map<TTabletId, TVersion>* _succ_tablets;
-    std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets;
-    std::map<TTableId, int64_t>* _table_id_to_num_delta_rows;
+    std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets = nullptr;
+    std::map<TTableId, int64_t>* _table_id_to_num_delta_rows = nullptr;
 };
 
 class AsyncTabletPublishTask {
 public:
-    AsyncTabletPublishTask(TabletSharedPtr tablet, int64_t partition_id, int64_t transaction_id,
-                           int64_t version)
-            : _tablet(tablet),
+    AsyncTabletPublishTask(StorageEngine& engine, TabletSharedPtr tablet, int64_t partition_id,
+                           int64_t transaction_id, int64_t version)
+            : _engine(engine),
+              _tablet(std::move(tablet)),
               _partition_id(partition_id),
               _transaction_id(transaction_id),
               _version(version) {
@@ -124,6 +126,7 @@ public:
     void handle();
 
 private:
+    StorageEngine& _engine;
     TabletSharedPtr _tablet;
     int64_t _partition_id;
     int64_t _transaction_id;
@@ -132,5 +135,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H

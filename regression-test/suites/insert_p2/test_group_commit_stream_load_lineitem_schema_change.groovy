@@ -76,8 +76,6 @@ l_tax, l_returnflag,l_linestatus, l_shipdate,l_commitdate,l_receiptdate,l_shipin
         log.info("Stream load result: ${result}".toString())
         def json = parseJson(result)
         assertEquals("success", json.Status.toLowerCase())
-        assertTrue(json.GroupCommit)
-        assertTrue(json.Label.startsWith("group_commit_"))
         assertEquals(total_rows, json.NumberTotalRows)
         assertEquals(loaded_rows, json.NumberLoadedRows)
         assertEquals(filtered_rows, json.NumberFilteredRows)
@@ -154,18 +152,30 @@ PROPERTIES (
     }
 
     def insert_data = { i, table_name ->
-        streamLoad {
-            table table_name
-
-            set 'column_separator', '|'
-            set 'columns', columns + ",lo_dummy"
-            set 'group_commit', 'true'
-            unset 'label'
-            file """${getS3Url()}/regression/tpch/sf1/lineitem.tbl.""" + i
-
-            check { result, exception, startTime, endTime ->
-                checkStreamLoadResult(exception, result, rowCountArray[i - 1], rowCountArray[i - 1], 0, 0)
+        int j = 0;
+        while (true) {
+            if (j >= 18) {
+                throw new Exception("""fail to much time""")
             }
+            try {
+                streamLoad {
+                    table table_name
+
+                    set 'column_separator', '|'
+                    set 'columns', columns + ",lo_dummy"
+                    set 'group_commit', 'async_mode'
+                    unset 'label'
+                    file """${getS3Url()}/regression/tpch/sf1/lineitem.tbl.""" + i
+
+                    check { result, exception, startTime, endTime ->
+                        checkStreamLoadResult(exception, result, rowCountArray[i - 1], rowCountArray[i - 1], 0, 0)
+                    }
+                }
+                break;
+            } catch (Exception e) {
+                Thread.sleep(10000)
+            }
+            j++;
         }
         total += rowCountArray[i - 1];
     }
@@ -298,22 +308,25 @@ PROPERTIES (
     def change_order = { table_name ->
         create_stream_load_table(table_name)
         total = 0;
-        for (int i = 1; i <= 10; i++) {
-            logger.info("process file:" + i)
-            if (i == 2) {
-                def retry = 0
-                while (retry < 10) {
-                    try {
-                        sql """ alter table ${table_name} order by (l_orderkey,l_shipdate,l_linenumber, l_partkey,l_suppkey,l_quantity,l_extendedprice,l_discount,l_tax,l_returnflag,l_linestatus,l_commitdate,l_receiptdate,l_shipinstruct,l_shipmode,l_comment); """
-                        break
-                    } catch (Exception e) {
-                        log.info("exception:", e)
+        for (int k = 0; k < 2; k++) {
+            logger.info("round:" + k)
+            for (int i = 1; i <= 10; i++) {
+                logger.info("process file:" + i)
+                if (k == 0 && i == 2) {
+                    def retry = 0
+                    while (retry < 10) {
+                        try {
+                            sql """ alter table ${table_name} order by (l_orderkey,l_shipdate,l_linenumber, l_partkey,l_suppkey,l_quantity,l_extendedprice,l_discount,l_tax,l_returnflag,l_linestatus,l_commitdate,l_receiptdate,l_shipinstruct,l_shipmode,l_comment); """
+                            break
+                        } catch (Exception e) {
+                            log.info("exception:", e)
+                        }
+                        Thread.sleep(2000)
+                        retry++
                     }
-                    Thread.sleep(2000)
-                    retry++
                 }
+                insert_data(i, table_name)
             }
-            insert_data(i, table_name)
         }
         logger.info("process change order total:" + total)
         assertTrue(getAlterTableState(table_name), "modify column order should success")

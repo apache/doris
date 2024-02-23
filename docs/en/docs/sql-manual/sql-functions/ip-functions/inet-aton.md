@@ -40,20 +40,26 @@ Takes a string containing an IPv4 address in the format A.B.C.D (dot-separated n
 
 ### notice
 
-`will return an error if the input string is not a valid IPv4 address`
+`It is the alias of ipv4_string_to_num_or_null. 
+It will return NULL if the input string is not a valid IP address or NULL, which is the same with MySQL`
 
 ### example
 ```
 mysql> select inet_aton('192.168.0.1'); 
-+--------------------------------+ 
-| inet_aton('192.168.0.1') | 
-+--------------------------------+ 
-| 3232235521                     | 
-+--------------------------------+ 
++-------------------------------------------+ 
+| ipv4_string_to_num_or_null('192.168.0.1') | 
++-------------------------------------------+ 
+| 3232235521                                | 
++-------------------------------------------+ 
 1 row in set (0.01 sec)
 
 mysql> SELECT inet_aton('192.168');
-ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][INVALID_ARGUMENT][E33] Invalid IPv4 value
++---------------------------------------+ 
+| ipv4_string_to_num_or_null('192.168') | 
++---------------------------------------+ 
+| NULL                                  | 
++---------------------------------------+ 
+1 row in set (0.01 sec)
 ```
 
 ### keywords

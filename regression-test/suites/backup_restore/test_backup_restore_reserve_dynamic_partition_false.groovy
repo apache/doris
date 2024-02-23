@@ -94,7 +94,7 @@ suite("test_backup_restore_reserve_dynamic_partition_false", "backup_restore") {
         (
             "backup_timestamp" = "${snapshot}",
             "reserve_dynamic_partition_enable" = "false",
-            "replication_num" = "1"
+            "reserve_replica" = "true"
         )
     """
     while (!syncer.checkAllRestoreFinish(dbName)) {

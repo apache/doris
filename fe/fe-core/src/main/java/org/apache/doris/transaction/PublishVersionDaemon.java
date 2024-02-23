@@ -63,7 +63,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         if (DebugPointUtil.isEnable("PublishVersionDaemon.stop_publish")) {
             return;
         }
-        GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgrIface globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
         if (readyTransactionStates.isEmpty()) {
             return;
@@ -165,7 +165,9 @@ public class PublishVersionDaemon extends MasterDaemon {
                     // if finish transaction state failed, then update publish version time, should check
                     // to finish after some interval
                     transactionState.updateSendTaskTime();
-                    LOG.debug("publish version for transaction {} failed", transactionState);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("publish version for transaction {} failed", transactionState);
+                    }
                 }
             }
 

@@ -58,7 +58,7 @@ public:
 
     VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    Status append_block(Block& block) override;
+    Status write(Block& block) override;
 
     Status close(Status s = Status::OK()) override;
 
@@ -97,7 +97,7 @@ private:
     Status _delete_dir();
 
     RuntimeState* _state; // not owned, set when init
-    const ResultFileOptions* _file_opts;
+    const ResultFileOptions* _file_opts = nullptr;
     TStorageBackendType::type _storage_type;
     TUniqueId _fragment_instance_id;
 

@@ -2,10 +2,10 @@
 -- !ds_shape_62 --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------PhysicalDistribute
+----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF3 w_warehouse_sk->[ws_warehouse_sk]
@@ -15,17 +15,17 @@ PhysicalResultSink
 ------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_site_sk = web_site.web_site_sk)) otherCondition=() build RFs:RF0 web_site_sk->[ws_web_site_sk]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2 RF3
---------------------------PhysicalDistribute
+--------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[web_site]
-------------------------PhysicalDistribute
+------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------PhysicalProject
 ----------------------------filter((date_dim.d_month_seq <= 1205) and (date_dim.d_month_seq >= 1194))
 ------------------------------PhysicalOlapScan[date_dim]
-----------------------PhysicalDistribute
+----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[ship_mode]
-------------------PhysicalDistribute
+------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[warehouse]
 

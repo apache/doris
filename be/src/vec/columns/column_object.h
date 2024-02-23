@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
@@ -222,10 +223,16 @@ private:
     // this structure and fill with Subcolumns sub items
     mutable std::shared_ptr<rapidjson::Document> doc_structure;
 
+    // column with raw json strings
+    // used for quickly row store encoding
+    ColumnPtr rowstore_column;
+
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
     explicit ColumnObject(bool is_nullable_, bool create_root = true);
+
+    explicit ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
 
     ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
 
@@ -240,6 +247,10 @@ public:
         }
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
     }
+
+    void set_rowstore_column(ColumnPtr col) { rowstore_column = col; }
+
+    ColumnPtr get_rowstore_column() const { return rowstore_column; }
 
     bool serialize_one_row_to_string(int row, std::string* output) const;
 
@@ -279,9 +290,13 @@ public:
     const Subcolumn* get_subcolumn(const PathInData& key) const;
 
     /** More efficient methods of manipulation */
-    [[noreturn]] IColumn& get_data() { LOG(FATAL) << "Not implemented method get_data()"; }
+    [[noreturn]] IColumn& get_data() {
+        LOG(FATAL) << "Not implemented method get_data()";
+        __builtin_unreachable();
+    }
     [[noreturn]] const IColumn& get_data() const {
         LOG(FATAL) << "Not implemented method get_data()";
+        __builtin_unreachable();
     }
 
     // return null if not found
@@ -302,6 +317,8 @@ public:
     bool add_sub_column(const PathInData& key, size_t new_size);
 
     const Subcolumns& get_subcolumns() const { return subcolumns; }
+
+    const Subcolumns& get_sparse_subcolumns() const { return sparse_columns; }
 
     Subcolumns& get_subcolumns() { return subcolumns; }
 
@@ -324,7 +341,8 @@ public:
 
     void remove_subcolumns(const std::unordered_set<std::string>& keys);
 
-    void finalize(bool ignore_sparse);
+    // use sparse_subcolumns_schema to record sparse column's path info and type
+    void finalize(bool ignore_sparser);
 
     /// Finalizes all subcolumns.
     void finalize() override;
@@ -337,7 +355,18 @@ public:
         return finalized;
     }
 
+    void finalize_if_not();
+
     void clear() override;
+
+    void clear_subcolumns_data();
+
+    std::string get_name() const override {
+        if (is_scalar_variant()) {
+            return "var_scalar(" + get_root()->get_name() + ")";
+        }
+        return "variant";
+    }
 
     /// Part of interface
     const char* get_family_name() const override { return "Variant"; }
@@ -358,8 +387,8 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
     // May throw execption
     void try_insert(const Field& field);
@@ -396,14 +425,14 @@ public:
         return StringRef();
     }
 
+    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
+
     const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "should not call the method in column object";
         return nullptr;
     }
 
-    void update_hash_with_value(size_t n, SipHash& hash) const override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
+    void update_hash_with_value(size_t n, SipHash& hash) const override;
 
     void insert_data(const char* pos, size_t length) override {
         LOG(FATAL) << "should not call the method in column object";
@@ -444,10 +473,6 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
-        LOG(FATAL) << "not support";
-    }
-
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;
 
@@ -463,5 +488,10 @@ public:
     void strip_outer_array();
 
     bool empty() const;
+
+    // Check if all columns and types are aligned
+    Status sanitize() const;
+
+    std::string debug_string() const;
 };
 } // namespace doris::vectorized

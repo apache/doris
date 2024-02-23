@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
@@ -49,31 +50,33 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultHeartbeatServiceImpl;
@@ -84,9 +87,12 @@ import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -127,7 +133,14 @@ public abstract class TestWithFeService {
     protected boolean needCleanDir = true;
     protected int lastFeRpcPort = 0;
 
-    protected static final String DEFAULT_CLUSTER_PREFIX = "default_cluster:";
+    protected static final String DEFAULT_CLUSTER_PREFIX = "";
+
+    private static final MockUp<SessionVariable> mockUp = new MockUp<SessionVariable>() {
+        @Mock
+        public Set<Integer> getEnableNereidsRules() {
+            return ImmutableSet.of();
+        }
+    };
 
     @BeforeAll
     public final void beforeAll() throws Exception {
@@ -175,8 +188,12 @@ public abstract class TestWithFeService {
         return 1;
     }
 
+    protected boolean needDiffHost() {
+        return false;
+    }
+
     // Help to create a mocked ConnectContext.
-    protected ConnectContext createDefaultCtx() throws IOException {
+    public static ConnectContext createDefaultCtx() throws IOException {
         return createCtx(UserIdentity.ROOT, "127.0.0.1");
     }
 
@@ -253,14 +270,14 @@ public abstract class TestWithFeService {
         return adapter;
     }
 
-    protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {
+    protected static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         ConnectContext ctx = new ConnectContext();
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());
         ctx.setRemoteIP(host);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
+        ctx.setStatementContext(new StatementContext());
         return ctx;
     }
 
@@ -498,7 +515,7 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected int findValidPort() {
+    public static int findValidPort() {
         int port = 0;
         while (true) {
             try (ServerSocket socket = new ServerSocket(0)) {
@@ -581,7 +598,7 @@ public abstract class TestWithFeService {
     }
 
     public void useDatabase(String dbName) {
-        connectContext.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
+        connectContext.setDatabase(dbName);
     }
 
     protected ShowResultSet showCreateTable(String sql) throws Exception {
@@ -614,7 +631,7 @@ public abstract class TestWithFeService {
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
         try {
-            Config.enable_odbc_table = true;
+            Config.enable_odbc_mysql_broker_table = true;
             createTables(enableNerieds, sql);
         } catch (Exception e) {
             e.printStackTrace();
@@ -637,6 +654,15 @@ public abstract class TestWithFeService {
     public void createTableAsSelect(String sql) throws Exception {
         CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
         Env.getCurrentEnv().createTableAsSelect(createTableAsSelectStmt);
+    }
+
+    public void createCatalog(String sql) throws Exception {
+        CreateCatalogStmt stmt = (CreateCatalogStmt) parseAndAnalyzeStmt(sql, connectContext);
+        Env.getCurrentEnv().getCatalogMgr().createCatalog(stmt);
+    }
+
+    public CatalogIf getCatalog(String name) throws Exception {
+        return Env.getCurrentEnv().getCatalogMgr().getCatalog(name);
     }
 
     public void createTables(String... sqls) throws Exception {
@@ -677,6 +703,22 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().createFunction(createFunctionStmt);
     }
 
+    public void addConstraint(String sql) throws Exception {
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AddConstraintCommand) {
+            ((AddConstraintCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    public void dropConstraint(String sql) throws Exception {
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropConstraintCommand) {
+            ((DropConstraintCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
     protected void dropPolicy(String sql) throws Exception {
         DropPolicyStmt stmt = (DropPolicyStmt) parseAndAnalyzeStmt(sql);
         Env.getCurrentEnv().getPolicyMgr().dropPolicy(stmt);
@@ -713,9 +755,9 @@ public abstract class TestWithFeService {
 
     protected void useUser(String userName) throws AnalysisException {
         UserIdentity user = new UserIdentity(userName, "%");
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
         connectContext.setCurrentUserIdentity(user);
-        connectContext.setQualifiedUser(SystemInfoService.DEFAULT_CLUSTER + ":" + userName);
+        connectContext.setQualifiedUser(userName);
     }
 
     protected void addRollup(String sql) throws Exception {

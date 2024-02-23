@@ -86,7 +86,9 @@ public class TokenManager {
 
         FrontendService.Client client = getClient(thriftAddress);
 
-        LOG.debug("Send acquire token to Master {}", thriftAddress);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Send acquire token to Master {}", thriftAddress);
+        }
 
         boolean isReturnToPool = false;
         try {
@@ -122,9 +124,7 @@ public class TokenManager {
 
 
     private TNetworkAddress getMasterAddress() throws TException {
-        if (!Env.getCurrentEnv().isReady()) {
-            throw new TException("Node catalog is not ready, please wait for a while.");
-        }
+        Env.getCurrentEnv().checkReadyOrThrowTException();
         String masterHost = Env.getCurrentEnv().getMasterHost();
         int masterRpcPort = Env.getCurrentEnv().getMasterRpcPort();
         return new TNetworkAddress(masterHost, masterRpcPort);

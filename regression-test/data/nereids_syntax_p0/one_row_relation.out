@@ -5,3 +5,9 @@ A'B	A''B	A''B
 -- !string2 --
 A"B	A""B	
 
+-- !string3 --
+A""B	A""B
+
+-- !string4 --
+A''B	A''B
+

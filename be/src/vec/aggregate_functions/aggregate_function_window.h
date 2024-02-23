@@ -137,6 +137,7 @@ struct DenseRankData {
     int64_t rank = 0;
     int64_t peer_group_start = 0;
 };
+
 class WindowFunctionDenseRank final
         : public IAggregateFunctionDataHelper<DenseRankData, WindowFunctionDenseRank> {
 public:
@@ -174,6 +175,115 @@ public:
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
 };
 
+struct PercentRankData {
+    int64_t rank = 0;
+    int64_t count = 0;
+    int64_t peer_group_start = 0;
+    int64_t partition_size = 0;
+};
+
+class WindowFunctionPercentRank final
+        : public IAggregateFunctionDataHelper<PercentRankData, WindowFunctionPercentRank> {
+private:
+    static double _cal_percent(int64 rank, int64 total_rows) {
+        return total_rows <= 1 ? 0.0 : (rank - 1) * 1.0 / (total_rows - 1);
+    }
+
+public:
+    WindowFunctionPercentRank(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper(argument_types_) {}
+
+    String get_name() const override { return "percent_rank"; }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+
+    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {}
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena) const override {
+        int64_t peer_group_count = frame_end - frame_start;
+        if (WindowFunctionPercentRank::data(place).peer_group_start != frame_start) {
+            WindowFunctionPercentRank::data(place).peer_group_start = frame_start;
+            WindowFunctionPercentRank::data(place).rank +=
+                    WindowFunctionPercentRank::data(place).count;
+            // some variables are partition related, but there is no chance to init them
+            // when the new partition arrives, so we calculate them every time now.
+            WindowFunctionPercentRank::data(place).partition_size = partition_end - partition_start;
+        }
+        WindowFunctionPercentRank::data(place).count = peer_group_count;
+    }
+
+    void reset(AggregateDataPtr place) const override {
+        WindowFunctionPercentRank::data(place).rank = 0;
+        WindowFunctionPercentRank::data(place).count = 1;
+        WindowFunctionPercentRank::data(place).peer_group_start = -1;
+        WindowFunctionPercentRank::data(place).partition_size = 0;
+    }
+
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+        auto percent_rank = _cal_percent(data(place).rank, data(place).partition_size);
+        assert_cast<ColumnFloat64&>(to).get_data().push_back(percent_rank);
+    }
+
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
+    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
+};
+
+struct CumeDistData {
+    int64_t numerator = 0;
+    int64_t denominator = 0;
+    int64_t peer_group_start = 0;
+};
+
+class WindowFunctionCumeDist final
+        : public IAggregateFunctionDataHelper<CumeDistData, WindowFunctionCumeDist> {
+private:
+    static void check_default(AggregateDataPtr place, int64_t partition_start,
+                              int64_t partition_end) {
+        if (data(place).denominator == 0) {
+            data(place).denominator = partition_end - partition_start;
+        }
+    }
+
+public:
+    WindowFunctionCumeDist(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper(argument_types_) {}
+
+    String get_name() const override { return "cume_dist"; }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+
+    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {}
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena) const override {
+        check_default(place, partition_start, partition_end);
+        int64_t peer_group_count = frame_end - frame_start;
+        if (WindowFunctionCumeDist::data(place).peer_group_start != frame_start) {
+            WindowFunctionCumeDist::data(place).peer_group_start = frame_start;
+            WindowFunctionCumeDist::data(place).numerator += peer_group_count;
+        }
+    }
+
+    void reset(AggregateDataPtr place) const override {
+        WindowFunctionCumeDist::data(place).numerator = 0;
+        WindowFunctionCumeDist::data(place).denominator = 0;
+        WindowFunctionCumeDist::data(place).peer_group_start = -1;
+    }
+
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+        auto cume_dist = data(place).numerator * 1.0 / data(place).denominator;
+        assert_cast<ColumnFloat64&>(to).get_data().push_back(cume_dist);
+    }
+
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
+    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
+};
+
 struct NTileData {
     int64_t bucket_index = 0;
     int64_t rows = 0;
@@ -195,7 +305,7 @@ public:
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
         // some variables are partition related, but there is no chance to init them
-        // when the new partition arrives, so we calculate them evey time now.
+        // when the new partition arrives, so we calculate them every time now.
         // Partition = big_bucket_num * big_bucket_size + small_bucket_num * small_bucket_size
         int64_t row_index = ++WindowFunctionNTile::data(place).rows - 1;
         int64_t bucket_num = columns[0]->get_int(0);
@@ -309,7 +419,7 @@ private:
     bool _is_inited = false;
 };
 
-template <typename Data>
+template <typename Data, bool = false>
 struct WindowFunctionLeadImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
@@ -328,7 +438,7 @@ struct WindowFunctionLeadImpl : Data {
     static const char* name() { return "lead"; }
 };
 
-template <typename Data>
+template <typename Data, bool = false>
 struct WindowFunctionLagImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
@@ -350,7 +460,7 @@ struct WindowFunctionLagImpl : Data {
 // TODO: first_value && last_value in some corner case will be core,
 // if need to simply change it, should set them to always nullable insert into null value, and register in cpp maybe be change
 // But it's may be another better way to handle it
-template <typename Data>
+template <typename Data, bool arg_ignore_null = false>
 struct WindowFunctionFirstImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
@@ -363,13 +473,27 @@ struct WindowFunctionFirstImpl : Data {
             return;
         }
         frame_start = std::max<int64_t>(frame_start, partition_start);
+
+        if constexpr (arg_ignore_null) {
+            frame_end = std::min<int64_t>(frame_end, partition_end);
+
+            auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
+            auto ignore_null_value = second_arg.get_data()[0];
+
+            if (ignore_null_value && columns[0]->is_nullable()) {
+                auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+                while (frame_start < frame_end - 1 && arg_nullable.is_null_at(frame_start)) {
+                    frame_start++;
+                }
+            }
+        }
         this->set_value(columns, frame_start);
     }
 
     static const char* name() { return "first_value"; }
 };
 
-template <typename Data>
+template <typename Data, bool arg_ignore_null = false>
 struct WindowFunctionLastImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
@@ -380,6 +504,21 @@ struct WindowFunctionLastImpl : Data {
             return;
         }
         frame_end = std::min<int64_t>(frame_end, partition_end);
+
+        if constexpr (arg_ignore_null) {
+            frame_start = std::max<int64_t>(frame_start, partition_start);
+
+            auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
+            auto ignore_null_value = second_arg.get_data()[0];
+
+            if (ignore_null_value && columns[0]->is_nullable()) {
+                auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+                while (frame_start < (frame_end - 1) && arg_nullable.is_null_at(frame_end - 1)) {
+                    frame_end--;
+                }
+            }
+        }
+
         this->set_value(columns, frame_end - 1);
     }
 

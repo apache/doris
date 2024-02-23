@@ -120,8 +120,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(opts.file_reader->path().native(),
                                          opts.file_reader->size(), opts.page_pointer.offset);
-    if (opts.use_page_cache && cache->is_cache_available(opts.type) &&
-        cache->lookup(cache_key, &cache_handle, opts.type)) {
+    if (opts.use_page_cache && cache && cache->lookup(cache_key, &cache_handle, opts.type)) {
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
         opts.stats->cached_pages_num++;
@@ -218,7 +217,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
 
     *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);
     page->reset_size(page_slice.size);
-    if (opts.use_page_cache && cache->is_cache_available(opts.type)) {
+    if (opts.use_page_cache && cache) {
         // insert this page into cache and return the cache handle
         cache->insert(cache_key, page.get(), &cache_handle, opts.type, opts.kept_in_memory);
         *handle = PageHandle(std::move(cache_handle));

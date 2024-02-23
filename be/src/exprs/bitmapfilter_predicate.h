@@ -31,7 +31,7 @@ namespace doris {
 class BitmapFilterFuncBase : public FilterFuncBase {
 public:
     virtual void insert(const void* data) = 0;
-    virtual void insert_many(const std::vector<const BitmapValue*> bitmaps) = 0;
+    virtual void insert_many(const std::vector<const BitmapValue*>& bitmaps) = 0;
     virtual bool empty() = 0;
     virtual Status assign(BitmapValue* bitmap_value) = 0;
     virtual void light_copy(BitmapFilterFuncBase* other) { _not_in = other->_not_in; }
@@ -60,7 +60,7 @@ public:
 
     void insert(const void* data) override;
 
-    void insert_many(const std::vector<const BitmapValue*> bitmaps) override;
+    void insert_many(const std::vector<const BitmapValue*>& bitmaps) override;
 
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
                                         int number) override;
@@ -75,7 +75,7 @@ public:
         return Status::OK();
     }
 
-    void light_copy(BitmapFilterFuncBase* bloomfilter_func) override;
+    void light_copy(BitmapFilterFuncBase* bitmapfilter_func) override;
 
     size_t size() const override { return _bitmap_value->cardinality(); }
 
@@ -108,7 +108,7 @@ void BitmapFilterFunc<type>::insert(const void* data) {
 }
 
 template <PrimitiveType type>
-void BitmapFilterFunc<type>::insert_many(const std::vector<const BitmapValue*> bitmaps) {
+void BitmapFilterFunc<type>::insert_many(const std::vector<const BitmapValue*>& bitmaps) {
     if (bitmaps.empty()) {
         return;
     }

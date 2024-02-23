@@ -330,6 +330,7 @@ suite("test_date_function") {
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
     qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
+    qt_sql """ select str_to_date("", "%Y-%m-%d %H:%i:%s"); """
     qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
     qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
     qt_sql """ select str_to_date('2023-07-05T02:09:55.880Z','%Y-%m-%dT%H:%i:%s.%fZ') """
@@ -377,10 +378,13 @@ suite("test_date_function") {
     // UNIX_TIMESTAMP
     def unin_timestamp_str = """ select unix_timestamp() """
     assertTrue(unin_timestamp_str[0].size() == 1)
-    qt_sql """ select unix_timestamp('2007-11-30 10:30:19') """
-    qt_sql """ select unix_timestamp('2007-11-30 10:30-19', '%Y-%m-%d %H:%i-%s') """
-    qt_sql """ select unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s') """
-    qt_sql """ select unix_timestamp('1969-01-01 00:00:00') """
+    qt_sql_ustamp1 """ select unix_timestamp('2007-11-30 10:30:19') """
+    qt_sql_ustamp2 """ select unix_timestamp('2007-11-30 10:30-19', '%Y-%m-%d %H:%i-%s') """
+    qt_sql_ustamp3 """ select unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s') """
+    qt_sql_ustamp4 """ select unix_timestamp('1969-01-01 00:00:00') """
+    qt_sql_ustamp5 """ select unix_timestamp('2007-11-30 10:30:19.123456') """
+    qt_sql_ustamp6 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(3))) """
+    qt_sql_ustamp7 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(4))) """
 
     // UTC_TIMESTAMP
     def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """

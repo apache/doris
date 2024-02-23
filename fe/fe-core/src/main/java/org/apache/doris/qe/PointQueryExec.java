@@ -88,7 +88,9 @@ public class PointQueryExec implements CoordInterface {
     private OlapScanNode getPlanRoot() {
         List<PlanFragment> fragments = planner.getFragments();
         PlanFragment fragment = fragments.get(0);
-        LOG.debug("execPointGet fragment {}", fragment);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("execPointGet fragment {}", fragment);
+        }
         OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
         Preconditions.checkNotNull(planRoot);
         return planRoot;
@@ -121,6 +123,9 @@ public class PointQueryExec implements CoordInterface {
         OlapScanNode planRoot = getPlanRoot();
         // compute scan range
         List<TScanRangeLocations> locations = planRoot.lazyEvaluateRangeLocations();
+        if (planRoot.getScanTabletIds().isEmpty()) {
+            return;
+        }
         Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
         this.tabletID = planRoot.getScanTabletIds().get(0);
 
@@ -134,7 +139,9 @@ public class PointQueryExec implements CoordInterface {
         }
         // Random read replicas
         Collections.shuffle(this.candidateBackends);
-        LOG.debug("set scan locations, backend ids {}, tablet id {}", candidateBackends, tabletID);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("set scan locations, backend ids {}, tablet id {}", candidateBackends, tabletID);
+        }
     }
 
     public void setTimeout(long timeoutMs) {
@@ -167,6 +174,10 @@ public class PointQueryExec implements CoordInterface {
     @Override
     public RowBatch getNext() throws Exception {
         setScanRangeLocations();
+        // No partition/tablet found return emtpy row batch
+        if (candidateBackends == null || candidateBackends.isEmpty()) {
+            return new RowBatch();
+        }
         Iterator<Backend> backendIter = candidateBackends.iterator();
         RowBatch rowBatch = null;
         int tryCount = 0;

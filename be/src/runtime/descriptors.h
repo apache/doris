@@ -240,7 +240,6 @@ public:
     const std::string table() const { return _table; }
     const std::string access_key() const { return _access_key; }
     const std::string secret_key() const { return _secret_key; }
-    const std::string partition_spec() const { return _partition_spec; }
     const std::string public_access() const { return _public_access; }
 
 private:
@@ -249,7 +248,6 @@ private:
     std::string _table;
     std::string _access_key;
     std::string _secret_key;
-    std::string _partition_spec;
     std::string _public_access;
 };
 
@@ -312,6 +310,7 @@ class JdbcTableDescriptor : public TableDescriptor {
 public:
     JdbcTableDescriptor(const TTableDescriptor& tdesc);
     std::string debug_string() const override;
+    int64_t jdbc_catalog_id() const { return _jdbc_catalog_id; }
     const std::string& jdbc_resource_name() const { return _jdbc_resource_name; }
     const std::string& jdbc_driver_url() const { return _jdbc_driver_url; }
     const std::string& jdbc_driver_class() const { return _jdbc_driver_class; }
@@ -320,8 +319,14 @@ public:
     const std::string& jdbc_table_name() const { return _jdbc_table_name; }
     const std::string& jdbc_user() const { return _jdbc_user; }
     const std::string& jdbc_passwd() const { return _jdbc_passwd; }
+    int32_t connection_pool_min_size() const { return _connection_pool_min_size; }
+    int32_t connection_pool_max_size() const { return _connection_pool_max_size; }
+    int32_t connection_pool_max_wait_time() const { return _connection_pool_max_wait_time; }
+    int32_t connection_pool_max_life_time() const { return _connection_pool_max_life_time; }
+    bool connection_pool_keep_alive() const { return _connection_pool_keep_alive; }
 
 private:
+    int64_t _jdbc_catalog_id;
     std::string _jdbc_resource_name;
     std::string _jdbc_driver_url;
     std::string _jdbc_driver_class;
@@ -330,6 +335,11 @@ private:
     std::string _jdbc_table_name;
     std::string _jdbc_user;
     std::string _jdbc_passwd;
+    int32_t _connection_pool_min_size;
+    int32_t _connection_pool_max_size;
+    int32_t _connection_pool_max_wait_time;
+    int32_t _connection_pool_max_life_time;
+    bool _connection_pool_keep_alive;
 };
 
 class TupleDescriptor {
@@ -399,7 +409,7 @@ private:
     friend class TabletSchema;
 
     const TupleId _id;
-    TableDescriptor* _table_desc;
+    TableDescriptor* _table_desc = nullptr;
     int64_t _byte_size;
     int _num_null_slots;
     int _num_null_bytes;

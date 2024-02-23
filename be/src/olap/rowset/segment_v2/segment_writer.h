@@ -149,26 +149,40 @@ private:
                              size_t pos);
     // used for unique-key with merge on write and segment min_max key
     std::string _full_encode_keys(
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos);
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
+            bool null_first = true);
+
+    std::string _full_encode_keys(
+            const std::vector<const KeyCoder*>& key_coders,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
+            bool null_first = true);
+
     // used for unique-key with merge on write
     void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
                             string* encoded_keys);
+    void _encode_rowid(const uint32_t rowid, string* encoded_keys);
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
     bool _should_create_writers_with_dynamic_block(size_t num_columns_in_block);
     void _serialize_block_to_row_column(vectorized::Block& block);
+    Status _generate_primary_key_index(
+            const std::vector<const KeyCoder*>& primary_key_coders,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& primary_key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
+    Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+                                     size_t num_rows, const std::vector<size_t>& short_key_pos);
 
 private:
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;
-    DataDir* _data_dir;
+    DataDir* _data_dir = nullptr;
     uint32_t _max_row_per_segment;
     SegmentWriterOptions _opts;
 
     // Not owned. owned by RowsetWriter
-    io::FileWriter* _file_writer;
+    io::FileWriter* _file_writer = nullptr;
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;
@@ -181,8 +195,12 @@ private:
 
     std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
+    // for mow table with cluster keys, this is cluster keys
     std::vector<const KeyCoder*> _key_coders;
+    // for mow table with cluster keys, this is primary keys
+    std::vector<const KeyCoder*> _primary_key_coders;
     const KeyCoder* _seq_coder = nullptr;
+    const KeyCoder* _rowid_coder = nullptr;
     std::vector<uint16_t> _key_index_size;
     size_t _short_key_row_pos = 0;
 

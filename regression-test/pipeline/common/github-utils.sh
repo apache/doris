@@ -50,16 +50,70 @@ function create_an_issue_comment() {
 
 function create_an_issue_comment_tpch() {
     local ISSUE_NUMBER="$1"
-    local COMMENT_BODY="$2"
+    local COMMENT_BODY_SUMMARY="$2"
+    local COMMENT_BODY_DETAIL="$3"
     local machine='aliyun_ecs.c7a.8xlarge_32C64G'
     COMMENT_BODY="
 <details>
-<summary>TPC-H test result on machine: '${machine}'</summary>
+<summary>TPC-H: <b>${COMMENT_BODY_SUMMARY}</b></summary>
 
+\`\`\`
+machine: '${machine}'
+scripts: https://github.com/apache/doris/tree/master/tools/tpch-tools
+${COMMENT_BODY_DETAIL}
+\`\`\`
+</details>
+"
+    create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
+}
+
+function create_an_issue_comment_tpcds() {
+    local ISSUE_NUMBER="$1"
+    local COMMENT_BODY_SUMMARY="$2"
+    local COMMENT_BODY_DETAIL="$3"
+    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    COMMENT_BODY="
+<details>
+<summary>TPC-DS: <b>${COMMENT_BODY_SUMMARY}</b></summary>
+
+\`\`\`
+machine: '${machine}'
+scripts: https://github.com/apache/doris/tree/master/tools/tpcds-tools
+${COMMENT_BODY_DETAIL}
+\`\`\`
+</details>
+"
+    create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
+}
+
+function create_an_issue_comment_clickbench() {
+    local ISSUE_NUMBER="$1"
+    local COMMENT_BODY_SUMMARY="$2"
+    local COMMENT_BODY_DETAIL="$3"
+    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    COMMENT_BODY="
+<details>
+<summary>ClickBench: <b>${COMMENT_BODY_SUMMARY}</b></summary>
+
+\`\`\`
+machine: '${machine}'
+scripts: https://github.com/apache/doris/tree/master/tools/clickbench-tools
+${COMMENT_BODY_DETAIL}
+\`\`\`
+</details>
+"
+    create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
+}
+
+function create_an_issue_comment_load() {
+    local ISSUE_NUMBER="$1"
+    local COMMENT_BODY="$2"
+    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    COMMENT_BODY="
+Load test result on machine: '${machine}'
 \`\`\`
 ${COMMENT_BODY}
 \`\`\`
-</details>
 "
     create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
 }
@@ -135,24 +189,34 @@ _get_pr_changed_files() {
     removed_files=$(jq -r '.[] | select(.status == "removed") | .filename' "${file_name}")
     rm "${file_name}"
     if [[ -z "${all_files}" ]]; then echo -e "\033[31m List pull request(${pr_url}) files FAIL... \033[0m" && return 1; fi
+    echo "${all_files}" >all_files
+    echo "${added_files}" >added_files
+    echo "${modified_files}" >modified_files
+    echo "${removed_files}" >removed_files
 
     echo -e "
 https://github.com/apache/doris/pull/${PULL_NUMBER}/files all change files:
 ---------------------------------------------------------------"
     if [[ "${which_file:-all}" == "all" ]]; then
-        echo -e "${all_files}\n" && export all_files
+        echo -e "${all_files}\n"
     elif [[ "${which_file}" == "added" ]]; then
-        echo -e "${added_files}\n" && export added_files
+        echo -e "${added_files}\n"
     elif [[ "${which_file}" == "modified" ]]; then
-        echo -e "${modified_files}\n" && export modified_files
+        echo -e "${modified_files}\n"
     elif [[ "${which_file}" == "removed" ]]; then
-        echo -e "${removed_files}\n" && export removed_files
+        echo -e "${removed_files}\n"
     else
         return 1
     fi
 }
 
 _only_modified_regression_conf() {
+    local added_files
+    local removed_files
+    local modified_files
+    added_files=$(cat added_files)
+    removed_files=$(cat removed_files)
+    modified_files=$(cat modified_files)
     if [[ -n ${added_files} || -n ${removed_files} ]]; then
         # echo "Not only modified regression conf, find added/removed files"
         return 1
@@ -175,6 +239,8 @@ _only_modified_regression_conf() {
 }
 
 file_changed_fe_ut() {
+    local all_files
+    all_files=$(cat all_files)
     if _only_modified_regression_conf; then echo "return no need" && return 1; fi
     if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
     for af in ${all_files}; do
@@ -190,6 +256,8 @@ file_changed_fe_ut() {
 }
 
 file_changed_be_ut() {
+    local all_files
+    all_files=$(cat all_files)
     if _only_modified_regression_conf; then echo "return no need" && return 1; fi
     if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
     for af in ${all_files}; do
@@ -205,7 +273,56 @@ file_changed_be_ut() {
     echo "return no need" && return 1
 }
 
+file_changed_cloud_ut() {
+    local all_files
+    all_files=$(cat all_files)
+    if _only_modified_regression_conf; then echo "return no need" && return 1; fi
+    if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
+    for af in ${all_files}; do
+        if [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'cloud/test/'* ]]; then
+            echo "cloud-ut related file changed, return need" && return 0
+        fi
+    done
+    echo "return no need" && return 1
+}
+
+file_changed_cloud_p0() {
+    local all_files
+    all_files=$(cat all_files)
+    if _only_modified_regression_conf; then echo "return no need" && return 1; fi
+    if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
+    for af in ${all_files}; do
+        if [[ "${af}" == 'be'* ]] ||
+            [[ "${af}" == 'bin'* ]] ||
+            [[ "${af}" == 'conf'* ]] ||
+            [[ "${af}" == 'contrib'* ]] ||
+            [[ "${af}" == 'fe'* ]] ||
+            [[ "${af}" == 'fe_plugins'* ]] ||
+            [[ "${af}" == 'gensrc'* ]] ||
+            [[ "${af}" == 'regression-test'* ]] ||
+            [[ "${af}" == 'thirdparty'* ]] ||
+            [[ "${af}" == 'docker'* ]] ||
+            [[ "${af}" == 'ui'* ]] ||
+            [[ "${af}" == 'webroot'* ]] ||
+            [[ "${af}" == 'build.sh' ]] ||
+            [[ "${af}" == 'env.sh' ]] ||
+            [[ "${af}" == 'run-regression-test.sh' ]] ||
+            [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'cloud/test/'* ]]; then
+            echo "cloud-p0 related file changed, return need" && return 0
+        fi
+    done
+    echo "return no need" && return 1
+}
+
+file_changed_cloud_p1() {
+    file_changed_cloud_p0
+}
+
 file_changed_regression_p0() {
+    local all_files
+    all_files=$(cat all_files)
     if _only_modified_regression_conf; then echo "return no need" && return 1; fi
     if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
     for af in ${all_files}; do
@@ -234,12 +351,9 @@ file_changed_regression_p1() {
     file_changed_regression_p0
 }
 
-file_changed_arm_regression_p0() {
-    if [[ $(($1 % 2)) -eq 0 ]]; then echo "the pull request id is even, return no need" && return 1; fi
-    file_changed_regression_p0
-}
-
-file_changed_ckb() {
+file_changed_performance() {
+    local all_files
+    all_files=$(cat all_files)
     if _only_modified_regression_conf; then echo "return no need" && return 1; fi
     if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
     for af in ${all_files}; do
@@ -250,8 +364,15 @@ file_changed_ckb() {
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
             [[ "${af}" == 'build.sh' ]] ||
-            [[ "${af}" == 'env.sh' ]]; then
-            echo "clickbench performance related file changed, return need" && return 0
+            [[ "${af}" == 'env.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/common/github-utils.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/common/doris-utils.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/common/oss-utils.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/performance/'* ]] ||
+            [[ "${af}" == 'tools/tpch-tools/bin/run-tpch-queries.sh' ]] ||
+            [[ "${af}" == 'tools/tpcds-tools/bin/run-tpcds-queries.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/tpch/tpch-sf100/'* ]]; then
+            echo "performance related file changed, return need" && return 0
         fi
     done
     echo "return no need" && return 1

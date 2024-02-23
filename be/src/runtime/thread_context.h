@@ -115,7 +115,7 @@ extern bthread_key_t btls_key;
 
 // Is true after ThreadContext construction.
 inline thread_local bool pthread_context_ptr_init = false;
-inline thread_local constinit ThreadContext* thread_context_ptr;
+inline thread_local constinit ThreadContext* thread_context_ptr = nullptr;
 // use mem hook to consume thread mem tracker.
 inline thread_local bool use_mem_hook = false;
 
@@ -144,25 +144,21 @@ public:
                 << ", attach mem tracker label: " << mem_tracker->label();
 #endif
         _task_id = task_id;
-        _fragment_instance_id = fragment_instance_id;
         thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, fragment_instance_id);
     }
 
     void detach_task() {
         _task_id = TUniqueId();
-        _fragment_instance_id = TUniqueId();
         thread_mem_tracker_mgr->detach_limiter_tracker();
     }
 
     [[nodiscard]] const TUniqueId& task_id() const { return _task_id; }
-    [[nodiscard]] const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
 
     static std::string get_thread_id() {
         std::stringstream ss;
         ss << std::this_thread::get_id();
         return ss.str();
     }
-
     // After thread_mem_tracker_mgr is initialized, the current thread Hook starts to
     // consume/release mem_tracker.
     // Note that the use of shared_ptr will cause a crash. The guess is that there is an
@@ -184,7 +180,6 @@ public:
 
 private:
     TUniqueId _task_id;
-    TUniqueId _fragment_instance_id;
 };
 
 class ThreadLocalHandle {
@@ -291,7 +286,7 @@ public:
     }
 
 private:
-    int64_t* _scope_mem;
+    int64_t* _scope_mem = nullptr;
 };
 
 class AttachTask {
@@ -334,7 +329,7 @@ public:
     ~AddThreadMemTrackerConsumer();
 
 private:
-    std::shared_ptr<MemTracker> _mem_tracker = nullptr; // Avoid mem_tracker being released midway.
+    std::shared_ptr<MemTracker> _mem_tracker; // Avoid mem_tracker being released midway.
     bool _need_pop = false;
 };
 
@@ -344,7 +339,7 @@ public:
     ~AddThreadMemTrackerConsumerByHook();
 
 private:
-    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
+    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 // Basic macros for mem tracker, usually do not need to be modified and used.

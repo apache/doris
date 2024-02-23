@@ -68,9 +68,9 @@ INSERT OVERWRITE table table_name
 
 注意：
 
-在当前版本中，会话变量 `enable_insert_strict` 默认为 `true`，如果执行 `INSERT OVERWRITE` 语句时，对于有不符合目标表格式的数据被过滤掉的话会重写目标表失败（比如重写分区时，不满足所有分区条件的数据会被过滤）。
-
-INSERT OVERWRITE语句会首先创建一个新表，将需要重写的数据插入到新表中，最后原子性的用新表替换旧表并修改名称。因此，在重写表的过程中，旧表中的数据在重写完毕之前仍然可以正常访问。
+1. 在当前版本中，会话变量 `enable_insert_strict` 默认为 `true`，如果执行 `INSERT OVERWRITE` 语句时，对于有不符合目标表格式的数据被过滤掉的话会重写目标表失败（比如重写分区时，不满足所有分区条件的数据会被过滤）。
+2. 如果INSERT OVERWRITE的目标表是[AUTO-PARTITION表](../../../../advanced/partition/auto-partition)，若未指定PARTITION（重写整表），那么可以创建新的分区。如果指定了覆写的PARTITION，那么在此过程中，AUTO PARTITION表表现得如同普通分区表一样，不满足现有分区条件的数据将被过滤，而非创建新的分区。
+3. INSERT OVERWRITE语句会首先创建一个新表，将需要重写的数据插入到新表中，最后原子性的用新表替换旧表并修改名称。因此，在重写表的过程中，旧表中的数据在重写完毕之前仍然可以正常访问。
 
 ### Example
 
@@ -178,5 +178,5 @@ PROPERTIES (
 
 ### Keywords
 
-    INSERT OVERWRITE
+    INSERT OVERWRITE, OVERWRITE
 

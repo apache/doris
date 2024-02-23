@@ -2,45 +2,22 @@
 -- !select --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalQuickSort[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey) and (customer.c_nationkey = supplier.s_nationkey)) otherCondition=() build RFs:RF4 c_nationkey->[s_nationkey];RF5 c_custkey->[o_custkey]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF3 o_orderkey->[l_orderkey]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[l_suppkey]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[lineitem] apply RFs: RF2 RF3
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[s_nationkey]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[supplier] apply RFs: RF1 RF4
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF0 r_regionkey->[n_regionkey]
-------------------------------------------PhysicalDistribute
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[nation] apply RFs: RF0
-------------------------------------------PhysicalDistribute
---------------------------------------------PhysicalProject
-----------------------------------------------filter((region.r_name = 'ASIA'))
-------------------------------------------------PhysicalOlapScan[region]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter((orders.o_orderdate < '1995-01-01') and (orders.o_orderdate >= '1994-01-01'))
-------------------------------PhysicalOlapScan[orders] apply RFs: RF5
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer]
+----PhysicalQuickSort[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey) and (customer.c_nationkey = supplier.s_nationkey)) otherCondition=() build RFs:RF4 c_nationkey->[s_nationkey];RF5 c_custkey->[o_custkey]
+------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF3 o_orderkey->[l_orderkey]
+--------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[l_suppkey]
+----------------PhysicalOlapScan[lineitem] apply RFs: RF2 RF3
+----------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[s_nationkey]
+------------------PhysicalOlapScan[supplier] apply RFs: RF1 RF4
+------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF0 r_regionkey->[n_regionkey]
+--------------------PhysicalOlapScan[nation] apply RFs: RF0
+--------------------filter((region.r_name = 'ASIA'))
+----------------------PhysicalOlapScan[region]
+--------------filter((orders.o_orderdate < '1995-01-01') and (orders.o_orderdate >= '1994-01-01'))
+----------------PhysicalOlapScan[orders] apply RFs: RF5
+------------PhysicalOlapScan[customer]
 
 Used: leading(lineitem { supplier { nation region } } orders customer)
 UnUsed:

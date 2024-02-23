@@ -451,11 +451,6 @@ public:
         hash.update(reinterpret_cast<const char*>(&chars[offset]), string_size);
     }
 
-    void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                  const uint8_t* __restrict null_data) const override {
-        SIP_HASHES_FUNCTION_COLUMN_IMPL();
-    }
-
     void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
@@ -484,8 +479,8 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
@@ -519,8 +514,6 @@ public:
                          Permutation& res) const override;
 
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
-
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnString>(num_columns, selector);

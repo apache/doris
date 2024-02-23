@@ -54,6 +54,7 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return true; }
+
     bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

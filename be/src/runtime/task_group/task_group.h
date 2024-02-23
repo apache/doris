@@ -29,10 +29,11 @@
 #include <unordered_set>
 
 #include "common/status.h"
+#include "service/backend_options.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
-class TPipelineWorkloadGroup;
 class MemTrackerLimiter;
 
 namespace pipeline {
@@ -43,54 +44,6 @@ namespace taskgroup {
 
 class TaskGroup;
 struct TaskGroupInfo;
-class ScanTaskQueue;
-
-template <typename QueueType>
-class TaskGroupEntity {
-public:
-    explicit TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type);
-    ~TaskGroupEntity();
-
-    uint64_t vruntime_ns() const { return _vruntime_ns; }
-
-    QueueType* task_queue();
-
-    void incr_runtime_ns(uint64_t runtime_ns);
-
-    void adjust_vruntime_ns(uint64_t vruntime_ns);
-
-    size_t task_size() const;
-
-    uint64_t cpu_share() const;
-
-    std::string debug_string() const;
-
-    uint64_t task_group_id() const;
-
-    void check_and_update_cpu_share(const TaskGroupInfo& tg_info);
-
-private:
-    QueueType* _task_queue;
-
-    uint64_t _vruntime_ns = 0;
-    taskgroup::TaskGroup* _tg;
-
-    std::string _type;
-
-    // Because updating cpu share of entity requires locking the task queue(pipeline task queue or
-    // scan task queue) contains that entity, we kept version and cpu share in entity for
-    // independent updates.
-    int64_t _version;
-    uint64_t _cpu_share;
-};
-
-// TODO llj tg use PriorityTaskQueue to replace std::queue
-using TaskGroupPipelineTaskEntity = TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
-using TGPTEntityPtr = TaskGroupPipelineTaskEntity*;
-
-using TaskGroupScanTaskEntity = TaskGroupEntity<ScanTaskQueue>;
-using TGSTEntityPtr = TaskGroupScanTaskEntity*;
-
 struct TgTrackerLimiterGroup {
     std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
     std::mutex group_lock;
@@ -99,9 +52,6 @@ struct TgTrackerLimiterGroup {
 class TaskGroup : public std::enable_shared_from_this<TaskGroup> {
 public:
     explicit TaskGroup(const TaskGroupInfo& tg_info);
-
-    TaskGroupPipelineTaskEntity* task_entity() { return &_task_entity; }
-    TGSTEntityPtr local_scan_task_entity() { return &_local_scan_entity; }
 
     int64_t version() const { return _version; }
 
@@ -146,6 +96,34 @@ public:
         return _memory_limit > 0;
     }
 
+    Status add_query(TUniqueId query_id) {
+        std::unique_lock<std::shared_mutex> wlock(_mutex);
+        if (_is_shutdown) {
+            // If the task group is set shutdown, then should not run any more,
+            // because the scheduler pool and other pointer may be released.
+            return Status::InternalError(
+                    "Failed add query to workload group, the workload group is shutdown. host: {}",
+                    BackendOptions::get_localhost());
+        }
+        _query_id_set.insert(query_id);
+        return Status::OK();
+    }
+
+    void remove_query(TUniqueId query_id) {
+        std::unique_lock<std::shared_mutex> wlock(_mutex);
+        _query_id_set.erase(query_id);
+    }
+
+    void shutdown() {
+        std::unique_lock<std::shared_mutex> wlock(_mutex);
+        _is_shutdown = true;
+    }
+
+    int query_num() {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _query_id_set.size();
+    }
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
@@ -154,10 +132,15 @@ private:
     int64_t _memory_limit; // bytes
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
-    TaskGroupPipelineTaskEntity _task_entity;
-    TaskGroupScanTaskEntity _local_scan_entity;
     std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
     std::atomic<int> _cpu_hard_limit;
+    std::atomic<int> _scan_thread_num;
+
+    // means task group is mark dropped
+    // new query can not submit
+    // waiting running query to be cancelled or finish
+    bool _is_shutdown = false;
+    std::unordered_set<TUniqueId> _query_id_set;
 };
 
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
@@ -171,9 +154,10 @@ struct TaskGroupInfo {
     int64_t version;
     int cpu_hard_limit;
     bool enable_cpu_hard_limit;
+    int scan_thread_num;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
-    uint64_t cgroup_cpu_hard_limit = 0;
+    int cgroup_cpu_hard_limit = 0;
 
     static Status parse_topic_info(const TWorkloadGroupInfo& topic_info,
                                    taskgroup::TaskGroupInfo* task_group_info);

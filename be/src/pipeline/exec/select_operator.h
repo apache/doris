@@ -35,18 +35,18 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class SelectOperator final : public StreamingOperator<SelectOperatorBuilder> {
+class SelectOperator final : public StreamingOperator<vectorized::VSelectNode> {
 public:
     SelectOperator(OperatorBuilderBase* operator_builder, ExecNode* select_node);
 };
 
 class SelectOperatorX;
-class SelectLocalState final : public PipelineXLocalState<FakeDependency> {
+class SelectLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(SelectLocalState);
 
     SelectLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeDependency>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~SelectLocalState() = default;
 
 private:

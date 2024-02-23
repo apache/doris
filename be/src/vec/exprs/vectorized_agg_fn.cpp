@@ -66,12 +66,7 @@ AggregateFunctionPtr get_agg_state_function(const DataTypes& argument_types,
 AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         : _fn(desc.fn),
           _is_merge(desc.agg_expr.is_merge_agg),
-          _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)),
-          _intermediate_slot_desc(nullptr),
-          _output_slot_desc(nullptr),
-          _exec_timer(nullptr),
-          _merge_timer(nullptr),
-          _expr_timer(nullptr) {
+          _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)) {
     bool nullable = true;
     if (desc.__isset.is_nullable) {
         nullable = desc.is_nullable;
@@ -79,10 +74,10 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
     _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
 
     if (desc.agg_expr.__isset.param_types) {
-        auto& param_types = desc.agg_expr.param_types;
-        for (int i = 0; i < param_types.size(); i++) {
+        const auto& param_types = desc.agg_expr.param_types;
+        for (const auto& param_type : param_types) {
             _argument_types_with_sort.push_back(
-                    DataTypeFactory::instance().create_data_type(param_types[i]));
+                    DataTypeFactory::instance().create_data_type(param_type));
         }
     }
 }
@@ -135,10 +130,10 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     std::vector<std::string_view> child_expr_name;
 
     // prepare for argument
-    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        auto data_type = _input_exprs_ctxs[i]->root()->data_type();
+    for (auto& _input_exprs_ctx : _input_exprs_ctxs) {
+        auto data_type = _input_exprs_ctx->root()->data_type();
         tmp_argument_types.emplace_back(data_type);
-        child_expr_name.emplace_back(_input_exprs_ctxs[i]->root()->expr_name());
+        child_expr_name.emplace_back(_input_exprs_ctx->root()->expr_name());
     }
 
     const DataTypes& argument_types =
@@ -171,9 +166,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         }
 
         std::string type_function_name =
-                assert_cast<const DataTypeAggState*>(argument_types[0].get())
-                        ->get_nested_function()
-                        ->get_name();
+                assert_cast<const DataTypeAggState*>(argument_types[0].get())->get_function_name();
         if (type_function_name + AGG_UNION_SUFFIX == _fn.name.function_name) {
             if (_data_type->is_nullable()) {
                 return Status::InternalError(
@@ -221,8 +214,6 @@ Status AggFnEvaluator::open(RuntimeState* state) {
     return VExpr::open(_input_exprs_ctxs, state);
 }
 
-void AggFnEvaluator::close(RuntimeState* state) {}
-
 void AggFnEvaluator::create(AggregateDataPtr place) {
     _function->create(place);
 }
@@ -233,7 +224,6 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
 
 Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena* arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    SCOPED_TIMER(_exec_timer);
     _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
     return Status::OK();
 }
@@ -241,7 +231,6 @@ Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, 
 Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
                                          Arena* arena, bool agg_many) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    SCOPED_TIMER(_exec_timer);
     _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
     return Status::OK();
 }
@@ -249,7 +238,6 @@ Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateD
 Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
                                                   AggregateDataPtr* places, Arena* arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    SCOPED_TIMER(_exec_timer);
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
     return Status::OK();
 }
@@ -257,7 +245,6 @@ Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
 Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
                                                const size_t num_rows, Arena* arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    SCOPED_TIMER(_exec_timer);
     _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
     return Status::OK();
 }
@@ -265,7 +252,6 @@ Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf
 Status AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
                                                          const size_t num_rows, Arena* arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    SCOPED_TIMER(_exec_timer);
     _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
     return Status::OK();
 }
@@ -340,15 +326,14 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
         DataTypes tmp_argument_types;
         tmp_argument_types.reserve(evaluator._input_exprs_ctxs.size());
         // prepare for argument
-        for (int i = 0; i < evaluator._input_exprs_ctxs.size(); ++i) {
-            auto data_type = evaluator._input_exprs_ctxs[i]->root()->data_type();
+        for (auto& _input_exprs_ctx : evaluator._input_exprs_ctxs) {
+            auto data_type = _input_exprs_ctx->root()->data_type();
             tmp_argument_types.emplace_back(data_type);
         }
         const DataTypes& argument_types =
                 _real_argument_types.empty() ? tmp_argument_types : _real_argument_types;
         _function = AggregateJavaUdaf::create(evaluator._fn, argument_types, evaluator._data_type);
-        static_cast<void>(
-                static_cast<AggregateJavaUdaf*>(_function.get())->check_udaf(evaluator._fn));
+        THROW_IF_ERROR(static_cast<AggregateJavaUdaf*>(_function.get())->check_udaf(evaluator._fn));
     }
     DCHECK(_function != nullptr);
 

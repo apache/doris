@@ -142,9 +142,8 @@ public:
     }
 
     /// Free memory range.
-    void free(void* buf, size_t size = -1) {
+    void free(void* buf, size_t size) {
         if (use_mmap && size >= doris::config::mmap_threshold) {
-            DCHECK(size != -1);
             if (0 != munmap(buf, size)) {
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
             }

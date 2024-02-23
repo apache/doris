@@ -127,8 +127,10 @@ suite("test_delete_on_value") {
             DISTRIBUTED BY HASH(`x`) BUCKETS 4
             PROPERTIES (
                 "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "false",
                 "function_column.sequence_col" = "z"
             );"""
+    // test mor table
     sql "insert into ${tableName4} values(1,1,10);"
     sql "insert into ${tableName4} values(1,1,5);"
     qt_sql "select * from ${tableName4} order by x,y,z;"

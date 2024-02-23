@@ -99,11 +99,11 @@ public:
     static const std::string _s_num_disks_accessed_counter;
 
 protected:
-    RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
-    RuntimeProfile::Counter* _rows_read_counter;
+    RuntimeProfile::Counter* _bytes_read_counter = nullptr; // # bytes read from the scanner
+    RuntimeProfile::Counter* _rows_read_counter = nullptr;
     // Wall based aggregate read throughput [bytes/sec]
-    RuntimeProfile::Counter* _total_throughput_counter;
-    RuntimeProfile::Counter* _num_disks_accessed_counter;
+    RuntimeProfile::Counter* _total_throughput_counter = nullptr;
+    RuntimeProfile::Counter* _num_disks_accessed_counter = nullptr;
 };
 
 } // namespace doris

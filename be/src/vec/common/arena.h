@@ -52,11 +52,11 @@ private:
     /// Contiguous chunk of memory and pointer to free space inside it. Member of single-linked list.
     struct alignas(16) Chunk : private Allocator<false> /// empty base optimization
     {
-        char* begin;
-        char* pos;
-        char* end; /// does not include padding.
+        char* begin = nullptr;
+        char* pos = nullptr;
+        char* end = nullptr; /// does not include padding.
 
-        Chunk* prev;
+        Chunk* prev = nullptr;
 
         Chunk(size_t size_, Chunk* prev_) {
             begin = reinterpret_cast<char*>(Allocator<false>::alloc(size_));
@@ -88,7 +88,7 @@ private:
     size_t linear_growth_threshold;
 
     /// Last contiguous chunk of memory.
-    Chunk* head;
+    Chunk* head = nullptr;
     size_t size_in_bytes;
     // The memory used by all chunks, excluding head.
     size_t _used_size_no_head;

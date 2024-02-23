@@ -99,6 +99,7 @@ Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) 
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
     _child_expr.resize(p._child_expr.size());
+    _shared_state->data_queue.set_sink_dependency(_dependency, p._cur_child_id);
     for (size_t i = 0; i < p._child_expr.size(); i++) {
         RETURN_IF_ERROR(p._child_expr[i]->clone(state, _child_expr[i]));
     }

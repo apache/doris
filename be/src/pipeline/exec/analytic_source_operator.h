@@ -39,23 +39,15 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AnalyticSourceOperator final : public SourceOperator<AnalyticSourceOperatorBuilder> {
+class AnalyticSourceOperator final : public SourceOperator<vectorized::VAnalyticEvalNode> {
 public:
     AnalyticSourceOperator(OperatorBuilderBase*, ExecNode*);
 
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
-class AnalyticSourceDependency final : public Dependency {
-public:
-    using SharedState = AnalyticSharedState;
-    AnalyticSourceDependency(int id, int node_id)
-            : Dependency(id, node_id, "AnalyticSourceDependency") {}
-    ~AnalyticSourceDependency() override = default;
-};
-
 class AnalyticSourceOperatorX;
-class AnalyticLocalState final : public PipelineXLocalState<AnalyticSourceDependency> {
+class AnalyticLocalState final : public PipelineXLocalState<AnalyticSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(AnalyticLocalState);
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);
@@ -83,9 +75,10 @@ private:
         auto need_more_input = _whether_need_next_partition(_shared_state->found_partition_end);
         if (need_more_input) {
             _dependency->block();
+            _dependency->set_ready_to_write();
             _shared_state->sink_dep->set_ready();
         } else {
-            _shared_state->sink_dep->block();
+            _dependency->set_block_to_write();
             _dependency->set_ready();
         }
         return need_more_input;
@@ -120,9 +113,8 @@ private:
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _evaluation_timer;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    RuntimeProfile::Counter* _evaluation_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
     using vectorized_execute = std::function<void(int64_t peer_group_start, int64_t peer_group_end,
                                                   int64_t frame_start, int64_t frame_end)>;
@@ -169,8 +161,8 @@ private:
 
     vectorized::AnalyticFnScope _fn_scope;
 
-    TupleDescriptor* _intermediate_tuple_desc;
-    TupleDescriptor* _output_tuple_desc;
+    TupleDescriptor* _intermediate_tuple_desc = nullptr;
+    TupleDescriptor* _output_tuple_desc = nullptr;
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;

@@ -19,13 +19,11 @@
 
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
-#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
-#include <future>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -36,6 +34,7 @@
 #include "pipeline/pipeline_task.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/task_execution_context.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 
@@ -50,7 +49,7 @@ class TPipelineFragmentParams;
 
 namespace pipeline {
 
-class PipelineFragmentContext : public std::enable_shared_from_this<PipelineFragmentContext> {
+class PipelineFragmentContext : public TaskExecutionContext {
 public:
     // Callback to report execution status of plan fragment.
     // 'profile' is the cumulative profile, 'done' indicates whether the execution
@@ -61,28 +60,32 @@ public:
     using report_status_callback = std::function<Status(
             const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
-                            const int fragment_id, int backend_num,
+                            int fragment_id, int backend_num,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
-                            const report_status_callback& report_status_cb,
-                            bool group_commit = false);
+                            report_status_callback report_status_cb);
 
-    virtual ~PipelineFragmentContext();
+    ~PipelineFragmentContext() override;
 
     PipelinePtr add_pipeline();
 
+    PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
+
     TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 
-    virtual RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
-        return _runtime_state.get();
+    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
+
+    virtual RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId /*fragment_instance_id*/) {
+        return _runtime_state->local_runtime_filter_mgr();
     }
 
+    QueryContext* get_query_ctx() { return _query_ctx.get(); }
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
     int32_t next_operator_builder_id() { return _next_operator_builder_id++; }
 
-    Status prepare(const doris::TPipelineFragmentParams& request, const size_t idx);
+    Status prepare(const doris::TPipelineFragmentParams& request, size_t idx);
 
     virtual Status prepare(const doris::TPipelineFragmentParams& request) {
         return Status::InternalError("Pipeline fragment context do not implement prepare");
@@ -100,8 +103,6 @@ public:
             const std::string& msg = "");
 
     // TODO: Support pipeline runtime filter
-
-    QueryContext* get_query_context() { return _query_ctx.get(); }
 
     TUniqueId get_query_id() const { return _query_id; }
 
@@ -127,12 +128,7 @@ public:
         return _query_ctx->exec_status();
     }
 
-    [[nodiscard]] taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const {
-        return _task_group_entity;
-    }
     void trigger_report_if_necessary();
-
-    bool is_group_commit() { return _group_commit; }
     virtual void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(1);
         ins_ids[0] = _fragment_instance_id;
@@ -143,7 +139,7 @@ public:
     }
     void refresh_next_report_time();
 
-    virtual std::string debug_string() { return ""; }
+    virtual std::string debug_string();
 
     uint64_t create_time() const { return _create_time; }
 
@@ -155,7 +151,6 @@ protected:
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
     virtual void _close_fragment_instance();
     void _init_next_report_time();
-    void _set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
     // Id of this query
     TUniqueId _query_id;
@@ -196,13 +191,13 @@ protected:
 
     std::shared_ptr<QueryContext> _query_ctx;
 
-    taskgroup::TaskGroupPipelineTaskEntity* _task_group_entity = nullptr;
-
+    // This shared ptr is never used. It is just a reference to hold the object.
+    // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     MonotonicStopWatch _fragment_watcher;
-    RuntimeProfile::Counter* _start_timer;
-    RuntimeProfile::Counter* _prepare_timer;
+    RuntimeProfile::Counter* _start_timer = nullptr;
+    RuntimeProfile::Counter* _prepare_timer = nullptr;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     bool _is_fragment_instance_closed = false;
@@ -218,12 +213,11 @@ protected:
     // profile reporting-related
     report_status_callback _report_status_cb;
 
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
+    int _num_instances = 1;
 
 private:
-    static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
-    bool _group_commit;
 
     uint64_t _create_time;
 };

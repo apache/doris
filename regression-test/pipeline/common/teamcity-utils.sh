@@ -27,14 +27,16 @@ declare -A comment_to_pipeline
 comment_to_pipeline=(
     ['feut']='Doris_Doris_FeUt'
     ['beut']='Doris_DorisBeUt_BeUt'
+    ['cloudut']='Doris_DorisCloudUt_CloudUt'
     ['compile']='Doris_DorisCompile_Compile'
     ['p0']='Doris_DorisRegression_P0Regression'
     ['p1']='Doris_DorisRegression_P1Regression'
     ['external']='Doris_External_Regression'
-    ['clickbench']='Doris_Performance_Clickbench_ClickbenchNew'
     ['pipelinex_p0']='Doris_DorisRegression_P0RegressionPipelineX'
     ['arm']='Doris_ArmPipeline_P0Regression'
-    ['tpch']='Tpch_TpchSf100'
+    ['performance']='Doris_DorisPerformance_Performance'
+    ['cloud_p0']='Doris_DorisRegression_CloudP0'
+    ['cloud_p1']='Doris_DorisCloudRegression_CloudP1'
 )
 
 # github中评论的要触发的流水线名字
@@ -47,13 +49,15 @@ conment_to_context=(
     ['compile']='COMPILE (DORIS_COMPILE)'
     ['feut']='FE UT (Doris FE UT)'
     ['beut']='BE UT (Doris BE UT)'
+    ['cloudut']='Cloud UT (Doris Cloud UT)'
     ['p0']='P0 Regression (Doris Regression)'
     ['p1']='P1 Regression (Doris Regression)'
     ['external']='External Regression (Doris External Regression)'
     ['pipelinex_p0']='P0 Regression PipelineX (Doris Regression)'
-    ['clickbench']='clickbench-new (clickbench)'
     ['arm']='P0 Regression (ARM pipeline)'
-    ['tpch']='tpch-sf100 (tpch)'
+    ['performance']='performance (Doris Performance)'
+    ['cloud_p0']='cloud_p0 (Doris Cloud Regression)'
+    ['cloud_p1']='cloud_p1 (Doris Cloud Regression)'
 )
 
 get_commit_id_of_build() {
@@ -241,7 +245,7 @@ trigger_build() {
         -u OneMoreChance:OneMoreChance \
         -H "Content-Type:text/plain" \
         -H "Accept: application/json" \
-        "http://43.132.222.7:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then
+        "http://43.132.222.7:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.pr_num_from_trigger&value=${PULL_REQUEST_NUM:-}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then
         set +x
         echo "INFO: Add new build to PIPELINE ${PIPELINE} of PR ${PULL_REQUEST_NUM} with COMMENT_REPEAT_TIMES ${COMMENT_REPEAT_TIMES:-1}"
     else
@@ -271,6 +275,13 @@ trigger_or_skip_build() {
         trigger_build "${PULL_REQUEST_NUM}" "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}" "${COMMENT_REPEAT_TIMES}"
     else
         skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
+        if [[ ${COMMENT_TRIGGER_TYPE} == "compile" ]]; then
+            # skip compile 的时候，也把 p0 p1 external pipelinex_p0 都 skip 了
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "p0"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "p1"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "pipelinex_p0"
+        fi
     fi
 }
 # trigger_or_skip_build "$1" "$2" "$3" "$4" "$5"

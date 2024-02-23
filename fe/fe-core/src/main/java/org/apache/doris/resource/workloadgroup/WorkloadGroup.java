@@ -61,12 +61,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String QUEUE_TIMEOUT = "queue_timeout";
 
+    public static final String SCAN_THREAD_NUM = "scan_thread_num";
+
     // NOTE(wb): all property is not required, some properties default value is set in be
     // default value is as followed
     // cpu_share=1024, memory_limit=0%(0 means not limit), enable_memory_overcommit=true
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>()
             .add(CPU_SHARE).add(MEMORY_LIMIT).add(ENABLE_MEMORY_OVERCOMMIT).add(MAX_CONCURRENCY)
-            .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).build();
+            .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM).build();
 
     @SerializedName(value = "id")
     private long id;
@@ -82,8 +84,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     private long version;
 
     private double memoryLimitPercent = 0;
-
-    private QueryQueue queryQueue;
     private int maxConcurrency = Integer.MAX_VALUE;
     private int maxQueueSize = 0;
     private int queueTimeout = 0;
@@ -115,20 +115,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             this.cpuHardLimit = Integer.parseInt(cpuHardLimitStr);
             this.properties.put(CPU_HARD_LIMIT, cpuHardLimitStr);
         }
-    }
-
-    // called when first create a resource group, load from image or user new create a group
-    public void initQueryQueue() {
         resetQueueProperty(properties);
-        // if query queue property is not set, when use default value
-        this.queryQueue = new QueryQueue(maxConcurrency, maxQueueSize, queueTimeout);
-    }
-
-    void resetQueryQueue(QueryQueue queryQueue) {
-        resetQueueProperty(properties);
-        this.queryQueue = queryQueue;
-        this.queryQueue.resetQueueProperty(this.maxConcurrency, this.maxQueueSize, this.queueTimeout);
-
     }
 
     private void resetQueueProperty(Map<String, String> properties) {
@@ -152,22 +139,17 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         }
     }
 
-    public QueryQueue getQueryQueue() {
-        return this.queryQueue;
-    }
-
     // new resource group
     public static WorkloadGroup create(String name, Map<String, String> properties) throws DdlException {
         checkProperties(properties);
         WorkloadGroup newWorkloadGroup = new WorkloadGroup(Env.getCurrentEnv().getNextId(), name, properties);
-        newWorkloadGroup.initQueryQueue();
         return newWorkloadGroup;
     }
 
     // alter resource group
-    public static WorkloadGroup copyAndUpdate(WorkloadGroup workloadGroup, Map<String, String> updateProperties)
+    public static WorkloadGroup copyAndUpdate(WorkloadGroup currentWorkloadGroup, Map<String, String> updateProperties)
             throws DdlException {
-        Map<String, String> newProperties = new HashMap<>(workloadGroup.getProperties());
+        Map<String, String> newProperties = new HashMap<>(currentWorkloadGroup.getProperties());
         for (Map.Entry<String, String> kv : updateProperties.entrySet()) {
             if (!Strings.isNullOrEmpty(kv.getValue())) {
                 newProperties.put(kv.getKey(), kv.getValue());
@@ -176,11 +158,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
         checkProperties(newProperties);
         WorkloadGroup newWorkloadGroup = new WorkloadGroup(
-                workloadGroup.getId(), workloadGroup.getName(), newProperties, workloadGroup.getVersion() + 1);
-
-        // note(wb) query queue should be unique and can not be copy
-        newWorkloadGroup.resetQueryQueue(workloadGroup.getQueryQueue());
-
+                currentWorkloadGroup.getId(), currentWorkloadGroup.getName(),
+                newProperties, currentWorkloadGroup.getVersion() + 1);
         return newWorkloadGroup;
     }
 
@@ -219,7 +198,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     throw new DdlException(memLimitErr);
                 }
             } catch (NumberFormatException e) {
-                LOG.debug(memLimitErr, e);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(memLimitErr, e);
+                }
                 throw new DdlException(memLimitErr);
             }
         }
@@ -228,6 +209,19 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             String value = properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase();
             if (!("true".equals(value) || "false".equals(value))) {
                 throw new DdlException("The value of '" + ENABLE_MEMORY_OVERCOMMIT + "' must be true or false.");
+            }
+        }
+
+        if (properties.containsKey(SCAN_THREAD_NUM)) {
+            String value = properties.get(SCAN_THREAD_NUM);
+            try {
+                int intValue = Integer.parseInt(value);
+                if (intValue <= 0 && intValue != -1) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
             }
         }
 
@@ -273,7 +267,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return properties;
     }
 
-    private long getVersion() {
+    public long getVersion() {
         return version;
     }
 
@@ -281,7 +275,19 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return memoryLimitPercent;
     }
 
-    public void getProcNodeData(BaseProcResult result) {
+    public int getMaxConcurrency() {
+        return maxConcurrency;
+    }
+
+    public int getMaxQueueSize() {
+        return maxQueueSize;
+    }
+
+    public int getQueueTimeout() {
+        return queueTimeout;
+    }
+
+    public void getProcNodeData(BaseProcResult result, QueryQueue qq) {
         List<String> row = new ArrayList<>();
         row.add(String.valueOf(id));
         row.add(name);
@@ -301,12 +307,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 row.add("0%");
             } else if (ENABLE_MEMORY_OVERCOMMIT.equals(key) && !properties.containsKey(key)) {
                 row.add("true");
+            } else if (SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
+                row.add("-1");
             } else {
                 row.add(properties.get(key));
             }
         }
-        row.add(String.valueOf(queryQueue.getCurrentRunningQueryNum()));
-        row.add(String.valueOf(queryQueue.getCurrentWaitingQueryNum()));
+        row.add(qq == null ? "0" : String.valueOf(qq.getCurrentRunningQueryNum()));
+        row.add(qq == null ? "0" : String.valueOf(qq.getCurrentWaitingQueryNum()));
         result.addRow(row);
     }
 
@@ -356,6 +364,11 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     + "id=" + id + ",name=" + name);
         }
 
+        String scanThreadNumStr = properties.get(SCAN_THREAD_NUM);
+        if (scanThreadNumStr != null) {
+            tWorkloadGroupInfo.setScanThreadNum(Integer.parseInt(scanThreadNumStr));
+        }
+
         TopicInfo topicInfo = new TopicInfo();
         topicInfo.setWorkloadGroupInfo(tWorkloadGroupInfo);
         return topicInfo;
@@ -383,6 +396,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         if (properties.containsKey(CPU_HARD_LIMIT)) {
             this.cpuHardLimit = Integer.parseInt(properties.get(CPU_HARD_LIMIT));
         }
-        this.initQueryQueue();
+
+        this.resetQueueProperty(this.properties);
     }
 }

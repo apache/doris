@@ -31,7 +31,7 @@ import java.util.Objects;
 /**
  * decimal type literal
  */
-public class DecimalLiteral extends Literal {
+public class DecimalLiteral extends FractionalLiteral {
 
     private final BigDecimal value;
 
@@ -74,13 +74,15 @@ public class DecimalLiteral extends Literal {
     /**
      * check precision and scale is enough for value.
      */
-    public static void checkPrecisionAndScale(int precision, int scale, BigDecimal value) throws AnalysisException {
+    private static void checkPrecisionAndScale(int precision, int scale, BigDecimal value) throws AnalysisException {
         Preconditions.checkNotNull(value);
         int realPrecision = value.precision();
         int realScale = value.scale();
         boolean valid = true;
         if (precision != -1 && scale != -1) {
-            if (precision < realPrecision || scale < realScale) {
+            if (precision < realPrecision || scale < realScale
+                    || realPrecision - realScale > precision - scale
+                    || realPrecision - realScale > DecimalV2Type.MAX_PRECISION - DecimalV2Type.MAX_SCALE) {
                 valid = false;
             }
         } else {

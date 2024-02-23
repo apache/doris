@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
@@ -31,7 +32,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -66,15 +66,21 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
                     .stream()
                     .map(column -> scanOutput.get(column.getName().toLowerCase()))
                     .collect(Collectors.toList());
+            List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
 
+            Map<Long, PartitionItem> idToPartitions;
+            if (manuallySpecifiedPartitions.isEmpty()) {
+                idToPartitions = partitionInfo.getIdToItem(false);
+            } else {
+                Map<Long, PartitionItem> allPartitions = partitionInfo.getAllPartitions();
+                idToPartitions = allPartitions.keySet().stream()
+                        .filter(id -> manuallySpecifiedPartitions.contains(id))
+                        .collect(Collectors.toMap(Function.identity(), id -> allPartitions.get(id)));
+            }
             List<Long> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
-                    partitionSlots, filter.getPredicate(), partitionInfo, ctx.cascadesContext,
+                    partitionSlots, filter.getPredicate(), idToPartitions, ctx.cascadesContext,
                     PartitionTableType.OLAP));
 
-            List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
-            if (!CollectionUtils.isEmpty(manuallySpecifiedPartitions)) {
-                prunedPartitions.retainAll(manuallySpecifiedPartitions);
-            }
             if (prunedPartitions.isEmpty()) {
                 return new LogicalEmptyRelation(
                         ConnectContext.get().getStatementContext().getNextRelationId(),

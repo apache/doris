@@ -138,10 +138,3 @@ Parameters unique to Partition Cache. The maximum number of BE partitions refers
 vim be/conf/be.conf
 cache_max_partition_count=1024
 ```
-
-## Unfinished business
-
-- SQL contains functions that generate random values, such as random(). Using QueryCache will cause the query results to lose their randomness, and the same results will be obtained every time they are executed.
-- Can T+1 data also be cached using Partition? Currently it is not supported.
-- Similar SQL, 2 indicators were queried before, and now 3 indicators are queried. Can the cache of 2 indicators be used? Not currently supported
-- Partition by date, but the data needs to be summarized by week dimension. Can PartitionCache be used? Not currently supported

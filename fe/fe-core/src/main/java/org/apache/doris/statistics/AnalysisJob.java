@@ -30,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -45,10 +46,6 @@ public class AnalysisJob {
 
     protected List<ColStatsData> buf;
 
-    protected int totalTaskCount;
-
-    protected int queryFinishedTaskCount;
-
     protected StmtExecutor stmtExecutor;
 
     protected boolean killed;
@@ -63,10 +60,9 @@ public class AnalysisJob {
         for (BaseAnalysisTask task : queryingTask) {
             task.job = this;
         }
-        this.queryingTask = new HashSet<>(queryingTask);
-        this.queryFinished = new HashSet<>();
+        this.queryingTask = Collections.synchronizedSet(new HashSet<>(queryingTask));
+        this.queryFinished = Collections.synchronizedSet(new HashSet<>());
         this.buf = new ArrayList<>();
-        totalTaskCount = queryingTask.size();
         start = System.currentTimeMillis();
         this.jobInfo = jobInfo;
         this.analysisManager = Env.getCurrentEnv().getAnalysisManager();
@@ -86,12 +82,14 @@ public class AnalysisJob {
     }
 
     protected void markOneTaskDone() {
-        queryFinishedTaskCount += 1;
-        if (queryFinishedTaskCount == totalTaskCount) {
-            writeBuf();
-            updateTaskState(AnalysisState.FINISHED, "Cost time in sec: "
-                    + (System.currentTimeMillis() - start) / 1000);
-            deregisterJob();
+        if (queryingTask.isEmpty()) {
+            try {
+                writeBuf();
+                updateTaskState(AnalysisState.FINISHED, "Cost time in sec: "
+                        + (System.currentTimeMillis() - start) / 1000);
+            } finally {
+                deregisterJob();
+            }
         } else if (buf.size() >= StatisticsUtil.getInsertMergeCount()) {
             writeBuf();
         }
@@ -121,7 +119,7 @@ public class AnalysisJob {
         if (killed) {
             return;
         }
-        // buf could be empty when nothing need to do, for example user submit an analysis task for table with no data
+        // buf could be empty when nothing need to do,r for example user submit an analysis task for table with no data
         // change
         if (!buf.isEmpty())  {
             String insertStmt = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME + " VALUES ";
@@ -130,35 +128,25 @@ public class AnalysisJob {
                 values.add(data.toSQL(true));
             }
             insertStmt += values.toString();
-            int retryTimes = 0;
-            while (retryTimes < StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
-                if (killed) {
-                    return;
-                }
-                try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-                    stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
-                    executeWithExceptionOnFail(stmtExecutor);
-                    break;
-                } catch (Exception t) {
-                    LOG.warn("Failed to write buf: " + insertStmt, t);
-                    retryTimes++;
-                    if (retryTimes >= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
-                        updateTaskState(AnalysisState.FAILED, t.getMessage());
-                        return;
-                    }
-                }
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+                stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
+                executeWithExceptionOnFail(stmtExecutor);
+            } catch (Exception t) {
+                throw new RuntimeException("Failed to analyze: " + t.getMessage());
             }
         }
         updateTaskState(AnalysisState.FINISHED, "");
-        syncLoadStats();
         queryFinished.clear();
+        buf.clear();
     }
 
     protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
         if (killed) {
             return;
         }
-        LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
+        }
         try {
             stmtExecutor.execute();
             QueryState queryState = stmtExecutor.getContext().getState();
@@ -175,9 +163,12 @@ public class AnalysisJob {
     }
 
     public void taskFailed(BaseAnalysisTask task, String reason) {
-        updateTaskState(AnalysisState.FAILED, reason);
-        cancel();
-        deregisterJob();
+        try {
+            updateTaskState(AnalysisState.FAILED, reason);
+            cancel();
+        } finally {
+            deregisterJob();
+        }
     }
 
     public void cancel() {
@@ -188,19 +179,21 @@ public class AnalysisJob {
 
     public void deregisterJob() {
         analysisManager.removeJob(jobInfo.jobId);
-    }
-
-    protected void syncLoadStats() {
-        long tblId = jobInfo.tblId;
-        for (BaseAnalysisTask task : queryFinished) {
-            if (task.info.externalTableLevelTask) {
-                continue;
+        for (BaseAnalysisTask task : queryingTask) {
+            task.info.colToPartitions.clear();
+            if (task.info.partitionNames != null) {
+                task.info.partitionNames.clear();
             }
-            String colName = task.col.getName();
-            if (!Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tblId, -1, colName)) {
-                analysisManager.removeColStatsStatus(tblId, colName);
+        }
+        for (BaseAnalysisTask task : queryFinished) {
+            task.info.colToPartitions.clear();
+            if (task.info.partitionNames != null) {
+                task.info.partitionNames.clear();
             }
         }
     }
 
+    public AnalysisInfo getJobInfo() {
+        return jobInfo;
+    }
 }

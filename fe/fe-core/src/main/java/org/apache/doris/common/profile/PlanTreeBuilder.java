@@ -67,10 +67,16 @@ public class PlanTreeBuilder {
                 }
                 sb.append("\n[Fragment: ").append(fragment.getFragmentSequenceNum()).append("]");
                 sb.append("\n").append(sink.getExplainString("", TExplainLevel.BRIEF));
-                sinkNode = new PlanTreeNode(
-                        sink instanceof MultiCastDataSink ? ((MultiCastDataSink) sink).getDataStreamSinks().stream()
-                                .map(s -> s.getExchNodeId()).collect(Collectors.toList())
-                                : ImmutableList.of(sink.getExchNodeId()), sb.toString());
+                List<PlanNodeId> exchangeIds;
+                if (sink instanceof MultiCastDataSink) {
+                    exchangeIds = ((MultiCastDataSink) sink).getDataStreamSinks().stream()
+                            .map(s -> s.getExchNodeId()).collect(Collectors.toList());
+                } else if (sink.getExchNodeId() != null) {
+                    exchangeIds = ImmutableList.of(sink.getExchNodeId());
+                } else {
+                    exchangeIds = ImmutableList.of();
+                }
+                sinkNode = new PlanTreeNode(exchangeIds, sb.toString());
                 if (i == 0) {
                     // sink of first fragment, set it as tree root
                     treeRoot = sinkNode;

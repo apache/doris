@@ -41,6 +41,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
@@ -310,24 +311,19 @@ public class SchemaChangeHandler extends AlterHandler {
          */
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
             List<Column> baseSchema = indexSchemaMap.get(baseIndexId);
-            boolean isKey = false;
             for (Column column : baseSchema) {
-                if (column.isKey() && column.getName().equalsIgnoreCase(dropColName)) {
-                    lightSchemaChange = false;
-                    isKey = true;
-                    break;
+                if (column.getName().equalsIgnoreCase(dropColName)) {
+                    if (column.isKey()) {
+                        throw new DdlException("Can not drop key column in Unique data model table");
+                    } else if (column.isClusterKey()) {
+                        throw new DdlException("Can not drop cluster key column in Unique data model table");
+                    }
                 }
             }
-
-            if (isKey) {
-                throw new DdlException("Can not drop key column in Unique data model table");
-            }
-
             if (olapTable.hasSequenceCol() && dropColName.equalsIgnoreCase(olapTable.getSequenceMapCol())) {
                 throw new DdlException("Can not drop sequence mapping column[" + dropColName
                         + "] in Unique data model table[" + olapTable.getName() + "]");
             }
-
         } else if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (null == targetIndexName) {
                 // drop column in base table
@@ -593,7 +589,16 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
                             && modColumn.getDataType() == PrimitiveType.VARCHAR) {
                         col.checkSchemaChangeAllowed(modColumn);
-                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                        // If col and modColumn is not key, it allow light schema change,
+                        // of course, olapTable has been enable light schema change
+                        if (modColumn.isKey() || col.isKey()) {
+                            lightSchemaChange = false;
+                        } else {
+                            lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                        }
+                    }
+                    if (col.isClusterKey()) {
+                        throw new DdlException("Can not modify cluster key column: " + col.getName());
                     }
                 }
             }
@@ -808,6 +813,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (!column.isVisible()) {
                     newSchema.add(column);
                 }
+                if (column.isClusterKey()) {
+                    throw new DdlException("Can not modify column order in Unique data model table");
+                }
             }
         }
         if (newSchema.size() != targetIndexSchema.size()) {
@@ -944,6 +952,10 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
+        if (newColumn.getType().isTime() || newColumn.getType().isTimeV2()) {
+            throw new DdlException("Time type is not supported for olap table");
+        }
+
         // hll must be used in agg_keys
         if (newColumn.getType().isHllType() && KeysType.AGG_KEYS != olapTable.getKeysType()) {
             throw new DdlException("HLL type column can only be in Aggregation data model table: " + newColName);
@@ -956,7 +968,9 @@ public class SchemaChangeHandler extends AlterHandler {
 
         //type key column do not allow light schema change.
         if (newColumn.isKey()) {
-            LOG.debug("newColumn: {}, isKey()==true", newColumn);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("newColumn: {}, isKey()==true", newColumn);
+            }
             lightSchemaChange = false;
         }
 
@@ -1168,7 +1182,9 @@ public class SchemaChangeHandler extends AlterHandler {
             // value
             modIndexSchema.add(toAddColumn);
         }
-        LOG.debug("newColumn setUniqueId({}), modIndexSchema:{}", newColumnUniqueId, modIndexSchema);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("newColumn setUniqueId({}), modIndexSchema:{}", newColumnUniqueId, modIndexSchema);
+        }
     }
 
     private void checkIndexExists(OlapTable olapTable, String targetIndexName) throws DdlException {
@@ -1365,11 +1381,15 @@ public class SchemaChangeHandler extends AlterHandler {
             }
 
             if (!needAlter) {
-                LOG.debug("index[{}] is not changed. ignore", alterIndexId);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("index[{}] is not changed. ignore", alterIndexId);
+                }
                 continue;
             }
 
-            LOG.debug("index[{}] is changed. start checking...", alterIndexId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("index[{}] is changed. start checking...", alterIndexId);
+            }
             // 1. check order: a) has key; b) value after key
             boolean meetValue = false;
             boolean hasKey = false;
@@ -1462,13 +1482,17 @@ public class SchemaChangeHandler extends AlterHandler {
             // 5. calc short key
             short newShortKeyColumnCount = Env.calcShortKeyColumnCount(alterSchema,
                     indexIdToProperties.get(alterIndexId), !olapTable.isDuplicateWithoutKey());
-            LOG.debug("alter index[{}] short key column count: {}", alterIndexId, newShortKeyColumnCount);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("alter index[{}] short key column count: {}", alterIndexId, newShortKeyColumnCount);
+            }
             indexIdToShortKeyColumnCount.put(alterIndexId, newShortKeyColumnCount);
 
             // 6. store the changed columns for edit log
             changedIndexIdToSchema.put(alterIndexId, alterSchema);
 
-            LOG.debug("schema change[{}-{}-{}] check pass.", dbId, tableId, alterIndexId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("schema change[{}-{}-{}] check pass.", dbId, tableId, alterIndexId);
+            }
         } // end for indices
 
         if (changedIndexIdToSchema.isEmpty() && !hasIndexChange) {
@@ -1536,7 +1560,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = idGeneratorBuffer.getNextId();
 
-                    Tablet shadowTablet = new Tablet(shadowTabletId);
+                    Tablet shadowTablet = EnvFactory.getInstance().createTablet(shadowTabletId);
                     shadowIndex.addTablet(shadowTablet, shadowTabletMeta);
                     addedTablets.add(shadowTablet);
 
@@ -1761,7 +1785,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     @Override
-    public void process(String rawSql, List<AlterClause> alterClauses, String clusterName, Database db,
+    public void process(String rawSql, List<AlterClause> alterClauses, Database db,
                         OlapTable olapTable)
             throws UserException {
         olapTable.writeLockOrDdlException();
@@ -1791,14 +1815,18 @@ public class SchemaChangeHandler extends AlterHandler {
                         @Override
                         public int getAsInt() {
                             pendingMaxColUniqueId++;
-                            LOG.debug("index id:{}, pendingMaxColUniqueId:{}", indexId, pendingMaxColUniqueId);
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("index id:{}, pendingMaxColUniqueId:{}", indexId, pendingMaxColUniqueId);
+                            }
                             return pendingMaxColUniqueId;
                         }
                     };
                 }
                 colUniqueIdSupplierMap.put(entry.getKey(), colUniqueIdSupplier);
             }
-            LOG.debug("in process indexSchemaMap:{}", indexSchemaMap);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("in process indexSchemaMap:{}", indexSchemaMap);
+            }
 
             List<Index> newIndexes = olapTable.getCopiedIndexes();
             List<Index> alterIndexes = new ArrayList<>();
@@ -1938,7 +1966,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
-                    if (!olapTable.isPartitioned()) {
+                    if (!olapTable.isPartitionedTable()) {
                         List<String> specifiedPartitions = indexDef.getPartitionNames();
                         if (!specifiedPartitions.isEmpty()) {
                             throw new DdlException("table " + olapTable.getName()
@@ -1998,10 +2026,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             } // end for alter clauses
 
-            LOG.debug("table: {}({}), lightSchemaChange: {}, lightIndexChange: {},"
-                    + " buildIndexChange: {}, indexSchemaMap:{}",
-                    olapTable.getName(), olapTable.getId(), lightSchemaChange,
-                    lightIndexChange, buildIndexChange, indexSchemaMap);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("table: {}({}), lightSchemaChange: {}, lightIndexChange: {},"
+                        + " buildIndexChange: {}, indexSchemaMap:{}",
+                        olapTable.getName(), olapTable.getId(), lightSchemaChange,
+                        lightIndexChange, buildIndexChange, indexSchemaMap);
+            }
 
             if (lightSchemaChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
@@ -2190,10 +2220,19 @@ public class SchemaChangeHandler extends AlterHandler {
                         .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)));
         }
 
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+            timeSeriesCompactionConfig
+                        .put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                        Long.parseLong(properties
+                        .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)));
+        }
+
         if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
             LOG.info("Properties already up-to-date");
             return;
@@ -2205,6 +2244,12 @@ public class SchemaChangeHandler extends AlterHandler {
             enableSingleCompaction = Boolean.parseBoolean(singleCompaction) ? 1 : 0;
         }
 
+        String disableAutoCompactionBoolean = properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
+        int disableAutoCompaction = -1; // < 0 means don't update
+        if (disableAutoCompactionBoolean != null) {
+            disableAutoCompaction = Boolean.parseBoolean(disableAutoCompactionBoolean) ? 1 : 0;
+        }
+
         String skipWriteIndexOnLoad = properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
         int skip = -1; // < 0 means don't update
         if (skipWriteIndexOnLoad != null) {
@@ -2213,7 +2258,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
-                                    null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip);
+                                    null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip,
+                                    disableAutoCompaction);
         }
 
         olapTable.writeLockOrDdlException();
@@ -2256,7 +2302,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String partitionName : partitionNames) {
             try {
                 updatePartitionProperties(db, olapTable.getName(), partitionName, storagePolicyId,
-                                                                                isInMemory, null, null, null, -1, -1);
+                                                                            isInMemory, null, null, null, -1, -1, -1);
             } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. "
                         + "The reason is [" + e.getMessage() + "]";
@@ -2272,7 +2318,8 @@ public class SchemaChangeHandler extends AlterHandler {
     public void updatePartitionProperties(Database db, String tableName, String partitionName, long storagePolicyId,
                                           int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
                                           Map<String, Long> timeSeriesCompactionConfig,
-                                          int enableSingleCompaction, int skipWriteIndexOnLoad) throws UserException {
+                                          int enableSingleCompaction, int skipWriteIndexOnLoad,
+                                          int disableAutoCompaction) throws UserException {
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
@@ -2305,7 +2352,8 @@ public class SchemaChangeHandler extends AlterHandler {
             countDownLatch.addMark(kv.getKey(), kv.getValue());
             UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(), isInMemory,
                                             storagePolicyId, binlogConfig, countDownLatch, compactionPolicy,
-                                            timeSeriesCompactionConfig, enableSingleCompaction, skipWriteIndexOnLoad);
+                                            timeSeriesCompactionConfig, enableSingleCompaction, skipWriteIndexOnLoad,
+                                            disableAutoCompaction);
             batchTask.addTask(task);
         }
         if (!FeConstants.runningUnitTest) {
@@ -2419,13 +2467,17 @@ public class SchemaChangeHandler extends AlterHandler {
                         continue;
                     }
                     jobList.add(job);
-                    LOG.debug("add build index job {} on table {} for specific id", jobId, tableName);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("add build index job {} on table {} for specific id", jobId, tableName);
+                    }
                 }
             } else {
                 for (IndexChangeJob job : indexChangeJobs.values()) {
                     if (!job.isDone() && job.getTableId() == olapTable.getId()) {
                         jobList.add(job);
-                        LOG.debug("add build index job {} on table {} for all", job.getJobId(), tableName);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("add build index job {} on table {} for all", job.getJobId(), tableName);
+                        }
                     }
                 }
             }
@@ -2437,7 +2489,9 @@ public class SchemaChangeHandler extends AlterHandler {
         if (jobList.size() > 0) {
             for (IndexChangeJob job : jobList) {
                 long jobId = job.getJobId();
-                LOG.debug("cancel build index job {} on table {}", jobId, tableName);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("cancel build index job {} on table {}", jobId, tableName);
+                }
                 if (!job.cancel("user cancelled")) {
                     LOG.warn("cancel build index job {} on table {} failed", jobId, tableName);
                     throw new DdlException("Job can not be cancelled. State: " + job.getJobState());
@@ -2601,7 +2655,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                              long jobId, boolean isReplay)
             throws DdlException {
 
-        LOG.debug("indexSchemaMap:{}, indexes:{}", indexSchemaMap, indexes);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("indexSchemaMap:{}, indexes:{}", indexSchemaMap, indexes);
+        }
         // for bitmapIndex
         boolean hasIndexChange = false;
         Set<Index> newSet = new HashSet<>(indexes);
@@ -2615,7 +2671,7 @@ public class SchemaChangeHandler extends AlterHandler {
         try {
             changedIndexIdToSchema = checkTable(db, olapTable, indexSchemaMap);
         } catch (DdlException e) {
-            throw new DdlException("Table " + db.getFullName() + "." + olapTable.getName() + " check failed");
+            throw new DdlException("Table " + db.getFullName() + "." + olapTable.getName() + " check failed", e);
         }
 
         if (changedIndexIdToSchema.isEmpty() && !hasIndexChange) {
@@ -2655,7 +2711,9 @@ public class SchemaChangeHandler extends AlterHandler {
             if (!isReplay) {
                 TableAddOrDropInvertedIndicesInfo info = new TableAddOrDropInvertedIndicesInfo(rawSql, db.getId(),
                         olapTable.getId(), indexSchemaMap, indexes, alterIndexes, isDropIndex, jobId);
-                LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
+                }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
 
                 if (isDropIndex) {
@@ -2679,7 +2737,9 @@ public class SchemaChangeHandler extends AlterHandler {
             if (!isReplay) {
                 TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo(rawSql, db.getId(), olapTable.getId(),
                         indexSchemaMap, indexes, jobId);
-                LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
+                }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
             }
             LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
@@ -2688,7 +2748,9 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     public void replayModifyTableLightSchemaChange(TableAddOrDropColumnsInfo info) throws MetaNotFoundException {
-        LOG.debug("info:{}", info);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("info:{}", info);
+        }
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<Long, LinkedList<Column>> indexSchemaMap = info.getIndexSchemaMap();
@@ -2716,7 +2778,9 @@ public class SchemaChangeHandler extends AlterHandler {
             // Must get all columns including invisible columns.
             // Because in alter process, all columns must be considered.
             List<Column> alterSchema = indexSchemaMap.get(alterIndexId);
-            LOG.debug("index[{}] is changed. start checking...", alterIndexId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("index[{}] is changed. start checking...", alterIndexId);
+            }
             // 1. check order: a) has key; b) value after key
             boolean meetValue = false;
             boolean hasKey = false;
@@ -2782,7 +2846,9 @@ public class SchemaChangeHandler extends AlterHandler {
             // 5. store the changed columns for edit log
             changedIndexIdToSchema.put(alterIndexId, alterSchema);
 
-            LOG.debug("schema change[{}-{}-{}] check pass.", db.getId(), olapTable.getId(), alterIndexId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("schema change[{}-{}-{}] check pass.", db.getId(), olapTable.getId(), alterIndexId);
+            }
         } // end for indices
         return changedIndexIdToSchema;
     }
@@ -2818,7 +2884,9 @@ public class SchemaChangeHandler extends AlterHandler {
 
     public void replayModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info)
             throws MetaNotFoundException {
-        LOG.debug("info:{}", info);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("info:{}", info);
+        }
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<Long, LinkedList<Column>> indexSchemaMap = info.getIndexSchemaMap();
@@ -2861,45 +2929,50 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
-        for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
-            long originIndexId = entry.getKey();
-            for (Partition partition : olapTable.getPartitions()) {
-                // create job
-                long jobId = Env.getCurrentEnv().getNextId();
-                IndexChangeJob indexChangeJob = new IndexChangeJob(
-                        jobId, db.getId(), olapTable.getId(), olapTable.getName());
-                indexChangeJob.setOriginIndexId(originIndexId);
-                indexChangeJob.setAlterInvertedIndexInfo(isDropOp, alterIndexes);
-                long partitionId = partition.getId();
-                String partitionName = partition.getName();
-                boolean found = false;
-                for (Set<String> partitions : invertedIndexOnPartitions.values()) {
-                    if (partitions.contains(partitionName)) {
-                        found = true;
-                        break;
+        try {
+            for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
+                long originIndexId = entry.getKey();
+                for (Partition partition : olapTable.getPartitions()) {
+                    // create job
+                    long jobId = Env.getCurrentEnv().getNextId();
+                    IndexChangeJob indexChangeJob = new IndexChangeJob(
+                            jobId, db.getId(), olapTable.getId(), olapTable.getName());
+                    indexChangeJob.setOriginIndexId(originIndexId);
+                    indexChangeJob.setAlterInvertedIndexInfo(isDropOp, alterIndexes);
+                    long partitionId = partition.getId();
+                    String partitionName = partition.getName();
+                    boolean found = false;
+                    for (Set<String> partitions : invertedIndexOnPartitions.values()) {
+                        if (partitions.contains(partitionName)) {
+                            found = true;
+                            break;
+                        }
                     }
-                }
-                if (!found) {
-                    continue;
-                }
+                    if (!found) {
+                        continue;
+                    }
 
-                if (hasIndexChangeJobOnPartition(originIndexId, db.getId(), olapTable.getId(),
-                        partitionName, alterIndexes, isDropOp)) {
-                    throw new DdlException("partition " + partitionName + " has been built specified index."
-                                           + " please check your build stmt.");
-                }
+                    if (hasIndexChangeJobOnPartition(originIndexId, db.getId(), olapTable.getId(),
+                            partitionName, alterIndexes, isDropOp)) {
+                        throw new DdlException("partition " + partitionName + " has been built specified index."
+                                            + " please check your build stmt.");
+                    }
 
-                indexChangeJob.setPartitionId(partitionId);
-                indexChangeJob.setPartitionName(partitionName);
+                    indexChangeJob.setPartitionId(partitionId);
+                    indexChangeJob.setPartitionName(partitionName);
 
-                addIndexChangeJob(indexChangeJob);
+                    addIndexChangeJob(indexChangeJob);
 
-                // write edit log
-                Env.getCurrentEnv().getEditLog().logIndexChangeJob(indexChangeJob);
-                LOG.info("finish create table's inverted index job. table: {}, partition: {}, job: {}",
-                        olapTable.getName(), partitionName, jobId);
-            } // end for partition
-        } // end for index
+                    // write edit log
+                    Env.getCurrentEnv().getEditLog().logIndexChangeJob(indexChangeJob);
+                    LOG.info("finish create table's inverted index job. table: {}, partition: {}, job: {}",
+                            olapTable.getName(), partitionName, jobId);
+                } // end for partition
+            } // end for index
+        } catch (Exception e) {
+            LOG.warn("Exception:", e);
+            throw new UserException(e.getMessage());
+        }
     }
 
     public boolean hasIndexChangeJobOnPartition(
@@ -3010,7 +3083,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
-                                                newBinlogConfig, null, null, -1, -1);
+                                                newBinlogConfig, null, null, -1, -1, -1);
         }
 
         olapTable.writeLockOrDdlException();

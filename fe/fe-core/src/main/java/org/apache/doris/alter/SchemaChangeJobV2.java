@@ -40,7 +40,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
@@ -48,7 +47,6 @@ import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.load.GroupCommitManager.SchemaChangeStatus;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -56,6 +54,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -76,7 +75,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -206,7 +204,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * 3. Get a new transaction id, then set job's state to WAITING_TXN
      */
     @Override
-    protected void runPendingJob() throws AlterCancelException {
+    protected void runPendingJob() throws Exception {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
         LOG.info("begin to send create replica tasks. job: {}", jobId);
         Database db = Env.getCurrentInternalCatalog()
@@ -236,7 +234,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         tbl.readLock();
         try {
-
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
             for (long partitionId : partitionIndexMap.rowKeySet()) {
@@ -283,6 +280,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                                     tbl.getTimeSeriesCompactionFileCountThreshold(),
                                     tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                    tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     tbl.storeRowColumn(),
                                     binlogConfig);
 
@@ -343,8 +341,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.writeUnlock();
         }
 
-        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionIDGenerator().getNextTransactionId();
+        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
         this.jobState = JobState.WAITING_TXN;
 
         // write edit log
@@ -408,7 +405,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         tbl.readLock();
-
+        Map<Object, List<TColumn>> tcloumnsPool  = Maps.newHashMap();
         try {
             Map<String, Column> indexColumnMap = Maps.newHashMap();
             for (Map.Entry<Long, List<Column>> entry : indexSchemaMap.entrySet()) {
@@ -471,7 +468,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             AlterReplicaTask rollupTask = new AlterReplicaTask(shadowReplica.getBackendId(), dbId,
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
-                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, null);
+                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, tcloumnsPool,
+                                    null);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
@@ -537,9 +535,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
             return;
         }
-        long maxWalId = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionIDGenerator().getNextTransactionId();
-        waitWalFinished(maxWalId);
+        Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
+        Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(tableId);
+        Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
@@ -602,35 +600,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
     }
 
-    private void waitWalFinished(long maxWalId) {
-        // wait wal done here
-        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.BLOCK);
-        LOG.info("block table {}", tableId);
-        List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-        long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
-        boolean walFinished = false;
-        while (System.currentTimeMillis() < expireTime) {
-            LOG.info("wai for wal queue size to be empty");
-            walFinished = Env.getCurrentEnv().getGroupCommitManager()
-                    .isPreviousWalFinished(tableId, maxWalId, aliveBeIds);
-            if (walFinished) {
-                LOG.info("all wal is finished");
-                break;
-            } else {
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ie) {
-                    LOG.info("schema change job sleep wait for wal InterruptedException: ", ie);
-                }
-            }
-        }
-        if (!walFinished) {
-            LOG.warn("waitWalFinished time out");
-        }
-        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.NORMAL);
-        LOG.info("release table {}", tableId);
-    }
-
     private void onFinished(OlapTable tbl) {
         // replace the origin index with shadow index, set index state as NORMAL
         for (Partition partition : tbl.getPartitions()) {
@@ -681,8 +650,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             }
             tbl.getIndexMetaByIndexId(shadowIdxId).setMaxColUniqueId(maxColUniqueId);
-            LOG.debug("originIdxId:{}, shadowIdxId:{}, maxColUniqueId:{}, indexSchema:{}",
-                    originIdxId, shadowIdxId, maxColUniqueId,  indexSchemaMap.get(shadowIdxId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("originIdxId:{}, shadowIdxId:{}, maxColUniqueId:{}, indexSchema:{}",
+                        originIdxId, shadowIdxId, maxColUniqueId,  indexSchemaMap.get(shadowIdxId));
+            }
 
             tbl.deleteIndexInfo(originIdxName);
             // the shadow index name is '__doris_shadow_xxx', rename it to origin name 'xxx'

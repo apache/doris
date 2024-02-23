@@ -70,3 +70,9 @@ MySQL [(none)]> set [global] enable_sql_cache=true;
 3. 查询结果bytes 小于 fe.conf 中的 cache_result_max_data_size。
 
 具体参数介绍和未尽事项见 query-cache.md。
+
+## 未尽事项
+
+- SQL中包含产生随机值的函数，比如 random()，使用 QueryCache 会导致查询结果失去随机性，每次执行将得到相同的结果。
+
+- 类似的SQL，之前查询了2个指标，现在查询3个指标，是否可以利用2个指标的缓存？ 目前不支持

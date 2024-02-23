@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.window;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
 import java.util.Objects;
@@ -46,11 +48,25 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
         }
         WindowFunction that = (WindowFunction) o;
         return Objects.equals(getName(), that.getName())
-            && Objects.equals(children, that.children);
+                && Objects.equals(children, that.children);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(getName(), children);
+    }
+
+    /**
+     * LAG/LEAD param must be const, and offset must be number
+     */
+    protected void checkValidParams(Expression param, boolean isOffset) {
+        DataType type = param.getDataType();
+        if (isOffset == true && !type.isNumericType()) {
+            throw new AnalysisException("The offset of LAG/LEAD must be a number: " + this.toSql());
+        }
+        if (!param.isConstant()) {
+            throw new AnalysisException(
+                    "The parameter 2 or parameter 3 of LAG/LEAD must be a constant value: " + this.toSql());
+        }
     }
 }

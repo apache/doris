@@ -616,7 +616,7 @@ public class ScalarType extends Type {
         StringBuilder stringBuilder = new StringBuilder();
         switch (type) {
             case CHAR:
-                if (isWildcardVarchar()) {
+                if (isWildcardChar()) {
                     stringBuilder.append("CHARACTER");
                 } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("CHAR").append("(").append(len).append(")");
@@ -1060,7 +1060,13 @@ public class ScalarType extends Type {
             if (t1.type == PrimitiveType.STRING || t2.type == PrimitiveType.STRING) {
                 return createStringType();
             }
-            return createVarcharType(Math.max(t1.len, t2.len));
+            int minLength = Math.min(t1.len, t2.len);
+            if (minLength < 0) {
+                // If < 0 which means max length, use firstly
+                return createVarcharType(minLength);
+            }
+            int length = Math.max(t1.len, t2.len);
+            return createVarcharType(length == 0 ? MAX_VARCHAR_LENGTH : length);
         }
 
         if (((t1.isDecimalV3() || t1.isDecimalV2()) && (t2.isDateV2() || t2.isDate()))

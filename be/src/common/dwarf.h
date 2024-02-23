@@ -347,13 +347,13 @@ private:
         std::string_view debugLineStr_;         // DWARF 5        /// NOLINT
 
         // Header
-        uint16_t version_;                     /// NOLINT
-        uint8_t minLength_;                    /// NOLINT
-        bool defaultIsStmt_;                   /// NOLINT
-        int8_t lineBase_;                      /// NOLINT
-        uint8_t lineRange_;                    /// NOLINT
-        uint8_t opcodeBase_;                   /// NOLINT
-        const uint8_t* standardOpcodeLengths_; /// NOLINT
+        uint16_t version_;                               /// NOLINT
+        uint8_t minLength_;                              /// NOLINT
+        bool defaultIsStmt_;                             /// NOLINT
+        int8_t lineBase_;                                /// NOLINT
+        uint8_t lineRange_;                              /// NOLINT
+        uint8_t opcodeBase_;                             /// NOLINT
+        const uint8_t* standardOpcodeLengths_ = nullptr; /// NOLINT
 
         // 6.2.4 The Line Number Program Header.
         struct {

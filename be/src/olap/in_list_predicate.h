@@ -142,6 +142,10 @@ public:
 
     PredicateType type() const override { return PT; }
 
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return input_type == Type || (is_string_type(input_type) && is_string_type(Type));
+    }
+
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
@@ -183,13 +187,13 @@ public:
         return Status::OK();
     }
 
-    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+    Status evaluate(const vectorized::NameAndTypePair& name_with_type,
+                    InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
             return Status::OK();
         }
-        auto column_desc = schema.column(_column_id);
-        std::string column_name = column_desc->name();
+        std::string column_name = name_with_type.first;
         roaring::Roaring indices;
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
@@ -207,11 +211,13 @@ public:
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
         // keep it after query, since query will try to read null_bitmap and put it to cache
-        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        if (null_bitmap) {
-            *result -= *null_bitmap;
+        if (iterator->has_null()) {
+            InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+            std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+            if (null_bitmap) {
+                *result -= *null_bitmap;
+            }
         }
 
         if constexpr (PT == PredicateType::IN_LIST) {
@@ -222,34 +228,6 @@ public:
         return Status::OK();
     }
 
-    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                      uint16_t size) const override {
-        int64_t new_size = 0;
-
-        if (column.is_nullable()) {
-            auto* nullable_col =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                     nullable_col->get_null_map_column())
-                                     .get_data();
-            auto& nested_col = nullable_col->get_nested_column();
-
-            if (_opposite) {
-                new_size = _base_evaluate<true, true>(&nested_col, &null_map, sel, size);
-            } else {
-                new_size = _base_evaluate<true, false>(&nested_col, &null_map, sel, size);
-            }
-        } else {
-            if (_opposite) {
-                new_size = _base_evaluate<false, true>(&column, nullptr, sel, size);
-            } else {
-                new_size = _base_evaluate<false, false>(&column, nullptr, sel, size);
-            }
-        }
-        _evaluated_rows += size;
-        _passed_rows += new_size;
-        return new_size;
-    }
     int get_filter_id() const override { return _values->get_filter_id(); }
     bool is_filter() const override { return true; }
 
@@ -366,7 +344,40 @@ public:
         return PT == PredicateType::IN_LIST && !ngram;
     }
 
+    double get_ignore_threshold() const override { return std::log2(_values->size() + 1) / 64; }
+
 private:
+    bool _can_ignore() const override { return _values->is_runtime_filter(); }
+
+    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+                             uint16_t size) const override {
+        int64_t new_size = 0;
+
+        if (column.is_nullable()) {
+            const auto* nullable_col =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                                           nullable_col->get_null_map_column())
+                                           .get_data();
+            const auto& nested_col = nullable_col->get_nested_column();
+
+            if (_opposite) {
+                new_size = _base_evaluate<true, true>(&nested_col, &null_map, sel, size);
+            } else {
+                new_size = _base_evaluate<true, false>(&nested_col, &null_map, sel, size);
+            }
+        } else {
+            if (_opposite) {
+                new_size = _base_evaluate<false, true>(&column, nullptr, sel, size);
+            } else {
+                new_size = _base_evaluate<false, false>(&column, nullptr, sel, size);
+            }
+        }
+        _evaluated_rows += size;
+        _passed_rows += new_size;
+        return new_size;
+    }
+
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
         if constexpr (PT == PredicateType::IN_LIST) {

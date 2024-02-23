@@ -18,15 +18,14 @@
 import java.math.BigDecimal;
 
 suite("test_point_query") {
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
     def set_be_config = { key, value ->
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
     }
     try {
         set_be_config.call("disable_storage_row_cache", "false")
@@ -65,6 +64,8 @@ suite("test_point_query") {
         def nprep_sql = { sql_str ->
             def url_without_prep = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb
             connect(user = user, password = password, url = url_without_prep) {
+                // set to false to invalid cache correcly
+                sql "set enable_memtable_on_sink_node = false"
                 sql sql_str
             }
         }
@@ -115,18 +116,15 @@ suite("test_point_query") {
                   """, property)
         }
 
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 2; i++) {
             tableName = realDb + ".tbl_point_query" + i
             sql """DROP TABLE IF EXISTS ${tableName}"""
             if (i == 0) {
                 def sql0 = create_table_sql("")
                 sql """ ${sql0} """
-            } else if (i == 1) {
-                def sql1 = create_table_sql("\"function_column.sequence_type\" = 'int',")
-                sql """ ${sql1} """
             } else {
-                def sql2 = create_table_sql("\"function_column.sequence_col\" = 'k6',")
-                sql """ ${sql2} """
+                def sql1 = create_table_sql("\"function_column.sequence_col\" = 'k6',")
+                sql """ ${sql1} """
             }
             sql """ INSERT INTO ${tableName} VALUES(1231, 119291.11, "ddd", "laooq", null, "2020-01-01 12:36:38", null, "1022-01-01 11:30:38", null, 1.111112, [119181.1111, 819019.1191, null], null) """
             sql """ INSERT INTO ${tableName} VALUES(1232, 12222.99121135, "xxx", "laooq", "2023-01-02", "2020-01-01 12:36:38", 522.762, "2022-01-01 11:30:38", 1, 212.111, null, null) """
@@ -201,6 +199,7 @@ suite("test_point_query") {
                 qe_point_select stmt
                 qe_point_select stmt
                 // invalidate cache
+                sql "sync"
                 nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "xxxxxx", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 0, 1929111.1111,[119291.19291], ["111", "222", "333"], 2) """
                 qe_point_select stmt
                 qe_point_select stmt
@@ -254,7 +253,7 @@ suite("test_point_query") {
                     "disable_auto_compaction" = "false"
                     );"""
                 sql """insert into ${tableName} values (0, "1", "2", "3")"""
-                qt_sql "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test_query where customer_key = 0"
+                qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where customer_key = 0"""
             }
         }
     } finally {

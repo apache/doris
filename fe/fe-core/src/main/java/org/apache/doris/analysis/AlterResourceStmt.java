@@ -79,7 +79,12 @@ public class AlterResourceStmt extends DdlStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER RESOURCE '").append(resourceName).append("' ");
-        sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
+        sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false, true)).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }

@@ -102,7 +102,7 @@ private:
 
         PaddedPODArray<UInt8>* dst_null_map = nullptr;
         MutableColumnPtr array_nested_column = nullptr;
-        IColumn* dst_column;
+        IColumn* dst_column = nullptr;
         if (nested_null_map) {
             auto dst_nested_column =
                     ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
@@ -174,7 +174,7 @@ private:
 
         PaddedPODArray<UInt8>* dst_null_map = nullptr;
         MutableColumnPtr array_nested_column = nullptr;
-        IColumn* dst_column;
+        IColumn* dst_column = nullptr;
         if (nested_null_map) {
             auto dst_nested_column =
                     ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
@@ -323,12 +323,12 @@ private:
             } else if (left_which_type.is_decimal64()) {
                 res = _execute_number_expanded<ColumnDecimal64>(offsets, *nested_column,
                                                                 *right_column, nested_null_map);
-            } else if (left_which_type.is_decimal128i()) {
-                res = _execute_number_expanded<ColumnDecimal128I>(offsets, *nested_column,
-                                                                  *right_column, nested_null_map);
-            } else if (left_which_type.is_decimal128()) {
-                res = _execute_number_expanded<ColumnDecimal128>(offsets, *nested_column,
-                                                                 *right_column, nested_null_map);
+            } else if (left_which_type.is_decimal128v3()) {
+                res = _execute_number_expanded<ColumnDecimal128V3>(offsets, *nested_column,
+                                                                   *right_column, nested_null_map);
+            } else if (left_which_type.is_decimal128v2()) {
+                res = _execute_number_expanded<ColumnDecimal128V2>(offsets, *nested_column,
+                                                                   *right_column, nested_null_map);
             } else if (left_which_type.is_decimal256()) {
                 res = _execute_number_expanded<ColumnDecimal256>(offsets, *nested_column,
                                                                  *right_column, nested_null_map);

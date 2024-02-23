@@ -138,10 +138,3 @@ Partition Cache 独有的参数。BE最大分区数量，指每个SQL对应的�
 vim be/conf/be.conf
 cache_max_partition_count=1024
 ```
-
-## 未尽事项
-
-- SQL中包含产生随机值的函数，比如 random()，使用 QueryCache 会导致查询结果失去随机性，每次执行将得到相同的结果。
-- T+1的数据，是否也可以用 PartitionCache? 目前不支持
-- 类似的SQL，之前查询了2个指标，现在查询3个指标，是否可以利用2个指标的缓存？ 目前不支持
-- 按日期分区，但是需要按周维度汇总数据，是否可用PartitionCache？ 目前不支持

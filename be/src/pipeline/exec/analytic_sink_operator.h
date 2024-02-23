@@ -38,29 +38,21 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class AnalyticSinkOperator final : public StreamingOperator<AnalyticSinkOperatorBuilder> {
+class AnalyticSinkOperator final : public StreamingOperator<vectorized::VAnalyticEvalNode> {
 public:
     AnalyticSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
     bool can_write() override { return _node->can_write(); }
 };
 
-class AnalyticSinkDependency final : public Dependency {
-public:
-    using SharedState = AnalyticSharedState;
-    AnalyticSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "AnalyticSinkDependency", true) {}
-    ~AnalyticSinkDependency() override = default;
-};
-
 class AnalyticSinkOperatorX;
 
-class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSinkDependency> {
+class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSharedState> {
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
 
 public:
     AnalyticSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<AnalyticSinkDependency>(parent, state) {}
+            : PipelineXSinkLocalState<AnalyticSharedState>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -70,11 +62,11 @@ private:
     bool _refresh_need_more_input() {
         auto need_more_input = _whether_need_next_partition(_shared_state->found_partition_end);
         if (need_more_input) {
-            _shared_state->source_dep->block();
+            _dependency->set_block_to_read();
             _dependency->set_ready();
         } else {
             _dependency->block();
-            _shared_state->source_dep->set_ready();
+            _dependency->set_ready_to_read();
         }
         return need_more_input;
     }
@@ -84,9 +76,8 @@ private:
                                                      bool need_check_first = false);
     bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _evaluation_timer;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    RuntimeProfile::Counter* _evaluation_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
 };
@@ -107,6 +98,16 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    DataDistribution required_data_distribution() const override {
+        if (_partition_by_eq_expr_ctxs.empty()) {
+            return {ExchangeType::PASSTHROUGH};
+        } else if (_order_by_eq_expr_ctxs.empty()) {
+            return _is_colocate
+                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        }
+        return DataSinkOperatorX<AnalyticSinkLocalState>::required_data_distribution();
+    }
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
@@ -123,6 +124,8 @@ private:
     const TTupleId _buffered_tuple_id;
 
     std::vector<size_t> _num_agg_input;
+    const bool _is_colocate;
+    const std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

@@ -21,8 +21,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -57,6 +60,7 @@ public class SlotRef extends Expr {
     private String col;
     // Used in toSql
     private String label;
+    private List<String> subColPath;
 
     // results of analysis
     protected SlotDescriptor desc;
@@ -73,6 +77,14 @@ public class SlotRef extends Expr {
         this.label = "`" + col + "`";
     }
 
+    public SlotRef(TableName tblName, String col, List<String> subColPath) {
+        super();
+        this.tblName = tblName;
+        this.col = col;
+        this.label = "`" + col + "`";
+        this.subColPath = subColPath;
+    }
+
     // C'tor for a "pre-analyzed" ref to slot that doesn't correspond to
     // a table's column.
     public SlotRef(SlotDescriptor desc) {
@@ -86,6 +98,7 @@ public class SlotRef extends Expr {
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
         }
+        this.subColPath = desc.getSubColLables();
         analysisDone();
     }
 
@@ -109,6 +122,7 @@ public class SlotRef extends Expr {
         label = other.label;
         desc = other.desc;
         tupleId = other.tupleId;
+        subColPath = other.subColPath;
     }
 
     @Override
@@ -150,6 +164,10 @@ public class SlotRef extends Expr {
 
     public void setDesc(SlotDescriptor desc) {
         this.desc = desc;
+    }
+
+    public void setAnalyzed(boolean analyzed) {
+        isAnalyzed = analyzed;
     }
 
     public boolean columnEqual(Expr srcExpr) {
@@ -197,12 +215,14 @@ public class SlotRef extends Expr {
     @Override
     public void computeOutputColumn(Analyzer analyzer) {
         outputColumn = desc.getSlotOffset();
-        LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
+        }
     }
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        desc = analyzer.registerColumnRef(tblName, col);
+        desc = analyzer.registerColumnRef(tblName, col, subColPath);
         type = desc.getType();
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
@@ -229,17 +249,14 @@ public class SlotRef extends Expr {
         helper.add("type", type.toSql());
         helper.add("label", label);
         helper.add("tblName", tblName != null ? tblName.toSql() : "null");
+        helper.add("subColPath", subColPath);
         return helper.toString();
     }
 
     @Override
     public String toSqlImpl() {
-        if (needToMysql) {
-            if (col != null) {
-                return col;
-            } else {
-                return "<slot " + Integer.toString(desc.getId().asInt()) + ">";
-            }
+        if (needExternalSql) {
+            return toExternalSqlImpl();
         }
 
         if (disableTableName && label != null) {
@@ -247,9 +264,12 @@ public class SlotRef extends Expr {
         }
 
         StringBuilder sb = new StringBuilder();
-
+        String subColumnPaths = "";
+        if (subColPath != null && !subColPath.isEmpty()) {
+            subColumnPaths = "." + String.join(".", subColPath);
+        }
         if (tblName != null) {
-            return tblName.toSql() + "." + label;
+            return tblName.toSql() + "." + label + subColumnPaths;
         } else if (label != null) {
             if (ConnectContext.get() != null
                     && ConnectContext.get().getState().isNereids()
@@ -284,6 +304,26 @@ public class SlotRef extends Expr {
         }
     }
 
+    private String toExternalSqlImpl() {
+        if (col != null) {
+            if (tableType.equals(TableType.JDBC_EXTERNAL_TABLE) || tableType.equals(TableType.JDBC) || tableType
+                    .equals(TableType.ODBC)) {
+                if (inputTable instanceof JdbcTable) {
+                    return ((JdbcTable) inputTable).getProperRemoteColumnName(
+                            ((JdbcTable) inputTable).getJdbcTableType(), col);
+                } else if (inputTable instanceof OdbcTable) {
+                    return JdbcTable.databaseProperName(((OdbcTable) inputTable).getOdbcTableType(), col);
+                } else {
+                    return col;
+                }
+            } else {
+                return col;
+            }
+        } else {
+            return "<slot " + Integer.toString(desc.getId().asInt()) + ">";
+        }
+    }
+
     public TableName getTableName() {
         if (tblName == null) {
             Preconditions.checkState(isAnalyzed);
@@ -315,6 +355,10 @@ public class SlotRef extends Expr {
         return this.exprName.get();
     }
 
+    public List<String> toSubColumnLabel() {
+        return subColPath;
+    }
+
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
@@ -333,7 +377,14 @@ public class SlotRef extends Expr {
         if (desc != null) {
             return desc.getId().hashCode();
         }
-        return Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
+        if (subColPath == null || subColPath.isEmpty()) {
+            return Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
+        }
+        int result = Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
+        for (String sublabel : subColPath) {
+            result = 31 * result + Objects.hashCode(sublabel);
+        }
+        return result;
     }
 
     @Override
@@ -366,6 +417,13 @@ public class SlotRef extends Expr {
             return false;
         }
         if (col != null && !col.equalsIgnoreCase(other.col)) {
+            return false;
+        }
+        if ((subColPath == null) != (other.subColPath == null)) {
+            return false;
+        }
+        if (subColPath != null
+                && subColPath.equals(other.subColPath)) {
             return false;
         }
         return true;
@@ -505,11 +563,18 @@ public class SlotRef extends Expr {
         this.label = label;
     }
 
+    public void setSubColPath(List<String> subColPath) {
+        this.subColPath = subColPath;
+    }
+
     public boolean hasCol() {
         return this.col != null;
     }
 
     public String getColumnName() {
+        if (subColPath != null && !subColPath.isEmpty()) {
+            return col + "." + String.join(".", subColPath);
+        }
         return col;
     }
 

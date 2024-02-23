@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <vector>
 
 #include "common/global_types.h"
@@ -62,7 +61,7 @@ public:
         return VExpr::open(_vfn_ctxs, state);
     }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-    bool need_more_input_data() const { return !_child_block.rows() && !_child_eos; }
+    bool need_more_input_data() const { return !_child_block->rows() && !_child_eos; }
 
     void release_resource(doris::RuntimeState* state) override {
         if (_num_rows_filtered_counter != nullptr) {
@@ -81,7 +80,7 @@ public:
         for (TableFunction* fn : _fns) {
             RETURN_IF_ERROR(fn->process_init(input_block, state));
         }
-        RETURN_IF_ERROR(_process_next_child_row());
+        _process_next_child_row();
         return Status::OK();
     }
 
@@ -92,7 +91,7 @@ public:
         return Status::OK();
     }
 
-    Block* get_child_block() { return &_child_block; }
+    std::shared_ptr<Block> get_child_block() { return _child_block; }
 
 private:
     Status _prepare_output_slot_ids(const TPlanNode& tnode);
@@ -106,7 +105,7 @@ private:
 
     bool _roll_table_functions(int last_eos_idx);
 
-    Status _process_next_child_row();
+    void _process_next_child_row();
 
     /*  Now the output tuples for table function node is base_table_tuple + tf1 + tf2 + ...
         But not all slots are used, the real used slots are inside table_function_node.outputSlotIds.
@@ -135,7 +134,7 @@ private:
             return;
         }
         for (auto index : _output_slot_indexs) {
-            auto src_column = _child_block.get_by_position(index).column;
+            auto src_column = _child_block->get_by_position(index).column;
             columns[index]->insert_many_from(*src_column, _cur_child_offset,
                                              _current_row_insert_times);
         }
@@ -143,7 +142,7 @@ private:
     }
     int _current_row_insert_times = 0;
 
-    Block _child_block;
+    std::shared_ptr<Block> _child_block;
     std::vector<SlotDescriptor*> _child_slots;
     std::vector<SlotDescriptor*> _output_slots;
     int64_t _cur_child_offset = 0;

@@ -91,7 +91,9 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size)
           _is_cancelled(false),
           _buffer_rows(0),
           _buffer_limit(buffer_size),
-          _packet_num(0) {}
+          _packet_num(0) {
+    _query_statistics = std::make_unique<QueryStatistics>();
+}
 
 BufferControlBlock::~BufferControlBlock() {
     static_cast<void>(cancel());
@@ -298,7 +300,7 @@ Status PipBufferControlBlock::cancel() {
 }
 
 void PipBufferControlBlock::set_dependency(
-        std::shared_ptr<pipeline::ResultSinkDependency> result_sink_dependency) {
+        std::shared_ptr<pipeline::Dependency> result_sink_dependency) {
     _result_sink_dependency = result_sink_dependency;
 }
 

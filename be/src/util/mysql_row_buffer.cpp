@@ -18,6 +18,7 @@
 #include "util/mysql_row_buffer.h"
 
 #include <assert.h>
+#include <fmt/compile.h>
 #include <fmt/format.h>
 #include <string.h>
 #include <sys/types.h>
@@ -158,13 +159,16 @@ int MysqlRowBuffer<is_binary_format>::reserve(int64_t size) {
 
 template <typename T>
 char* add_int(T data, char* pos, bool dynamic_mode) {
-    auto fi = fmt::format_int(data);
-    int length = fi.size();
+    char* init_pos = pos;
     if (!dynamic_mode) {
-        int1store(pos++, length);
+        pos++;
     }
-    memcpy(pos, fi.data(), length);
-    return pos + length;
+    auto end = fmt::format_to(pos, FMT_COMPILE("{}"), data);
+    int length = end - pos;
+    if (!dynamic_mode) {
+        int1store(init_pos, length);
+    }
+    return end;
 }
 
 static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {

@@ -178,17 +178,19 @@ public class ColumnDef {
     private boolean isKey;
     private boolean isAllowNull;
     private boolean isAutoInc;
+    private long autoIncInitValue;
     private DefaultValue defaultValue;
     private String comment;
     private boolean visible;
+    private int clusterKeyId = -1;
 
     public ColumnDef(String name, TypeDef typeDef) {
-        this(name, typeDef, false, null, false, false, DefaultValue.NOT_SET, "");
+        this(name, typeDef, false, null, false, -1, DefaultValue.NOT_SET, "");
     }
 
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-                     boolean isAllowNull, boolean isAutoInc, DefaultValue defaultValue, String comment) {
-        this(name, typeDef, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue, comment, true);
+            boolean isAllowNull, long autoIncInitValue, DefaultValue defaultValue, String comment) {
+        this(name, typeDef, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment, true);
     }
 
     public ColumnDef(String name, TypeDef typeDef, boolean isAllowNull) {
@@ -196,18 +198,19 @@ public class ColumnDef {
     }
 
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-                     boolean isAllowNull, DefaultValue defaultValue, String comment) {
-        this(name, typeDef, isKey, aggregateType, isAllowNull, false, defaultValue, comment, true);
+            boolean isAllowNull, DefaultValue defaultValue, String comment) {
+        this(name, typeDef, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, true);
     }
 
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-            boolean isAllowNull, boolean isAutoInc, DefaultValue defaultValue, String comment, boolean visible) {
+            boolean isAllowNull, long autoIncInitValue, DefaultValue defaultValue, String comment, boolean visible) {
         this.name = name;
         this.typeDef = typeDef;
         this.isKey = isKey;
         this.aggregateType = aggregateType;
         this.isAllowNull = isAllowNull;
-        this.isAutoInc = isAutoInc;
+        this.isAutoInc = autoIncInitValue != -1;
+        this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
         this.comment = comment;
         this.visible = visible;
@@ -215,39 +218,39 @@ public class ColumnDef {
 
     public static ColumnDef newDeleteSignColumnDef() {
         return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, null, false,
-                false, new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
+                -1, new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
     }
 
     public static ColumnDef newDeleteSignColumnDef(AggregateType aggregateType) {
         return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, aggregateType, false,
-                false, new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
+                -1, new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
     }
 
     public static ColumnDef newSequenceColumnDef(Type type) {
         return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, null, true,
-                false, DefaultValue.NULL_DEFAULT_VALUE, "sequence column hidden column", false);
+                -1, DefaultValue.NULL_DEFAULT_VALUE, "sequence column hidden column", false);
     }
 
     public static ColumnDef newSequenceColumnDef(Type type, AggregateType aggregateType) {
         return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false,
-                aggregateType, true, false, DefaultValue.NULL_DEFAULT_VALUE,
+                aggregateType, true, -1, DefaultValue.NULL_DEFAULT_VALUE,
                 "sequence column hidden column", false);
     }
 
     public static ColumnDef newRowStoreColumnDef(AggregateType aggregateType) {
         return new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING), false,
-                aggregateType, false, false,
+                aggregateType, false, -1,
                 new ColumnDef.DefaultValue(true, ""), "doris row store hidden column", false);
     }
 
     public static ColumnDef newVersionColumnDef() {
-        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, null, false, false,
+        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, null, false, -1,
                 new ColumnDef.DefaultValue(true, "0"), "doris version hidden column", false);
     }
 
     public static ColumnDef newVersionColumnDef(AggregateType aggregateType) {
         return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, aggregateType, false,
-                false, new ColumnDef.DefaultValue(true, "0"), "doris version hidden column", false);
+                -1, new ColumnDef.DefaultValue(true, "0"), "doris version hidden column", false);
     }
 
     public boolean isAllowNull() {
@@ -304,6 +307,10 @@ public class ColumnDef {
 
     public boolean isVisible() {
         return visible;
+    }
+
+    public void setClusterKeyId(int clusterKeyId) {
+        this.clusterKeyId = clusterKeyId;
     }
 
     public void analyze(boolean isOlap) throws AnalysisException {
@@ -555,6 +562,9 @@ public class ColumnDef {
 
         if (isAutoInc) {
             sb.append("AUTO_INCREMENT ");
+            sb.append("(");
+            sb.append(autoIncInitValue);
+            sb.append(")");
         }
 
         if (defaultValue.isSet) {
@@ -577,8 +587,9 @@ public class ColumnDef {
             type = Expr.createAggStateType(genericAggregationName, typeList, nullableList);
         }
 
-        return new Column(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue.value, comment,
-                visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue());
+        return new Column(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue.value, comment,
+                visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue(),
+                clusterKeyId);
     }
 
     @Override

@@ -166,10 +166,12 @@ jobs:
             'llvm@16'
           )
 
-          brew install "${packages[@]}"
+          brew install "${packages[@]}" || true
 
       - name: Build
         run: |
+          export MACOSX_DEPLOYMENT_TARGET=12.0
+
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"
 

@@ -74,7 +74,9 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
             LOG.warn("Unknown command(" + command + ")");
             return;
         }
-        LOG.debug("arrow flight sql handle command {}", command);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("arrow flight sql handle command {}", command);
+        }
         ctx.setCommand(command);
         ctx.setStartTime();
     }
@@ -121,7 +123,10 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
                 Status status = new Status();
                 status.setPstatus(pResult.getStatus());
                 throw new RuntimeException(String.format("fetch arrow flight schema failed, finstId: %s, errmsg: %s",
-                        DebugUtil.printId(tid), status));
+                        DebugUtil.printId(tid), status.getErrorMsg()));
+            }
+            if (pResult.hasBeArrowFlightIp()) {
+                ctx.getResultFlightServerAddr().hostname = pResult.getBeArrowFlightIp().toStringUtf8();
             }
             if (pResult.hasSchema() && pResult.getSchema().size() > 0) {
                 RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
@@ -175,5 +180,3 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
         ConnectContext.remove();
     }
 }
-
-

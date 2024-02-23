@@ -33,7 +33,6 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
-#include "vec/exec/scan/scan_task_queue.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
@@ -44,66 +43,6 @@ const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
 const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
 const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
 
-template <typename QueueType>
-TaskGroupEntity<QueueType>::TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type)
-        : _tg(tg), _type(type), _version(tg->version()), _cpu_share(tg->cpu_share()) {
-    _task_queue = new QueueType();
-}
-
-template <typename QueueType>
-TaskGroupEntity<QueueType>::~TaskGroupEntity() {
-    delete _task_queue;
-}
-
-template <typename QueueType>
-QueueType* TaskGroupEntity<QueueType>::task_queue() {
-    return _task_queue;
-}
-
-template <typename QueueType>
-void TaskGroupEntity<QueueType>::incr_runtime_ns(uint64_t runtime_ns) {
-    auto v_time = runtime_ns / _cpu_share;
-    _vruntime_ns += v_time;
-}
-
-template <typename QueueType>
-void TaskGroupEntity<QueueType>::adjust_vruntime_ns(uint64_t vruntime_ns) {
-    VLOG_DEBUG << "adjust " << debug_string() << "vtime to " << vruntime_ns;
-    _vruntime_ns = vruntime_ns;
-}
-
-template <typename QueueType>
-size_t TaskGroupEntity<QueueType>::task_size() const {
-    return _task_queue->size();
-}
-
-template <typename QueueType>
-uint64_t TaskGroupEntity<QueueType>::cpu_share() const {
-    return _cpu_share;
-}
-
-template <typename QueueType>
-uint64_t TaskGroupEntity<QueueType>::task_group_id() const {
-    return _tg->id();
-}
-
-template <typename QueueType>
-void TaskGroupEntity<QueueType>::check_and_update_cpu_share(const TaskGroupInfo& tg_info) {
-    if (tg_info.version > _version) {
-        _cpu_share = tg_info.cpu_share;
-        _version = tg_info.version;
-    }
-}
-
-template <typename QueueType>
-std::string TaskGroupEntity<QueueType>::debug_string() const {
-    return fmt::format("TGE[id = {}, name = {}-{}, cpu_share = {}, task size: {}, v_time:{} ns]",
-                       _tg->id(), _tg->name(), _type, cpu_share(), task_size(), _vruntime_ns);
-}
-
-template class TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
-template class TaskGroupEntity<ScanTaskQueue>;
-
 TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
         : _id(tg_info.id),
           _name(tg_info.name),
@@ -111,18 +50,18 @@ TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
           _memory_limit(tg_info.memory_limit),
           _enable_memory_overcommit(tg_info.enable_memory_overcommit),
           _cpu_share(tg_info.cpu_share),
-          _task_entity(this, "pipeline task entity"),
-          _local_scan_entity(this, "local scan entity"),
           _mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM),
-          _cpu_hard_limit(tg_info.cpu_hard_limit) {}
+          _cpu_hard_limit(tg_info.cpu_hard_limit),
+          _scan_thread_num(tg_info.scan_thread_num) {}
 
 std::string TaskGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
     return fmt::format(
             "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
-            "{}, version = {}, cpu_hard_limit = {}]",
+            "{}, version = {}, cpu_hard_limit = {}, scan_thread_num = {}]",
             _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
-            _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit());
+            _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit(),
+            _scan_thread_num);
 }
 
 void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
@@ -144,14 +83,11 @@ void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
             _enable_memory_overcommit = tg_info.enable_memory_overcommit;
             _cpu_share = tg_info.cpu_share;
             _cpu_hard_limit = tg_info.cpu_hard_limit;
+            _scan_thread_num = tg_info.scan_thread_num;
         } else {
             return;
         }
     }
-    ExecEnv::GetInstance()->pipeline_task_group_scheduler()->task_queue()->update_tg_cpu_share(
-            tg_info, &_task_entity);
-    ExecEnv::GetInstance()->scanner_scheduler()->local_scan_task_queue()->update_tg_cpu_share(
-            tg_info, &_local_scan_entity);
 }
 
 int64_t TaskGroup::memory_used() {
@@ -251,6 +187,12 @@ Status TaskGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_group_
         enable_cpu_hard_limit = workload_group_info.enable_cpu_hard_limit;
     }
     task_group_info->enable_cpu_hard_limit = enable_cpu_hard_limit;
+
+    // 9 scan thread num
+    task_group_info->scan_thread_num = config::doris_scanner_thread_pool_thread_num;
+    if (workload_group_info.__isset.scan_thread_num && workload_group_info.scan_thread_num > 0) {
+        task_group_info->scan_thread_num = workload_group_info.scan_thread_num;
+    }
 
     return Status::OK();
 }

@@ -139,8 +139,8 @@ private:
     // the first few bytes is length, followed by data
     int append_var_string(const char* data, int64_t len);
 
-    char* _pos;
-    char* _buf;
+    char* _pos = nullptr;
+    char* _buf = nullptr;
     int64_t _buf_size;
     char _default_buf[4096];
 

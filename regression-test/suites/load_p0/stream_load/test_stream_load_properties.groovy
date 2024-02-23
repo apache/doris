@@ -29,6 +29,7 @@ import org.apache.http.protocol.HttpContext;
 import org.apache.http.util.EntityUtils;
 import org.apache.http.client.RedirectStrategy;
 import org.apache.http.impl.client.LaxRedirectStrategy;
+import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_stream_load_properties", "p0") {
 
@@ -201,6 +202,7 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
             def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_timezone_shanghai "select * from ${tableName1} order by k00,k01"
@@ -242,6 +244,7 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
             def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_timezone_Abidjan "select * from ${tableName1} order by k00,k01"
@@ -286,6 +289,7 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
             def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_strict_mode "select * from ${tableName1} order by k00,k01"
@@ -329,6 +333,7 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
             def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_max_filter_ratio "select * from ${tableName1} order by k00,k01"
@@ -431,6 +436,7 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
             qt_sql_squence "select * from stream_load_uniq_tbl_basic_sequence order by k00,k01"
     } finally {
         sql new File("""${context.file.parent}/ddl/uniq_tbl_basic_drop_sequence.sql""").text
@@ -463,6 +469,7 @@ suite("test_stream_load_properties", "p0") {
                 assertEquals(0, json.NumberUnselectedRows)
             }
         }
+        sql "sync"
 
         streamLoad {
             table "stream_load_" + tableName
@@ -485,6 +492,7 @@ suite("test_stream_load_properties", "p0") {
                 assertEquals(0, json.NumberUnselectedRows)
             }
         }
+        sql "sync"
         def tableName1 = "stream_load_" + tableName
         qt_sql_merge_type "select * from ${tableName1} order by k00,k01"
     } finally {
@@ -526,6 +534,7 @@ suite("test_stream_load_properties", "p0") {
                             throw new IllegalStateException("Expect backend stream load response code is 200, " +
                                     "but meet ${respCode}\nbody: ${body}")
                         }
+                        return body
                     }
                 }
             } catch (Throwable t) {
@@ -541,8 +550,10 @@ suite("test_stream_load_properties", "p0") {
             sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
 
             String txnId
+            def tableName1 =  "stream_load_" + tableName
+            // Invalid txn_id string with letters
             streamLoad {
-                table "stream_load_" + tableName
+                table tableName1
                 set 'column_separator', '|'
                 set 'columns', columns[i]
                 set 'two_phase_commit', 'true'
@@ -563,8 +574,103 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
+            txnId = "ABCxyz"
+            def body = do_streamload_2pc.call(txnId, "commit", tableName1)
+            assertEquals("internal_error", parseJson(body).status.toLowerCase())
+            assertTrue(parseJson(body).msg.toLowerCase().contains("stoull"))
 
-            def tableName1 =  "stream_load_" + tableName
+            // Invalid txn_id string with digits and letters
+            streamLoad {
+                table tableName1
+                set 'column_separator', '|'
+                set 'columns', columns[i]
+                set 'two_phase_commit', 'true'
+                file files[i]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    txnId = json.TxnId
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            sql "sync"
+            txnId += "100ABC"
+            body = do_streamload_2pc.call(txnId, "commit", tableName1)
+            assertEquals("analysis_error", parseJson(body).status.toLowerCase())
+            assertTrue(parseJson(body).msg.toLowerCase().contains("not found"))
+            if (i <= 3) {
+                qt_sql_2pc_invalid_txnid "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_2pc_invalid_txnid "select * from ${tableName1} order by k00"
+            }
+
+            // Operation other than commit or abort
+            streamLoad {
+                table tableName1
+                set 'column_separator', '|'
+                set 'columns', columns[i]
+                set 'two_phase_commit', 'true'
+                file files[i]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    txnId = json.TxnId
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            sql "sync"
+            body = do_streamload_2pc.call(txnId, "invalidop", tableName1)
+            assertEquals("internal_error", parseJson(body).status.toLowerCase())
+            assertTrue(parseJson(body).msg.toLowerCase().contains("transaction operation should be 'commit' or 'abort'"))           
+            if (i <= 3) {
+                qt_sql_2pc_invalid_operation "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_2pc_invalid_operation "select * from ${tableName1} order by k00"
+            }
+
+            streamLoad {
+                table tableName1
+                set 'column_separator', '|'
+                set 'columns', columns[i]
+                set 'two_phase_commit', 'true'
+                file files[i]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    txnId = json.TxnId
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            sql "sync"
+
             if (i <= 3) {
                 qt_sql_2pc "select * from ${tableName1} order by k00,k01"
             } else {
@@ -572,6 +678,7 @@ suite("test_stream_load_properties", "p0") {
             }
 
             do_streamload_2pc.call(txnId, "abort", tableName1)
+            sql "sync"
 
             if (i <= 3) {
                 qt_sql_2pc_abort "select * from ${tableName1} order by k00,k01"
@@ -580,7 +687,7 @@ suite("test_stream_load_properties", "p0") {
             }
 
             streamLoad {
-                table "stream_load_" + tableName
+                table tableName1
                 set 'column_separator', '|'
                 set 'columns', columns[i]
                 set 'two_phase_commit', 'true'
@@ -601,8 +708,10 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
 
             do_streamload_2pc.call(txnId, "commit", tableName1)
+            sql "sync"
 
             def count = 0
             while (true) {
@@ -616,7 +725,7 @@ suite("test_stream_load_properties", "p0") {
                     break
                 }
                 if (count >= 60) {
-                    log.error("stream load commit can not visible for long time")
+                    log.error("stream load commit is not visible for long time")
                     assertEquals(20, res[0][0])
                     break
                 }
@@ -629,6 +738,11 @@ suite("test_stream_load_properties", "p0") {
             } else {
                 qt_sql_2pc_commit "select * from ${tableName1} order by k00"
             }
+            
+            // Commit the same txnId again to trigger operate_txn_2pc() failure
+            body = do_streamload_2pc.call(txnId, "commit", tableName1)
+            assertEquals("analysis_error", parseJson(body).status.toLowerCase())
+            assertTrue(parseJson(body).msg.toLowerCase().contains("is already visible"))    
 
             i++
         }
@@ -717,6 +831,7 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
             def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_skip_lines "select * from ${tableName1} order by k00,k01"
@@ -835,6 +950,7 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
             def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_json_strip_outer_array "select * from ${tableName1} order by k00,k01"
@@ -860,7 +976,7 @@ suite("test_stream_load_properties", "p0") {
                 set 'format', 'json'
                 set 'columns', columns[i]
                 set 'strip_outer_array', 'true'
-                set 'jsonpath', '[\"$.k00\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\", \"$.k18\"]'
+                set 'jsonpaths', '[\"$.k00\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\", \"$.k18\"]'
                 if (i <= 3) {
                     file json_files[0]
                 } else {
@@ -881,6 +997,7 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
             def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_json_jsonpath "select * from ${tableName1} order by k00,k01"
@@ -926,6 +1043,7 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
             def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
@@ -977,13 +1095,29 @@ suite("test_stream_load_properties", "p0") {
             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
         }
     }
-    
-    // test read_json_by_line with enable_simdjson_read=false (default)
+
+    // test read_json_by_line with enable_simdjson_reader=false/true
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    def get_be_param = { paramName ->
+        // assuming paramName on all BEs have save value
+        String backend_id = backendId_to_backendIP.keySet()[0]
+        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+        assertEquals(code, 0)
+        def configList = parseJson(out.trim())
+        assert configList instanceof List
+        for (Object ele in (List) configList) {
+            assert ele instanceof List<String>
+            if (((List<String>) ele)[0] == paramName) {
+                return ((List<String>) ele)[2]
+            }
+        }
+    }
+
     def set_be_param = { paramName, paramValue ->
-        // for eache be node, set paramName=paramValue
+        // for eache BE node, set paramName=paramValue
         for (String id in backendId_to_backendIP.keySet()) {
             def beIp = backendId_to_backendIP.get(id)
             def bePort = backendId_to_backendHttpPort.get(id)
@@ -992,8 +1126,12 @@ suite("test_stream_load_properties", "p0") {
         }
     }
 
+    // read and save original value of enable_simdjson_reader
+    boolean enable_simdjson_reader = Boolean.parseBoolean(get_be_param.call("enable_simdjson_reader"))
+
     i = 0
     try {
+        // set enable_simdjson_reader=false and test
         set_be_param.call("enable_simdjson_reader", "false")
 
         for (String tableName in tables) {
@@ -1025,6 +1163,7 @@ suite("test_stream_load_properties", "p0") {
                     assertEquals(0, json.NumberUnselectedRows)
                 }
             }
+            sql "sync"
             def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
@@ -1034,8 +1173,98 @@ suite("test_stream_load_properties", "p0") {
             i++
         }
     } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
+
+    i = 0
+    try {
+        // set enable_simdjson_reader=true and test
         set_be_param.call("enable_simdjson_reader", "true")
 
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'format', 'json'
+                set 'columns', columns[i]
+                set 'read_json_by_line', 'true'
+                if (i <= 3) {
+                    file json_by_line_files[0]
+                } else {
+                    file json_by_line_files[1]
+                }
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(jsonLoadedRows[i], json.NumberTotalRows)
+                    assertEquals(jsonLoadedRows[i], json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            sql "sync"
+            def tableName1 =  "stream_load_" + tableName
+            if (i <= 3) {
+                qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_json_read_json_by_line "select * from ${tableName1} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
+    // restore BEs to original value
+    set_be_param.call("enable_simdjson_reader", enable_simdjson_reader ? "true" : "false")
+
+    // test invalid jsonpaths
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'format', 'json'
+                set 'columns', columns[i]
+                set 'strip_outer_array', 'true'
+                set 'jsonpaths', '[\"$.invalid\", \"$.k01\", \"$.k02\", \"$.k03\", \"$.k04\", \"$.k05\", \"$.k06\", \"$.k07\", \"$.k08\", \"$.k09\", \"$.k10\", \"$.k11\", \"$.k12\", \"$.k13\", \"$.k14\", \"$.k15\", \"$.k16\", \"$.k17\", \"$.k18\"]'
+                if (i <= 3) {
+                    file json_files[0]
+                } else {
+                    file json_files[1]
+                }
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("fail", json.Status.toLowerCase())
+                    assertTrue(json.Message.contains("too many filtered rows"))
+                    assertEquals(jsonLoadedRows[i], json.NumberTotalRows)
+                    assertEquals(0, json.NumberLoadedRows)
+                    assertEquals(jsonLoadedRows[i], json.NumberFilteredRows)
+                }
+            }
+            i++
+        }
+    } finally {
         for (String tableName in tables) {
             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
         }

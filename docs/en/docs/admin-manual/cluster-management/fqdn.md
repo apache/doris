@@ -30,9 +30,9 @@ under the License.
 
 This article introduces how to enable the use of Apache Doris based on FQDN (Fully Qualified Domain Name). FQDN is the complete domain name of a specific computer or host on the Internet.
 
-After Doris supports FQDN, communication between nodes is entirely based on FQDN. When adding various types of nodes, the FQDN should be directly specified. For example, the command to add a BE node is' ALT SYSTEM ADD BACK END "be_host: eartbeat_service_port",
+After Doris supports FQDN, communication between nodes is entirely based on FQDN. When adding various types of nodes, the FQDN should be directly specified. For example, the command to add a BE node is' ALTER SYSTEM ADD BACKEND "be_host:heartbeat_service_port",
 
-'be_host' was previously the IP address of the BE node. After starting the FQDN, be_ The host should specify the FQDN of the BE node.
+'be_host' was previously the IP address of the BE node. After starting the FQDN, be_host should specify the FQDN of the BE node.
 
 ## Preconditions
 
@@ -65,7 +65,7 @@ After Doris supports FQDN, communication between nodes is entirely based on FQDN
 
 After an unexpected restart of the Pod, K8s cannot guarantee that the Pod's IP will not change, but it can ensure that the domain name remains unchanged. Based on this feature, when Doris enables FQDN, it can ensure that the Pod can still provide services normally after an unexpected restart.
 
-Please refer to the method for deploying Doris in K8s[Kubernetes Deployment](../../install/k8s-deploy.md)
+Please refer to the method for deploying Doris in K8s[Kubernetes Deployment](../../install/k8s-deploy/operator-deploy.md)
 
 ### Server change IP
 
