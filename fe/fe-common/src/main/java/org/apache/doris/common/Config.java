@@ -1810,12 +1810,12 @@ public class Config extends ConfigBase {
             "If set to true, query on external table will prefer to assign to compute node. "
                     + "And the max number of compute node is controlled by min_backend_num_for_external_table. "
                     + "If set to false, query on external table will assign to any node. "
-                    + "If there is no compute node in cluster, this config takes no effect.",})
+                    + "If there is no compute node in cluster, this config takes no effect."})
     public static boolean prefer_compute_node_for_external_table = false;
 
-    @ConfField(mutable = true, description = {"只有当prefer_compute_node_for_external_table为true时生效，" +
-            "如果计算节点数小于这个值，外部表的查询会尝试获取一些混合节点来分配，以使节点总数达到这个值。" +
-            "如果计算节点数大于这个值，外部表的查询将只分配给计算节点。-1表示只是用当前数量的计算节点",
+    @ConfField(mutable = true, description = {"只有当prefer_compute_node_for_external_table为true时生效，"
+            + "如果计算节点数小于这个值，外部表的查询会尝试获取一些混合节点来分配，以使节点总数达到这个值。"
+            + "如果计算节点数大于这个值，外部表的查询将只分配给计算节点。-1表示只是用当前数量的计算节点",
             "Only take effect when prefer_compute_node_for_external_table is true. "
                     + "If the compute node number is less than this value, "
                     + "query on external table will try to get some mix de to assign, "
