@@ -467,7 +467,7 @@ public class NativeInsertStmt extends InsertStmt {
                         haveInputSeqCol = true; // case1.b
                     }
                     seqColInTable = olapTable.getFullSchema().stream()
-                            .filter(col -> col.getName().equals(olapTable.getSequenceMapCol())).findFirst();
+                            .filter(col -> col.getName().equalsIgnoreCase(olapTable.getSequenceMapCol())).findFirst();
                 } else {
                     if (targetColumnNames != null) {
                         if (targetColumnNames.stream()
@@ -480,7 +480,8 @@ public class NativeInsertStmt extends InsertStmt {
                 if (!haveInputSeqCol && !isPartialUpdate && !isFromDeleteOrUpdateStmt
                         && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
-                            || !seqColInTable.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                            || !seqColInTable.get().getDefaultValue()
+                            .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
                         throw new AnalysisException("Table " + olapTable.getName()
                                 + " has sequence column, need to specify the sequence column");
                     }
@@ -488,14 +489,14 @@ public class NativeInsertStmt extends InsertStmt {
             }
 
             if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
-                    && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
+                    && partialUpdateCols.stream().anyMatch(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol()))) {
                 partialUpdateCols.add(Column.SEQUENCE_COL);
             }
             // need a descriptor
             DescriptorTable descTable = analyzer.getDescTbl();
             olapTuple = descTable.createTupleDescriptor();
             for (Column col : olapTable.getFullSchema()) {
-                if (isPartialUpdate && !partialUpdateCols.contains(col.getName())) {
+                if (isPartialUpdate && partialUpdateCols.stream().noneMatch(c -> c.equalsIgnoreCase(col.getName()))) {
                     continue;
                 }
                 SlotDescriptor slotDesc = descTable.addSlotDescriptor(olapTuple);

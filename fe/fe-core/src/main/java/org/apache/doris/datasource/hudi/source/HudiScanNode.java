@@ -47,7 +47,6 @@ import com.google.common.collect.Maps;
 import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
@@ -93,8 +92,10 @@ public class HudiScanNode extends HiveScanNode {
      */
     public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv);
-        isCowOrRoTable = hmsTable.isHoodieCowTable() || "skip_merge".equals(
-                hmsTable.getCatalogProperties().get("hoodie.datasource.merge.type"));
+        Map<String, String> paras = hmsTable.getRemoteTable().getParameters();
+        isCowOrRoTable = hmsTable.isHoodieCowTable()
+                || "skip_merge".equals(hmsTable.getCatalogProperties().get("hoodie.datasource.merge.type"))
+                || (paras != null && "COPY_ON_WRITE".equalsIgnoreCase(paras.get("flink.table.type")));
         if (isCowOrRoTable) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Hudi table {} can read as cow/read optimize table", hmsTable.getName());
@@ -239,19 +240,8 @@ public class HudiScanNode extends HiveScanNode {
 
         List<String> columnNames = new ArrayList<>();
         List<String> columnTypes = new ArrayList<>();
-        List<FieldSchema> allFields = Lists.newArrayList();
-        allFields.addAll(hmsTable.getRemoteTable().getSd().getCols());
-        allFields.addAll(hmsTable.getRemoteTable().getPartitionKeys());
-
         for (Schema.Field hudiField : hudiSchema.getFields()) {
-            String columnName = hudiField.name().toLowerCase(Locale.ROOT);
-            // keep hive metastore column in hudi avro schema.
-            Optional<FieldSchema> field = allFields.stream().filter(f -> f.getName().equals(columnName)).findFirst();
-            if (!field.isPresent()) {
-                String errorMsg = String.format("Hudi column %s not exists in hive metastore.", hudiField.name());
-                throw new IllegalArgumentException(errorMsg);
-            }
-            columnNames.add(columnName);
+            columnNames.add(hudiField.name().toLowerCase(Locale.ROOT));
             String columnType = HudiUtils.fromAvroHudiTypeToHiveTypeString(hudiField.schema());
             columnTypes.add(columnType);
         }

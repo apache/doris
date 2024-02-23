@@ -218,8 +218,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (remoteTable.getSd() == null) {
             return false;
         }
+        Map<String, String> paras = remoteTable.getParameters();
         String inputFormatName = remoteTable.getSd().getInputFormat();
-        return inputFormatName != null && SUPPORTED_HUDI_FILE_FORMATS.contains(inputFormatName);
+        // compatible with flink hive catalog
+        return (paras != null && "hudi".equalsIgnoreCase(paras.get("flink.connector")))
+                || (inputFormatName != null && SUPPORTED_HUDI_FILE_FORMATS.contains(inputFormatName));
     }
 
     public boolean isHoodieCowTable() {

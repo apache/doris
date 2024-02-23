@@ -80,8 +80,41 @@ import java.util.stream.IntStream;
  *                                                              plan
  */
 public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements CustomRewriter {
+    private Set<Slot> keys;
+
+    /**
+     * collect all columns used in expressions, which should not be pruned
+     */
+    public static class KeyColumnCollector
+            extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
+        public Set<Slot> keys = Sets.newHashSet();
+
+        @Override
+        public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+            return plan.accept(this, jobContext);
+        }
+
+        @Override
+        public Plan visit(Plan plan, JobContext jobContext) {
+            for (Plan child : plan.children()) {
+                child.accept(this, jobContext);
+            }
+            plan.getExpressions().stream().filter(
+                    expression -> !(expression instanceof SlotReference)
+            ).forEach(
+                    expression -> {
+                        keys.addAll(expression.getInputSlots());
+                    }
+            );
+            return plan;
+        }
+    }
+
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        KeyColumnCollector keyColumnCollector = new KeyColumnCollector();
+        plan.accept(keyColumnCollector, jobContext);
+        keys = keyColumnCollector.keys;
         return plan.accept(this, new PruneContext(plan.getOutputSet(), null));
     }
 
@@ -244,7 +277,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     /** prune output */
-    public static <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
+    public <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
             Function<List<NamedExpression>, P> withPrunedOutput, PruneContext context) {
         if (originOutput.isEmpty()) {
             return plan;
@@ -254,7 +287,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 .collect(ImmutableList.toImmutableList());
 
         if (prunedOutputs.isEmpty()) {
-            NamedExpression minimumColumn = ExpressionUtils.selectMinimumColumn(originOutput);
+            List<NamedExpression> candidates = Lists.newArrayList(originOutput);
+            candidates.retainAll(keys);
+            if (candidates.isEmpty()) {
+                candidates = originOutput;
+            }
+            NamedExpression minimumColumn = ExpressionUtils.selectMinimumColumn(candidates);
             prunedOutputs = ImmutableList.of(minimumColumn);
         }
 
