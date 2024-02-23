@@ -30,7 +30,7 @@ import java.util.Optional;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy;
 
-public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<ColumnStatistic>> {
+public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<StatisticsCacheKey, Optional<ColumnStatistic>> {
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatisticsCacheLoader.class);
 
