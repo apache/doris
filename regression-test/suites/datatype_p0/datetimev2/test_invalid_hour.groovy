@@ -22,13 +22,13 @@ suite("test_invalid_hour") {
     qt_sql """
         select cast(concat("2024-02-02", ' ', "24:23:12") as DateTime);
     """
+    sql "drop table if exists test_invalid_hour_null"
+    sql "drop table if exists test_invalid_hour_not_null"
     sql """
-        drop table if exists test_invalid_hour
-    """
-    sql """
-        create table test_invalid_hour (
+        create table test_invalid_hour_null (
             `rowid` int,
-            `str` varchar
+            `str` varchar,
+            `dt` datetime null
         ) ENGINE=OLAP
         UNIQUE KEY(`rowid`)
         COMMENT "OLAP"
@@ -41,12 +41,49 @@ suite("test_invalid_hour") {
     """
 
     sql """
-        insert into test_invalid_hour values
-        (1, "2023-12-12 24:00:00"),
-        (2, "2023-12-12 23:00:00")
+        create table test_invalid_hour_not_null (
+            `rowid` int,
+            `str` varchar,
+            `dt` datetime not null
+        ) ENGINE=OLAP
+        UNIQUE KEY(`rowid`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`rowid`) BUCKETS 3
+        PROPERTIES (
+            "replication_num" = "1",
+            "colocate_with" = "lineitem_orders",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    sql """
+        insert into test_invalid_hour_null values
+            (1, "2023-12-12 24:00:00", "2023-12-12 24:00:00"),
+            (2, "2023-12-12 23:00:00", "2023-12-12 23:00:00")
+    """
+
+    sql """
+        insert into test_invalid_hour_not_null values 
+            (1, "2023-12-12 23:00:00", "2023-12-12 23:00:00")
+    """
+
+    try {
+        sql """ set enable_insert_strict = true; """
+        
+        sql """
+            insert into test_invalid_hour_not_null values
+                (2, "2023-12-12 24:00:00", "2023-12-12 24:00:00")
+        """
+    } catch (Exception e) {
+                logger.info("exception: " + e)
+                assertTrue(e.toString().contains("Insert has filtered data in strict mode"))
+            }
+    
+    qt_sql """
+        select *, cast(str as Datetime) from test_invalid_hour_null order by rowid;
     """
 
     qt_sql """
-        select *, cast(str as Datetime) from test_invalid_hour order by rowid;
+        select *, cast(str as Datetime) from test_invalid_hour_not_null order by rowid;
     """
 }
