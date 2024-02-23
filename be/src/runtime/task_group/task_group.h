@@ -84,8 +84,6 @@ public:
 
     void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
-    void task_group_info(TaskGroupInfo* tg_info) const;
-
     // when mem_limit <=0 , it's an invalid value, then current group not participating in memory GC
     // because mem_limit is not a required property
     bool is_mem_limit_valid() {

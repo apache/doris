@@ -114,16 +114,6 @@ void TaskGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> me
     _mem_tracker_limiter_pool[group_num].trackers.erase(mem_tracker_ptr);
 }
 
-void TaskGroup::task_group_info(TaskGroupInfo* tg_info) const {
-    std::shared_lock<std::shared_mutex> r_lock(_mutex);
-    tg_info->id = _id;
-    tg_info->name = _name;
-    tg_info->cpu_share = _cpu_share;
-    tg_info->memory_limit = _memory_limit;
-    tg_info->enable_memory_overcommit = _enable_memory_overcommit;
-    tg_info->version = _version;
-}
-
 int64_t TaskGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
     if (need_free_mem <= 0) {
         return 0;
