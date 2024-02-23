@@ -44,6 +44,7 @@
 #include <vector>
 
 #include "agent/utils.h"
+#include "cloud/cloud_delete_task.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -1440,6 +1441,57 @@ void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
                 .error(status);
     }
     finish_task_request.__set_task_status(status.to_thrift());
+    finish_task_request.__set_report_version(s_report_version);
+
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
+}
+
+void cloud_push_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    const auto& push_req = req.push_req;
+
+    LOG(INFO) << "get push task. signature=" << req.signature
+              << " push_type=" << push_req.push_type;
+
+    // Return result to fe
+    TFinishTaskRequest finish_task_request;
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+
+    // Only support DELETE in cloud mode now
+    if (push_req.push_type != TPushType::DELETE) {
+        finish_task_request.__set_task_status(
+                Status::NotSupported("push_type {} not is supported",
+                                     std::to_string(push_req.push_type))
+                        .to_thrift());
+        return;
+    }
+
+    finish_task_request.__set_request_version(push_req.version);
+
+    DorisMetrics::instance()->delete_requests_total->increment(1);
+    auto st = CloudDeleteTask::execute(engine, req.push_req);
+    if (st.ok()) {
+        LOG_INFO("successfully execute push task")
+                .tag("signature", req.signature)
+                .tag("tablet_id", push_req.tablet_id)
+                .tag("push_type", push_req.push_type);
+        ++s_report_version;
+        auto& tablet_info = finish_task_request.finish_tablet_infos.emplace_back();
+        // Just need tablet_id
+        tablet_info.tablet_id = push_req.tablet_id;
+        finish_task_request.__isset.finish_tablet_infos = true;
+    } else {
+        DorisMetrics::instance()->delete_requests_failed->increment(1);
+        LOG_WARNING("failed to execute push task")
+                .tag("signature", req.signature)
+                .tag("tablet_id", push_req.tablet_id)
+                .tag("push_type", push_req.push_type)
+                .error(st);
+    }
+
+    finish_task_request.__set_task_status(st.to_thrift());
     finish_task_request.__set_report_version(s_report_version);
 
     finish_task(finish_task_request);
