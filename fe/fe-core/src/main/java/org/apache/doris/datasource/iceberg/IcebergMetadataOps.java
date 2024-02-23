@@ -30,6 +30,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.DorisTypeVisitor;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 
 import org.apache.iceberg.PartitionSpec;
@@ -95,6 +96,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         String dbName = stmt.getFullDbName();
         Map<String, String> properties = stmt.getProperties();
         nsCatalog.createNamespace(Namespace.of(dbName), properties);
+        dorisCatalog.onRefresh(true);
     }
 
     @Override
@@ -107,11 +109,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             dorisCatalog.getDbNameToId().remove(dbName);
         }
         nsCatalog.dropNamespace(Namespace.of(dbName));
+        dorisCatalog.onRefresh(true);
     }
 
     @Override
     public void createTable(CreateTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
+        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
+        }
         String tableName = stmt.getTableName();
         List<Column> columns = stmt.getColumns();
         List<StructField> collect = columns.stream()
@@ -124,12 +131,18 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Map<String, String> properties = stmt.getProperties();
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(properties, schema);
         catalog.createTable(TableIdentifier.of(dbName, tableName), schema, partitionSpec, properties);
+        db.setUnInitialized(true);
     }
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
+        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
+        }
         String tableName = stmt.getTableName();
         catalog.dropTable(TableIdentifier.of(dbName, tableName));
+        db.setUnInitialized(true);
     }
 }
