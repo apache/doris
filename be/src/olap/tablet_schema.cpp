@@ -1231,6 +1231,17 @@ std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
     return indexes_for_column;
 }
 
+void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema,
+                                         const std::vector<TColumn>& t_columns) {
+    copy_from(tablet_schema);
+    if (!t_columns.empty() && t_columns[0].col_unique_id >= 0) {
+        clear_columns();
+        for (const auto& column : t_columns) {
+            append_column(TabletColumn(column));
+        }
+    }
+}
+
 bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
     // TODO use more efficient impl
     int32_t col_unique_id = col.unique_id();
