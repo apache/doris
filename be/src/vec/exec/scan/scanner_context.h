@@ -42,7 +42,6 @@ class TupleDescriptor;
 
 namespace pipeline {
 class ScanLocalStateBase;
-class ScanDependency;
 class Dependency;
 } // namespace pipeline
 

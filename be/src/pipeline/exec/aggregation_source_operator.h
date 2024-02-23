@@ -48,19 +48,11 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
-class AggSourceDependency final : public Dependency {
-public:
-    using SharedState = AggSharedState;
-    AggSourceDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AggSourceDependency", query_ctx) {}
-    ~AggSourceDependency() override = default;
-};
-
 class AggSourceOperatorX;
 
-class AggLocalState final : public PipelineXLocalState<AggSourceDependency> {
+class AggLocalState final : public PipelineXLocalState<AggSharedState> {
 public:
-    using Base = PipelineXLocalState<AggSourceDependency>;
+    using Base = PipelineXLocalState<AggSharedState>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
     ~AggLocalState() override = default;

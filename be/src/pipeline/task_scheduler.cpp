@@ -23,33 +23,33 @@
 #include <glog/logging.h>
 #include <sched.h>
 
-#include <algorithm>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <functional>
 #include <ostream>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include "common/logging.h"
-#include "common/signal_handler.h"
 #include "pipeline/pipeline_task.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
+#include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "util/debug_util.h"
 #include "util/sse_util.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::pipeline {
 
 BlockedTaskScheduler::BlockedTaskScheduler(std::string name)
-        : _name(name), _started(false), _shutdown(false) {}
+        : _name(std::move(name)), _started(false), _shutdown(false) {}
 
 Status BlockedTaskScheduler::start() {
     LOG(INFO) << "BlockedTaskScheduler start";
@@ -192,7 +192,7 @@ void BlockedTaskScheduler::_schedule() {
 void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
                                           std::list<PipelineTask*>::iterator& task_itr,
                                           PipelineTaskState t_state) {
-    auto task = *task_itr;
+    auto* task = *task_itr;
     task->set_state(t_state);
     local_tasks.erase(task_itr++);
     static_cast<void>(task->get_task_queue()->push_back(task));
@@ -215,8 +215,7 @@ Status TaskScheduler::start() {
     _markers.reserve(cores);
     for (size_t i = 0; i < cores; ++i) {
         _markers.push_back(std::make_unique<std::atomic<bool>>(true));
-        RETURN_IF_ERROR(
-                _fix_thread_pool->submit_func(std::bind(&TaskScheduler::_do_work, this, i)));
+        RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { _do_work(i); }));
     }
     return Status::OK();
 }
@@ -224,6 +223,29 @@ Status TaskScheduler::start() {
 Status TaskScheduler::schedule_task(PipelineTask* task) {
     return _task_queue->push_back(task);
     // TODO control num of task
+}
+
+// after _close_task, task maybe destructed.
+void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status) {
+    // close_a_pipeline may delete fragment context and will core in some defer
+    // code, because the defer code will access fragment context it self.
+    auto lock_for_context = task->fragment_context()->shared_from_this();
+    // is_pending_finish does not check status, so has to check status in close API.
+    // For example, in async writer, the writer may failed during dealing with eos_block
+    // but it does not return error status. Has to check the error status in close API.
+    // We have already refactor all source and sink api, the close API does not need waiting
+    // for pending finish now. So that could call close directly.
+    Status status = task->close(exec_status);
+    if (!status.ok() && state != PipelineTaskState::CANCELED) {
+        task->query_context()->cancel(true, status.to_string(),
+                                      Status::Cancelled(status.to_string()));
+        state = PipelineTaskState::CANCELED;
+    }
+    task->set_state(state);
+    task->set_close_pipeline_time();
+    task->finalize();
+    task->set_running(false);
+    task->fragment_context()->close_a_pipeline();
 }
 
 void TaskScheduler::_do_work(size_t index) {
@@ -286,7 +308,27 @@ void TaskScheduler::_do_work(size_t index) {
         auto status = Status::OK();
 
         try {
-            status = task->execute(&eos);
+            //TODO: use a better enclose to abstracting these
+            if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
+                TUniqueId query_id = task->query_context()->query_id();
+                std::string task_name = task->task_name();
+                uint32_t core_id = sched_getcpu();
+                std::thread::id tid = std::this_thread::get_id();
+                uint64_t thread_id = *reinterpret_cast<uint64_t*>(&tid);
+                uint64_t start_time = MonotonicMicros();
+
+                status = task->execute(&eos);
+
+                uint64_t end_time = MonotonicMicros();
+                auto state = task->get_state();
+                std::string state_name =
+                        state == PipelineTaskState::RUNNABLE ? get_state_name(state) : "";
+                ExecEnv::GetInstance()->pipeline_tracer_context()->record(
+                        {query_id, task_name, core_id, thread_id, start_time, end_time,
+                         state_name});
+            } else {
+                status = task->execute(&eos);
+            }
         } catch (const Exception& e) {
             status = e.to_status();
         }
@@ -371,28 +413,6 @@ void TaskScheduler::_do_work(size_t index) {
             break;
         }
     }
-}
-
-void TaskScheduler::_close_task(PipelineTask* task, PipelineTaskState state, Status exec_status) {
-    // close_a_pipeline may delete fragment context and will core in some defer
-    // code, because the defer code will access fragment context it self.
-    auto lock_for_context = task->fragment_context()->shared_from_this();
-    // is_pending_finish does not check status, so has to check status in close API.
-    // For example, in async writer, the writer may failed during dealing with eos_block
-    // but it does not return error status. Has to check the error status in close API.
-    // We have already refactor all source and sink api, the close API does not need waiting
-    // for pending finish now. So that could call close directly.
-    Status status = task->close(exec_status);
-    if (!status.ok() && state != PipelineTaskState::CANCELED) {
-        task->query_context()->cancel(true, status.to_string(),
-                                      Status::Cancelled(status.to_string()));
-        state = PipelineTaskState::CANCELED;
-    }
-    task->set_state(state);
-    task->set_close_pipeline_time();
-    task->finalize();
-    task->set_running(false);
-    task->fragment_context()->close_a_pipeline();
 }
 
 void TaskScheduler::stop() {

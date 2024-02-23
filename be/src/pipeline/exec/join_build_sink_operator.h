@@ -28,8 +28,8 @@ namespace pipeline {
 template <typename LocalStateType>
 class JoinBuildSinkOperatorX;
 
-template <typename DependencyType, typename Derived>
-class JoinBuildSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
+template <typename SharedStateType, typename Derived>
+class JoinBuildSinkLocalState : public PipelineXSinkLocalState<SharedStateType> {
 public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -37,7 +37,7 @@ public:
 
 protected:
     JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<DependencyType>(parent, state) {}
+            : PipelineXSinkLocalState<SharedStateType>(parent, state) {}
     ~JoinBuildSinkLocalState() override = default;
     template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;

@@ -28,7 +28,7 @@ namespace pipeline {
 OPERATOR_CODE_GENERATOR(HashJoinProbeOperator, StatefulOperator)
 
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-        : JoinProbeLocalState<HashJoinProbeDependency, HashJoinProbeLocalState>(state, parent) {}
+        : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent) {}
 
 Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
@@ -147,7 +147,7 @@ Status HashJoinProbeLocalState::close(RuntimeState* state) {
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
     _probe_block.clear();
-    return JoinProbeLocalState<HashJoinProbeDependency, HashJoinProbeLocalState>::close(state);
+    return JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>::close(state);
 }
 
 bool HashJoinProbeLocalState::_need_probe_null_map(vectorized::Block& block,

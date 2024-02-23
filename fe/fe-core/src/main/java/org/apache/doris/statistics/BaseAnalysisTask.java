@@ -317,6 +317,8 @@ public abstract class BaseAnalysisTask {
                 LOG.debug("End cost time in millisec: " + (System.currentTimeMillis() - startTime)
                         + " Analyze SQL: " + sql + " QueryId: " + queryId);
             }
+            // Release the reference to stmtExecutor, reduce memory usage.
+            stmtExecutor = null;
         }
     }
 

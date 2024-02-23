@@ -32,7 +32,7 @@ under the License.
 
 ## Description
 
-Used to obtain doris metrics infomation.
+Used to obtain doris metrics information.
     
 ## Path parameters
 

@@ -33,10 +33,10 @@ namespace pipeline {
 
 class StreamingAggOperatorX;
 
-class StreamingAggLocalState final : public PipelineXLocalState<FakeDependency> {
+class StreamingAggLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     using Parent = StreamingAggOperatorX;
-    using Base = PipelineXLocalState<FakeDependency>;
+    using Base = PipelineXLocalState<FakeSharedState>;
     ENABLE_FACTORY_CREATOR(StreamingAggLocalState);
     StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent);
     ~StreamingAggLocalState() override = default;
