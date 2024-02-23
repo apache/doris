@@ -199,7 +199,8 @@ public:
             std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
             RuntimeProfile* profile, GCType gctype) {
-        free_top_memory_query(min_free_mem, type, tracker_groups, cancel_msg, profile, gctype);
+        return free_top_memory_query(min_free_mem, type, tracker_groups, cancel_msg, profile,
+                                     gctype);
     }
 
     static int64_t free_top_memory_load(int64_t min_free_mem, const std::string& vm_rss_str,
@@ -225,7 +226,8 @@ public:
             std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_groups,
             const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
             RuntimeProfile* profile, GCType gctype) {
-        free_top_overcommit_query(min_free_mem, type, tracker_groups, cancel_msg, profile, gctype);
+        return free_top_overcommit_query(min_free_mem, type, tracker_groups, cancel_msg, profile,
+                                         gctype);
     }
 
     static int64_t free_top_overcommit_load(int64_t min_free_mem, const std::string& vm_rss_str,
