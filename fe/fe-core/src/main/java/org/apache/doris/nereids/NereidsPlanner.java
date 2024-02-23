@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -73,6 +74,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -212,15 +214,15 @@ public class NereidsPlanner extends Planner {
 
             // rule-based optimize
             rewrite();
+            if (statementContext.getConnectContext().getExecutor() != null) {
+                statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
+            }
+
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
                 rewrittenPlan = cascadesContext.getRewritePlan();
                 if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
                     return rewrittenPlan;
                 }
-            }
-
-            if (statementContext.getConnectContext().getExecutor() != null) {
-                statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
             }
 
             optimize();
@@ -422,19 +424,23 @@ public class NereidsPlanner extends Planner {
                 break;
             case MEMO_PLAN:
                 plan = cascadesContext.getMemo().toString()
-                    + "\n\n========== OPTIMIZED PLAN ==========\n"
-                    + optimizedPlan.treeString()
-                    + "\n\n========== MATERIALIZATIONS ==========\n"
-                    + MaterializationContext.toString(cascadesContext.getMaterializationContexts());
+                        + "\n\n========== OPTIMIZED PLAN ==========\n"
+                        + optimizedPlan.treeString()
+                        + "\n\n========== MATERIALIZATIONS ==========\n"
+                        + MaterializationContext.toString(cascadesContext.getMaterializationContexts());
                 break;
             case ALL_PLAN:
-                plan = "========== PARSED PLAN ==========\n"
+                plan = "========== PARSED PLAN "
+                        + getTimeMetricString(SummaryProfile::getPrettyParseSqlTime) + " ==========\n"
                         + parsedPlan.treeString() + "\n\n"
-                        + "========== ANALYZED PLAN ==========\n"
+                        + "========== ANALYZED PLAN "
+                        + getTimeMetricString(SummaryProfile::getPrettyNereidsAnalysisTime) + " ==========\n"
                         + analyzedPlan.treeString() + "\n\n"
-                        + "========== REWRITTEN PLAN ==========\n"
+                        + "========== REWRITTEN PLAN "
+                        + getTimeMetricString(SummaryProfile::getPrettyNereidsRewriteTime) + "==========\n"
                         + rewrittenPlan.treeString() + "\n\n"
-                        + "========== OPTIMIZED PLAN ==========\n"
+                        + "========== OPTIMIZED PLAN "
+                        + getTimeMetricString(SummaryProfile::getPrettyNereidsOptimizeTime) + " ==========\n"
                         + optimizedPlan.treeString();
                 break;
             default:
@@ -563,5 +569,23 @@ public class NereidsPlanner extends Planner {
 
     public void addHook(PlannerHook hook) {
         this.hooks.add(hook);
+    }
+
+    private String getTimeMetricString(Function<SummaryProfile, String> profileSupplier) {
+        return getProfile(summaryProfile -> {
+            String metricString = profileSupplier.apply(summaryProfile);
+            return (metricString == null || "N/A".equals(metricString)) ? "" : "(time: " + metricString + ")";
+        }, "");
+    }
+
+    private <T> T getProfile(Function<SummaryProfile, T> profileSupplier, T defaultMetric) {
+        T metric = null;
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            SummaryProfile summaryProfile = statementContext.getConnectContext().getExecutor().getSummaryProfile();
+            if (summaryProfile != null) {
+                metric = profileSupplier.apply(summaryProfile);
+            }
+        }
+        return metric == null ? defaultMetric : metric;
     }
 }
