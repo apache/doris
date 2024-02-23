@@ -19,6 +19,7 @@
 package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
@@ -32,6 +33,7 @@ import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
@@ -264,7 +266,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             // Need a fallback to handle this because this error state can not be recovered until restarting FE
             if (StringUtils.isNotEmpty(e.getMessage())
                     && e.getMessage().contains(HiveMetaStoreClient.REPL_EVENTS_MISSING_IN_METASTORE)) {
-                refreshCatalogForMaster(hmsExternalCatalog);
+                refreshCatalogForSlave(hmsExternalCatalog);
                 // set masterLastSyncedEventId to lastSyncedEventId after refresh catalog successfully
                 updateLastSyncedEventId(hmsExternalCatalog, masterLastSyncedEventId);
                 LOG.warn("Notification events are missing, maybe an event can not be handled "
@@ -314,8 +316,13 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         // Transfer to master to refresh catalog
         String sql = "REFRESH CATALOG " + hmsExternalCatalog.getName();
         OriginStatement originStmt = new OriginStatement(sql, 0);
-        MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, new ConnectContext(),
-                    RedirectStatus.FORWARD_WITH_SYNC, false);
+        ConnectContext ctx = new ConnectContext();
+        ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+        MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, ctx,
+                RedirectStatus.FORWARD_WITH_SYNC, false);
         if (LOG.isDebugEnabled()) {
             LOG.debug("Transfer to master to refresh catalog, stmt: {}", sql);
         }
