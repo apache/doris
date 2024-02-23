@@ -35,9 +35,9 @@ CloudCompactionAction::CloudCompactionAction(CompactionActionType ctype, ExecEnv
 
 
 void CloudCompactionAction::handle(HttpRequest* req) {
-    Status st;
+    std::string json_str = R"({"status" : "Success"})";
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
-    HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
+    HttpChannel::send_reply(req, HttpStatus::OK, json_str);
 }
 
 } // end namespace doris
