@@ -80,25 +80,21 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         auto haystack_column = block.get_by_position(arguments[0]).column;
-        auto haystack_ptr = haystack_column;
-
         auto needles_column = block.get_by_position(arguments[1]).column;
-        auto needles_ptr = needles_column;
 
         bool haystack_nullable = false;
         bool needles_nullable = false;
 
         if (haystack_column->is_nullable()) {
-            haystack_ptr = check_and_get_column<ColumnNullable>(haystack_column.get())
-                                   ->get_nested_column_ptr();
             haystack_nullable = true;
         }
 
         if (needles_column->is_nullable()) {
-            needles_ptr = check_and_get_column<ColumnNullable>(needles_column.get())
-                                  ->get_nested_column_ptr();
             needles_nullable = true;
         }
+
+        auto haystack_ptr = remove_nullable(haystack_column);
+        auto needles_ptr = remove_nullable(needles_column);
 
         const ColumnString* col_haystack_vector =
                 check_and_get_column<ColumnString>(&*haystack_ptr);

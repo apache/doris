@@ -48,6 +48,10 @@ suite("test_multi_string_search", "arrow_flight_sql") {
 
     qt_select1 "select multi_match_any(content, ['hello', '!', 'world', 'Hello', 'World']) from ${table_name} order by col1"
     qt_select2 "select multi_match_any(content, mode) from ${table_name} order by col1"
+    qt_select3 "select multi_match_any(content, 'hello') from ${table_name} order by col1"
+    qt_select4 "select multi_match_any(content, 'hello, !, world, Hello, World') from ${table_name} order by col1"
+    qt_select5 "select multi_match_any(content, '[hello]') from ${table_name} order by col1"
+    qt_select6 "select multi_match_any(content, '[hello, !, world, Hello, World]') from ${table_name} order by col1"
 
     qt_select "select multi_match_any('mpnsguhwsitzvuleiwebwjfitmsg', ['wbirxqoabpblrnvvmjizj', 'cfcxhuvrexyzyjsh', 'oldhtubemyuqlqbwvwwkwin', 'bumoozxdkjglzu', 'intxlfohlxmajjomw', 'dxkeghohv', 'arsvmwwkjeopnlwnan', 'ouugllgowpqtaxslcopkytbfhifaxbgt', 'hkedmjlbcrzvryaopjqdjjc', 'tbqkljywstuahzh', 'o', 'wowoclosyfcuwotmvjygzuzhrery', 'vpefjiffkhlggntcu', 'ytdixvasrorhripzfhjdmlhqksmctyycwp'])"
     qt_select "select multi_match_any('qjjzqexjpgkglgxpzrbqbnskq', ['vaiatcjacmlffdzsejpdareqzy', 'xspcfzdufkmecud', 'bcvtbuqtctq', 'nkcopwbfytgemkqcfnnno', 'dylxnzuyhq', 'tno', 'scukuhufly', 'cdyquzuqlptv', 'ohluyfeksyxepezdhqmtfmgkvzsyph', 'ualzwtahvqvtijwp', 'jg', 'gwbawqlngzcknzgtmlj', 'qimvjcgbkkp', 'eaedbcgyrdvv', 'qcwrncjoewwedyyewcdkh', 'uqcvhngoqngmitjfxpznqomertqnqcveoqk', 'ydrgjiankgygpm', 'axepgap'])"

@@ -48,6 +48,10 @@ suite("test_multi_string_position") {
 
     qt_table_select1 "select multi_search_all_positions(content, ['hello', '!', 'world', 'Hello', 'World']) from ${table_name} order by col1"
     qt_table_select2 "select multi_search_all_positions(content, mode) from ${table_name} order by col1"
+    qt_table_select3 "select multi_search_all_positions(content, 'hello') from ${table_name} order by col1"
+    qt_table_select4 "select multi_search_all_positions(content, 'hello, !, world, Hello, World') from ${table_name} order by col1"
+    qt_table_select5 "select multi_search_all_positions(content, '[hello]') from ${table_name} order by col1"
+    qt_table_select6 "select multi_search_all_positions(content, '[hello, !, world, Hello, World]') from ${table_name} order by col1"
 
     qt_select1 "select multi_search_all_positions('jmdqwjbrxlbatqeixknricfk', ['qwjbrxlba', 'jmd', '', 'mdqwjbrxlbatqe', 'jbrxlbatqeixknric', 'jmdqwjbrxlbatqeixknri', '', 'fdtmnwtts', 'qwjbrxlba', '', 'qeixknricfk', 'hzjjgrnoilfkvzxaemzhf', 'lb', 'kamz', 'ixknr', 'jbrxlbatq'])"
     qt_select2 "select multi_search_all_positions('coxcctuehmzkbrsmodfvx', ['bkhnp', 'nlypjvriuk', 'rkslxwfqjjivcwdexrdtvjdtvuu', 'oxcctuehm', 'xcctuehmzkbrsm', 'kfrieuocovykjmkwxbdlkgwctwvcuh', 'coxc', 'lbwvetgxyndxjqqwthtkgasbafii', 'ctuehmzkbrsmodfvx', 'obzldxjldxowk', 'ngfikgigeyll', 'wdaejjukowgvzijnw', 'zkbr', 'mzkb', 'tuehm', 'ue'])"
