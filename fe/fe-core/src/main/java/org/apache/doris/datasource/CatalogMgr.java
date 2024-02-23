@@ -822,7 +822,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         db.writeLock();
         try {
-            NamedExternalTable namedTable = NamedExternalTable.of(tblId, tableName, dbName, (ExternalCatalog) catalog);
+            HMSExternalTable namedTable = new HMSExternalTable(tblId, tableName, dbName, (HMSExternalCatalog) catalog);
             namedTable.setUpdateTime(updateTime);
             db.registerTable(namedTable);
         } finally {

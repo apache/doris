@@ -609,7 +609,7 @@ public class HiveMetaStoreClientHelper {
         } else if (dorisType.equals(Type.STRING)) {
             return "string";
         }
-        return "string";
+        throw new HMSClientException("Unsupported type conversion of " + dorisType.toSql());
     }
 
     /**

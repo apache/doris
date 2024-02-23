@@ -229,7 +229,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         List<FieldSchema> result = new ArrayList<>();
         for (Column column : columns) {
             FieldSchema hiveFieldSchema = new FieldSchema();
-            // TODO: refactor atlr4 file to support hive column type
+            // TODO: add doc, just support doris type
             hiveFieldSchema.setType(HiveMetaStoreClientHelper.dorisTypeToHiveType(column.getType()));
             hiveFieldSchema.setName(column.getName());
             hiveFieldSchema.setComment(column.getComment());
