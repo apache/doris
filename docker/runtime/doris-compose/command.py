@@ -490,14 +490,24 @@ class UpCommand(Command):
         config = {}
         with open(example_cfg_file, "r") as f:
             for line in f.readlines():
-                key = line[0:line.find('=')].strip()
+                if line.startswith('#'):
+                    continue
+                pos = line.find('=')
+                if pos <= 0:
+                    continue
+                key = line[0:pos].strip()
                 if key:
                     config[key] = ""
 
         with open(CLUSTER.CLOUD_CFG_FILE, "r") as f:
             for line in f.readlines():
-                key = line[0:line.find('=')].strip()
-                if config.get(key, None) != None:
+                if line.startswith('#'):
+                    continue
+                pos = line.find('=')
+                if pos <= 0:
+                    continue
+                key = line[0:pos].strip()
+                if key and config.get(key, None) != None:
                     config[key] = line[line.find('=') + 1:].strip()
 
         for key, value in config.items():
