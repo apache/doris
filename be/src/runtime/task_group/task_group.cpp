@@ -165,7 +165,7 @@ int64_t TaskGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
     if (config::enable_query_memory_overcommit) {
         RuntimeProfile* tmq_profile = profile->create_child(
                 fmt::format("FreeGroupTopOvercommitQuery:Name {}", _name), true, true);
-        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
+        freed_mem += MemTrackerLimiter::tg_free_top_overcommit_query(
                 need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY,
                 _mem_tracker_limiter_pool, cancel_top_overcommit_str, tmq_profile,
                 MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
@@ -177,7 +177,7 @@ int64_t TaskGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
     // 2. free top usage query
     RuntimeProfile* tmq_profile =
             profile->create_child(fmt::format("FreeGroupTopUsageQuery:Name {}", _name), true, true);
-    freed_mem += MemTrackerLimiter::free_top_memory_query(
+    freed_mem += MemTrackerLimiter::tg_free_top_memory_query(
             need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY, _mem_tracker_limiter_pool,
             cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
     if (freed_mem >= need_free_mem) {
@@ -188,7 +188,7 @@ int64_t TaskGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
     if (config::enable_query_memory_overcommit) {
         tmq_profile = profile->create_child(
                 fmt::format("FreeGroupTopOvercommitLoad:Name {}", _name), true, true);
-        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
+        freed_mem += MemTrackerLimiter::tg_free_top_overcommit_query(
                 need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
                 cancel_top_overcommit_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
         if (freed_mem >= need_free_mem) {
@@ -199,7 +199,7 @@ int64_t TaskGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
     // 4. free top usage load
     tmq_profile =
             profile->create_child(fmt::format("FreeGroupTopUsageLoad:Name {}", _name), true, true);
-    freed_mem += MemTrackerLimiter::free_top_memory_query(
+    freed_mem += MemTrackerLimiter::tg_free_top_memory_query(
             need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
             cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
     return freed_mem;
