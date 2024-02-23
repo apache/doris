@@ -379,22 +379,32 @@ void inherit_tablet_index(TabletSchemaSPtr& schema) {
     }
 
     // Add index meta if extracted column is missing index meta
-    for (const auto& col : schema->columns()) {
-        if (!col->is_extracted_column()) {
+    for (size_t i = 0; i < schema->num_columns(); ++i) {
+        auto col = schema->column(i);
+        if (!col.is_extracted_column()) {
             continue;
         }
-        auto it = variants_index_meta.find(col->parent_unique_id());
+         if (col.type() != FieldType::OLAP_FIELD_TYPE_TINYINT &&
+            col.type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
+            col.type() != FieldType::OLAP_FIELD_TYPE_DOUBLE &&
+            col.type() != FieldType::OLAP_FIELD_TYPE_FLOAT) {
+            // above types are not supported in bf
+            TabletColumn new_column(col);
+            new_column.set_is_bf_column(schema->column(col.parent_unique_id()).is_bf_column());
+            schema->replace_column(i, new_column);
+        }
+        auto it = variants_index_meta.find(col.parent_unique_id());
         // variant has no index meta, ignore
         if (it == variants_index_meta.end()) {
             continue;
         }
-        auto index_meta = schema->get_inverted_index(*col);
+        auto index_meta = schema->get_inverted_index(col);
         // add index meta
         TabletIndex index_info = it->second;
-        index_info.set_escaped_escaped_index_suffix_path(col->path_info_ptr()->get_path());
+        index_info.set_escaped_escaped_index_suffix_path(col.path_info_ptr()->get_path());
         if (index_meta != nullptr) {
             // already exist
-            schema->update_index(*col, index_info);
+            schema->update_index(col, index_info);
         } else {
             schema->append_index(index_info);
         }
