@@ -115,9 +115,9 @@ void EvHttpServer::start() {
     auto s = _bind();
     CHECK(s.ok()) << s.to_string();
     THROW_IF_ERROR(ThreadPoolBuilder("EvHttpServer")
-                           .set_min_threads(_num_workers)
-                           .set_max_threads(_num_workers)
-                           .build(&_workers));
+                              .set_min_threads(_num_workers)
+                              .set_max_threads(_num_workers)
+                              .build(&_workers));
     for (int i = 0; i < _num_workers; ++i) {
         auto status = _workers->submit_func([this, i]() {
             std::shared_ptr<event_base> base;

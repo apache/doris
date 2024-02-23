@@ -208,10 +208,10 @@ WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
     for (size_t i = 0; i < _executor_nums; i++) {
         std::unique_ptr<PriorityThreadPool> pool;
         THROW_IF_ERROR(ThreadPoolBuilder("WriteCooldownMetaExecutor")
-                               .set_min_threads(1)
-                               .set_max_threads(1)
-                               .set_max_queue_size(std::numeric_limits<int>::max())
-                               .build(&pool));
+                                  .set_min_threads(1)
+                                  .set_max_threads(1)
+                                  .set_max_queue_size(std::numeric_limits<int>::max())
+                                  .build(&pool));
         _executors.emplace_back(std::move(pool));
     }
 }
@@ -1390,7 +1390,7 @@ bool Tablet::do_tablet_meta_checkpoint() {
         if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(),
                                                  rs_meta->rowset_id())) {
             THROW_IF_ERROR(RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(),
-                                                     rs_meta->rowset_id()));
+                                                        rs_meta->rowset_id()));
             VLOG_NOTICE << "remove rowset id from meta store because it is already persistent with "
                         << "tablet meta, rowset_id=" << rs_meta->rowset_id();
         }
@@ -1406,7 +1406,7 @@ bool Tablet::do_tablet_meta_checkpoint() {
         if (RowsetMetaManager::check_rowset_meta(_data_dir->get_meta(), tablet_uid(),
                                                  rs_meta->rowset_id())) {
             THROW_IF_ERROR(RowsetMetaManager::remove(_data_dir->get_meta(), tablet_uid(),
-                                                     rs_meta->rowset_id()));
+                                                        rs_meta->rowset_id()));
             VLOG_NOTICE << "remove rowset id from meta store because it is already persistent with "
                         << "tablet meta, rowset_id=" << rs_meta->rowset_id();
         }
@@ -1414,8 +1414,8 @@ bool Tablet::do_tablet_meta_checkpoint() {
     }
 
     if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
-        THROW_IF_ERROR(TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, tablet_id(),
-                                                                           max_version_unlocked()));
+        THROW_IF_ERROR(TabletMetaManager::remove_old_version_delete_bitmap(
+                _data_dir, tablet_id(), max_version_unlocked()));
     }
 
     _newly_created_rowset_num = 0;

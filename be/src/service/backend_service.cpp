@@ -399,9 +399,9 @@ Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, 
         thread_num = std::thread::hardware_concurrency();
     }
     RETURN_IF_ERROR(doris::ThreadPoolBuilder("IngestBinlog")
-                            .set_min_threads(thread_num)
-                            .set_max_threads(thread_num * 2)
-                            .build(&(service->_ingest_binlog_workers)));
+                              .set_min_threads(thread_num)
+                              .set_max_threads(thread_num * 2)
+                              .build(&(service->_ingest_binlog_workers)));
     LOG(INFO) << fmt::format("ingest binlog thread pool size is {}, in async mode", thread_num);
     return Status::OK();
 }

@@ -274,7 +274,7 @@ Status IcebergTableReader::_position_delete(
                                         _io_ctx, _state);
             if (!init_schema) {
                 THROW_IF_ERROR(delete_reader.get_parsed_schema(&delete_file_col_names,
-                                                               &delete_file_col_types));
+                                                                  &delete_file_col_types));
                 init_schema = true;
             }
             create_status = delete_reader.open();

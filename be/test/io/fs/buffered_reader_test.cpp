@@ -39,9 +39,9 @@ public:
     BufferedReaderTest() {
         std::unique_ptr<ThreadPool> _pool;
         THROW_IF_ERROR(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-                               .set_min_threads(5)
-                               .set_max_threads(10)
-                               .build(&_pool));
+                                  .set_min_threads(5)
+                                  .set_max_threads(10)
+                                  .build(&_pool));
         ExecEnv::GetInstance()->_buffered_reader_prefetch_thread_pool = std::move(_pool);
     }
 
