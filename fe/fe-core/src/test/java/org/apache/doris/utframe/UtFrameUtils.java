@@ -71,7 +71,10 @@ import java.nio.file.Files;
 import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Map;
+import java.net.Socket;
+import java.net.InetSocketAddress;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * @deprecated If you want to start a FE server in unit test, please let your test
