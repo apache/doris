@@ -466,7 +466,7 @@ class BE(Node):
 
         with open("{}/conf/{}".format(path, self.conf_file_name()), "a") as f:
             storage_root_path = ";".join(dir_descs) if dir_descs else '""'
-            f.write("storage_root_path = {}\n".format(storage_root_path))
+            f.write("\nstorage_root_path = {}\n".format(storage_root_path))
 
     def entrypoint(self):
         return ["bash", os.path.join(DOCKER_RESOURCE_PATH, "init_be.sh")]
