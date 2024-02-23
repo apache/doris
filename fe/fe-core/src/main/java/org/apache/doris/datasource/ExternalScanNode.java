@@ -93,7 +93,8 @@ public abstract class ExternalScanNode extends ScanNode {
 
     @Override
     public int getNumInstances() {
-        if (ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
                 && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
             return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
