@@ -486,24 +486,22 @@ Status RuntimeFilterMergeController::acquire(
         UniqueId query_id, std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle) {
     uint32_t shard = _get_controller_shard_idx(query_id);
     std::lock_guard<std::mutex> guard(_controller_mutex[shard]);
-    std::string query_id_str = query_id.to_string();
-    auto iter = _filter_controller_map[shard].find(query_id_str);
+    auto iter = _filter_controller_map[shard].find(query_id);
     if (iter == _filter_controller_map[shard].end()) {
-        LOG(WARNING) << "not found entity, query-id:" << query_id_str;
+        LOG(WARNING) << "not found entity, query-id:" << query_id.to_string();
         return Status::InvalidArgument("not found entity");
     }
-    *handle = _filter_controller_map[shard][query_id_str].lock();
+    *handle = _filter_controller_map[shard][query_id].lock();
     if (*handle == nullptr) {
         return Status::InvalidArgument("entity is closed");
     }
     return Status::OK();
 }
 
-Status RuntimeFilterMergeController::remove_entity(UniqueId query_id) {
+void RuntimeFilterMergeController::remove_entity(UniqueId query_id) {
     uint32_t shard = _get_controller_shard_idx(query_id);
     std::lock_guard<std::mutex> guard(_controller_mutex[shard]);
-    _filter_controller_map[shard].erase(query_id.to_string());
-    return Status::OK();
+    _filter_controller_map[shard].erase(query_id);
 }
 
 RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* state) {
