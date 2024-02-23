@@ -557,22 +557,22 @@ print_doris_conf() {
 }
 
 function create_warehouse() {
-    if [[ -z ${COS_ak} || -z ${COS_sk} ]]; then
-        echo "ERROR: env COS_ak and COS_sk are required." && return 1
+    if [[ -z ${oss_ak} || -z ${oss_sk} ]]; then
+        echo "ERROR: env oss_ak and oss_sk are required." && return 1
     fi
     if curl "127.0.0.1:5000/MetaService/http/create_instance?token=greedisgood9999" -d "{
         \"instance_id\": \"cloud_instance_0\",
         \"name\":\"cloud_instance_0\",
         \"user_id\":\"user-id\",
         \"obj_info\": {
-            \"provider\": \"COS\",
-            \"region\": \"ap-hongkong\",
-            \"bucket\": \"doris-community-test-1308700295\",
+            \"provider\": \"OSS\",
+            \"region\": \"oss-cn-hongkong\",
+            \"bucket\": \"doris-community-test\",
             \"prefix\": \"cloud_regression\",
-            \"endpoint\": \"cos.ap-hongkong.myqcloud.com\",
-            \"external_endpoint\": \"cos.ap-hongkong.myqcloud.com\",
-            \"ak\": \"${COS_ak}\",
-            \"sk\": \"${COS_sk}\"
+            \"endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+            \"external_endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+            \"ak\": \"${oss_ak}\",
+            \"sk\": \"${oss_sk}\"
         }
     }"; then
         echo
