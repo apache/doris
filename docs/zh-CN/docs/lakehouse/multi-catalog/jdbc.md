@@ -996,5 +996,5 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 
     从 2.0.2 版本起，可以将这个文件放置在 FE 和 BE 的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
 
-11. 如果通过Jdbc catalog 查询 MySQL 的时候，出现长时间卡住没有返回结果，或着卡很长时间fe.warn.log 中出现出现大量 write lock日志，可以尝试在 url 添加socketTimeout ，例如：`jdbc:mysql://host:port/database?socketTimeout=30000`,防止 MySQL 在关闭连接后 Jdbc 客户端无限等待.
+11. 如果通过Jdbc catalog查询MySQL的时候，出现长时间卡住没有返回结果，或着卡住很长时间并且fe.warn.log中出现出现大量 write lock日志，可以尝试在url添加socketTimeout ，例如：`jdbc:mysql://host:port/database?socketTimeout=30000`,防止MySQL在关闭连接后Jdbc客户端无限等待.
 
