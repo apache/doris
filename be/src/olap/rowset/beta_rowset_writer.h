@@ -127,7 +127,7 @@ public:
 private:
     virtual Status _generate_delete_bitmap(int32_t segment_id) = 0;
 
-    void update_rowset_schema(TabletSchemaSPtr flush_schema);
+    Status update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:

@@ -294,7 +294,7 @@ void VAnalyticEvalNode::release_resource(RuntimeState* state) {
         return;
     }
 
-    THROW_IF_ERROR(_destroy_agg_status());
+    static_cast<void>(_destroy_agg_status());
     _release_mem();
     return ExecNode::release_resource(state);
 }
@@ -611,7 +611,7 @@ bool VAnalyticEvalNode::_init_next_partition(BlockRowPos found_partition_end) {
         _partition_by_start = _partition_by_end;
         _partition_by_end = found_partition_end;
         _current_row_position = _partition_by_start.pos;
-        THROW_IF_ERROR(_reset_agg_status());
+        static_cast<void>(_reset_agg_status());
         return true;
     }
     return false;

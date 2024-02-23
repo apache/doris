@@ -44,12 +44,12 @@ struct JsonBinaryValue {
 
     JsonBinaryValue() : ptr(nullptr), len(0) {}
     JsonBinaryValue(char* ptr, int len) {
-        THROW_IF_ERROR(from_json_string(const_cast<const char*>(ptr), len));
+        static_cast<void>(from_json_string(const_cast<const char*>(ptr), len));
     }
     JsonBinaryValue(const std::string& s) {
-        THROW_IF_ERROR(from_json_string(s.c_str(), s.length()));
+        static_cast<void>(from_json_string(s.c_str(), s.length()));
     }
-    JsonBinaryValue(const char* ptr, int len) { THROW_IF_ERROR(from_json_string(ptr, len)); }
+    JsonBinaryValue(const char* ptr, int len) { static_cast<void>(from_json_string(ptr, len)); }
 
     const char* value() { return ptr; }
 

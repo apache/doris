@@ -331,7 +331,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
 
     // @brief: reset the start offset of this buffer to offset
     // @param: the new start offset for this buffer
-    void reset_offset(size_t offset);
+    Status reset_offset(size_t offset);
     // @brief: start to fetch the content between [_offset, _offset + _size)
     void prefetch_buffer();
     // @brief: used by BufferedReader to read the prefetched data
@@ -409,13 +409,14 @@ private:
     size_t get_buffer_offset(int64_t position) const {
         return (position / s_max_pre_buffer_size) * s_max_pre_buffer_size;
     }
-    void reset_all_buffer(size_t position) {
+    Status reset_all_buffer(size_t position) {
         for (int64_t i = 0; i < _pre_buffers.size(); i++) {
             int64_t cur_pos = position + i * s_max_pre_buffer_size;
             int cur_buf_pos = get_buffer_pos(cur_pos);
             // reset would do all the prefetch work
-            _pre_buffers[cur_buf_pos]->reset_offset(get_buffer_offset(cur_pos));
+            RETURN_IF_ERROR(_pre_buffers[cur_buf_pos]->reset_offset(get_buffer_offset(cur_pos)));
         }
+        return Status::OK();
     }
 
     io::FileReaderSPtr _reader;

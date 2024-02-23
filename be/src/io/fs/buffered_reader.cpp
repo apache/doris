@@ -389,18 +389,18 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
 // there exists occasions where the buffer is already closed but
 // some prior tasks are still queued in thread pool, so we have to check whether
 // the buffer is closed each time the condition variable is notified.
-void PrefetchBuffer::reset_offset(size_t offset) {
+Status PrefetchBuffer::reset_offset(size_t offset) {
     {
         std::unique_lock lck {_lock};
         if (!_prefetched.wait_for(
                     lck, std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
                     [this]() { return _buffer_status != BufferStatus::PENDING; })) {
             _prefetch_status = Status::TimedOut("time out when reset prefetch buffer");
-            return;
+            return Status::OK();
         }
         if (UNLIKELY(_buffer_status == BufferStatus::CLOSED)) {
             _prefetched.notify_all();
-            return;
+            return Status::OK();
         }
         _buffer_status = BufferStatus::RESET;
         _offset = offset;
@@ -409,11 +409,11 @@ void PrefetchBuffer::reset_offset(size_t offset) {
     if (UNLIKELY(offset >= _file_range.end_offset)) {
         _len = 0;
         _exceed = true;
-        return;
+        return Status::OK();
     } else {
         _exceed = false;
     }
-    THROW_IF_ERROR(ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
             [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); }));
 }
 
@@ -547,7 +547,7 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
         return _reader->read_at(off, Slice {out, buf_len}, bytes_read, _io_ctx);
     }
     if (_exceed) {
-        reset_offset((off / _size) * _size);
+        RETURN_IF_ERROR(reset_offset((off / _size) * _size));
         return read_buffer(off, out, buf_len, bytes_read);
     }
     auto start = std::chrono::steady_clock::now();
@@ -579,7 +579,7 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     // there is only parquet would do not sequence read
     // it would read the end of the file first
     if (UNLIKELY(!contains(off))) {
-        reset_offset((off / _size) * _size);
+        RETURN_IF_ERROR(reset_offset((off / _size) * _size));
         return read_buffer(off, out, buf_len, bytes_read);
     }
     if (UNLIKELY(0 == _len || _offset + _len < off)) {
@@ -595,7 +595,7 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     _statis.request_io += 1;
     _statis.request_bytes += read_len;
     if (off + *bytes_read == _offset + _len) {
-        reset_offset(_offset + _whole_buffer_size);
+        RETURN_IF_ERROR(reset_offset(_offset + _whole_buffer_size));
     }
     return Status::OK();
 }

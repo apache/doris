@@ -123,7 +123,7 @@ public:
 
     // init should be called after storage engine is opened,
     // because it needs path hash of each data dir.
-    void init(int num_disk);
+    Status init(int num_disk);
 
     Status create_flush_token(std::unique_ptr<FlushToken>& flush_token, RowsetWriter* rowset_writer,
                               bool is_high_priority);

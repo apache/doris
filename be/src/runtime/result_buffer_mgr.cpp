@@ -210,7 +210,7 @@ void ResultBufferMgr::cancel_thread() {
 
         // cancel query
         for (int i = 0; i < query_to_cancel.size(); ++i) {
-            THROW_IF_ERROR(cancel(query_to_cancel[i]));
+            static_cast<void>(cancel(query_to_cancel[i]));
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 

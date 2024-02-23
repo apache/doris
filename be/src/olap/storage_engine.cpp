@@ -211,7 +211,7 @@ Status StorageEngine::_open() {
     RETURN_IF_ERROR(load_data_dirs(dirs));
 
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
-    _memtable_flush_executor->init(dirs.size());
+    RETURN_IF_ERROR(_memtable_flush_executor->init(dirs.size()));
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
@@ -708,7 +708,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
                           << ", tablet_uid=" << tablet_info.first.tablet_uid;
                 continue;
             }
-            THROW_IF_ERROR(_txn_manager->delete_txn(partition_id, tablet, transaction_id));
+            static_cast<void>(_txn_manager->delete_txn(partition_id, tablet, transaction_id));
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
@@ -787,28 +787,28 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     _clean_unused_txns();
 
     // clean unused rowset metas in OlapMeta
-    _clean_unused_rowset_metas();
+    RETURN_IF_ERROR(_clean_unused_rowset_metas());
 
     // clean unused binlog metas in OlapMeta
-    _clean_unused_binlog_metas();
+    RETURN_IF_ERROR(_clean_unused_binlog_metas();
 
     // cleand unused delete bitmap for deleted tablet
-    _clean_unused_delete_bitmap();
+    RETURN_IF_ERROR(_clean_unused_delete_bitmap());
 
     // cleand unused pending publish info for deleted tablet
-    _clean_unused_pending_publish_info();
+    RETURN_IF_ERROR(_clean_unused_pending_publish_info());
 
     // clean unused rowsets in remote storage backends
     for (auto data_dir : get_stores()) {
-        data_dir->perform_remote_rowset_gc();
-        data_dir->perform_remote_tablet_gc();
+        RETURN_IF_ERROR(data_dir->perform_remote_rowset_gc());
+        RETURN_IF_ERROR(data_dir->perform_remote_tablet_gc());
         data_dir->update_trash_capacity();
     }
 
     return res;
 }
 
-void StorageEngine::_clean_unused_rowset_metas() {
+Status StorageEngine::_clean_unused_rowset_metas() {
     std::vector<RowsetMetaSharedPtr> invalid_rowset_metas;
     auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
                                                            const std::string& meta_str) -> bool {
@@ -863,10 +863,10 @@ void StorageEngine::_clean_unused_rowset_metas() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        THROW_IF_ERROR(
+        RETURN_IF_ERROR(
                 RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func));
         for (auto& rowset_meta : invalid_rowset_metas) {
-            THROW_IF_ERROR(RowsetMetaManager::remove(
+            RETURN_IF_ERROR(RowsetMetaManager::remove(
                     data_dir->get_meta(), rowset_meta->tablet_uid(), rowset_meta->rowset_id()));
         }
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
@@ -875,7 +875,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
     }
 }
 
-void StorageEngine::_clean_unused_binlog_metas() {
+Status StorageEngine::_clean_unused_binlog_metas() {
     std::vector<std::string> unused_binlog_key_suffixes;
     auto unused_binlog_collector = [this, &unused_binlog_key_suffixes](const std::string& key,
                                                                        const std::string& value,
@@ -898,18 +898,19 @@ void StorageEngine::_clean_unused_binlog_metas() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        THROW_IF_ERROR(RowsetMetaManager::traverse_binlog_metas(data_dir->get_meta(),
-                                                                unused_binlog_collector));
+        RETURN_IF_ERROR(RowsetMetaManager::traverse_binlog_metas(data_dir->get_meta(),
+                                                                 unused_binlog_collector));
         for (const auto& suffix : unused_binlog_key_suffixes) {
-            THROW_IF_ERROR(RowsetMetaManager::remove_binlog(data_dir->get_meta(), suffix));
+            RETURN_IF_ERROR(RowsetMetaManager::remove_binlog(data_dir->get_meta(), suffix));
         }
         LOG(INFO) << "remove " << unused_binlog_key_suffixes.size()
                   << " invalid binlog meta from dir: " << data_dir->path();
         unused_binlog_key_suffixes.clear();
     }
+    return Status::OK();
 }
 
-void StorageEngine::_clean_unused_delete_bitmap() {
+Status StorageEngine::_clean_unused_delete_bitmap() {
     std::unordered_set<int64_t> removed_tablets;
     auto clean_delete_bitmap_func = [this, &removed_tablets](int64_t tablet_id, int64_t version,
                                                              const std::string& val) -> bool {
@@ -924,19 +925,20 @@ void StorageEngine::_clean_unused_delete_bitmap() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        THROW_IF_ERROR(TabletMetaManager::traverse_delete_bitmap(data_dir->get_meta(),
-                                                                 clean_delete_bitmap_func));
+        RETURN_IF_ERROR(TabletMetaManager::traverse_delete_bitmap(data_dir->get_meta(),
+                                                                  clean_delete_bitmap_func));
         for (auto id : removed_tablets) {
-            THROW_IF_ERROR(
+            RETURN_IF_ERROR(
                     TabletMetaManager::remove_old_version_delete_bitmap(data_dir, id, INT64_MAX));
         }
         LOG(INFO) << "removed invalid delete bitmap from dir: " << data_dir->path()
                   << ", deleted tablets size: " << removed_tablets.size();
         removed_tablets.clear();
     }
+    return Status::OK();
 }
 
-void StorageEngine::_clean_unused_pending_publish_info() {
+Status StorageEngine::_clean_unused_pending_publish_info() {
     std::vector<std::pair<int64_t, int64_t>> removed_infos;
     auto clean_pending_publish_info_func = [this, &removed_infos](int64_t tablet_id,
                                                                   int64_t publish_version,
@@ -949,16 +951,17 @@ void StorageEngine::_clean_unused_pending_publish_info() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        THROW_IF_ERROR(TabletMetaManager::traverse_pending_publish(
+        RETURN_IF_ERROR(TabletMetaManager::traverse_pending_publish(
                 data_dir->get_meta(), clean_pending_publish_info_func));
         for (auto& [tablet_id, publish_version] : removed_infos) {
-            THROW_IF_ERROR(TabletMetaManager::remove_pending_publish_info(data_dir, tablet_id,
-                                                                          publish_version));
+            RETURN_IF_ERROR(TabletMetaManager::remove_pending_publish_info(data_dir, tablet_id,
+                                                                           publish_version));
         }
         LOG(INFO) << "removed invalid pending publish info from dir: " << data_dir->path()
                   << ", deleted pending publish info size: " << removed_infos.size();
         removed_infos.clear();
     }
+    return Status::OK();
 }
 
 void StorageEngine::gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos) {
@@ -1419,7 +1422,7 @@ bool StorageEngine::add_broken_path(std::string path) {
     std::lock_guard<std::mutex> lock(_broken_paths_mutex);
     auto success = _broken_paths.emplace(path).second;
     if (success) {
-        THROW_IF_ERROR(_persist_broken_paths());
+        static_cast<void>(_persist_broken_paths());
     }
     return success;
 }
@@ -1428,7 +1431,7 @@ bool StorageEngine::remove_broken_path(std::string path) {
     std::lock_guard<std::mutex> lock(_broken_paths_mutex);
     auto count = _broken_paths.erase(path);
     if (count > 0) {
-        THROW_IF_ERROR(_persist_broken_paths());
+        static_cast<void>(_persist_broken_paths());
     }
     return count > 0;
 }

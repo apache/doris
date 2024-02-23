@@ -242,7 +242,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scanner->set_opened();
     }
 
-    THROW_IF_ERROR(scanner->try_append_late_arrival_runtime_filter());
+    static_cast<void>(scanner->try_append_late_arrival_runtime_filter());
 
     bool first_read = true;
     while (!eos) {
@@ -278,7 +278,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
         if (!first_read && free_block) {
             vectorized::MutableBlock mutable_block(scan_task->current_block.get());
-            THROW_IF_ERROR(mutable_block.merge(*free_block));
+            static_cast<void>(mutable_block.merge(*free_block));
             scan_task->current_block->set_columns(std::move(mutable_block.mutable_columns()));
             ctx->return_free_block(std::move(free_block));
         }

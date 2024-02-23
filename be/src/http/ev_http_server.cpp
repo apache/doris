@@ -37,6 +37,7 @@
 
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
 #include "http/http_headers.h"
@@ -109,15 +110,15 @@ EvHttpServer::~EvHttpServer() {
     }
 }
 
-void EvHttpServer::start() {
+Status EvHttpServer::start() {
     _started = true;
     // bind to
     auto s = _bind();
     CHECK(s.ok()) << s.to_string();
-    THROW_IF_ERROR(ThreadPoolBuilder("EvHttpServer")
-                           .set_min_threads(_num_workers)
-                           .set_max_threads(_num_workers)
-                           .build(&_workers));
+    RETURN_IF_ERROR(ThreadPoolBuilder("EvHttpServer")
+                            .set_min_threads(_num_workers)
+                            .set_max_threads(_num_workers)
+                            .build(&_workers));
     for (int i = 0; i < _num_workers; ++i) {
         auto status = _workers->submit_func([this, i]() {
             std::shared_ptr<event_base> base;
@@ -141,6 +142,7 @@ void EvHttpServer::start() {
         });
         CHECK(status.ok());
     }
+    return Status::OK();
 }
 
 void EvHttpServer::stop() {

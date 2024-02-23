@@ -113,7 +113,7 @@ void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
         return;
     }
 
-    THROW_IF_ERROR(consumer->reset());
+    static_cast<void>(consumer->reset());
     _pool.push_back(consumer);
     VLOG_NOTICE << "return the data consumer: " << consumer->id()
                 << ", current pool size: " << _pool.size();

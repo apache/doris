@@ -629,7 +629,7 @@ Status AggSinkLocalState::_reset_hash_table() {
 
                 hash_table.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        THROW_IF_ERROR(_destroy_agg_status(mapped));
+                        static_cast<void>(_destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });
@@ -662,7 +662,7 @@ Status AggSinkLocalState::try_spill_disk(bool eos) {
                     return Status::OK();
                 }
 
-                THROW_IF_ERROR(_spill_hash_table(agg_method, hash_table));
+                static_cast<void>(_spill_hash_table(agg_method, hash_table));
                 return _reset_hash_table();
             },
             _agg_data->method_variant);

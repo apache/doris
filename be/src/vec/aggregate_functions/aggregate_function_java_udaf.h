@@ -274,7 +274,7 @@ public:
             SAFE_CREATE(RETURN_IF_STATUS_ERROR(status,
                                                this->data(place).init_udaf(_fn, _local_location)),
                         {
-                            THROW_IF_ERROR(this->data(place).destroy());
+                            static_cast<void>(this->data(place).destroy());
                             this->data(place).~Data();
                         });
             _first_created = false;

@@ -699,7 +699,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            THROW_IF_ERROR(
+            static_cast<void>(
                     ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader());
             break;
         }
@@ -948,8 +948,8 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
             if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema;
-                THROW_IF_ERROR(vectorized::schema_util::get_least_common_schema(schemas, nullptr,
-                                                                                merged_schema));
+                static_cast<void>(vectorized::schema_util::get_least_common_schema(schemas, nullptr,
+                                                                                   merged_schema));
                 VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 merged_schema->reserve_extracted_columns();
                 merged_schema->to_schema_pb(response->mutable_merged_schema());
@@ -982,7 +982,7 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                 if (!tablet_schemas.empty()) {
                     // merge all
                     TabletSchemaSPtr merged_schema;
-                    THROW_IF_ERROR(vectorized::schema_util::get_least_common_schema(
+                    static_cast<void>(vectorized::schema_util::get_least_common_schema(
                             tablet_schemas, nullptr, merged_schema));
                     merged_schema->to_schema_pb(response->mutable_merged_schema());
                     VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
@@ -1229,7 +1229,7 @@ void PInternalService::commit(google::protobuf::RpcController* controller,
             response->mutable_status()->set_status_code(1);
             response->mutable_status()->add_error_msgs("could not find stream load context");
         } else {
-            THROW_IF_ERROR(stream_load_ctx->pipe->finish());
+            static_cast<void>(stream_load_ctx->pipe->finish());
             response->mutable_status()->set_status_code(0);
         }
     });
@@ -2025,7 +2025,7 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                     }
                 }
                 if (st.ok()) {
-                    THROW_IF_ERROR(pipe->finish());
+                    static_cast<void>(pipe->finish());
                     std::unique_lock l(mutex);
                     if (!handled) {
                         cv.wait(l);

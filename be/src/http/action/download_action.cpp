@@ -57,17 +57,17 @@ DownloadAction::DownloadAction(ExecEnv* exec_env,
     }
     if (_num_workers > 0) {
         // for single-replica-load
-        THROW_IF_ERROR(ThreadPoolBuilder("DownloadThreadPool")
-                               .set_min_threads(num_workers)
-                               .set_max_threads(num_workers)
-                               .build(&_download_workers));
+        static_cast<void>(ThreadPoolBuilder("DownloadThreadPool")
+                                  .set_min_threads(num_workers)
+                                  .set_max_threads(num_workers)
+                                  .build(&_download_workers));
     }
 }
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir)
         : _exec_env(exec_env), _download_type(ERROR_LOG), _num_workers(0) {
 #ifndef BE_TEST
-    THROW_IF_ERROR(
+    static_cast<void>(
             io::global_local_filesystem()->canonicalize(error_log_root_dir, &_error_log_root_dir));
 #endif
 }

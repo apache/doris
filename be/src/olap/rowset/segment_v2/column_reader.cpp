@@ -306,7 +306,8 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    _parse_zone_map_skip_null(*_segment_zone_map, min_value.get(), max_value.get());
+    RETURN_IF_ERROR(
+            _parse_zone_map_skip_null(*_segment_zone_map, min_value.get(), max_value.get()));
 
     dst->reserve(*n);
     bool is_string = is_olap_string_type(type);
@@ -381,8 +382,8 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
                                    WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        THROW_IF_ERROR(min_value_container->from_string(zone_map.min()));
-        THROW_IF_ERROR(max_value_container->from_string(zone_map.max()));
+        static_cast<void>(min_value_container->from_string(zone_map.min()));
+        static_cast<void>(max_value_container->from_string(zone_map.max()));
     }
     // for compatible original Cond eval logic
     if (zone_map.has_null()) {
@@ -395,19 +396,20 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
     }
 }
 
-void ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
-                                             WrapperField* min_value_container,
-                                             WrapperField* max_value_container) const {
+Status ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
+                                               WrapperField* min_value_container,
+                                               WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        THROW_IF_ERROR(min_value_container->from_string(zone_map.min()));
-        THROW_IF_ERROR(max_value_container->from_string(zone_map.max()));
+        RETURN_IF_ERROR(min_value_container->from_string(zone_map.min()));
+        RETURN_IF_ERROR(max_value_container->from_string(zone_map.max()));
     }
 
     if (!zone_map.has_not_null()) {
         min_value_container->set_null();
         max_value_container->set_null();
     }
+    return Status::OK();
 }
 
 bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
@@ -1018,9 +1020,9 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
             RETURN_IF_ERROR(seek_to_ordinal(_reader->num_rows() - 1));
             _is_all_dict_encoding = _page.is_dict_encoding;
-            _reader->set_dict_encoding_type(_is_all_dict_encoding
-                                                    ? ColumnReader::ALL_DICT_ENCODING
-                                                    : ColumnReader::PARTIAL_DICT_ENCODING);
+            RETURN_IF_ERROR(_reader->set_dict_encoding_type(
+                    _is_all_dict_encoding ? ColumnReader::ALL_DICT_ENCODING
+                                          : ColumnReader::PARTIAL_DICT_ENCODING));
         } else {
             _is_all_dict_encoding = dict_encoding_type == ColumnReader::ALL_DICT_ENCODING;
         }
@@ -1034,7 +1036,7 @@ Status FileColumnIterator::seek_to_first() {
     RETURN_IF_ERROR(_reader->seek_to_first(&_page_iter));
     RETURN_IF_ERROR(_read_data_page(_page_iter));
 
-    _seek_to_pos_in_page(&_page, 0);
+    RETURN_IF_ERROR(_seek_to_pos_in_page(&_page, 0));
     _current_ordinal = 0;
     return Status::OK();
 }
@@ -1045,7 +1047,7 @@ Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
         RETURN_IF_ERROR(_reader->seek_at_or_before(ord, &_page_iter));
         RETURN_IF_ERROR(_read_data_page(_page_iter));
     }
-    _seek_to_pos_in_page(&_page, ord - _page.first_ordinal);
+    RETURN_IF_ERROR(_seek_to_pos_in_page(&_page, ord - _page.first_ordinal));
     _current_ordinal = ord;
     return Status::OK();
 }
@@ -1054,10 +1056,10 @@ Status FileColumnIterator::seek_to_page_start() {
     return seek_to_ordinal(_page.first_ordinal);
 }
 
-void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const {
+Status FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const {
     if (page->offset_in_page == offset_in_page) {
         // fast path, do nothing
-        return;
+        return Status::OK();
     }
 
     ordinal_t pos_in_data = offset_in_page;
@@ -1079,8 +1081,9 @@ void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset
         pos_in_data = offset_in_data + skips - skip_nulls;
     }
 
-    THROW_IF_ERROR(page->data_decoder->seek_to_position_in_page(pos_in_data));
+    RETURN_IF_ERROR(page->data_decoder->seek_to_position_in_page(pos_in_data));
     page->offset_in_page = offset_in_page;
+    return Status::OK();
 }
 
 Status FileColumnIterator::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) {
@@ -1229,7 +1232,7 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
     }
 
     RETURN_IF_ERROR(_read_data_page(_page_iter));
-    _seek_to_pos_in_page(&_page, 0);
+    RETURN_IF_ERROR(_seek_to_pos_in_page(&_page, 0));
     *eos = false;
     return Status::OK();
 }

@@ -87,8 +87,8 @@ void download(io::FileBlockSPtr file_segment) {
 
     std::string data(size, '0');
     Slice result(data.data(), size);
-    THROW_IF_ERROR(file_segment->append(result));
-    THROW_IF_ERROR(file_segment->finalize_write());
+    static_cast<void>(file_segment->append(result));
+    static_cast<void>(file_segment->finalize_write());
 }
 
 void complete(const io::FileBlocksHolder& holder) {
@@ -532,7 +532,7 @@ void test_file_cache(io::CacheType cache_type) {
         /// Test LRUCache::restore().
 
         io::LRUFileCache cache2(cache_base_path, settings);
-        THROW_IF_ERROR(cache2.initialize());
+        static_cast<void>(cache2.initialize());
         auto holder1 = cache2.get_or_set(key, 2, 28, context); /// Get [2, 29]
 
         auto segments1 = fromHolder(holder1);

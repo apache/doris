@@ -203,7 +203,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
-    init_file_cache_factory();
+    RETURN_IF_ERROR(init_file_cache_factory());
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
@@ -310,7 +310,7 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     return Status::OK();
 }
 
-void ExecEnv::init_file_cache_factory() {
+Status ExecEnv::init_file_cache_factory() {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     if (doris::config::enable_file_cache) {
         _file_cache_factory = new io::FileCacheFactory();
@@ -326,10 +326,10 @@ void ExecEnv::init_file_cache_factory() {
         }
 
         std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
-        THROW_IF_ERROR(doris::ThreadPoolBuilder("FileCacheInitThreadPool")
-                               .set_min_threads(cache_paths.size())
-                               .set_max_threads(cache_paths.size())
-                               .build(&file_cache_init_pool));
+        RETURN_IF_ERROR(doris::ThreadPoolBuilder("FileCacheInitThreadPool")
+                                .set_min_threads(cache_paths.size())
+                                .set_max_threads(cache_paths.size())
+                                .build(&file_cache_init_pool));
 
         std::list<doris::Status> cache_status;
         for (auto& cache_path : cache_paths) {
@@ -359,6 +359,7 @@ void ExecEnv::init_file_cache_factory() {
             }
         }
     }
+    return Status::OK();
 }
 
 Status ExecEnv::_init_mem_env() {

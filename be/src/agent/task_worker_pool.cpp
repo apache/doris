@@ -897,7 +897,7 @@ void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info)
     request.__isset.disks = true;
 
     std::vector<DataDirInfo> data_dir_infos;
-    THROW_IF_ERROR(engine.get_all_data_dir_info(&data_dir_infos, true /* update */));
+    static_cast<void>(engine.get_all_data_dir_info(&data_dir_infos, true /* update */));
 
     for (auto& root_path_info : data_dir_infos) {
         TDisk disk;
@@ -933,7 +933,7 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     request.__isset.tablets = true;
 
     uint64_t report_version = s_report_version;
-    THROW_IF_ERROR(engine.tablet_manager()->build_all_report_tablets_info(&request.tablets));
+    static_cast<void>(engine.tablet_manager()->build_all_report_tablets_info(&request.tablets));
     if (report_version < s_report_version) {
         // TODO llj This can only reduce the possibility for report error, but can't avoid it.
         // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this

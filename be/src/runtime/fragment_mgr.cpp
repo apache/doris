@@ -202,7 +202,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (!coord_status.ok()) {
         std::stringstream ss;
         UniqueId uid(req.query_id.hi, req.query_id.lo);
-        THROW_IF_ERROR(req.update_fn(Status::InternalError(
+        static_cast<void>(req.update_fn(Status::InternalError(
                 "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
                 PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
         return;
@@ -404,7 +404,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
             if (!rpc_status.ok()) {
                 // we need to cancel the execution of this fragment
-                THROW_IF_ERROR(req.update_fn(rpc_status));
+                static_cast<void>(req.update_fn(rpc_status));
                 req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, "report rpc fail");
                 return;
             }
@@ -421,7 +421,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         LOG_INFO("Going to cancel instance {} since report exec status got rpc failed: {}",
                  print_id(req.fragment_instance_id), rpc_status.to_string());
         // we need to cancel the execution of this fragment
-        THROW_IF_ERROR(req.update_fn(rpc_status));
+        static_cast<void>(req.update_fn(rpc_status));
         req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, std::string(rpc_status.msg()));
     }
 }

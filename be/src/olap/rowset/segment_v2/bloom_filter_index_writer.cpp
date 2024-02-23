@@ -240,7 +240,7 @@ NGramBloomFilterIndexWriterImpl::NGramBloomFilterIndexWriterImpl(
           _bf_size(bf_size),
           _bf_buffer_size(0),
           _token_extractor(gram_size) {
-    THROW_IF_ERROR(BloomFilter::create(NGRAM_BLOOM_FILTER, &_bf, bf_size));
+    static_cast<void>(BloomFilter::create(NGRAM_BLOOM_FILTER, &_bf, bf_size));
 }
 
 void NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {

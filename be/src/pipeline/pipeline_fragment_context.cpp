@@ -752,10 +752,10 @@ Status PipelineFragmentContext::submit() {
 void PipelineFragmentContext::close_sink() {
     if (_sink) {
         if (_prepared) {
-            THROW_IF_ERROR(
+            static_cast<void>(
                     _sink->close(_runtime_state.get(), Status::RuntimeError("prepare failed")));
         } else {
-            THROW_IF_ERROR(_sink->close(_runtime_state.get(), Status::OK()));
+            static_cast<void>(_sink->close(_runtime_state.get(), Status::OK()));
         }
     }
 }
@@ -763,10 +763,10 @@ void PipelineFragmentContext::close_sink() {
 void PipelineFragmentContext::close_if_prepare_failed() {
     if (_tasks.empty()) {
         if (_root_plan) {
-            THROW_IF_ERROR(_root_plan->close(_runtime_state.get()));
+            static_cast<void>(_root_plan->close(_runtime_state.get()));
         }
         if (_sink) {
-            THROW_IF_ERROR(
+            static_cast<void>(
                     _sink->close(_runtime_state.get(), Status::RuntimeError("prepare failed")));
         }
     }

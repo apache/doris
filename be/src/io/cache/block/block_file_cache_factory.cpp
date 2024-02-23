@@ -64,9 +64,9 @@ void FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     if (config::clear_file_cache) {
         auto fs = global_local_filesystem();
         bool res = false;
-        THROW_IF_ERROR(fs->exists(cache_base_path, &res));
+        static_cast<void>(fs->exists(cache_base_path, &res));
         if (res) {
-            THROW_IF_ERROR(fs->delete_directory(cache_base_path));
+            static_cast<void>(fs->delete_directory(cache_base_path));
         }
     }
 

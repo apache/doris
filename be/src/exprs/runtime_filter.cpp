@@ -331,7 +331,7 @@ public:
         return Status::OK();
     }
 
-    void change_to_bloom_filter(bool need_init_bf = false) {
+    Status change_to_bloom_filter(bool need_init_bf = false) {
         CHECK(_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER)
                 << "Can not change to bloom filter because of runtime filter type is "
                 << IRuntimeFilter::to_string(_filter_type);
@@ -339,11 +339,12 @@ public:
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
         if (need_init_bf) {
             // BloomFilter may be not init
-            THROW_IF_ERROR(bf->init_with_fixed_length());
+            RETURN_IF_ERROR(bf->init_with_fixed_length());
             insert_to_bloom_filter(bf);
         }
         // release in filter
         _context.hybrid_set.reset();
+        return Status::OK();
     }
 
     Status init_bloom_filter(const size_t build_bf_cardinality) {
@@ -1307,8 +1308,9 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     }
 }
 
-void IRuntimeFilter::change_to_bloom_filter() {
-    _wrapper->change_to_bloom_filter();
+Status IRuntimeFilter::change_to_bloom_filter() {
+    RETURN_IF_ERROR(_wrapper->change_to_bloom_filter());
+    return Status::OK();
 }
 
 Status IRuntimeFilter::init_bloom_filter(const size_t build_bf_cardinality) {

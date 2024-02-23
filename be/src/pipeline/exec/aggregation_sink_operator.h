@@ -216,7 +216,7 @@ protected:
                 Base::_shared_state->spill_context.runtime_profile));
         Defer defer {[&]() {
             // redundant call is ok
-            THROW_IF_ERROR(writer->close());
+            static_cast<void>(writer->close());
         }};
         Base::_shared_state->spill_context.stream_ids.emplace_back(writer->get_id());
 

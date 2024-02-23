@@ -117,11 +117,11 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
             }
             auto tmp_str = record.to_string(v);
             auto text = Slice {tmp_str};
-            THROW_IF_ERROR(writer.appendv(&text, 1));
+            static_cast<void>(writer.appendv(&text, 1));
         }
 
-        THROW_IF_ERROR(writer.finalize());
-        THROW_IF_ERROR(writer.close());
+        static_cast<void>(writer.finalize());
+        static_cast<void>(writer.close());
     } else if (_dump_type == RecordType::Periodic) {
         auto path = _dir / fmt::format("until{}",
                                        std::chrono::steady_clock::now().time_since_epoch().count());
@@ -144,11 +144,11 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
                 }
                 auto tmp_str = record.to_string(v);
                 auto text = Slice {tmp_str};
-                THROW_IF_ERROR(writer.appendv(&text, 1));
+                static_cast<void>(writer.appendv(&text, 1));
             }
         }
-        THROW_IF_ERROR(writer.finalize());
-        THROW_IF_ERROR(writer.close());
+        static_cast<void>(writer.finalize());
+        static_cast<void>(writer.close());
 
         _last_dump_time = MonotonicSeconds();
     }

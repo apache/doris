@@ -1036,7 +1036,7 @@ Status ScanLocalState<Derived>::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                THROW_IF_ERROR(_normalize_binary_in_compound_predicate(
+                                static_cast<void>(_normalize_binary_in_compound_predicate(
                                         child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
@@ -1058,7 +1058,7 @@ Status ScanLocalState<Derived>::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                THROW_IF_ERROR(_normalize_match_in_compound_predicate(
+                                static_cast<void>(_normalize_match_in_compound_predicate(
                                         child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);

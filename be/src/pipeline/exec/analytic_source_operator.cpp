@@ -437,7 +437,7 @@ bool AnalyticLocalState::init_next_partition(vectorized::BlockRowPos found_parti
         _partition_by_start = _shared_state->partition_by_end;
         _shared_state->partition_by_end = found_partition_end;
         _shared_state->current_row_position = _partition_by_start.pos;
-        THROW_IF_ERROR(_reset_agg_status());
+        static_cast<void>(_reset_agg_status());
         return true;
     }
     return false;

@@ -81,7 +81,7 @@ void AutoIncIDBuffer::_prefetch_ids(size_t length) {
     }
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     _is_fetching = true;
-    THROW_IF_ERROR(_rpc_token->submit_func([=, this]() {
+    static_cast<void>(_rpc_token->submit_func([=, this]() {
         TAutoIncrementRangeRequest request;
         TAutoIncrementRangeResult result;
         request.__set_db_id(_db_id);

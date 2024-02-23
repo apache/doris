@@ -407,7 +407,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             // if this is a new alter tablet, has to set its state to not ready
             // because schema change handler depends on it to check whether history data
             // convert finished
-            THROW_IF_ERROR(tablet->set_tablet_state(TabletState::TABLET_NOTREADY));
+            static_cast<void>(tablet->set_tablet_state(TabletState::TABLET_NOTREADY));
         }
         // Add tablet to StorageEngine will make it visible to user
         // Will persist tablet meta
@@ -444,7 +444,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
         }
     } else {
         tablet->delete_all_files();
-        THROW_IF_ERROR(TabletMetaManager::remove(data_dir, new_tablet_id, new_schema_hash));
+        static_cast<void>(TabletMetaManager::remove(data_dir, new_tablet_id, new_schema_hash));
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RemoveTabletFiles", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
     }
@@ -1511,7 +1511,7 @@ std::set<int64_t> TabletManager::check_all_tablet_segment(bool repair) {
                 LOG(WARNING) << "Bad tablet has be removed. tablet_id=" << tablet_id;
             } else {
                 const auto& tablet = it->second;
-                THROW_IF_ERROR(tablet->set_tablet_state(TABLET_SHUTDOWN));
+                static_cast<void>(tablet->set_tablet_state(TABLET_SHUTDOWN));
                 tablet->save_meta();
                 {
                     std::lock_guard<std::shared_mutex> shutdown_tablets_wrlock(

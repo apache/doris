@@ -39,6 +39,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -373,7 +374,8 @@ Status DataDir::load() {
                 (!delete_pred->in_predicates().empty() &&
                  delete_pred->in_predicates()[0].has_column_unique_id())) {
                 // convert pred and write only when delete sub pred v2 is not set or there is in list pred to be set column uid
-                DeleteHandler::convert_to_sub_pred_v2(delete_pred, rowset_meta->tablet_schema());
+                RETURN_IF_ERROR(DeleteHandler::convert_to_sub_pred_v2(
+                        delete_pred, rowset_meta->tablet_schema()));
                 LOG(INFO) << fmt::format(
                         "convert rowset with old delete pred: rowset_id={}, tablet_id={}",
                         rowset_id.to_string(), tablet_uid.to_string());
@@ -957,15 +959,15 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     return Status::OK();
 }
 
-void DataDir::perform_remote_rowset_gc() {
+Status DataDir::perform_remote_rowset_gc() {
     std::vector<std::pair<std::string, std::string>> gc_kvs;
     auto traverse_remote_rowset_func = [&gc_kvs](const std::string& key,
                                                  const std::string& value) -> bool {
         gc_kvs.emplace_back(key, value);
         return true;
     };
-    THROW_IF_ERROR(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_ROWSET_GC_PREFIX,
-                                  traverse_remote_rowset_func));
+    RETURN_IF_ERROR(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_ROWSET_GC_PREFIX,
+                                   traverse_remote_rowset_func));
     std::vector<std::string> deleted_keys;
     for (auto& [key, val] : gc_kvs) {
         auto rowset_id = key.substr(REMOTE_ROWSET_GC_PREFIX.size());
@@ -996,19 +998,20 @@ void DataDir::perform_remote_rowset_gc() {
         }
     }
     for (const auto& key : deleted_keys) {
-        THROW_IF_ERROR(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
+        RETURN_IF_ERROR(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
+    return Status::OK();
 }
 
-void DataDir::perform_remote_tablet_gc() {
+Status DataDir::perform_remote_tablet_gc() {
     std::vector<std::pair<std::string, std::string>> tablet_gc_kvs;
     auto traverse_remote_tablet_func = [&tablet_gc_kvs](const std::string& key,
                                                         const std::string& value) -> bool {
         tablet_gc_kvs.emplace_back(key, value);
         return true;
     };
-    THROW_IF_ERROR(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX,
-                                  traverse_remote_tablet_func));
+    RETURN_IF_ERROR(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX,
+                                   traverse_remote_tablet_func));
     std::vector<std::string> deleted_keys;
     for (auto& [key, val] : tablet_gc_kvs) {
         auto tablet_id = key.substr(REMOTE_TABLET_GC_PREFIX.size());
@@ -1039,8 +1042,9 @@ void DataDir::perform_remote_tablet_gc() {
         }
     }
     for (const auto& key : deleted_keys) {
-        THROW_IF_ERROR(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
+        RETURN_IF_ERROR(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
+    return Status::OK();
 }
 
 } // namespace doris

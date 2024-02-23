@@ -675,7 +675,7 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
                     LOG(INFO) << " delete transaction from engine "
                               << ", tablet: " << tablet_info.to_string()
                               << ", rowset id: " << rowset->rowset_id();
-                    THROW_IF_ERROR(
+                    static_cast<void>(
                             RowsetMetaManager::remove(meta, tablet_uid, rowset->rowset_id()));
                 }
                 LOG(INFO) << "remove tablet related txn."

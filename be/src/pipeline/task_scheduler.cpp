@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "pipeline/pipeline_task.h"
 #include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "pipeline/task_queue.h"
@@ -195,7 +196,7 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
     auto* task = *task_itr;
     task->set_state(t_state);
     local_tasks.erase(task_itr++);
-    THROW_IF_ERROR(task->get_task_queue()->push_back(task));
+    static_cast<void>(task->get_task_queue()->push_back(task));
 }
 
 TaskScheduler::~TaskScheduler() {
@@ -215,7 +216,7 @@ Status TaskScheduler::start() {
     _markers.reserve(cores);
     for (size_t i = 0; i < cores; ++i) {
         _markers.push_back(std::make_unique<std::atomic<bool>>(true));
-        RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { _do_work(i); }));
+        RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { RETURN_IF_ERROR(_do_work(i)); }));
     }
     return Status::OK();
 }
@@ -248,7 +249,7 @@ void _close_task(PipelineTask* task, PipelineTaskState state, Status exec_status
     task->fragment_context()->close_a_pipeline();
 }
 
-void TaskScheduler::_do_work(size_t index) {
+Status TaskScheduler::_do_work(size_t index) {
     const auto& marker = _markers[index];
     while (*marker) {
         auto* task = _task_queue->take(index);
@@ -390,7 +391,7 @@ void TaskScheduler::_do_work(size_t index) {
                 // After the task is added to the block queue, it maybe run by another thread
                 // and the task maybe released in the other thread. And will core at
                 // task set running.
-                THROW_IF_ERROR(_blocked_task_scheduler->add_blocked_task(task));
+                RETURN_IF_ERROR(_blocked_task_scheduler->add_blocked_task(task));
             }
             continue;
         }
@@ -401,11 +402,11 @@ void TaskScheduler::_do_work(size_t index) {
         case PipelineTaskState::BLOCKED_FOR_SINK:
         case PipelineTaskState::BLOCKED_FOR_RF:
         case PipelineTaskState::BLOCKED_FOR_DEPENDENCY:
-            THROW_IF_ERROR(_blocked_task_scheduler->add_blocked_task(task));
+            RETURN_IF_ERROR(_blocked_task_scheduler->add_blocked_task(task));
             break;
         case PipelineTaskState::RUNNABLE:
             task->set_running(false);
-            THROW_IF_ERROR(_task_queue->push_back(task, index));
+            RETURN_IF_ERROR(_task_queue->push_back(task, index));
             break;
         default:
             DCHECK(false) << "error state after run task, " << get_state_name(pipeline_state)
@@ -413,6 +414,7 @@ void TaskScheduler::_do_work(size_t index) {
             break;
         }
     }
+    return Status::OK();
 }
 
 void TaskScheduler::stop() {

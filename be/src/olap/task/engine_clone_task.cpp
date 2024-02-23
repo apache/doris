@@ -654,7 +654,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
             for (auto& file : linked_success_files) {
                 paths.emplace_back(file);
             }
-            THROW_IF_ERROR(io::global_local_filesystem()->batch_delete(paths));
+            static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
         }
     }};
     /// Traverse all downloaded clone files in CLONE dir.

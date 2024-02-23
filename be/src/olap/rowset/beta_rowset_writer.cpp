@@ -605,10 +605,10 @@ int64_t BetaRowsetWriter::_num_seg() const {
 // Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
 // _tabelt->tablet_schema:  A(bigint), B(double)
 //  => update_schema:       A(bigint), B(double), C(int), D(int)
-void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
+Status BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
     std::lock_guard<std::mutex> lock(*(_context.schema_lock));
     TabletSchemaSPtr update_schema;
-    THROW_IF_ERROR(vectorized::schema_util::get_least_common_schema(
+    RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
             {_context.tablet_schema, flush_schema}, nullptr, update_schema));
     CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
             << "Rowset merge schema columns count is " << update_schema->num_columns()
@@ -617,6 +617,7 @@ void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
             << " flush_schema: " << flush_schema->dump_structure();
     _context.tablet_schema.swap(update_schema);
     VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
+    return Status::OK();
 }
 
 Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
@@ -798,7 +799,7 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
     }
     // tablet schema updated
     if (flush_schema != nullptr) {
-        update_rowset_schema(flush_schema);
+        RETURN_IF_ERROR(update_rowset_schema(flush_schema));
     }
     if (_context.mow_context != nullptr) {
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));

@@ -238,7 +238,7 @@ public:
     }
 
     void serialize(BufferWritable& buf) {
-        THROW_IF_ERROR(send_buffer_to_rpc_server());
+        static_cast<void>(send_buffer_to_rpc_server());
         std::string serialize_data = error_default_str;
         if (!has_error()) {
             serialize_data = _res.SerializeAsString();
@@ -249,7 +249,7 @@ public:
     }
 
     void deserialize(BufferReadable& buf) {
-        THROW_IF_ERROR(send_buffer_to_rpc_server());
+        static_cast<void>(send_buffer_to_rpc_server());
         std::string serialize_data;
         read_binary(serialize_data, buf);
         if (error_default_str != serialize_data) {
@@ -328,7 +328,7 @@ public:
     }
 
     PFunctionCallResponse get_result() {
-        THROW_IF_ERROR(send_buffer_to_rpc_server());
+        static_cast<void>(send_buffer_to_rpc_server());
         return _res;
     }
 };
@@ -359,19 +359,20 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        THROW_IF_ERROR(this->data(place).buffer_add(columns, row_num, row_num + 1, argument_types));
+        static_cast<void>(
+                this->data(place).buffer_add(columns, row_num, row_num + 1, argument_types));
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
-        THROW_IF_ERROR(this->data(place).add(columns, 0, batch_size, argument_types));
+        static_cast<void>(this->data(place).add(columns, 0, batch_size, argument_types));
     }
 
     void reset(AggregateDataPtr place) const override {}
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        THROW_IF_ERROR(this->data(place).merge(this->data(const_cast<AggregateDataPtr>(rhs))));
+        static_cast<void>(this->data(place).merge(this->data(const_cast<AggregateDataPtr>(rhs))));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -384,7 +385,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        THROW_IF_ERROR(this->data(const_cast<AggregateDataPtr>(place)).get(to, _return_type));
+        static_cast<void>(this->data(const_cast<AggregateDataPtr>(place)).get(to, _return_type));
     }
 
 private:

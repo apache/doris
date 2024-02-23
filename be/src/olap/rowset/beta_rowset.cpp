@@ -240,7 +240,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 paths.emplace_back(file);
                 LOG(WARNING) << "will delete linked success file " << file << " due to error";
             }
-            THROW_IF_ERROR(fs->batch_delete(paths));
+            static_cast<void>(fs->batch_delete(paths));
             LOG(WARNING) << "done delete linked success files due to error " << status;
         }
     }};

@@ -604,22 +604,23 @@ void PlanFragmentExecutor::close() {
     if (_runtime_state != nullptr) {
         // _runtime_state init failed
         if (_plan != nullptr) {
-            THROW_IF_ERROR(_plan->close(_runtime_state.get()));
+            static_cast<void>(_plan->close(_runtime_state.get()));
         }
 
         if (_sink != nullptr) {
             if (!_prepared) {
-                THROW_IF_ERROR(
+                static_cast<void>(
                         _sink->close(runtime_state(), Status::InternalError("prepare failed")));
             } else if (!_opened) {
-                THROW_IF_ERROR(_sink->close(runtime_state(), Status::InternalError("open failed")));
+                static_cast<void>(
+                        _sink->close(runtime_state(), Status::InternalError("open failed")));
             } else {
                 Status status;
                 {
                     std::lock_guard<std::mutex> l(_status_lock);
                     status = _status;
                 }
-                THROW_IF_ERROR(_sink->close(runtime_state(), status));
+                static_cast<void>(_sink->close(runtime_state(), status));
             }
         }
 

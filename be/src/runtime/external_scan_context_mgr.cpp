@@ -146,7 +146,7 @@ void ExternalScanContextMgr::gc_expired_context() {
             // must cancel the fragment instance, otherwise return thrift transport TTransportException
             _exec_env->fragment_mgr()->cancel_instance(expired_context->fragment_instance_id,
                                                        PPlanFragmentCancelReason::INTERNAL_ERROR);
-            THROW_IF_ERROR(
+            static_cast<void>(
                     _exec_env->result_queue_mgr()->cancel(expired_context->fragment_instance_id));
         }
     }

@@ -273,8 +273,8 @@ Status IcebergTableReader::_position_delete(
                                         const_cast<cctz::time_zone*>(&_state->timezone_obj()),
                                         _io_ctx, _state);
             if (!init_schema) {
-                THROW_IF_ERROR(delete_reader.get_parsed_schema(&delete_file_col_names,
-                                                               &delete_file_col_types));
+                static_cast<void>(delete_reader.get_parsed_schema(&delete_file_col_names,
+                                                                  &delete_file_col_types));
                 init_schema = true;
             }
             create_status = delete_reader.open();
@@ -291,7 +291,7 @@ Status IcebergTableReader::_position_delete(
             std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                     partition_columns;
             std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-            THROW_IF_ERROR(delete_reader.set_fill_columns(partition_columns, missing_columns));
+            static_cast<void>(delete_reader.set_fill_columns(partition_columns, missing_columns));
 
             bool dictionary_coded = true;
             const tparquet::FileMetaData* meta_data = delete_reader.get_meta_data();

@@ -98,13 +98,13 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
     return Status::OK();
 }
 
-void DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
-                                           TabletSchemaSPtr schema) {
+Status DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
+                                             TabletSchemaSPtr schema) {
     if (!delete_pred->sub_predicates().empty() && delete_pred->sub_predicates_v2().empty()) {
         for (const auto& condition_str : delete_pred->sub_predicates()) {
             auto* sub_pred = delete_pred->add_sub_predicates_v2();
             TCondition condition;
-            THROW_IF_ERROR(parse_condition(condition_str, &condition));
+            RETURN_IF_ERROR(parse_condition(condition_str, &condition));
             sub_pred->set_column_unique_id(schema->column(condition.column_name).unique_id());
             sub_pred->set_column_name(condition.column_name);
             sub_pred->set_op(condition.condition_op);

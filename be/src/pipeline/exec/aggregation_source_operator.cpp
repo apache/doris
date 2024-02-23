@@ -134,7 +134,7 @@ Status AggLocalState::_reset_hash_table() {
 
                 hash_table.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        THROW_IF_ERROR(_destroy_agg_status(mapped));
+                        static_cast<void>(_destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });

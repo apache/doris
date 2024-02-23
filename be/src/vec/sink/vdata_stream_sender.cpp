@@ -499,7 +499,7 @@ void VDataStreamSender::_handle_eof_channel(RuntimeState* state, ChannelPtrType 
                                             Status st) {
     channel->set_receiver_eof(st);
     // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
-    THROW_IF_ERROR(channel->close(state, Status::OK()));
+    static_cast<void>(channel->close(state, Status::OK()));
 }
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {

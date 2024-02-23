@@ -698,7 +698,7 @@ void AggregationNode::_close_without_key() {
     //but finally call close to destory agg data, if agg data has bitmapValue
     //will be core dump, it's not initialized
     if (_agg_data_created_without_key) {
-        THROW_IF_ERROR(_destroy_agg_status(_agg_data->without_key));
+        static_cast<void>(_destroy_agg_status(_agg_data->without_key));
         _agg_data_created_without_key = false;
     }
     release_tracker();
@@ -795,7 +795,7 @@ Status AggregationNode::_reset_hash_table() {
 
                 hash_table.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        THROW_IF_ERROR(_destroy_agg_status(mapped));
+                        static_cast<void>(_destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });
@@ -1091,7 +1091,7 @@ Status AggregationNode::_spill_hash_table(HashTableCtxType& agg_method, HashTabl
             std::numeric_limits<int32_t>::max(), writer, _spill_context.runtime_profile));
     Defer defer {[&]() {
         // redundant call is ok
-        THROW_IF_ERROR(writer->close());
+        static_cast<void>(writer->close());
     }};
     _spill_context.stream_ids.emplace_back(writer->get_id());
 
@@ -1509,7 +1509,7 @@ void AggregationNode::_close_with_serialized_key() {
                 auto& data = *agg_method.hash_table;
                 data.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        THROW_IF_ERROR(_destroy_agg_status(mapped));
+                        static_cast<void>(_destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });

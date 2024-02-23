@@ -204,17 +204,17 @@ void MemTableFlushExecutor::init(int num_disk) {
     num_disk = std::max(1, num_disk);
     size_t min_threads = std::max(1, config::flush_thread_num_per_store);
     size_t max_threads = num_disk * min_threads;
-    THROW_IF_ERROR(ThreadPoolBuilder("MemTableFlushThreadPool")
-                           .set_min_threads(min_threads)
-                           .set_max_threads(max_threads)
-                           .build(&_flush_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("MemTableFlushThreadPool")
+                            .set_min_threads(min_threads)
+                            .set_max_threads(max_threads)
+                            .build(&_flush_pool));
 
     min_threads = std::max(1, config::high_priority_flush_thread_num_per_store);
     max_threads = num_disk * min_threads;
-    THROW_IF_ERROR(ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
-                           .set_min_threads(min_threads)
-                           .set_max_threads(max_threads)
-                           .build(&_high_prio_flush_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
+                            .set_min_threads(min_threads)
+                            .set_max_threads(max_threads)
+                            .build(&_high_prio_flush_pool));
     _register_metrics();
 }
 

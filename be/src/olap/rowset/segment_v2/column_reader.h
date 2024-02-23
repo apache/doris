@@ -171,11 +171,12 @@ public:
 
     uint64_t num_rows() const { return _num_rows; }
 
-    void set_dict_encoding_type(DictEncodingType type) {
-        THROW_IF_ERROR(_set_dict_encoding_type_once.call([&] {
+    Status set_dict_encoding_type(DictEncodingType type) {
+        RETURN_IF_ERROR(_set_dict_encoding_type_once.call([&] {
             _dict_encoding_type = type;
             return Status::OK();
         }));
+        return Status::OK();
     }
 
     DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
@@ -210,8 +211,8 @@ private:
     void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
 
-    void _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                                   WrapperField* max_value_container) const;
+    Status _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
+                                     WrapperField* max_value_container) const;
 
     Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
                                const std::vector<const ColumnPredicate*>* delete_predicates,
@@ -362,7 +363,7 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
 private:
-    void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
+    Status _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
