@@ -19,21 +19,34 @@ package org.apache.doris.resource.workloadschedpolicy;
 
 import org.apache.doris.common.UserException;
 
-public interface WorkloadAction {
+public class WorkloadConditionBeScanBytes implements WorkloadCondition {
 
-    void exec(WorkloadQueryInfo queryInfo);
+    private long value;
 
-    WorkloadActionType getWorkloadActionType();
+    private WorkloadConditionOperator op;
 
-    // NOTE(wb) currently createPolicyAction is also used when replay meta, it better not contains heavy check
-    static WorkloadAction createWorkloadAction(WorkloadActionMeta workloadActionMeta)
-            throws UserException {
-        if (WorkloadActionType.CANCEL_QUERY.equals(workloadActionMeta.action)) {
-            return WorkloadActionCancelQuery.createWorkloadAction();
-        } else if (WorkloadActionType.SET_SESSION_VARIABLE.equals(workloadActionMeta.action)) {
-            return WorkloadActionSetSessionVar.createWorkloadAction(workloadActionMeta.actionArgs);
-        }
-        throw new UserException("invalid action type " + workloadActionMeta.action);
+    public WorkloadConditionBeScanBytes(WorkloadConditionOperator op, long value) {
+        this.op = op;
+        this.value = value;
     }
 
+    @Override
+    public boolean eval(String strValue) {
+        // currently not support run in fe, so this condition never match
+        return false;
+    }
+
+    public static WorkloadConditionBeScanBytes createWorkloadCondition(WorkloadConditionOperator op, String value)
+            throws UserException {
+        long longValue = Long.parseLong(value);
+        if (longValue < 0) {
+            throw new UserException("invalid scan bytes value, " + longValue + ", it requires >= 0");
+        }
+        return new WorkloadConditionBeScanBytes(op, longValue);
+    }
+
+    @Override
+    public WorkloadMetricType getMetricType() {
+        return WorkloadMetricType.BE_SCAN_BYTES;
+    }
 }
