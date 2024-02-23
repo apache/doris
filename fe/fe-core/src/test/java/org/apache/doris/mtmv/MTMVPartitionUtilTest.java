@@ -171,11 +171,11 @@ public class MTMVPartitionUtilTest {
     @Test
     public void testGeneratePartitionName() {
         List<List<PartitionValue>> inValues = Lists.newArrayList();
-        inValues.add(Lists.newArrayList(new PartitionValue("value11"), new PartitionValue("value12")));
+        inValues.add(Lists.newArrayList(new PartitionValue("20201010 01:01:01"), new PartitionValue("value12")));
         inValues.add(Lists.newArrayList(new PartitionValue("value21"), new PartitionValue("value22")));
         PartitionKeyDesc inDesc = PartitionKeyDesc.createIn(inValues);
         String inName = MTMVPartitionUtil.generatePartitionName(inDesc);
-        Assert.assertEquals("p_value11_value12_value21_value22", inName);
+        Assert.assertEquals("p_20201010010101_value12_value21_value22", inName);
 
         PartitionKeyDesc rangeDesc = PartitionKeyDesc.createFixed(
                 Lists.newArrayList(new PartitionValue(1L)),
