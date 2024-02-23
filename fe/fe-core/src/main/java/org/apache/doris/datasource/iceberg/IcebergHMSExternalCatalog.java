@@ -43,7 +43,7 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
+    protected void initCatalog() {
         icebergCatalogType = ICEBERG_HMS;
         HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
         hiveCatalog.setConf(getConfiguration());

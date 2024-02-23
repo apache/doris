@@ -43,8 +43,16 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void init() {
-        metadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
         super.init();
+    }
+
+    // Create catalog based on catalog type
+    protected abstract void initCatalog();
+
+    @Override
+    protected void initLocalObjectsImpl() {
+        initCatalog();
+        metadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
     }
 
     public Catalog getCatalog() {
