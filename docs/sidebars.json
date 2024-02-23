@@ -187,7 +187,6 @@
                 "advanced/sql-mode",
                 "advanced/small-file-mgr",
                 "advanced/cold-hot-separation",
-                "advanced/compute-node",
                 "advanced/lateral-view",
                 "advanced/auto-increment"
             ]
@@ -257,6 +256,7 @@
                 },
                 "lakehouse/file",
                 "lakehouse/filecache",
+                "lakehouse/compute-node",
                 "lakehouse/external-statistics",
                 "lakehouse/sql-dialect",
                 "lakehouse/fs-benchmark-tool",
