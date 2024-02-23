@@ -1911,7 +1911,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 dataProperty.setStorageMedium(realStorageMedium);
                 LOG.info("real medium not eq default "
                         + "tableName={} tableId={} partitionName={} partitionId={} readMedium {}",
-                        tableName, tableId, partitionName, partitionId, realStorageMedium);
+                        tbl.getName(), tbl.getId(), partitionName, partitionId, realStorageMedium);
             }
 
             boolean ok = false;
