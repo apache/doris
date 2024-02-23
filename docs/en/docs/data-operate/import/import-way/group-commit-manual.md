@@ -335,13 +335,26 @@ curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:sync_mo
 
 See [Stream Load](stream-load-manual.md) for more detailed syntax used by **Http Stream**.
 
-## Modify the group commit interval
+## Group commit condition
+
+The data will be automatically committed either when the time interval (default is 10 seconds) or the data size (default is 64 MB) conditions meet.
+
+### Modify the group commit interval
 
 The default group commit interval is 10 seconds. Users can modify the configuration of the table:
 
 ```sql
 # Modify the group commit interval to 2 seconds
-ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
+ALTER TABLE dt SET ("group_commit_interval_ms" = "2000");
+```
+
+### Modify the group commit data size
+
+The default group commit data size is 64 MB. Users can modify the configuration of the table:
+
+```sql
+# Modify the group commit data size to 128MB
+ALTER TABLE dt SET ("group_commit_data_bytes" = "134217728");
 ```
 
 ## Limitations
