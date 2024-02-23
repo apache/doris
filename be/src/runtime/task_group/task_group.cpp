@@ -33,6 +33,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
@@ -113,14 +114,85 @@ void TaskGroup::remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> me
     _mem_tracker_limiter_pool[group_num].trackers.erase(mem_tracker_ptr);
 }
 
-void TaskGroup::task_group_info(TaskGroupInfo* tg_info) const {
-    std::shared_lock<std::shared_mutex> r_lock(_mutex);
-    tg_info->id = _id;
-    tg_info->name = _name;
-    tg_info->cpu_share = _cpu_share;
-    tg_info->memory_limit = _memory_limit;
-    tg_info->enable_memory_overcommit = _enable_memory_overcommit;
-    tg_info->version = _version;
+int64_t TaskGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile) {
+    if (need_free_mem <= 0) {
+        return 0;
+    }
+    int64_t used_memory = memory_used();
+    int64_t freed_mem = 0;
+
+    std::string cancel_str = fmt::format(
+            "work load group memory exceeded limit, group id:{}, name:{}, used:{}, limit:{}, "
+            "backend:{}.",
+            _id, _name, MemTracker::print_bytes(used_memory),
+            MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
+    auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
+                                                  const std::string& label) {
+        return fmt::format(
+                "{} cancel top memory overcommit tracker <{}> consumption {}. execute again after "
+                "enough memory, details see be.INFO.",
+                cancel_str, label, MemTracker::print_bytes(mem_consumption));
+    };
+    auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
+        return fmt::format(
+                "{} cancel top memory used tracker <{}> consumption {}. execute again after "
+                "enough memory, details see be.INFO.",
+                cancel_str, label, MemTracker::print_bytes(mem_consumption));
+    };
+
+    LOG(INFO) << fmt::format(
+            "[MemoryGC] work load group start gc, id:{} name:{}, memory limit: {}, used: {}, "
+            "need_free_mem: {}.",
+            _id, _name, _memory_limit, used_memory, need_free_mem);
+    Defer defer {[&]() {
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] work load group finished gc, id:{} name:{}, memory limit: {}, used: "
+                "{}, need_free_mem: {}, freed memory: {}.",
+                _id, _name, _memory_limit, used_memory, need_free_mem, freed_mem);
+    }};
+
+    // 1. free top overcommit query
+    if (config::enable_query_memory_overcommit) {
+        RuntimeProfile* tmq_profile = profile->create_child(
+                fmt::format("FreeGroupTopOvercommitQuery:Name {}", _name), true, true);
+        freed_mem += MemTrackerLimiter::tg_free_top_overcommit_query(
+                need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY,
+                _mem_tracker_limiter_pool, cancel_top_overcommit_str, tmq_profile,
+                MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+    }
+    if (freed_mem >= need_free_mem) {
+        return freed_mem;
+    }
+
+    // 2. free top usage query
+    RuntimeProfile* tmq_profile =
+            profile->create_child(fmt::format("FreeGroupTopUsageQuery:Name {}", _name), true, true);
+    freed_mem += MemTrackerLimiter::tg_free_top_memory_query(
+            need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY, _mem_tracker_limiter_pool,
+            cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+    if (freed_mem >= need_free_mem) {
+        return freed_mem;
+    }
+
+    // 3. free top overcommit load
+    if (config::enable_query_memory_overcommit) {
+        tmq_profile = profile->create_child(
+                fmt::format("FreeGroupTopOvercommitLoad:Name {}", _name), true, true);
+        freed_mem += MemTrackerLimiter::tg_free_top_overcommit_query(
+                need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
+                cancel_top_overcommit_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+        if (freed_mem >= need_free_mem) {
+            return freed_mem;
+        }
+    }
+
+    // 4. free top usage load
+    tmq_profile =
+            profile->create_child(fmt::format("FreeGroupTopUsageLoad:Name {}", _name), true, true);
+    freed_mem += MemTrackerLimiter::tg_free_top_memory_query(
+            need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
+            cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+    return freed_mem;
 }
 
 Status TaskGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_group_info,
