@@ -83,6 +83,7 @@ import org.apache.doris.nereids.DorisParser.DeleteContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.DropConstraintContext;
 import org.apache.doris.nereids.DorisParser.DropMTMVContext;
+import org.apache.doris.nereids.DorisParser.DropProcedureContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
@@ -348,6 +349,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
@@ -1021,14 +1023,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return plan;
         }
         String generateName = ctx.tableName.getText();
-        String columnName = ctx.columnName.getText();
+        // if later view explode map type, we need to add a project to convert map to struct
+        String columnName = ctx.columnNames.get(0).getText();
+        List<String> expandColumnNames = Lists.newArrayList();
+        if (ctx.columnNames.size() > 1) {
+            columnName = ConnectContext.get() != null
+                    ? ConnectContext.get().getStatementContext().generateColumnName() : "expand_cols";
+            expandColumnNames = ctx.columnNames.stream()
+                    .map(RuleContext::getText).collect(ImmutableList.toImmutableList());
+        }
         String functionName = ctx.functionName.getText();
         List<Expression> arguments = ctx.expression().stream()
                 .<Expression>map(this::typedVisit)
                 .collect(ImmutableList.toImmutableList());
         Function unboundFunction = new UnboundFunction(functionName, arguments);
         return new LogicalGenerate<>(ImmutableList.of(unboundFunction),
-                ImmutableList.of(new UnboundSlot(generateName, columnName)), plan);
+                ImmutableList.of(new UnboundSlot(generateName, columnName)), ImmutableList.of(expandColumnNames), plan);
     }
 
     /**
@@ -3285,5 +3295,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.REPLACE() != null);
             return createProcedurePlan;
         });
+    }
+
+    @Override
+    public LogicalPlan visitDropProcedure(DropProcedureContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        FuncNameInfo procedureName = new FuncNameInfo(nameParts);
+        return ParserUtils.withOrigin(ctx, () -> new DropProcedureCommand(procedureName, getOriginSql(ctx)));
     }
 }

@@ -63,17 +63,9 @@ using HashTableCtxVariants = std::variant<
         vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN,
                                           HashJoinProbeLocalState>>;
 
-class HashJoinProbeDependency final : public Dependency {
-public:
-    using SharedState = HashJoinSharedState;
-    HashJoinProbeDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "HashJoinProbeDependency", query_ctx) {}
-    ~HashJoinProbeDependency() override = default;
-};
-
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState final
-        : public JoinProbeLocalState<HashJoinProbeDependency, HashJoinProbeLocalState> {
+        : public JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState> {
 public:
     using Parent = HashJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(HashJoinProbeLocalState);

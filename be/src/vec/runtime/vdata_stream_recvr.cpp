@@ -360,9 +360,9 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
     if (state->enable_pipeline_x_exec()) {
         _sender_to_local_channel_dependency.resize(num_queues);
         for (size_t i = 0; i < num_queues; i++) {
-            _sender_to_local_channel_dependency[i] =
-                    pipeline::LocalExchangeChannelDependency::create_shared(
-                            _dest_node_id, _dest_node_id, state->get_query_ctx());
+            _sender_to_local_channel_dependency[i] = pipeline::Dependency::create_shared(
+                    _dest_node_id, _dest_node_id, "LocalExchangeChannelDependency", true,
+                    state->get_query_ctx());
         }
     }
     _sender_queues.reserve(num_queues);
@@ -441,8 +441,8 @@ bool VDataStreamRecvr::sender_queue_empty(int sender_id) {
     return _sender_queues[use_sender_id]->queue_empty();
 }
 
-std::shared_ptr<pipeline::LocalExchangeChannelDependency>
-VDataStreamRecvr::get_local_channel_dependency(int sender_id) {
+std::shared_ptr<pipeline::Dependency> VDataStreamRecvr::get_local_channel_dependency(
+        int sender_id) {
     DCHECK(_sender_to_local_channel_dependency[_is_merging ? sender_id : 0] != nullptr);
     return _sender_to_local_channel_dependency[_is_merging ? sender_id : 0];
 }

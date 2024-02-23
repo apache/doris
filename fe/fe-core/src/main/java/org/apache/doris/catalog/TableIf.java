@@ -135,9 +135,7 @@ public interface TableIf {
 
     long getRowCount();
 
-    // Get the exact number of rows in the internal table;
-    // Get the number of cached rows or estimated rows in the external table, if not, return -1.
-    long getCacheRowCount();
+    long fetchRowCount();
 
     long getDataLength();
 
@@ -151,7 +149,10 @@ public interface TableIf {
 
     BaseAnalysisTask createAnalysisTask(AnalysisInfo info);
 
-    long estimatedRowCount();
+    // For empty table, nereids require getting 1 as row count. This is a wrap function for nereids to call getRowCount.
+    default long getRowCountForNereids() {
+        return Math.max(getRowCount(), 1);
+    }
 
     DatabaseIf getDatabase();
 

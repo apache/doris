@@ -612,7 +612,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
-                                                params.query_options, params.coord);
+                                                params.query_options, params.coord, pipeline);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
         // set file scan range params
@@ -1304,7 +1304,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
         pip_context = iter->second;
 
         DCHECK(pip_context != nullptr);
-        runtime_filter_mgr = pip_context->get_runtime_filter_mgr(fragment_instance_id);
+        runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
     } else {
         std::unique_lock<std::mutex> lock(_lock);
         auto iter = _fragment_instance_map.find(tfragment_instance_id);
@@ -1315,7 +1315,8 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
         fragment_executor = iter->second;
 
         DCHECK(fragment_executor != nullptr);
-        runtime_filter_mgr = fragment_executor->runtime_state()->runtime_filter_mgr();
+        runtime_filter_mgr =
+                fragment_executor->runtime_state()->get_query_ctx()->runtime_filter_mgr();
     }
 
     return runtime_filter_mgr->update_filter(request, attach_data);

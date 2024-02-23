@@ -22,7 +22,6 @@ import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
-import org.apache.hudi.common.table.view.FileSystemViewStorageConfig;
 import org.apache.hudi.hadoop.utils.HoodieInputFormatUtils;
 import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
@@ -52,8 +51,7 @@ public abstract class HudiPartitionProcessor {
 
         HoodieTableMetadata newTableMetadata = HoodieTableMetadata.create(
                 new HoodieLocalEngineContext(tableMetaClient.getHadoopConf()), metadataConfig,
-                tableMetaClient.getBasePathV2().toString(),
-                FileSystemViewStorageConfig.SPILLABLE_DIR.defaultValue(), true);
+                tableMetaClient.getBasePathV2().toString(), true);
 
         return newTableMetadata.getAllPartitionPaths();
     }
