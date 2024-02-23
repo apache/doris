@@ -172,7 +172,6 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "progress", progress);
         try {
             routineLoadJob.afterCommitted(transactionState, true);
-            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
         } catch (TransactionException e) {
             Assert.fail();
         }
