@@ -127,6 +127,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 tbl.getType();
                 minTimes = 0;
                 result = TableIf.TableType.HMS_EXTERNAL_TABLE;
+
+                tbl.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -169,6 +173,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 view1.isSupportedHmsTable();
                 minTimes = 0;
                 result = true;
+
+                view1.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -211,6 +219,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 view2.isSupportedHmsTable();
                 minTimes = 0;
                 result = true;
+
+                view2.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -253,6 +265,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 view3.isSupportedHmsTable();
                 minTimes = 0;
                 result = true;
+
+                view3.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
@@ -295,6 +311,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 view4.isSupportedHmsTable();
                 minTimes = 0;
                 result = true;
+
+                view4.getDatabase();
+                minTimes = 0;
+                result = db;
             }
         };
 
