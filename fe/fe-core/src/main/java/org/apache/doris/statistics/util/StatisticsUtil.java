@@ -553,10 +553,9 @@ public class StatisticsUtil {
      * First get it from remote table parameters. If not found, estimate it : totalSize/estimatedRowSize
      *
      * @param table Hive HMSExternalTable to estimate row count.
-     * @param isInit Flag to indicate if this is called during init. To avoid recursively get schema.
      * @return estimated row count
      */
-    public static long getHiveRowCount(HMSExternalTable table, boolean isInit) {
+    public static long getHiveRowCount(HMSExternalTable table) {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         if (parameters == null) {
             return -1;
@@ -569,7 +568,7 @@ public class StatisticsUtil {
                 return rows;
             }
         }
-        if (!parameters.containsKey(TOTAL_SIZE) || isInit) {
+        if (!parameters.containsKey(TOTAL_SIZE)) {
             return -1;
         }
         // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
@@ -579,7 +578,7 @@ public class StatisticsUtil {
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
-            return 1;
+            return -1;
         }
         return totalSize / estimatedRowSize;
     }
@@ -657,7 +656,7 @@ public class StatisticsUtil {
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
-            return 1;
+            return 0;
         }
         if (samplePartitionSize < totalPartitionSize) {
             totalSize = totalSize * totalPartitionSize / samplePartitionSize;
