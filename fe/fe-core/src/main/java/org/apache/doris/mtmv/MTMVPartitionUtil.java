@@ -50,6 +50,8 @@ import java.util.regex.Pattern;
 
 public class MTMVPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVPartitionUtil.class);
+    private static final Pattern PARTITION_NAME_PATTERN = Pattern.compile("[^a-zA-Z0-9,]");
+    private static final String PARTITION_NAME_PREFIX = "p_";
 
     /**
      * Determine whether the partition is sync with retated partition and other baseTables
@@ -288,10 +290,8 @@ public class MTMVPartitionUtil {
      * @return
      */
     public static String generatePartitionName(PartitionKeyDesc desc) {
-        String partitionName = "p_";
-        Pattern pattern = Pattern.compile("[^a-zA-Z0-9,]");
-        Matcher matcher = pattern.matcher(desc.toSql());
-        partitionName += matcher.replaceAll("").replaceAll("\\,", "_");
+        Matcher matcher = PARTITION_NAME_PATTERN.matcher(desc.toSql());
+        String partitionName = PARTITION_NAME_PREFIX + matcher.replaceAll("").replaceAll("\\,", "_");
         if (partitionName.length() > 50) {
             partitionName = partitionName.substring(0, 30) + Math.abs(Objects.hash(partitionName))
                     + "_" + System.currentTimeMillis();
