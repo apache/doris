@@ -612,7 +612,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
-                                                params.query_options, params.coord);
+                                                params.query_options, params.coord, pipeline);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
         // set file scan range params
@@ -719,7 +719,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     static_cast<void>(_runtimefilter_controller.add_entity(
             params.params, params.params.query_id, params.query_options, &handler,
             RuntimeFilterParamsContext::create(fragment_executor->runtime_state())));
-    fragment_executor->set_merge_controller_handler(handler);
+    query_ctx->set_merge_controller_handler(handler);
     {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_instance_map.insert(
@@ -807,7 +807,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
                     params.local_params[i], params.query_id, params.query_options, &handler,
                     RuntimeFilterParamsContext::create(context->get_runtime_state())));
-            context->set_merge_controller_handler(handler);
+            query_ctx->set_merge_controller_handler(handler);
             const TUniqueId& fragment_instance_id = params.local_params[i].fragment_instance_id;
             {
                 std::lock_guard<std::mutex> lock(_lock);
@@ -887,7 +887,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
                     local_params, params.query_id, params.query_options, &handler,
                     RuntimeFilterParamsContext::create(context->get_runtime_state())));
-            context->set_merge_controller_handler(handler);
+            query_ctx->set_merge_controller_handler(handler);
             {
                 std::lock_guard<std::mutex> lock(_lock);
                 _pipeline_map.insert(std::make_pair(fragment_instance_id, context));
@@ -1395,38 +1395,24 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
     UniqueId queryid = request->query_id();
-    bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
     bool opt_remote_rf = request->has_opt_remote_rf() && request->opt_remote_rf();
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
-    auto fragment_instance_id = filter_controller->instance_id();
-    TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
-    std::shared_ptr<PlanFragmentExecutor> fragment_executor;
-    std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
-    if (is_pipeline) {
+    std::shared_ptr<QueryContext> query_ctx;
+    {
+        TUniqueId query_id;
+        query_id.__set_hi(queryid.hi);
+        query_id.__set_lo(queryid.lo);
         std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _pipeline_map.find(tfragment_instance_id);
-        if (iter == _pipeline_map.end()) {
-            VLOG_CRITICAL << "unknown fragment-id:" << fragment_instance_id;
-            return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
+        auto iter = _query_ctx_map.find(query_id);
+        if (iter == _query_ctx_map.end()) {
+            return Status::InvalidArgument("query-id: {}", queryid.to_string());
         }
 
         // hold reference to pip_context, or else runtime_state can be destroyed
         // when filter_controller->merge is still in progress
-        pip_context = iter->second;
-    } else {
-        std::unique_lock<std::mutex> lock(_lock);
-        auto iter = _fragment_instance_map.find(tfragment_instance_id);
-        if (iter == _fragment_instance_map.end()) {
-            VLOG_CRITICAL << "unknown fragment instance id:" << print_id(tfragment_instance_id);
-            return Status::InvalidArgument("fragment instance id: {}",
-                                           print_id(tfragment_instance_id));
-        }
-
-        // hold reference to fragment_executor, or else runtime_state can be destroyed
-        // when filter_controller->merge is still in progress
-        fragment_executor = iter->second;
+        query_ctx = iter->second;
     }
     auto merge_status = filter_controller->merge(request, attach_data, opt_remote_rf);
     DCHECK(merge_status.ok());

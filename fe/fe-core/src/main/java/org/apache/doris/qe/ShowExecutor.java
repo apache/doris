@@ -197,6 +197,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.query.QueryStatsUtil;
@@ -919,11 +920,7 @@ public class ShowExecutor {
                 // Row_format
                 row.add(null);
                 // Rows
-                // Use estimatedRowCount(), not getRowCount().
-                // because estimatedRowCount() is an async call, it will not block, and it will call getRowCount()
-                // finally. So that for some table(especially external table),
-                // we can get the row count without blocking.
-                row.add(String.valueOf(table.estimatedRowCount()));
+                row.add(String.valueOf(table.getRowCount()));
                 // Avg_row_length
                 row.add(String.valueOf(table.getAvgRowLength()));
                 // Data_length
@@ -2539,7 +2536,7 @@ public class ShowExecutor {
            tableStats == null means it's not analyzed, in this case show the estimated row count.
          */
         if (tableStats == null && tableIf instanceof HMSExternalTable) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf.estimatedRowCount());
+            resultSet = showTableStatsStmt.constructResultSet(tableIf.getRowCount());
         } else {
             resultSet = showTableStatsStmt.constructResultSet(tableStats);
         }
@@ -2553,7 +2550,35 @@ public class ShowExecutor {
         Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
         boolean showCache = showColumnStatsStmt.isCached();
+        boolean isAllColumns = showColumnStatsStmt.isAllColumns();
+        if (isAllColumns && !showCache && partitionNames == null) {
+            getStatsForAllColumns(columnStatistics, tableIf);
+        } else {
+            getStatsForSpecifiedColumns(columnStatistics, columnNames, tableIf, showCache, tableName, partitionNames);
+        }
+        resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
+    }
 
+    private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
+                                       TableIf tableIf) throws AnalysisException {
+        List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(tableIf.getId());
+        for (ResultRow row : resultRows) {
+            String indexName = "N/A";
+            long indexId = Long.parseLong(row.get(4));
+            if (indexId != -1) {
+                indexName = ((OlapTable) tableIf).getIndexNameById(indexId);
+                if (indexName == null) {
+                    continue;
+                }
+            }
+            columnStatistics.add(Pair.of(Pair.of(row.get(5), indexName), ColumnStatistic.fromResultRow(row)));
+        }
+    }
+
+    private void getStatsForSpecifiedColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
+                                             Set<String> columnNames, TableIf tableIf, boolean showCache,
+                                             TableName tableName, PartitionNames partitionNames)
+            throws AnalysisException {
         for (String colName : columnNames) {
             // Olap base index use -1 as index id.
             List<Long> indexIds = Lists.newArrayList();
@@ -2584,13 +2609,12 @@ public class ShowExecutor {
                 } else {
                     String finalIndexName = indexName;
                     columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                            colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
+                            colName, partitionNames.getPartitionNames())
                             .stream().map(s -> Pair.of(Pair.of(colName, finalIndexName), s))
                             .collect(Collectors.toList()));
                 }
             }
         }
-        resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
     }
 
     public void handleShowColumnHist() {
