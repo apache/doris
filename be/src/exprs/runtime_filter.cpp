@@ -462,19 +462,6 @@ public:
 
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            // only in filter can set ignore in merge time
-            if (_ignored) {
-                break;
-            } else if (wrapper->_ignored) {
-                VLOG_DEBUG << " ignore merge runtime filter(in filter id " << _filter_id
-                           << ") because: " << wrapper->ignored_msg();
-
-                _ignored = true;
-                _ignored_msg = wrapper->_ignored_msg;
-                // release in filter
-                _context.hybrid_set.reset();
-                break;
-            }
             // try insert set
             _context.hybrid_set->insert(wrapper->_context.hybrid_set.get());
             if (_max_in_num >= 0 && _context.hybrid_set->size() >= _max_in_num) {
@@ -1032,8 +1019,8 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     pquery_id->set_lo(_state->query_id.lo());
 
     auto pfragment_instance_id = merge_filter_request->mutable_fragment_instance_id();
-    pfragment_instance_id->set_hi(_state->fragment_instance_id().hi());
-    pfragment_instance_id->set_lo(_state->fragment_instance_id().lo());
+    pfragment_instance_id->set_hi(BackendOptions::get_local_backend().id);
+    pfragment_instance_id->set_lo((int64_t)this);
 
     merge_filter_request->set_filter_id(_filter_id);
     merge_filter_request->set_opt_remote_rf(opt_remote_rf);
@@ -1061,14 +1048,12 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
                                           std::vector<vectorized::VExprSPtr>& push_exprs,
                                           bool is_late_arrival) {
     DCHECK(is_consumer());
-    if (_wrapper->is_ignored()) {
-        return Status::OK();
-    }
-    if (!is_late_arrival) {
-        _set_push_down();
+    if (!_wrapper->is_ignored()) {
+        _set_push_down(!is_late_arrival);
+        RETURN_IF_ERROR(_wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr));
     }
     _profile->add_info_string("Info", _format_status());
-    return _wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr);
+    return Status::OK();
 }
 
 bool IRuntimeFilter::await() {
@@ -1202,9 +1187,9 @@ void IRuntimeFilter::set_ignored(const std::string& msg) {
 
 std::string IRuntimeFilter::_format_status() const {
     return fmt::format(
-            "[IsPushDown = {}, RuntimeFilterState = {}, IsIgnored = {}, HasRemoteTarget = {}, "
+            "[IsPushDown = {}, RuntimeFilterState = {}, IgnoredMsg = {}, HasRemoteTarget = {}, "
             "HasLocalTarget = {}]",
-            _is_push_down, _get_explain_state_string(), _wrapper->is_ignored(), _has_remote_target,
+            _is_push_down, _get_explain_state_string(), _wrapper->ignored_msg(), _has_remote_target,
             _has_local_target);
 }
 
@@ -1323,11 +1308,7 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
 }
 
 void IRuntimeFilter::change_to_bloom_filter() {
-    auto origin_type = _wrapper->get_real_type();
     _wrapper->change_to_bloom_filter();
-    if (origin_type != _wrapper->get_real_type()) {
-        update_runtime_filter_type_to_profile();
-    }
 }
 
 Status IRuntimeFilter::init_bloom_filter(const size_t build_bf_cardinality) {
@@ -1367,32 +1348,24 @@ Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
 void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     if (_profile_init) {
         parent_profile->add_child(_profile.get(), true, nullptr);
-        return;
-    }
-    _profile_init = true;
-    parent_profile->add_child(_profile.get(), true, nullptr);
-    _profile->add_info_string("Info", _format_status());
-    if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
-        update_runtime_filter_type_to_profile();
+    } else {
+        _profile_init = true;
+        parent_profile->add_child(_profile.get(), true, nullptr);
+        _profile->add_info_string("Info", _format_status());
     }
 }
 
 void IRuntimeFilter::update_runtime_filter_type_to_profile() {
-    if (_profile != nullptr) {
-        _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
-    }
+    _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
-    if (!_wrapper->is_ignored() && wrapper->is_ignored()) {
+    if (wrapper->is_ignored()) {
         set_ignored(wrapper->ignored_msg());
+    } else if (!_wrapper->is_ignored()) {
+        return _wrapper->merge(wrapper);
     }
-    auto origin_type = _wrapper->get_real_type();
-    Status status = _wrapper->merge(wrapper);
-    if (origin_type != _wrapper->get_real_type()) {
-        update_runtime_filter_type_to_profile();
-    }
-    return status;
+    return Status::OK();
 }
 
 template <typename T>
@@ -1695,12 +1668,10 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
     if (param->request->has_in_filter() && param->request->in_filter().has_ignored_msg()) {
         const PInFilter in_filter = param->request->in_filter();
         set_ignored(in_filter.ignored_msg());
-    }
-    std::unique_ptr<RuntimePredicateWrapper> wrapper;
-    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, _pool, &wrapper));
-    auto origin_type = _wrapper->get_real_type();
-    RETURN_IF_ERROR(_wrapper->merge(wrapper.get()));
-    if (origin_type != _wrapper->get_real_type()) {
+    } else {
+        std::unique_ptr<RuntimePredicateWrapper> wrapper;
+        RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, _pool, &wrapper));
+        RETURN_IF_ERROR(_wrapper->merge(wrapper.get()));
         update_runtime_filter_type_to_profile();
     }
     this->signal();
@@ -1718,11 +1689,8 @@ void IRuntimeFilter::update_filter(RuntimePredicateWrapper* wrapper, int64_t mer
     if (_wrapper->column_type() != wrapper->column_type()) {
         wrapper->_column_return_type = _wrapper->_column_return_type;
     }
-    auto origin_type = _wrapper->get_real_type();
     _wrapper = wrapper;
-    if (origin_type != _wrapper->get_real_type()) {
-        update_runtime_filter_type_to_profile();
-    }
+    update_runtime_filter_type_to_profile();
     this->signal();
 }
 

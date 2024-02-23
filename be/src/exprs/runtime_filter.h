@@ -362,7 +362,7 @@ protected:
     static Status _create_wrapper(const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
-    void _set_push_down() { _is_push_down = true; }
+    void _set_push_down(bool push_down) { _is_push_down = push_down; }
 
     std::string _format_status() const;
 
