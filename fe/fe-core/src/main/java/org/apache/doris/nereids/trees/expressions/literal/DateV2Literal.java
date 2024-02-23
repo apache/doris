@@ -91,7 +91,7 @@ public class DateV2Literal extends DateLiteral {
 
     /**
      * 2020-01-01
-     * @return 2020-01-01 23:59:59.999999
+     * @return 2020-01-01 23:59:59
      */
     public DateTimeV2Literal toEndOfTheDay() {
         return toEndOfTheDay(DateTimeV2Type.SYSTEM_DEFAULT);
