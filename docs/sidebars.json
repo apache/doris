@@ -1020,7 +1020,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/ANALYZE"
                                     ]
                                 },
                                 "sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE"
@@ -1032,6 +1033,7 @@
                             "items": [
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ALTER",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-ANALYZE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-BACKUP",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-BACKENDS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-BROKER",
@@ -1046,6 +1048,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-FUNCTION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-COLUMN-STATS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLLATION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATABASES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-DATA-SKEW",
@@ -1081,6 +1084,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PROCEDURE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROUTINE-LOAD-TASK",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PROC",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-STATS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-STATUS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-REPOSITORIES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-QUERY-PROFILE",
