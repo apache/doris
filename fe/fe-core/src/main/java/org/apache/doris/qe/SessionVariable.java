@@ -477,6 +477,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
 
+    public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
+
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
             = "huge_table_auto_analyze_interval_in_millis";
 
@@ -737,6 +739,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_DOWNGRADE, needForward = true)
     public boolean enableBucketShuffleDownGrade = false;
+
+    @VariableMgr.VarAttr(name = GENERATE_STATS_FACTOR, needForward = true)
+    public int generateStatsFactor = 5;
 
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
