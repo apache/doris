@@ -214,6 +214,11 @@ public:
 
     int64_t mem_limit() const { return _bytes_limit; }
 
+    void set_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+        _merge_controller_handler = handler;
+    }
+
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -282,6 +287,9 @@ private:
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
     std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
+    // This shared ptr is never used. It is just a reference to hold the object.
+    // There is a weak ptr in runtime filter manager to reference this object.
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 };
 
 } // namespace doris
