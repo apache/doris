@@ -2067,9 +2067,9 @@ public class Coordinator implements CoordInterface {
                         if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
                                 || ignoreStorageDataDistribution)) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
-                            // if have limit and conjunts, only need 1 instance to save cpu and
+                            // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
-                            if (node.get().haveLimitAndConjunts()) {
+                            if (node.get().shouldUseOneInstance()) {
                                 expectedInstanceNum = 1;
                             }
 
@@ -2080,9 +2080,9 @@ public class Coordinator implements CoordInterface {
                                 //the scan instance num should not larger than the tablets num
                                 expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
                             }
-                            // if have limit and conjunts, only need 1 instance to save cpu and
+                            // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
-                            if (node.get().haveLimitAndConjunts()) {
+                            if (node.get().shouldUseOneInstance()) {
                                 expectedInstanceNum = 1;
                             }
 
