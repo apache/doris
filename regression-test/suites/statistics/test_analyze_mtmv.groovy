@@ -22,8 +22,8 @@ suite("test_analyze_mtmv") {
             Thread.sleep(5000)
             def result = sql """SHOW DATA FROM ${table};"""
             logger.info("result " + result)
-	    if (result[0][4] == expected) {
-		return;
+            if (result[0][4] == expected) {
+                return;
             }
         }
         throw new Exception("Row count report timeout.")
@@ -270,6 +270,13 @@ suite("test_analyze_mtmv") {
     wait_row_count_reported("mv1", "3")
     sql """analyze table mv1 with sync with sample rows 4000000"""
     result_sample = sql """show column stats mv1(l_shipdate)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mv1 with sync with sample rows 4000000"""
+        result_sample = sql """show column stats mv1(l_shipdate)"""
+        logger.info("result " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("l_shipdate", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -284,6 +291,13 @@ suite("test_analyze_mtmv") {
     assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column cached stats mv1(l_shipdate)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mv1 with sync with sample rows 4000000"""
+        result_sample = sql """show column cached stats mv1(l_shipdate)"""
+        logger.info("result " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("l_shipdate", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -298,6 +312,13 @@ suite("test_analyze_mtmv") {
     assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column stats mv1(o_orderdate)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mv1 with sync with sample rows 4000000"""
+        result_sample = sql """show column stats mv1(o_orderdate)"""
+        logger.info("result " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("o_orderdate", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -312,6 +333,13 @@ suite("test_analyze_mtmv") {
     assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column cached stats mv1(o_orderdate)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mv1 with sync with sample rows 4000000"""
+        result_sample = sql """show column cached stats mv1(o_orderdate)"""
+        logger.info("result " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("o_orderdate", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -326,6 +354,13 @@ suite("test_analyze_mtmv") {
     assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column stats mv1(l_partkey)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mv1 with sync with sample rows 4000000"""
+        result_sample = sql """show column stats mv1(l_partkey)"""
+        logger.info("result " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("l_partkey", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -340,6 +375,13 @@ suite("test_analyze_mtmv") {
     assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column cached stats mv1(l_partkey)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mv1 with sync with sample rows 4000000"""
+        result_sample = sql """show column cached stats mv1(l_partkey)"""
+        logger.info("result " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("l_partkey", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -354,6 +396,13 @@ suite("test_analyze_mtmv") {
     assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column stats mv1(l_suppkey)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mv1 with sync with sample rows 4000000"""
+        result_sample = sql """show column stats mv1(l_suppkey)"""
+        logger.info("result " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("l_suppkey", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -368,6 +417,13 @@ suite("test_analyze_mtmv") {
     assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column cached stats mv1(l_suppkey)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mv1 with sync with sample rows 4000000"""
+        result_sample = sql """show column cached stats mv1(l_suppkey)"""
+        logger.info("result " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("l_suppkey", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -382,6 +438,13 @@ suite("test_analyze_mtmv") {
     assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column stats mv1(sum_total)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mv1 with sync with sample rows 4000000"""
+        result_sample = sql """show column stats mv1(sum_total)"""
+        logger.info("result " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("sum_total", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -396,6 +459,13 @@ suite("test_analyze_mtmv") {
     assertEquals("MANUAL", result_sample[0][11])
 
     result_sample = sql """show column cached stats mv1(sum_total)"""
+    logger.info("result " + result_sample)
+    if ("MANUAL" != result_sample[0][11]) {
+        logger.info("Overwrite by auto analyze, analyze it again.")
+        sql """analyze table mv1 with sync with sample rows 4000000"""
+        result_sample = sql """show column cached stats mv1(sum_total)"""
+        logger.info("result " + result_sample)
+    }
     assertEquals(1, result_sample.size())
     assertEquals("sum_total", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
