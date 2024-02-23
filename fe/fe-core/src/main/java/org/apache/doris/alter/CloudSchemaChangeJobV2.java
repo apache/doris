@@ -84,6 +84,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
 
     @Override
     protected void postProcessShadowIndex() {
+        LOG.info("lightman postProcessShadowIndex indexIdMap size: {}", indexIdMap.size());
         List<Long> shadowIdxList = indexIdMap.keySet().stream().collect(Collectors.toList());
         dropIndex(shadowIdxList);
     }

@@ -58,6 +58,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Replica.ReplicaContext;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
@@ -1584,9 +1585,19 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                         Preconditions.checkState(originReplica.getState() == ReplicaState.NORMAL,
                                 originReplica.getState());
+                        ReplicaContext context = new ReplicaContext();
+                        context.replicaId = shadowReplicaId;
+                        context.backendId = backendId;
+                        context.state = ReplicaState.ALTER;
+                        context.version = Partition.PARTITION_INIT_VERSION;
+                        context.schemaHash = newSchemaHash;
+                        context.dbId = dbId;
+                        context.tableId = tableId;
+                        context.partitionId = partitionId;
+                        context.indexId = shadowIndexId;
+                        context.originReplica = originReplica;
                         // replica's init state is ALTER, so that tablet report process will ignore its report
-                        Replica shadowReplica = new Replica(shadowReplicaId, backendId, ReplicaState.ALTER,
-                                Partition.PARTITION_INIT_VERSION, newSchemaHash);
+                        Replica shadowReplica = EnvFactory.getInstance().createReplica(context);
                         shadowTablet.addReplica(shadowReplica);
                         healthyReplicaNum++;
                     }
@@ -1611,6 +1622,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
                 schemaChangeJob.addPartitionShadowIndex(partitionId, shadowIndexId, shadowIndex);
             } // end for partition
+            LOG.info("lightman addIndexSchema shadowIndexId {} originIndexId {}", shadowIndexId, originIndexId);
             schemaChangeJob.addIndexSchema(shadowIndexId, originIndexId, newIndexName, newSchemaVersion, newSchemaHash,
                     newShortKeyColumnCount, entry.getValue());
         } // end for index
@@ -1894,12 +1906,10 @@ public class SchemaChangeHandler extends AlterHandler {
                         lightSchemaChange = Boolean.parseBoolean(
                                 properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE));
                         if (Objects.equals(olapTable.getEnableLightSchemaChange(), lightSchemaChange)) {
-                            throw new DdlException(
-                                    String.format("Table %s.%s has already support light_schema_change=%s",
-                                            db.getFullName(), olapTable.getName(), lightSchemaChange));
+                            return;
                         }
                         if (!lightSchemaChange) {
-                            throw new DdlException("Can not alter light_schema_change to false currently");
+                            throw new DdlException("Can not alter light_schema_change from true to false currently");
                         }
                         enableLightSchemaChange(db, olapTable);
                         return;

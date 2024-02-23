@@ -17,6 +17,7 @@
 
 #include "cloud/cloud_rowset_writer.h"
 
+#include "io/cache/block/block_file_cache_factory.h"
 #include "olap/rowset/rowset_factory.h"
 
 namespace doris {
@@ -34,6 +35,7 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
         // TODO(plat1ko):
         // In cloud mode, this branch implies it is an intermediate rowset for external merge sort,
         // we use `global_local_filesystem` to write data to `tmp_file_dir`(see `BetaRowset::segment_file_path`).
+        _context.rowset_dir = io::FileCacheFactory::instance()->get_cache_path();
     }
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
@@ -98,6 +100,10 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     // update rowset meta tablet schema if tablet schema updated
     if (_context.tablet_schema->num_variant_columns() > 0) {
         _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    }
+
+    if (_rowset_meta->newest_write_timestamp() == -1) {
+        _rowset_meta->set_newest_write_timestamp(UnixSeconds());
     }
 
     // TODO(plat1ko): Record segment file size in rowset meta

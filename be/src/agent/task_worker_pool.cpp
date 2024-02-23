@@ -227,6 +227,59 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
     finish_task_request->__set_task_status(status.to_thrift());
 }
 
+void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& agent_task_req, int64_t signature,
+                  const TTaskType::type task_type, TFinishTaskRequest* finish_task_request) {
+    Status status;
+
+    std::string_view process_name;
+    switch (task_type) {
+    case TTaskType::ALTER:
+        process_name = "alter tablet";
+        break;
+    default:
+        std::string task_name;
+        EnumToString(TTaskType, task_type, task_name);
+        LOG(WARNING) << "schema change type invalid. type: " << task_name
+                     << ", signature: " << signature;
+        status = Status::NotSupported("Schema change type invalid");
+        break;
+    }
+
+    // Check last schema change status, if failed delete tablet file
+    // Do not need to adjust delete success or not
+    // Because if delete failed create rollup will failed
+    TTabletId new_tablet_id = 0;
+    if (status.ok()) {
+        new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
+        EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
+        status = engine_task.execute();
+    }
+
+    if (status.ok()) {
+        s_report_version.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // Return result to fe
+    finish_task_request->__set_backend(BackendOptions::get_local_backend());
+    finish_task_request->__set_report_version(s_report_version);
+    finish_task_request->__set_task_type(task_type);
+    finish_task_request->__set_signature(signature);
+
+    if (!status.ok() && !status.is<NOT_IMPLEMENTED_ERROR>()) {
+        LOG_WARNING("failed to {}", process_name)
+                .tag("signature", agent_task_req.signature)
+                .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                .tag("new_tablet_id", new_tablet_id)
+                .error(status);
+    } else {
+        LOG_INFO("successfully {}", process_name)
+                .tag("signature", agent_task_req.signature)
+                .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                .tag("new_tablet_id", new_tablet_id);
+    }
+    finish_task_request->__set_task_status(status.to_thrift());
+}
+
 Status check_migrate_request(StorageEngine& engine, const TStorageMediumMigrateReq& req,
                              TabletSharedPtr& tablet, DataDir** dest_store) {
     int64_t tablet_id = req.tablet_id;
@@ -1684,6 +1737,34 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) 
         switch (task_type) {
         case TTaskType::ALTER:
             alter_tablet(engine, req, signature, task_type, &finish_task_request);
+            break;
+        default:
+            // pass
+            break;
+        }
+        finish_task(finish_task_request);
+    }
+    remove_task_info(req.task_type, req.signature);
+}
+
+void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    int64_t signature = req.signature;
+    LOG(INFO) << "get alter table task, signature: " << signature;
+    bool is_task_timeout = false;
+    if (req.__isset.recv_time) {
+        int64_t time_elapsed = time(nullptr) - req.recv_time;
+        if (time_elapsed > config::report_task_interval_seconds * 20) {
+            LOG(INFO) << "task elapsed " << time_elapsed
+                      << " seconds since it is inserted to queue, it is timeout";
+            is_task_timeout = true;
+        }
+    }
+    if (!is_task_timeout) {
+        TFinishTaskRequest finish_task_request;
+        TTaskType::type task_type = req.task_type;
+        switch (task_type) {
+        case TTaskType::ALTER:
+            alter_cloud_tablet(engine, req, signature, task_type, &finish_task_request);
             break;
         default:
             // pass

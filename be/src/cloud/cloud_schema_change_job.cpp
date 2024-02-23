@@ -72,7 +72,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     }
 
     _base_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.base_tablet_id));
-    ;
+
     std::unique_lock<std::mutex> schema_change_lock(_base_tablet->get_schema_change_lock(),
                                                     std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
@@ -97,6 +97,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     // Create a new tablet schema, should merge with dropped columns in light weight schema change
     _base_tablet_schema = std::make_shared<TabletSchema>();
     _base_tablet_schema->update_tablet_columns(*_base_tablet->tablet_schema(), request.columns);
+    _new_tablet_schema = _new_tablet->tablet_schema();
 
     // delete handlers to filter out deleted rows
     DeleteHandler delete_handler;
@@ -169,7 +170,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         if (item.__isset.mv_expr) {
             mv_param.expr = std::make_shared<TExpr>(item.mv_expr);
         }
-        sc_params.materialized_params_map.insert(std::make_pair(item.column_name, mv_param));
+        sc_params.materialized_params_map.insert(std::make_pair(to_lower(item.column_name), mv_param));
     }
     sc_params.enable_unique_key_merge_on_write = _new_tablet->enable_unique_key_merge_on_write();
     return _convert_historical_rowsets(sc_params);

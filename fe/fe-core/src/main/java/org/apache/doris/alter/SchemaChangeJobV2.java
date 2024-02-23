@@ -89,7 +89,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     // partition id -> (shadow index id -> (shadow tablet id -> origin tablet id))
     @SerializedName(value = "partitionIndexTabletMap")
-    protected Table<Long, Long, Map<Long, Long>> partitionIndexTabletMap = HashBasedTable.create();
+    private Table<Long, Long, Map<Long, Long>> partitionIndexTabletMap = HashBasedTable.create();
     // partition id -> (shadow index id -> shadow index))
     @SerializedName(value = "partitionIndexMap")
     protected Table<Long, Long, MaterializedIndex> partitionIndexMap = HashBasedTable.create();
@@ -485,6 +485,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         long originTabletId = partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId);
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
+                            LOG.info("lightman backendId {}", shadowReplica.getBackendId());
                             AlterReplicaTask rollupTask = new AlterReplicaTask(shadowReplica.getBackendId(), dbId,
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
@@ -596,8 +597,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         }
 
                         if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
-                            LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}",
-                                    shadowTablet.getId(), replicas, jobId);
+                            LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
+                                    + " healthyReplicaNum {} expectReplicationNum {}",
+                                    shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
                             throw new AlterCancelException(
                                     "shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
                         }

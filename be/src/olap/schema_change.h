@@ -117,9 +117,6 @@ public:
 
         _filtered_rows = 0;
         _merged_rows = 0;
-        LOG_INFO("lightman SchemaChange::process")
-                .tag("base_tablet id", base_tablet->tablet_id())
-                .tag("new_tablet id", new_tablet->tablet_id());
         RETURN_IF_ERROR(_inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema,
                                        new_tablet_schema));
 

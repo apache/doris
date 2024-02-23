@@ -40,6 +40,7 @@ class TMasterInfo;
 class TReportRequest;
 class TTabletInfo;
 class TAgentTaskRequest;
+class CloudStorageEngine;
 
 class TaskWorkerPoolIf {
 public:
@@ -164,6 +165,8 @@ void cloud_push_callback(CloudStorageEngine& engine, const TAgentTaskRequest& re
 void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
 void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
                     const TAgentTaskRequest& req);

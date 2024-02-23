@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
 
 import com.google.gson.annotations.SerializedName;
@@ -215,6 +216,12 @@ public abstract class AlterJobV2 implements Writable {
         if (isTimeout()) {
             cancelImpl("Timeout");
             return;
+        }
+
+        if (!cloudClusterName.isEmpty()) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setThreadLocalInfo();
+            ctx.setCloudCluster(cloudClusterName);
         }
 
         // /api/debug_point/add/FE.STOP_ALTER_JOB_RUN

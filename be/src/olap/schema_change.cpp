@@ -502,7 +502,6 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
                                                     BaseTabletSPtr new_tablet,
                                                     TabletSchemaSPtr base_tablet_schema,
                                                     TabletSchemaSPtr new_tablet_schema) {
-    LOG_INFO("lightman VBaseSchemaChangeWithSorting::_inner_process");
     // for internal sorting
     std::vector<std::unique_ptr<vectorized::Block>> blocks;
 
@@ -584,7 +583,6 @@ Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
         const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
         int64_t newest_write_timestamp, BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
         SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema) {
-    LOG_INFO("lightman VBaseSchemaChangeWithSorting::_inner_process");
     uint64_t merged_rows = 0;
     MultiBlockMerger merger(new_tablet);
     RowsetWriterContext context;
@@ -635,7 +633,6 @@ Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
     auto guard = _local_storage_engine.pending_local_rowsets().add(context.rowset_id);
     _pending_rs_guards.push_back(std::move(guard));
     RETURN_IF_ERROR_RESULT(merger.merge(blocks, rowset_writer.get(), &merged_rows));
-    LOG_INFO("lightman _internal_sorting").tag("merged_rows", merged_rows);
     _add_merged_rows(merged_rows);
     RowsetSharedPtr rowset;
     RETURN_IF_ERROR_RESULT(rowset_writer->build(rowset));
@@ -656,9 +653,6 @@ Status VBaseSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& 
     Merger::Statistics stats;
     RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
                                            *new_tablet_schema, rs_readers, rowset_writer, &stats));
-    LOG_INFO("lightman _external_sorting")
-            .tag("merged_rows", stats.merged_rows)
-            .tag("src_rowsets len", src_rowsets.size());
     _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);
     return Status::OK();
@@ -1076,8 +1070,6 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
 
     // c.Convert historical data
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {
-        LOG(INFO) << "lightman begin to convert a history rowset. version="
-                  << rs_reader->version().first << "-" << rs_reader->version().second;
 
         // set status for monitor
         // As long as there is a new_table as running, ref table is set as running
@@ -1174,11 +1166,13 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             auto mv_param = materialized_function_map.find(column_name_lower)->second;
             column_mapping->expr = mv_param.expr;
             if (column_mapping->expr != nullptr) {
+                LOG_INFO("lightman new_column.name in here {}", column_name_lower);
                 continue;
             }
         }
 
         int32_t column_index = base_tablet_schema->field_index(new_column.name());
+        LOG_INFO("lightman new_column.name {}", new_column.name());
         if (column_index >= 0) {
             column_mapping->ref_column = column_index;
             continue;

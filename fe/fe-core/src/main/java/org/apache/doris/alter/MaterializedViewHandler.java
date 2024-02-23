@@ -42,6 +42,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Replica.ReplicaContext;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
@@ -431,9 +432,19 @@ public class MaterializedViewHandler extends AlterHandler {
                     }
                     Preconditions.checkState(baseReplica.getState() == ReplicaState.NORMAL,
                             baseReplica.getState());
+                    ReplicaContext context = new ReplicaContext();
+                    context.replicaId = mvReplicaId;
+                    context.backendId = backendId;
+                    context.state = ReplicaState.ALTER;
+                    context.version = Partition.PARTITION_INIT_VERSION;
+                    context.schemaHash = mvSchemaHash;
+                    context.dbId = dbId;
+                    context.tableId = tableId;
+                    context.partitionId = partitionId;
+                    context.indexId = mvIndexId;
+                    context.originReplica = baseReplica;
                     // replica's init state is ALTER, so that tablet report process will ignore its report
-                    Replica mvReplica = new Replica(mvReplicaId, backendId, ReplicaState.ALTER,
-                            Partition.PARTITION_INIT_VERSION, mvSchemaHash);
+                    Replica mvReplica = EnvFactory.getInstance().createReplica(context);
                     newTablet.addReplica(mvReplica);
                     healthyReplicaNum++;
                 } // end for baseReplica
