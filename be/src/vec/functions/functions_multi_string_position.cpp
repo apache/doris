@@ -106,6 +106,11 @@ public:
         const ColumnConst* col_needles_const =
                 check_and_get_column_const<ColumnArray>(needles_ptr.get());
 
+        if (!col_needles_const && !col_needles_vector)
+            return Status::InvalidArgument(
+                    "function '{}' encountered unsupported needles column, found {}",
+                    name, needles_column->get_name());
+
         if (col_haystack_const && col_needles_vector) {
             return Status::InvalidArgument(
                     "function '{}' doesn't support search with non-constant needles "
