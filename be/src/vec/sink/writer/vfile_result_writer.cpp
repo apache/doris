@@ -306,7 +306,7 @@ Status VFileResultWriter::_send_result() {
     row_buffer.push_bigint(_written_rows_counter->value()); // total rows
     row_buffer.push_bigint(_written_data_bytes->value());   // file size
     std::string file_url;
-    static_cast<void>(_get_file_url(&file_url));
+    RETURN_IF_ERROR(_get_file_url(&file_url));
     std::stringstream ss;
     ss << file_url << "*";
     file_url = ss.str();
@@ -346,7 +346,7 @@ Status VFileResultWriter::_fill_result_block() {
         column->insert_data(reinterpret_cast<const char*>(&written_data_bytes), 0); \
     } else if (i == 3) {                                                            \
         std::string file_url;                                                       \
-        static_cast<void>(_get_file_url(&file_url));                                \
+        THROW_IF_ERROR(_get_file_url(&file_url));                                \
         column->insert_data(file_url.c_str(), file_url.size());                     \
     }                                                                               \
     _output_block->replace_by_position(i, std::move(column));

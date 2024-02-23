@@ -294,9 +294,9 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
         if (eos) {
-            static_cast<void>(child(0)->close(state));
+            RETURN_IF_ERROR(child(0)->close(state));
         }
-        static_cast<void>(sink(state, &block, eos));
+        RETURN_IF_ERROR(sink(state, &block, eos));
     }
 
     return Status::OK();

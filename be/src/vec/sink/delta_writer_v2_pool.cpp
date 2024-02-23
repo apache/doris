@@ -70,7 +70,7 @@ void DeltaWriterV2Map::cancel(Status status) {
     }
     std::lock_guard lock(_mutex);
     for (auto& [_, writer] : _map) {
-        static_cast<void>(writer->cancel_with_status(status));
+        THROW_IF_ERROR(writer->cancel_with_status(status));
     }
 }
 

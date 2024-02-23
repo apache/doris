@@ -38,7 +38,7 @@ class BufferedReaderTest : public testing::Test {
 public:
     BufferedReaderTest() {
         std::unique_ptr<ThreadPool> _pool;
-        static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+        THROW_IF_ERROR(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
                                   .set_min_threads(5)
                                   .set_max_threads(10)
                                   .build(&_pool));

@@ -73,7 +73,7 @@ void RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& argum
         ColumnWithTypeAndName& column = block.get_by_position(col_idx);
         arg->set_has_null(column.column->has_null(row_count));
         auto col = column.column->convert_to_full_column_if_const();
-        static_cast<void>(column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count));
+        THROW_IF_ERROR(column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count));
     }
 }
 
@@ -81,7 +81,7 @@ void RPCFnImpl::_convert_to_block(Block& block, const PValues& result, size_t po
     auto data_type = block.get_data_type(pos);
     auto col = data_type->create_column();
     auto serde = data_type->get_serde();
-    static_cast<void>(serde->read_column_from_pb(*col, result));
+    THROW_IF_ERROR(serde->read_column_from_pb(*col, result));
     block.replace_by_position(pos, std::move(col));
 }
 

@@ -94,7 +94,7 @@ void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profil
     auto task_ctx = state->get_task_execution_context();
     if (state->get_query_ctx() && state->get_query_ctx()->get_non_pipe_exec_thread_pool()) {
         ThreadPool* pool_ptr = state->get_query_ctx()->get_non_pipe_exec_thread_pool();
-        static_cast<void>(pool_ptr->submit_func([this, state, profile, task_ctx]() {
+        THROW_IF_ERROR(pool_ptr->submit_func([this, state, profile, task_ctx]() {
             auto task_lock = task_ctx.lock();
             if (task_lock == nullptr) {
                 _writer_thread_closed = true;
@@ -103,7 +103,7 @@ void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profil
             this->process_block(state, profile);
         }));
     } else {
-        static_cast<void>(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
+        THROW_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
                 [this, state, profile, task_ctx]() {
                     auto task_lock = task_ctx.lock();
                     if (task_lock == nullptr) {
