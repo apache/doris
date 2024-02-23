@@ -340,6 +340,7 @@ public:
                 file_info.file_name = obj.GetKey().substr(prefix.size());
                 file_info.file_size = obj.GetSize();
                 file_info.is_file = !is_dir;
+                iter++;
                 return file_info;
             }
             // Return early to prevent one useless S3 io
@@ -354,25 +355,23 @@ public:
     }
 
     Status get_list_outcome() {
-        do {
-            {
-                SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-                outcome = client->ListObjectsV2(request);
-            }
-            if (!outcome.IsSuccess()) {
-                return s3fs_error(outcome.GetError(), fmt::format("failed to list {}", full_path));
-            }
-            iter = outcome.GetResult().GetContents().begin();
-            is_trucated = outcome.GetResult().GetIsTruncated();
-            request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
-            return Status::OK();
-        } while (is_trucated);
+        {
+            SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+            outcome = client->ListObjectsV2(request);
+        }
+        if (!outcome.IsSuccess()) {
+            return s3fs_error(outcome.GetError(), fmt::format("failed to list {}", full_path));
+        }
+        iter = outcome.GetResult().GetContents().begin();
+        is_trucated = outcome.GetResult().GetIsTruncated();
+        request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
+        return Status::OK();
     }
 
     std::shared_ptr<Aws::S3::S3Client> client;
     Aws::S3::Model::ListObjectsV2Request request;
     bool only_file;
-    std::string_view prefix;
+    std::string prefix;
     std::string full_path;
     bool is_trucated = false;
     Aws::S3::Model::ListObjectsV2Outcome outcome;

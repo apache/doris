@@ -1070,6 +1070,7 @@ void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req)
     string snapshot_path;
     bool allow_incremental_clone = false; // not used
     std::vector<string> snapshot_files;
+    std::vector<io::FileInfo> files;
     Status status = engine.snapshot_mgr()->make_snapshot(snapshot_request, &snapshot_path,
                                                          &allow_incremental_clone);
     if (status.ok() && snapshot_request.__isset.list_files) {
@@ -1077,7 +1078,6 @@ void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         // snapshot_path like: data/snapshot/20180417205230.1.86400
         // we need to add subdir: tablet_id/schema_hash/
         io::FileListIteratorPtr files_iter;
-        std::vector<io::FileInfo> files;
         bool exists = true;
         io::Path path = fmt::format("{}/{}/{}/", snapshot_path, snapshot_request.tablet_id,
                                     snapshot_request.schema_hash);
@@ -1093,10 +1093,14 @@ void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req)
                 .tag("version", snapshot_request.version)
                 .error(status);
     } else {
+        for (const auto& file : files) {
+            snapshot_files.emplace_back(file.file_name);
+        }
         LOG_INFO("successfully make snapshot")
                 .tag("signature", req.signature)
                 .tag("tablet_id", snapshot_request.tablet_id)
                 .tag("version", snapshot_request.version)
+                .tag("file_num", snapshot_files.size())
                 .tag("snapshot_path", snapshot_path);
     }
 
