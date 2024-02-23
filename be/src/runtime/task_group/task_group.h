@@ -35,6 +35,7 @@
 namespace doris {
 
 class MemTrackerLimiter;
+class RuntimeProfile;
 
 namespace pipeline {
 class PipelineTask;
