@@ -132,12 +132,6 @@ void ColumnDecimal<T>::update_hash_with_value(size_t n, SipHash& hash) const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
-                                                const uint8_t* __restrict null_data) const {
-    SIP_HASHES_FUNCTION_COLUMN_IMPL();
-}
-
-template <typename T>
 void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                              const uint8_t* __restrict null_data) const {
     if (null_data == nullptr) {

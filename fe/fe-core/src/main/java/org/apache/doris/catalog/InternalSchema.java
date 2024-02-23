@@ -68,7 +68,7 @@ public class InternalSchema {
         // audit table
         AUDIT_SCHEMA = new ArrayList<>();
         AUDIT_SCHEMA.add(new ColumnDef("query_id", TypeDef.createVarchar(48), true));
-        AUDIT_SCHEMA.add(new ColumnDef("time", TypeDef.create(PrimitiveType.DATETIME), true));
+        AUDIT_SCHEMA.add(new ColumnDef("time", TypeDef.createDatetimeV2(3), true));
         AUDIT_SCHEMA.add(new ColumnDef("client_ip", TypeDef.createVarchar(128), true));
         AUDIT_SCHEMA.add(new ColumnDef("user", TypeDef.createVarchar(128), true));
         AUDIT_SCHEMA.add(new ColumnDef("catalog", TypeDef.createVarchar(128), true));

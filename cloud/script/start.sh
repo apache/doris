@@ -54,8 +54,6 @@ if [[ -f "${DORIS_HOME}/bin/${process}.pid" ]]; then
     rm -f "${DORIS_HOME}/bin/${process}.pid"
 fi
 
-chmod 550 "${DORIS_HOME}/lib/doris_cloud"
-
 lib_path="${DORIS_HOME}/lib"
 bin="${DORIS_HOME}/lib/doris_cloud"
 if ldd "${bin}" | grep -Ei 'libfdb_c.*not found' &>/dev/null; then
@@ -66,6 +64,8 @@ if ldd "${bin}" | grep -Ei 'libfdb_c.*not found' &>/dev/null; then
     patchelf --set-rpath "${lib_path}" "${bin}"
     ldd "${bin}"
 fi
+
+chmod 550 "${DORIS_HOME}/lib/doris_cloud"
 
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof:true,prof_prefix:jeprof.out"
 

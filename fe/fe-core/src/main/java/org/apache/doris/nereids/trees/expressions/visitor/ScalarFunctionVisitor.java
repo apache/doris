@@ -416,6 +416,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
@@ -1513,6 +1515,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMurmurHash364(MurmurHash364 murmurHash364, C context) {
         return visitScalarFunction(murmurHash364, context);
+    }
+
+    default R visitXxHash32(XxHash32 xxHash32, C context) {
+        return visitScalarFunction(xxHash32, context);
+    }
+
+    default R visitXxHash64(XxHash64 xxHash64, C context) {
+        return visitScalarFunction(xxHash64, context);
     }
 
     default R visitNegative(Negative negative, C context) {

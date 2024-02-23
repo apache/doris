@@ -28,7 +28,10 @@
                         "install/k8s-deploy/operator-deploy",
                         "install/k8s-deploy/helm-chart-deploy",
                         "install/k8s-deploy/network",
-                        "install/k8s-deploy/persistent-volume"
+                        "install/k8s-deploy/persistent-volume",
+                        "install/k8s-deploy/root-user-use",
+                        "install/k8s-deploy/expansion-and-contraction",
+                        "install/k8s-deploy/debug-crash"
                     ]
                 },
                 {
@@ -705,7 +708,9 @@
                             "label": "Hash Functions",
                             "items": [
                                 "sql-manual/sql-functions/hash-functions/murmur-hash3-32",
-                                "sql-manual/sql-functions/hash-functions/murmur-hash3-64"
+                                "sql-manual/sql-functions/hash-functions/murmur-hash3-64",
+                                "sql-manual/sql-functions/hash-functions/xxhash-32",
+                                "sql-manual/sql-functions/hash-functions/xxhash-64"
                             ]
                         },
                         {

@@ -44,8 +44,8 @@ Status NestLoopJoinProbeOperator::close(doris::RuntimeState* state) {
 
 NestedLoopJoinProbeLocalState::NestedLoopJoinProbeLocalState(RuntimeState* state,
                                                              OperatorXBase* parent)
-        : JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState>(state,
-                                                                                            parent),
+        : JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>(state,
+                                                                                        parent),
           _matched_rows_done(false),
           _left_block_pos(0) {}
 
@@ -74,7 +74,7 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
 
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
-    return JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState>::close(
+    return JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>::close(
             state);
 }
 
@@ -185,13 +185,9 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
                 _finalize_current_phase<false, JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
                         _join_block, state->batch_size());
             }
-        }
-
-        if (_left_side_process_count) {
-            if (p._is_mark_join && _shared_state->build_blocks.empty()) {
-                DCHECK_EQ(JoinOpType::value, TJoinOp::CROSS_JOIN);
-                _append_left_data_with_null(_join_block);
-            }
+        } else if (_left_side_process_count && p._is_mark_join &&
+                   _shared_state->build_blocks.empty()) {
+            _append_left_data_with_null(_join_block);
         }
     }
 
