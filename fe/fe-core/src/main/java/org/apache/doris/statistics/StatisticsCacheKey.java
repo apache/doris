@@ -73,6 +73,7 @@ public class StatisticsCacheKey {
     @Override
     public String toString() {
         StringJoiner sj = new StringJoiner(DELIMITER);
+        sj.add("ColumnStats");
         sj.add(String.valueOf(tableId));
         sj.add(String.valueOf(idxId));
         sj.add(colName);

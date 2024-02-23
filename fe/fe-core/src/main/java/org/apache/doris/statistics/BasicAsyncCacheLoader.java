@@ -28,15 +28,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
-public abstract class StatisticsCacheLoader<V> implements AsyncCacheLoader<StatisticsCacheKey, V> {
+public abstract class BasicAsyncCacheLoader<K, V> implements AsyncCacheLoader<K, V> {
 
-    private static final Logger LOG = LogManager.getLogger(StatisticsCacheLoader.class);
+    private static final Logger LOG = LogManager.getLogger(BasicAsyncCacheLoader.class);
 
-    private final Map<StatisticsCacheKey, CompletableFutureWithCreateTime<V>> inProgressing = new HashMap<>();
+    private final Map<K, CompletableFutureWithCreateTime<V>> inProgressing = new HashMap<>();
 
     @Override
     public @NonNull CompletableFuture<V> asyncLoad(
-            @NonNull StatisticsCacheKey key,
+            @NonNull K key,
             @NonNull Executor executor) {
         CompletableFutureWithCreateTime<V> cfWrapper = inProgressing.get(key);
         if (cfWrapper != null) {
@@ -48,8 +48,7 @@ public abstract class StatisticsCacheLoader<V> implements AsyncCacheLoader<Stati
                 return doLoad(key);
             } finally {
                 long endTime = System.currentTimeMillis();
-                LOG.info("Query BE for column stats:{}-{} end time:{} cost time:{}", key.tableId, key.colName,
-                        endTime, endTime - startTime);
+                LOG.info("Load statistic cache [{}] cost time ms:{}", key, endTime - startTime);
                 removeFromIProgressing(key);
             }
         }, executor);
@@ -58,7 +57,7 @@ public abstract class StatisticsCacheLoader<V> implements AsyncCacheLoader<Stati
         return future;
     }
 
-    protected abstract V doLoad(StatisticsCacheKey k);
+    protected abstract V doLoad(K k);
 
     private static class CompletableFutureWithCreateTime<V> extends CompletableFuture<V> {
 
@@ -76,13 +75,13 @@ public abstract class StatisticsCacheLoader<V> implements AsyncCacheLoader<Stati
         }
     }
 
-    private void putIntoIProgressing(StatisticsCacheKey k, CompletableFutureWithCreateTime<V> v) {
+    private void putIntoIProgressing(K k, CompletableFutureWithCreateTime<V> v) {
         synchronized (inProgressing) {
             inProgressing.put(k, v);
         }
     }
 
-    private void removeFromIProgressing(StatisticsCacheKey k) {
+    private void removeFromIProgressing(K k) {
         synchronized (inProgressing) {
             inProgressing.remove(k);
         }
