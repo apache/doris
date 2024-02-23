@@ -258,11 +258,10 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     return Status::OK();
 }
 
-Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId fragment_instance_id,
+Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id,
                                                 const TRuntimeFilterParams& runtime_filter_params,
                                                 const TQueryOptions& query_options) {
     _query_id = query_id;
-    _fragment_instance_id = fragment_instance_id;
     _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity",
                                                 ExecEnv::GetInstance()->experimental_mem_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -518,8 +517,6 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* sta
     params->query_id.set_hi(state->query_id().hi);
     params->query_id.set_lo(state->query_id().lo);
 
-    params->_fragment_instance_id.set_hi(state->fragment_instance_id().hi);
-    params->_fragment_instance_id.set_lo(state->fragment_instance_id().lo);
     params->be_exec_version = state->be_exec_version();
     params->query_ctx = state->get_query_ctx();
     return params;

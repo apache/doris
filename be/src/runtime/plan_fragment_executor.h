@@ -134,11 +134,6 @@ public:
 
     void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
 
-    void set_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handler = handler;
-    }
-
     std::shared_ptr<QueryContext> get_query_ctx() { return _query_ctx; }
 
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
@@ -219,9 +214,6 @@ private:
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
     RuntimeProfile::Counter* _fragment_cpu_timer = nullptr;
-    // This shared ptr is never used. It is just a reference to hold the object.
-    // There is a weak ptr in runtime filter manager to reference this object.
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
     bool _need_wait_execution_trigger = false;
