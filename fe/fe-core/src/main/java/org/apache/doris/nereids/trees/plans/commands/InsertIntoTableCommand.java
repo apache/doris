@@ -37,9 +37,12 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -143,7 +146,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         targetTableIf.readLock();
         try {
             // 1. process inline table (default values, empty values)
-            this.logicalQuery = (LogicalPlan) InsertExecutor.normalizePlan(ctx, logicalQuery, targetTableIf);
+            this.logicalQuery = (LogicalPlan) InsertExecutor.normalizePlan(logicalQuery, targetTableIf);
 
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
@@ -254,10 +257,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
         OlapTable targetTable = physicalOlapTableSink.getTargetTable();
         return ctx.getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
-                && !ctx.isTxnModel() && sink.getFragment().getPlanRoot() instanceof UnionNode
+                && !ctx.isTxnModel() && isGroupCommitAvailablePlan(physicalOlapTableSink)
                 && physicalOlapTableSink.getPartitionIds().isEmpty() && targetTable.getTableProperty()
                 .getUseSchemaLightChange() && !targetTable.getQualifiedDbName()
                 .equalsIgnoreCase(FeConstants.INTERNAL_DB_NAME);
+    }
+
+    private boolean isGroupCommitAvailablePlan(PhysicalOlapTableSink<? extends Plan> sink) {
+        Plan child = sink.child();
+        if (child instanceof PhysicalDistribute) {
+            child = child.child(0);
+        }
+        return child instanceof OneRowRelation || (child instanceof PhysicalUnion && child.arity() == 0);
     }
 
     @Override
@@ -270,8 +281,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             }
             throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
         }
-        return InsertExecutor.normalizePlan(ctx, this.logicalQuery,
-                InsertExecutor.getTargetTable(this.logicalQuery, ctx));
+        return InsertExecutor.normalizePlan(this.logicalQuery, InsertExecutor.getTargetTable(this.logicalQuery, ctx));
     }
 
     @Override

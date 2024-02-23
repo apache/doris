@@ -528,7 +528,7 @@ public class InsertExecutor {
     /**
      * normalize plan to let it could be process correctly by nereids
      */
-    public static Plan normalizePlan(ConnectContext ctx, Plan plan, TableIf table) {
+    public static Plan normalizePlan(Plan plan, TableIf table) {
         UnboundTableSink<? extends Plan> unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
 
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS
@@ -558,14 +558,6 @@ public class InsertExecutor {
         Plan query = unboundTableSink.child();
         if (!(query instanceof LogicalInlineTable)) {
             return plan;
-        }
-
-        if (ctx.getSessionVariable().isEnableInsertGroupCommit()) {
-            try {
-                ctx.getSessionVariable().disableStrictConsistencyDmlOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("cannot turn off strict consistency dml for group commit");
-            }
         }
         LogicalInlineTable logicalInlineTable = (LogicalInlineTable) query;
         ImmutableList.Builder<LogicalPlan> oneRowRelationBuilder = ImmutableList.builder();

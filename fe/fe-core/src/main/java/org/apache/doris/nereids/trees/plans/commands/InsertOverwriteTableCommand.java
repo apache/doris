@@ -97,7 +97,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             throw new AnalysisException("insert into overwrite only support OLAP table."
                     + " But current table type is " + targetTableIf.getType());
         }
-        this.logicalQuery = (LogicalPlan) InsertExecutor.normalizePlan(ctx, logicalQuery, targetTableIf);
+        this.logicalQuery = (LogicalPlan) InsertExecutor.normalizePlan(logicalQuery, targetTableIf);
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
@@ -185,8 +185,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             }
             throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
         }
-        return InsertExecutor.normalizePlan(ctx, this.logicalQuery,
-                InsertExecutor.getTargetTable(this.logicalQuery, ctx));
+        return InsertExecutor.normalizePlan(this.logicalQuery, InsertExecutor.getTargetTable(this.logicalQuery, ctx));
     }
 
     @Override
