@@ -437,7 +437,7 @@ public class NereidsPlanner extends Planner {
                         + getTimeMetricString(SummaryProfile::getPrettyNereidsAnalysisTime) + " ==========\n"
                         + analyzedPlan.treeString() + "\n\n"
                         + "========== REWRITTEN PLAN "
-                        + getTimeMetricString(SummaryProfile::getPrettyNereidsRewriteTime) + "==========\n"
+                        + getTimeMetricString(SummaryProfile::getPrettyNereidsRewriteTime) + " ==========\n"
                         + rewrittenPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN "
                         + getTimeMetricString(SummaryProfile::getPrettyNereidsOptimizeTime) + " ==========\n"
