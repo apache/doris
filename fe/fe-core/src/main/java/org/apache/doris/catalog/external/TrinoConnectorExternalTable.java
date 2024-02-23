@@ -53,6 +53,7 @@ import io.trino.spi.type.RealType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.RowType.Field;
 import io.trino.spi.type.SmallintType;
+import io.trino.spi.type.TimeType;
 import io.trino.spi.type.TimestampType;
 import io.trino.spi.type.TimestampWithTimeZoneType;
 import io.trino.spi.type.TinyintType;
@@ -183,6 +184,8 @@ public class TrinoConnectorExternalTable extends ExternalTable {
         } else if (type instanceof DecimalType) {
             DecimalType decimal = (DecimalType) type;
             return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());
+        } else if (type instanceof TimeType) {
+            return Type.STRING;
         } else if (type instanceof DateType) {
             return ScalarType.createDateV2Type();
         } else if (type instanceof TimestampType) {

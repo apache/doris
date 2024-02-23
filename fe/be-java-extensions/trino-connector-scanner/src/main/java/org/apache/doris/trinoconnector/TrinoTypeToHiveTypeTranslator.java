@@ -29,6 +29,7 @@ import io.trino.spi.type.MapType;
 import io.trino.spi.type.RealType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.SmallintType;
+import io.trino.spi.type.TimeType;
 import io.trino.spi.type.TimestampType;
 import io.trino.spi.type.TimestampWithTimeZoneType;
 import io.trino.spi.type.TinyintType;
@@ -71,6 +72,8 @@ public final class TrinoTypeToHiveTypeTranslator
             sb.append(((DecimalType) type).getScale());
             sb.append(")");
             return sb.toString();
+        } else if (type instanceof TimeType) {
+            return "string";
         } else if (type instanceof DateType) {
             return "date";
         } else if (type instanceof TimestampType) {

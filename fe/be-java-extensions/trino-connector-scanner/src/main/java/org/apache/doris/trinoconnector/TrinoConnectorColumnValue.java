@@ -24,13 +24,17 @@ import io.trino.spi.block.ArrayBlock;
 import io.trino.spi.block.Block;
 import io.trino.spi.block.MapBlock;
 import io.trino.spi.block.RowBlock;
+import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.type.ArrayType;
-import io.trino.spi.type.DateTimeEncoding;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.Decimals;
 import io.trino.spi.type.DoubleType;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.RealType;
+import io.trino.spi.type.SqlTime;
+import io.trino.spi.type.SqlTimestamp;
+import io.trino.spi.type.SqlTimestampWithTimeZone;
+import io.trino.spi.type.TimeType;
 import io.trino.spi.type.Type;
 import io.trino.util.DateTimeUtils;
 import org.slf4j.Logger;
@@ -38,10 +42,8 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
@@ -51,6 +53,7 @@ public class TrinoConnectorColumnValue implements ColumnValue {
     private Block block;
     ColumnType dorisType;
     Type trinoType;
+    ConnectorSession connectorSession;
 
     public TrinoConnectorColumnValue() {
     }
@@ -69,6 +72,10 @@ public class TrinoConnectorColumnValue implements ColumnValue {
 
     public void setBlock(Block block) {
         this.block = block;
+    }
+
+    public void setConnectorSession(ConnectorSession connectorSession) {
+        this.connectorSession = connectorSession;
     }
 
     @Override
@@ -128,12 +135,20 @@ public class TrinoConnectorColumnValue implements ColumnValue {
     // block is VariableWidthBlock
     @Override
     public String getString() {
+        // Trino TimeType -> Doris StringType
+        if (trinoType instanceof TimeType) {
+            return ((SqlTime) (trinoType.getObjectValue(connectorSession, block, position))).toString();
+        }
         return block.getSlice(position, 0, block.getSliceLength(position)).toStringUtf8();
     }
 
     // block is VariableWidthBlock
     @Override
     public byte[] getStringAsBytes() {
+        // Trino TimeType -> Doris StringType
+        if (trinoType instanceof TimeType) {
+            return ((SqlTime) (trinoType.getObjectValue(connectorSession, block, position))).toString().getBytes();
+        }
         return block.getSlice(position, 0, block.getSliceLength(position)).getBytes();
     }
 
@@ -146,8 +161,13 @@ public class TrinoConnectorColumnValue implements ColumnValue {
     // block is LongArrayBlock
     @Override
     public LocalDateTime getDateTime() {
-        long timestamp = DateTimeEncoding.unpackMillisUtc(block.getLong(position, 0));
-        return Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDateTime();
+        Object o = trinoType.getObjectValue(connectorSession, block, position);
+        if (o instanceof SqlTimestampWithTimeZone) {
+            return ((SqlTimestampWithTimeZone) o).toZonedDateTime().toLocalDateTime();
+        } else if (o instanceof SqlTimestamp){
+            return ((SqlTimestamp) o).toLocalDateTime();
+        }
+        return null;
     }
 
     @Override

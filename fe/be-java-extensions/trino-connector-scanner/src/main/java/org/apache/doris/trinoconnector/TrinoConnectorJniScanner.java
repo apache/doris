@@ -199,6 +199,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
                     columnValue.setBlock(block);
                     columnValue.setColumnType(types[i]);
                     columnValue.setTrinoType(trinoTypeList.get(i));
+                    columnValue.setConnectorSession(session.toConnectorSession(catalogHandle));
                     for (int j = 0; j < page.getPositionCount(); ++j) {
                         columnValue.setPosition(j);
                         appendData(i, columnValue);
