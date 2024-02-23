@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -83,12 +84,17 @@ public class ListPartitionItem extends PartitionItem {
     }
 
     @Override
-    public PartitionKeyDesc toPartitionKeyDesc(int pos) {
+    public PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException {
         List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
                 .collect(Collectors.toList());
         Set<List<PartitionValue>> res = Sets.newHashSet();
-        for (List<PartitionValue> list : inValues) {
-            res.add(Lists.newArrayList(list.get(pos)));
+        for (List<PartitionValue> values : inValues) {
+            if (values.size() <= pos) {
+                throw new AnalysisException(
+                        String.format("toPartitionKeyDesc IndexOutOfBounds, values: %s, pos: %d", values.toString(),
+                                pos));
+            }
+            res.add(Lists.newArrayList(values.get(pos)));
         }
         return PartitionKeyDesc.createIn(Lists.newArrayList(res));
     }

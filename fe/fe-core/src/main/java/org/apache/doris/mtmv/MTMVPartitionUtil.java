@@ -72,7 +72,8 @@ public class MTMVPartitionUtil {
             // if follow base table, not need compare with related table, only should compare with related partition
             excludedTriggerTables.add(relatedTable.getName());
             if (CollectionUtils.isEmpty(relatedPartitionIds)) {
-                LOG.warn("can not found related partition: " + partitionId);
+                LOG.warn("can not found related partition, partitionId: {}, mtmvName: {}, relatedTableName: {}",
+                        partitionId, mtmv.getName(), relatedTable.getName());
                 return false;
             }
             isSyncWithPartition = isSyncWithPartitions(mtmv, partitionId, relatedTable, relatedPartitionIds);
@@ -143,7 +144,7 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    private static int getPos(MTMVRelatedTableIf relatedTable, String relatedCol) throws AnalysisException {
+    public static int getPos(MTMVRelatedTableIf relatedTable, String relatedCol) throws AnalysisException {
         List<Column> partitionColumns = relatedTable.getPartitionColumns();
         for (int i = 0; i < partitionColumns.size(); i++) {
             if (partitionColumns.get(i).getName().equalsIgnoreCase(relatedCol)) {
