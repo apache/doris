@@ -30,10 +30,10 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
