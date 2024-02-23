@@ -128,8 +128,7 @@ suite("test_unique_model_schema_key_change","p0") {
 
 
 
-
-     //Test the unique model by adding a key column with FLOAT
+     //TODO Test the unique model by adding a key column with FLOAT
      //java.sql.SQLException: errCode = 2, detailMessage = Float or double can not used as a key, use decimal instead.
 /*     sql initTable
      sql initTableData
@@ -142,8 +141,7 @@ suite("test_unique_model_schema_key_change","p0") {
 
 
 
-
-     //Test the unique model by adding a key column with DOUBLE
+     //TODO Test the unique model by adding a key column with DOUBLE
      //java.sql.SQLException: errCode = 2, detailMessage = Float or double can not used as a key, use decimal instead.
 /*     sql initTable
      sql initTableData
@@ -198,7 +196,7 @@ suite("test_unique_model_schema_key_change","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} add  column teacher CHAR KEY DEFAULT "F" AFTER username """
-     insertSql = " insert into ${tbName} values(123456689, 'Alice', \"T\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+     insertSql = " insert into ${tbName} values(123456689, 'Alice', 'T', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -206,7 +204,7 @@ suite("test_unique_model_schema_key_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with STRING
+     //TODO Test the unique model by adding a key column with STRING
      //java.sql.SQLException: errCode = 2, detailMessage = String Type should not be used in key column[comment].
 /*     sql initTable
      sql initTableData
@@ -218,7 +216,7 @@ suite("test_unique_model_schema_key_change","p0") {
      }, insertSql, true,"${tbName}")*/
 
 
-     //Test the unique model by adding a key column with bitmap
+     //TODO Test the unique model by adding a key column with bitmap
      //java.sql.SQLException: errCode = 2, detailMessage = Key column can not set complex type:device_id
 /*     sql initTable
      sql initTableData
@@ -231,7 +229,7 @@ suite("test_unique_model_schema_key_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with Map
+     //TODO Test the unique model by adding a key column with Map
      //java.sql.SQLException: errCode = 2, detailMessage = Map can only be used in the non-key column of the duplicate table at present.
 /*     sql initTable
      sql initTableData
@@ -244,7 +242,7 @@ suite("test_unique_model_schema_key_change","p0") {
 
 
 
-     //Test the unique model by adding a key column with JSON
+     //TODO Test the unique model by adding a key column with JSON
      //java.sql.SQLException: errCode = 2, detailMessage = JSONB type should not be used in key column[j].
 /*     sql initTable
      sql initTableData
