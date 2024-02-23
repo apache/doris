@@ -199,7 +199,7 @@ public:
         index_writer = std::make_unique<lucene::index::IndexWriter>(
                 _dir, _analyzer.get(), create_index, close_dir_on_shutdown);
         index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
-        _index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
+        index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
         index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         index_writer->setMergeFactor(MERGE_FACTOR);
         index_writer->setUseCompoundFile(false);
@@ -317,12 +317,12 @@ public:
 
     void new_char_token_stream(const char* s, size_t len, lucene::document::Field* field) {
         _char_string_reader->init(s, len, false);
-        auto stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader.get());
+        auto* stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader.get());
         field->setValue(stream);
     }
 
     void new_field_value(const char* s, size_t len, lucene::document::Field* field) {
-        auto field_value = lucene::util::Misc::_charToWide(s, len);
+        auto* field_value = lucene::util::Misc::_charToWide(s, len);
         field->setValue(field_value, false);
         // setValue did not duplicate value, so we don't have to delete
         //_CLDELETE_ARRAY(field_value)
@@ -512,7 +512,7 @@ public:
             faststring buf;
             buf.resize(size);
             _null_bitmap.write(reinterpret_cast<char*>(buf.data()), false);
-            null_bitmap_out->writeBytes(reinterpret_cast<uint8_t*>(buf.data()), size);
+            null_bitmap_out->writeBytes(buf.data(), size);
             null_bitmap_out->close();
         }
     }

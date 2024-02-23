@@ -103,9 +103,6 @@ Segment::~Segment() {
 }
 
 Status Segment::_open() {
-    if (_tablet_schema->has_inverted_index()) {
-        RETURN_IF_ERROR(_open_inverted_index());
-    }
     SegmentFooterPB footer;
     RETURN_IF_ERROR(_parse_footer(&footer));
     RETURN_IF_ERROR(_create_column_readers(footer));
@@ -649,7 +646,8 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
         if (_inverted_index_file_reader == nullptr) {
-            RETURN_IF_ERROR(_open_inverted_index());
+            RETURN_IF_ERROR(
+                    _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
         }
         RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,
                                                             read_options, iter));

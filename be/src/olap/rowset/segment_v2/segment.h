@@ -249,6 +249,7 @@ private:
     std::mutex _open_lock;
     // inverted index file reader
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
+    DorisCallOnce<Status> _inverted_index_file_reader_open;
 };
 
 } // namespace segment_v2
