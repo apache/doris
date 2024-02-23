@@ -163,15 +163,6 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 - columns
 
   待导入数据的函数变换配置，目前 Stream load 支持的函数变换方法包含列的顺序变化以及表达式变换，其中表达式变换的方法与查询语句的一致。
-
-- format
-
-  指定导入数据格式，支持 `csv`、 `json` 和 `arrow` ，默认是 `csv`。
-
-  <version since="1.2"> 支持 `csv_with_names` (csv文件行首过滤)、`csv_with_names_and_types`(csv文件前两行过滤)、`parquet`、`orc`。</version>
-
-  <version since="2.1.0"> 支持 `arrow`格式。</version>
-
   ```text
   列顺序变换例子：原始数据有三列(src_c1,src_c2,src_c3), 目前doris表也有三列（dst_c1,dst_c2,dst_c3）
 
@@ -185,6 +176,14 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
   columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = month(tmp_c2)
   其中 tmp_*是一个占位符，代表的是原始文件中的两个原始列。
   ```
+
+- format
+
+  指定导入数据格式，支持 `csv`、 `json` 和 `arrow` ，默认是 `csv`。
+
+  <version since="1.2"> 支持 `csv_with_names` (csv文件行首过滤)、`csv_with_names_and_types`(csv文件前两行过滤)、`parquet`、`orc`。</version>
+
+  <version since="2.1.0"> 支持 `arrow`格式。</version>
 
 - exec_mem_limit
 
