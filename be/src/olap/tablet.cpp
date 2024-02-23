@@ -2267,7 +2267,7 @@ Status Tablet::write_cooldown_meta() {
     std::string remote_meta_path =
             remote_tablet_meta_path(tablet_id(), _cooldown_replica_id, _cooldown_term);
     io::FileWriterPtr tablet_meta_writer;
-    FileWriterOptions opts {.create_empty_file = false};
+    io::FileWriterOptions opts {.create_empty_file = false};
     // FIXME(plat1ko): What if object store permanently unavailable?
     RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer, &opts));
     auto val = tablet_meta_pb.SerializeAsString();

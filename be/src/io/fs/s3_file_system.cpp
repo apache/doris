@@ -131,7 +131,7 @@ Status S3FileSystem::connect_impl() {
 Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                       const FileWriterOptions* opts) {
     GET_KEY(key, file);
-    *writer = std::make_unique<S3FileWriter>(key, get_client(), _s3_conf, getSPtr());
+    *writer = std::make_unique<S3FileWriter>(key, get_client(), _s3_conf, getSPtr(), opts);
     return Status::OK();
 }
 

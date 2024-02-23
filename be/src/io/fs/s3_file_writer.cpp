@@ -78,7 +78,7 @@ bvar::Adder<uint64_t> s3_file_created_total("s3_file_writer", "file_created");
 bvar::Adder<uint64_t> s3_file_being_written("s3_file_writer", "file_being_written");
 
 S3FileWriter::S3FileWriter(Path path, std::shared_ptr<S3Client> client, const S3Conf& s3_conf,
-                           FileSystemSPtr fs)
+                           FileSystemSPtr fs, const FileWriterOptions* opts)
         : FileWriter(Path(s3_conf.endpoint) / s3_conf.bucket / path, std::move(fs)),
           _bucket(s3_conf.bucket),
           _key(std::move(path)),
