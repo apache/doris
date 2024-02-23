@@ -321,7 +321,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 rowCount = StatisticsUtil.getHiveRowCount(this);
                 break;
             case ICEBERG:
-                rowCount = StatisticsUtil.getIcebergRowCount(this);
+                rowCount = IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
                 break;
             default:
                 if (LOG.isDebugEnabled()) {
