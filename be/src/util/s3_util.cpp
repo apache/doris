@@ -176,8 +176,8 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
     if (s3_conf.connect_timeout_ms > 0) {
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
-    aws_config.retryStrategy = std::make_shared<Aws::Client::DefaultRetryStrategy>(
-            /*maxRetries = 10, scaleFactor = 25*/);
+    aws_config.retryStrategy =
+            std::make_shared<Aws::Client::DefaultRetryStrategy>(config::max_s3_client_retry_times);
     std::shared_ptr<Aws::S3::S3Client> new_client;
     if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
         Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);

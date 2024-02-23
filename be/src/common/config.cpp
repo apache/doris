@@ -1176,6 +1176,8 @@ DEFINE_Int32(partition_disk_index_lru_size, "10000");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
+DEFINE_mInt32(max_s3_client_retry_times, "10");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
