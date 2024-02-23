@@ -1,6 +1,6 @@
 ---
 {
-    "title": "MURMUR_HASH3_32",
+    "title": "XXHASH_32",
     "language": "en"
 }
 ---
@@ -22,42 +22,42 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## murmur_hash3_32
+## xxhash_32
 
 ### description
 #### Syntax
 
-`INT MURMUR_HASH3_32(VARCHAR input, ...)`
+`INT XXHASH_32(VARCHAR input, ...)`
 
-Return the 32 bits murmur3 hash of input string.
+Return the 32 bits xxhash of input string.
 
 Note: When calculating hash values, it is more recommended to use `xxhash_32` instead of `murmur_hash3_32`.
 
 ### example
 
 ```
-mysql> select murmur_hash3_32(null);
-+-----------------------+
-| murmur_hash3_32(NULL) |
-+-----------------------+
-|                  NULL |
-+-----------------------+
+mysql> select xxhash_32(NULL);
++-----------------+
+| xxhash_32(NULL) |
++-----------------+
+|            NULL |
++-----------------+
 
-mysql> select murmur_hash3_32("hello");
-+--------------------------+
-| murmur_hash3_32('hello') |
-+--------------------------+
-|               1321743225 |
-+--------------------------+
+mysql> select xxhash_32("hello");
++--------------------+
+| xxhash_32('hello') |
++--------------------+
+|          -83855367 |
++--------------------+
 
-mysql> select murmur_hash3_32("hello", "world");
-+-----------------------------------+
-| murmur_hash3_32('hello', 'world') |
-+-----------------------------------+
-|                         984713481 |
-+-----------------------------------+
+mysql> select xxhash_32("hello", "world");
++-----------------------------+
+| xxhash_32('hello', 'world') |
++-----------------------------+
+|                  -920844969 |
++-----------------------------+
 ```
 
 ### keywords
 
-    MURMUR_HASH3_32,HASH
+XXHASH_32,HASH
