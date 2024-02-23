@@ -185,7 +185,7 @@ private:
             auto step_row = step[row];
             auto args_null_map_row = args_null_map[row];
             if constexpr (std::is_same_v<SourceDataType, Int32>) {
-                if (args_null_map_row || idx < 0 || end_row < 0 || step_row < 0) {
+                if (args_null_map_row || idx < 0 || end_row < 0 || step_row <= 0) {
                     args_null_map[row] = 1;
                     dest_offsets.push_back(dest_offsets.back());
                     continue;
@@ -205,7 +205,7 @@ private:
                         reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(end_row);
                 bool is_null = !idx_0.is_valid_date();
                 bool is_end_row_invalid = !end_row_cast.is_valid_date();
-                if (args_null_map_row || step_row < 0 || is_null || is_end_row_invalid) {
+                if (args_null_map_row || step_row <= 0 || is_null || is_end_row_invalid) {
                     args_null_map[row] = 1;
                     dest_offsets.push_back(dest_offsets.back());
                     continue;

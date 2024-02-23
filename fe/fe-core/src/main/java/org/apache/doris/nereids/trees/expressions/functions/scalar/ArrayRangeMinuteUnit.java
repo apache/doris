@@ -39,8 +39,6 @@ public class ArrayRangeMinuteUnit extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
-                .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
                 .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE)
     );
 

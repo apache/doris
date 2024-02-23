@@ -1773,6 +1773,13 @@ public class FunctionCallExpr extends Expr {
                         + "year|quarter|month|week|day|hour|minute|second");
             }
         }
+        if (fnName.getFunction().equalsIgnoreCase("array_range")
+                || fnName.getFunction().equalsIgnoreCase("sequence")) {
+            if (getChild(0) instanceof DateLiteral && !(getChild(2) instanceof StringLiteral)) {
+                throw new AnalysisException("To generate datetime array, please use interval literal like: "
+                        + "interval 1 day.");
+            }
+        }
         if (fnName.getFunction().equalsIgnoreCase("char")) {
             if (!getChild(0).isConstant()) {
                 throw new AnalysisException(

@@ -55,13 +55,11 @@ UNIT 支持年/月/周/日/小时/分钟/秒。
 
 ### notice
 
-`仅支持向量化引擎中使用`
+`如果第三个参数 step/interval_step 为负数或者零, 函数结果将为NULL`
 
 ### example
 
 ```
-mysql> set enable_vectorized_engine=true;
-
 mysql> select array_range(10);
 +--------------------------------+
 | array_range(10)                |

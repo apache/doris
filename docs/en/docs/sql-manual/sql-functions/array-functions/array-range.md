@@ -55,16 +55,13 @@ If the third part is missing, `INTERVAL 1 DAY` will be default value.
 UNIT supports YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND.
 Return the array of datetimev2 between start_datetime and closest to end_datetime by interval_step UNIT.
 
-
 ### notice
 
-`Only supported in vectorized engine`
+`if the 3rd parameter step/interval_step is negative or zero, the function will return NULL`
 
 ### example
 
 ```
-mysql> set enable_vectorized_engine=true;
-
 mysql> select array_range(10);
 +--------------------------------+
 | array_range(10)                |
