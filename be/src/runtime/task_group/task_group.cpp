@@ -33,6 +33,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
