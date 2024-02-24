@@ -110,12 +110,12 @@ EvHttpServer::~EvHttpServer() {
     }
 }
 
-Status EvHttpServer::start() {
+void EvHttpServer::start() {
     _started = true;
     // bind to
     auto s = _bind();
     CHECK(s.ok()) << s.to_string();
-    RETURN_IF_ERROR(ThreadPoolBuilder("EvHttpServer")
+    static_cast<void>(ThreadPoolBuilder("EvHttpServer")
                             .set_min_threads(_num_workers)
                             .set_max_threads(_num_workers)
                             .build(&_workers));
@@ -142,7 +142,6 @@ Status EvHttpServer::start() {
         });
         CHECK(status.ok());
     }
-    return Status::OK();
 }
 
 void EvHttpServer::stop() {

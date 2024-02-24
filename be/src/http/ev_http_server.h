@@ -45,7 +45,7 @@ public:
 
     void register_static_file_handler(HttpHandler* handler);
 
-    Status start();
+    void start();
     void stop();
     void join();
 
