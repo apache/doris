@@ -47,8 +47,8 @@ run() {
     shopt -s inherit_errexit
 
     cd "${teamcity_build_checkoutDir}" || return 1
-    echo "ak=${cos_ak}" >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
-    echo "sk=${cos_sk}" >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
+    echo "ak='${cos_ak}'" >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
+    echo "sk='${cos_sk}'" >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy \
         "${teamcity_build_checkoutDir}"/regression-test/conf/
     if "${teamcity_build_checkoutDir}"/run-regression-test.sh \
