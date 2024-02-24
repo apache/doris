@@ -146,8 +146,7 @@ public:
         RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &fs));
 
         auto start = std::chrono::high_resolution_clock::now();
-        bool res = false;
-        RETURN_IF_ERROR(fs->exists(file_path, &res));
+        RETURN_IF_ERROR(fs->exists(file_path));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
