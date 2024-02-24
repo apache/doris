@@ -73,7 +73,11 @@ using namespace ErrorCode;
 namespace {
 
 Status read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id) {
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path));
+    auto st = io::global_local_filesystem()->exists(cluster_id_path);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(st);
     *cluster_id = -1;
     io::FileReaderSPtr reader;
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cluster_id_path, &reader));
@@ -96,6 +100,7 @@ Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
         RETURN_IF_ERROR(io::global_local_filesystem()->create_file(path, &file_writer));
         RETURN_IF_ERROR(file_writer->append(std::to_string(cluster_id)));
         RETURN_IF_ERROR(file_writer->close());
+        return Status::OK();
     }
     return st;
 }
