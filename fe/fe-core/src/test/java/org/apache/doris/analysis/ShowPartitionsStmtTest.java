@@ -20,14 +20,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -100,7 +100,7 @@ public class ShowPartitionsStmtTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, slotRef, stringLiteral);
         ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName(internalCtl, "testDb", "testTable"), binaryPredicate, null, null, false);
         stmt.analyzeImpl(analyzer);
-        Assert.assertEquals("SHOW PARTITIONS FROM `testDb`.`testTable` WHERE `LastConsistencyCheckTime` > '2019-12-22 10:22:11'", stmt.toString());
+        Assert.assertEquals("SHOW PARTITIONS FROM `testDb`.`testTable` WHERE (`LastConsistencyCheckTime` > '2019-12-22 10:22:11')", stmt.toString());
     }
 
     @Test
@@ -259,7 +259,7 @@ public class ShowPartitionsStmtTest {
             ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("hms", "hms", "testTable"),
                     binaryPredicate, null, null, false);
             Assertions.assertEquals(stmt.toSql(), "SHOW PARTITIONS FROM `hms`.`testTable` "
-                    + "WHERE `PartitionName` = 'part=part1'");
+                    + "WHERE (`PartitionName` = 'part=part1')");
         }
     }
 }

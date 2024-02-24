@@ -78,7 +78,7 @@ public class ShowAlterStmtTest {
         ShowAlterStmt stmt = new ShowAlterStmt(ShowAlterStmt.AlterType.COLUMN, null, binaryPredicate, null,
                 new LimitElement(1, 2));
         stmt.analyzeSyntax(analyzer);
-        Assert.assertEquals("SHOW ALTER TABLE COLUMN FROM `testDb` WHERE `TableName` = \'abc\' LIMIT 1, 2",
+        Assert.assertEquals("SHOW ALTER TABLE COLUMN FROM `testDb` WHERE (`TableName` = \'abc\') LIMIT 1, 2",
                 stmt.toString());
     }
 
@@ -89,7 +89,7 @@ public class ShowAlterStmtTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, slotRef, stringLiteral);
         ShowAlterStmt stmt = new ShowAlterStmt(ShowAlterStmt.AlterType.COLUMN, null, binaryPredicate, null, null);
         stmt.analyzeSyntax(analyzer);
-        Assert.assertEquals("SHOW ALTER TABLE COLUMN FROM `testDb` WHERE `CreateTime` = \'2019-12-04 00:00:00\'",
+        Assert.assertEquals("SHOW ALTER TABLE COLUMN FROM `testDb` WHERE (`CreateTime` = \'2019-12-04 00:00:00\')",
                 stmt.toString());
     }
 }

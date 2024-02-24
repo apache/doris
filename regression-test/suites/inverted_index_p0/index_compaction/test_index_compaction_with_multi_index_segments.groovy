@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_compaction_with_multi_index_segments", "p0") {
+suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
     def tableName = "test_index_compaction_with_multi_index_segments"
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -32,10 +32,10 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
         }
     }
 
-    def trigger_full_compaction_on_tablets = { String[][] tablets ->
-        for (String[] tablet : tablets) {
-            String tablet_id = tablet[0]
-            String backend_id = tablet[2]
+    def trigger_full_compaction_on_tablets = { tablets ->
+        for (def tablet : tablets) {
+            String tablet_id = tablet.TabletId
+            String backend_id = tablet.BackendId
             int times = 1
 
             String compactionStatus;
@@ -58,13 +58,13 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
         }
     }
 
-    def wait_full_compaction_done = { String[][] tablets ->
-        for (String[] tablet in tablets) {
+    def wait_full_compaction_done = { tablets ->
+        for (def tablet in tablets) {
             boolean running = true
             do {
                 Thread.sleep(1000)
-                String tablet_id = tablet[0]
-                String backend_id = tablet[2]
+                String tablet_id = tablet.TabletId
+                String backend_id = tablet.BackendId
                 def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
@@ -75,11 +75,10 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
         }
     }
 
-    def get_rowset_count = {String[][] tablets ->
+    def get_rowset_count = { tablets ->
         int rowsetCount = 0
-        for (String[] tablet in tablets) {
-            def compactionStatusUrlIndex = 18
-            def (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
+        for (def tablet in tablets) {
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -193,8 +192,8 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
         qt_sql """ select * from ${tableName} where comment_id < 8 order by file_time, comment_id, body """
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
-        String[][] tablets = sql """ show tablets from ${tableName}; """
-        String[][] dedup_tablets = deduplicate_tablets(tablets)
+        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+        def dedup_tablets = deduplicate_tablets(tablets)
 
         // In the p0 testing environment, there are no expected operations such as scaling down BE (backend) services
         // if tablets or dedup_tablets is empty, exception is thrown, and case fail
@@ -235,7 +234,7 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
                                                 ("2018-02-21 12:00:00", 9, "I\'m using the builds"),
                                                 ("2018-02-21 12:00:00", 10, "I\'m using the builds"); """
 
-        tablets = sql """ show tablets from ${tableName}; """
+        tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // before full compaction, there are 2 rowsets.
         rowsetCount = get_rowset_count.call(tablets)
@@ -313,7 +312,7 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
         qt_sql """ select * from ${tableName} where comment_id < 8 order by file_time, comment_id, body """
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
-        tablets = sql """ show tablets from ${tableName}; """
+        tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // before full compaction, there are 3 rowsets.
         rowsetCount = get_rowset_count.call(tablets)
@@ -346,7 +345,7 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
                                                 ("2018-02-21 20:00:00", 9, "I\'m using the builds"),
                                                 ("2018-02-21 21:00:00", 10, "I\'m using the builds"); """
 
-        tablets = sql """ show tablets from ${tableName}; """
+        tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // before full compaction, there are 2 rowsets.
         rowsetCount = get_rowset_count.call(tablets)

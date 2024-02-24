@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.profile;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TUnit;
@@ -224,10 +225,13 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
                 RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(WAIT_FETCH_RESULT_TIME, getPrettyQueryFetchResultFinishTime());
-        executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_TIME, getPrettyGetPartitionVersionTime());
-        executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_COUNT, getPrettyGetPartitionVersionCount());
-        executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT,
-                getPrettyGetPartitionVersionByHasDataCount());
+
+        if (Config.isCloudMode()) {
+            executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_TIME, getPrettyGetPartitionVersionTime());
+            executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_COUNT, getPrettyGetPartitionVersionCount());
+            executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT,
+                    getPrettyGetPartitionVersionByHasDataCount());
+        }
     }
 
     public void setNereidsAnalysisTime() {

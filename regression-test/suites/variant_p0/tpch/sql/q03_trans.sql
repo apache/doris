@@ -1,6 +1,6 @@
 -- TABLES: customer,orders,lineitem
 -- ERROR: not stable
-SELECT
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
   CAST(L.var["L_ORDERKEY"] AS INT),
   SUM(CAST(L.var["L_EXTENDEDPRICE"] AS DOUBLE) * (1 - CAST(L.var["L_DISCOUNT"] AS DOUBLE))) AS REVENUE,
   CAST(O.var["O_ORDERDATE"] AS TEXT),

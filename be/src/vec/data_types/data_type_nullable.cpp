@@ -24,19 +24,20 @@
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
 #include <streamvbyte.h>
-#include <string.h>
 
+#include <algorithm>
+#include <cstring>
 #include <utility>
-#include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/io/reader_buffer.h"
 
@@ -99,7 +100,7 @@ Status DataTypeNullable::from_string(ReadBuffer& rb, IColumn* column) const {
 //  <values array>: value1 | value2 | ...>
 int64_t DataTypeNullable::get_uncompressed_serialized_bytes(const IColumn& column,
                                                             int be_exec_version) const {
-    if (be_exec_version >= 4) {
+    if (be_exec_version >= USE_NEW_SERDE) {
         size_t ret = 0;
         if (size_t size = sizeof(bool) * column.size(); size <= SERIALIZED_MEM_SIZE_LIMIT) {
             ret += size + sizeof(uint32_t);
@@ -124,9 +125,9 @@ int64_t DataTypeNullable::get_uncompressed_serialized_bytes(const IColumn& colum
 }
 
 char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    if (be_exec_version >= 4) {
+    if (be_exec_version >= USE_NEW_SERDE) {
         auto ptr = column.convert_to_full_column_if_const();
-        const ColumnNullable& col = assert_cast<const ColumnNullable&>(*ptr.get());
+        const auto& col = assert_cast<const ColumnNullable&>(*ptr.get());
 
         // row num
         auto mem_size = col.size() * sizeof(bool);
@@ -147,7 +148,7 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_
         return nested_data_type->serialize(col.get_nested_column(), buf, be_exec_version);
     } else {
         auto ptr = column.convert_to_full_column_if_const();
-        const ColumnNullable& col = assert_cast<const ColumnNullable&>(*ptr.get());
+        const auto& col = assert_cast<const ColumnNullable&>(*ptr.get());
 
         // row num
         *reinterpret_cast<uint32_t*>(buf) = column.size();
@@ -162,8 +163,8 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_
 
 const char* DataTypeNullable::deserialize(const char* buf, IColumn* column,
                                           int be_exec_version) const {
-    if (be_exec_version >= 4) {
-        ColumnNullable* col = assert_cast<ColumnNullable*>(column);
+    if (be_exec_version >= USE_NEW_SERDE) {
+        auto* col = assert_cast<ColumnNullable*>(column);
         // row num
         uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
         buf += sizeof(uint32_t);
@@ -183,7 +184,7 @@ const char* DataTypeNullable::deserialize(const char* buf, IColumn* column,
         IColumn& nested = col->get_nested_column();
         return nested_data_type->deserialize(buf, &nested, be_exec_version);
     } else {
-        ColumnNullable* col = assert_cast<ColumnNullable*>(column);
+        auto* col = assert_cast<ColumnNullable*>(column);
         // row num
         uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
         buf += sizeof(uint32_t);
@@ -229,7 +230,7 @@ DataTypePtr make_nullable(const DataTypePtr& type) {
 
 DataTypes make_nullable(const DataTypes& types) {
     DataTypes nullable_types;
-    for (auto& type : types) {
+    for (const auto& type : types) {
         nullable_types.push_back(make_nullable(type));
     }
     return nullable_types;
@@ -244,19 +245,15 @@ DataTypePtr remove_nullable(const DataTypePtr& type) {
 
 DataTypes remove_nullable(const DataTypes& types) {
     DataTypes no_null_types;
-    for (auto& type : types) {
+    for (const auto& type : types) {
         no_null_types.push_back(remove_nullable(type));
     }
     return no_null_types;
 }
 
 bool have_nullable(const DataTypes& types) {
-    for (auto& type : types) {
-        if (type->is_nullable()) {
-            return true;
-        }
-    }
-    return false;
+    return std::any_of(types.begin(), types.end(),
+                       [](const DataTypePtr& type) { return type->is_nullable(); });
 }
 
 } // namespace doris::vectorized

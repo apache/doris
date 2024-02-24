@@ -59,7 +59,7 @@ import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -95,8 +95,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     // jobId(listenerId). use in beginTransaction to callback function
     private final long id;
-    // transaction id.
-    private long signature;
+    private long transactionId;
     private final String label;
     private final Set<Long> totalTablets;
     private final Set<Long> quorumTablets;
@@ -120,7 +119,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     public DeleteJob(long id, long transactionId, String label,
                      Map<Long, Short> partitionReplicaNum, DeleteInfo deleteInfo) {
         this.id = id;
-        this.signature = transactionId;
+        this.transactionId = transactionId;
         this.label = label;
         this.deleteInfo = deleteInfo;
         totalTablets = Sets.newHashSet();
@@ -178,7 +177,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
         LOG.info("check delete job quorum, transaction id: {}, total tablets: {},"
                         + " quorum tablets: {}, dropped tablets: {}",
-                signature, totalTablets.size(), quorumTablets.size(), dropCounter);
+                transactionId, totalTablets.size(), quorumTablets.size(), dropCounter);
 
         if (finishedTablets.containsAll(totalTablets)) {
             this.state = DeleteState.FINISHED;
@@ -240,7 +239,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     }
 
     public long getTransactionId() {
-        return this.signature;
+        return this.transactionId;
     }
 
     public Collection<TabletDeleteInfo> getTabletDeleteInfo() {
@@ -284,7 +283,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 new TransactionState.TxnCoordinator(
                         TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                 TransactionState.LoadJobSourceType.FRONTEND, id, Config.stream_load_default_timeout_second);
-        this.signature = txnId;
+        this.transactionId = txnId;
         Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(this);
         return txnId;
     }
@@ -316,6 +315,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                         countDownLatch.addMark(backendId, tabletId);
 
                         // create push task for each replica
+                        // To ensure that upgrading to new signature generating algo does not conflict with the old
+                        // signature, adding 10 billion to `getNextId`. We are confident that the old signature
+                        // generated will not exceed this number.
                         PushTask pushTask = new PushTask(null,
                                 replica.getBackendId(), targetDb.getId(), targetTbl.getId(),
                                 partition.getId(), indexId,
@@ -324,9 +326,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                 -1, type, deleteConditions,
                                 true, TPriority.NORMAL,
                                 TTaskType.REALTIME_PUSH,
-                                signature,
-                                Env.getCurrentGlobalTransactionMgr()
-                                        .getTransactionIDGenerator().getNextTransactionId(),
+                                transactionId,
+                                Env.getCurrentEnv().getNextId() + 10000000000L,
                                 columnsDesc);
                         pushTask.setIsSchemaChanging(false);
                         pushTask.setCountDownLatch(countDownLatch);
@@ -368,7 +369,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         switch (state) {
             case UN_QUORUM:
                 LOG.warn("delete job timeout: transactionId {}, timeout {}, {}",
-                        signature, timeoutMs, errMsg);
+                        transactionId, timeoutMs, errMsg);
                 throw new UserException(String.format("delete job timeout, timeout(ms):%s, msg:%s", timeoutMs, errMsg));
             case QUORUM_FINISHED:
             case FINISHED:
@@ -380,8 +381,10 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     checkAndUpdateQuorum();
                     Thread.sleep(1000);
                     nowQuorumTimeMs = System.currentTimeMillis();
-                    LOG.debug("wait for quorum finished delete job: {}, txn id: {}",
-                            id, signature);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("wait for quorum finished delete job: {}, txn id: {}",
+                                id, transactionId);
+                    }
                 }
                 break;
             default:
@@ -403,11 +406,11 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 }));
         boolean visible = Env.getCurrentGlobalTransactionMgr()
                 .commitAndPublishTransaction(targetDb, Lists.newArrayList(targetTbl),
-                        signature, tabletCommitInfos, getTimeoutMs());
+                        transactionId, tabletCommitInfos, getTimeoutMs());
 
         StringBuilder sb = new StringBuilder();
         sb.append("{'label':'").append(label);
-        sb.append("', 'txnId':'").append(signature)
+        sb.append("', 'txnId':'").append(transactionId)
                 .append("', 'status':'");
         if (visible) {
             sb.append(TransactionStatus.VISIBLE.name()).append("'");
@@ -424,19 +427,19 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     @Override
     public void cancel(String reason) {
-        GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgrIface globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         try {
-            globalTransactionMgr.abortTransaction(deleteInfo.getDbId(), signature, reason);
+            globalTransactionMgr.abortTransaction(deleteInfo.getDbId(), transactionId, reason);
         } catch (Exception e) {
             TransactionState state = globalTransactionMgr.getTransactionState(
-                    deleteInfo.getDbId(), signature);
+                    deleteInfo.getDbId(), transactionId);
             if (state == null) {
                 LOG.warn("cancel delete job failed because txn not found, transactionId: {}",
-                        signature);
+                        transactionId);
             } else if (state.getTransactionStatus() == TransactionStatus.COMMITTED
                     || state.getTransactionStatus() == TransactionStatus.VISIBLE) {
                 LOG.warn("cancel delete job failed because it has been committed, transactionId: {}",
-                        signature);
+                        transactionId);
             } else {
                 LOG.warn("errors while abort transaction", e);
             }
@@ -490,6 +493,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     public static class Builder {
 
         public DeleteJob buildWith(BuildParams params) throws Exception {
+            boolean noPartitionSpecified = params.getPartitionNames().isEmpty();
             List<Partition> partitions = getSelectedPartitions(params.getTable(),
                     params.getPartitionNames(), params.getDeleteConditions());
             Map<Long, Short> partitionReplicaNum = partitions.stream()
@@ -504,8 +508,11 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             String label = DELETE_PREFIX + UUID.randomUUID();
             //generate jobId
             long jobId = Env.getCurrentEnv().getNextId();
+            List<String> partitionNames = partitions.stream().map(Partition::getName).collect(Collectors.toList());
+            List<Long> partitionIds = partitions.stream().map(Partition::getId).collect(Collectors.toList());
             DeleteInfo deleteInfo = new DeleteInfo(params.getDb().getId(), params.getTable().getId(),
-                    params.getTable().getName(), getDeleteCondString(params.getDeleteConditions()));
+                    params.getTable().getName(), getDeleteCondString(params.getDeleteConditions()),
+                    noPartitionSpecified, partitionIds, partitionNames);
             DeleteJob deleteJob = new DeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo);
             long replicaNum = partitions.stream().mapToLong(Partition::getAllReplicaCount).sum();
             deleteJob.setPartitions(partitions);

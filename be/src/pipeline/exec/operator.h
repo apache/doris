@@ -19,20 +19,16 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
-#include <ostream>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -105,7 +101,7 @@ using OperatorBuilders = std::vector<OperatorBuilderPtr>;
 
 class OperatorBuilderBase {
 public:
-    OperatorBuilderBase(int32_t id, const std::string& name) : _id(id), _name(name) {}
+    OperatorBuilderBase(int32_t id, std::string name) : _id(id), _name(std::move(name)) {}
 
     virtual ~OperatorBuilderBase() = default;
 
@@ -116,7 +112,7 @@ public:
 
     std::string get_name() const { return _name; }
 
-    virtual const RowDescriptor& row_desc() = 0;
+    virtual const RowDescriptor& row_desc() const = 0;
 
     int32_t id() const { return _id; }
 
@@ -137,7 +133,7 @@ public:
 
     ~OperatorBuilder() override = default;
 
-    const RowDescriptor& row_desc() override { return _node->row_desc(); }
+    const RowDescriptor& row_desc() const override { return _node->row_desc(); }
 
     NodeType* exec_node() const { return _node; }
 
@@ -155,7 +151,7 @@ public:
 
     bool is_sink() const override { return true; }
 
-    const RowDescriptor& row_desc() override { return _sink->row_desc(); }
+    const RowDescriptor& row_desc() const override { return _sink->row_desc(); }
 
     SinkType* exec_node() const { return _sink; }
 
@@ -243,13 +239,11 @@ public:
      */
     virtual bool is_pending_finish() const { return false; }
 
-    virtual Status try_close(RuntimeState* state) { return Status::OK(); }
-
     bool is_closed() const { return _is_closed; }
 
     const OperatorBuilderBase* operator_builder() const { return _operator_builder; }
 
-    virtual const RowDescriptor& row_desc();
+    virtual const RowDescriptor& row_desc() const;
 
     virtual std::string debug_string() const;
     virtual int32_t id() const { return _operator_builder->id(); }
@@ -293,11 +287,7 @@ public:
         return Status::OK();
     }
 
-    Status try_close(RuntimeState* state) override {
-        return _sink->try_close(state, state->query_status());
-    }
-
-    [[nodiscard]] bool is_pending_finish() const override { return !_sink->is_close_done(); }
+    [[nodiscard]] bool is_pending_finish() const override { return _sink->is_pending_finish(); }
 
     Status close(RuntimeState* state) override {
         if (is_closed()) {
@@ -333,10 +323,7 @@ public:
         return Status::OK();
     }
 
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(_node->alloc_resource(state));
-        return Status::OK();
-    }
+    Status open(RuntimeState* state) override { return _node->alloc_resource(state); }
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
@@ -413,8 +400,7 @@ class StatefulOperator : public StreamingOperator<StatefulNodeType> {
 public:
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : StreamingOperator<StatefulNodeType>(builder, node),
-              _child_block(vectorized::Block::create_shared()),
-              _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
+              _child_block(vectorized::Block::create_shared()) {}
 
     virtual ~StatefulOperator() = default;
 
@@ -454,7 +440,7 @@ public:
 
 protected:
     std::shared_ptr<vectorized::Block> _child_block;
-    SourceState _child_source_state;
+    SourceState _child_source_state {SourceState::DEPEND_ON_SOURCE};
 };
 
 } // namespace doris::pipeline

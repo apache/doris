@@ -51,13 +51,14 @@ template class SetSourceOperator<false>;
 
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
-    std::shared_ptr<typename SetSourceDependency::SharedState> ss = nullptr;
-    auto& deps = info.upstream_dependencies;
-    ss.reset(new typename SetSourceDependency::SharedState(deps.size()));
-    for (auto& dep : deps) {
-        ((SetSourceDependency*)dep.get())->set_shared_state(ss);
-    }
     RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    auto& deps = info.upstream_dependencies;
+    _shared_state->probe_finished_children_dependency.resize(deps.size(), nullptr);
+    for (auto& dep : deps) {
+        dep->set_shared_state(_dependency->shared_state());
+    }
     return Status::OK();
 }
 
@@ -65,7 +66,7 @@ template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(PipelineXLocalState<SetSourceDependency>::open(state));
+    RETURN_IF_ERROR(PipelineXLocalState<SetSharedState>::open(state));
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
     auto output_data_types = vectorized::VectorizedUtils::get_data_types(

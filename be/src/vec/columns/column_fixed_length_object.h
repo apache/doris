@@ -200,10 +200,6 @@ public:
         LOG(FATAL) << "get_permutation not supported";
     }
 
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
-        LOG(FATAL) << "not support";
-    }
-
     ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not supported";
     }

@@ -59,13 +59,13 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
-    qt_sql_inv_1 "select v:a from var_with_index where inv match 'hello' order by k"
-    qt_sql_inv_2 "select v:a from var_with_index where inv match 'hello' and cast(v:a as int) > 0 order by k"
-    qt_sql_inv_3 "select * from var_with_index where inv match 'hello' and cast(v:a as int) > 0 order by k"
+    qt_sql_inv_1 """select v["a"] from var_with_index where inv match 'hello' order by k"""
+    qt_sql_inv_2 """select v["a"] from var_with_index where inv match 'hello' and cast(v['a'] as int) > 0 order by k"""
+    qt_sql_inv_3 """select * from var_with_index where inv match 'hello' and cast(v["a"] as int) > 0 order by k"""
     sql "truncate table var_with_index"
     // set back configs
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
-    set_be_config.call("variant_threshold_rows_to_estimate_sparse_column", "100")
+    set_be_config.call("variant_threshold_rows_to_estimate_sparse_column", "1000")
     // sql "truncate table ${table_name}"
     sql """insert into var_with_index values(1, '{"a1" : 0, "b1": 3}', 'hello world'), (2, '{"a2" : 123}', 'world'),(3, '{"a3" : 123}', 'hello world')"""
     sql """insert into var_with_index values(4, '{"b1" : 0, "b2": 3}', 'hello world'), (5, '{"b2" : 123}', 'world'),(6, '{"b3" : 123}', 'hello world')"""
@@ -78,7 +78,7 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
     wait_for_latest_op_on_table_finish(table_name, timeout)
     show_result = sql "show index from ${table_name}"
     assertEquals(show_result.size(), 0)
-    qt_sql_inv4 """select v:a1 from ${table_name} where cast(v:a1 as int) = 0"""
+    qt_sql_inv4 """select v["a1"] from ${table_name} where cast(v['a1'] as int) = 0"""
     qt_sql_inv5 """select * from ${table_name} order by k"""
     sql "create index inv_idx on ${table_name}(`inv`) using inverted"
     wait_for_latest_op_on_table_finish(table_name, timeout)
@@ -89,12 +89,9 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
     
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
 
-    // alter bitmap index
-    sql "alter table  var_with_index add index btm_idx (inv) using bitmap ;"
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
     sql "select * from var_with_index order by k limit 4"
     wait_for_latest_op_on_table_finish(table_name, timeout)
-    sql "alter table  var_with_index add index btm_idxk (k) using bitmap ;"
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
     sql "select * from var_with_index order by k limit 4"
     wait_for_latest_op_on_table_finish(table_name, timeout)

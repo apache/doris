@@ -63,29 +63,37 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                            _join_op == TJoinOp::FULL_OUTER_JOIN),
           _build_unique(!_have_other_join_conjunct &&
                         (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                         _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
                          _join_op == TJoinOp::LEFT_ANTI_JOIN ||
                          _join_op == TJoinOp::LEFT_SEMI_JOIN)),
           _is_right_semi_anti(_join_op == TJoinOp::RIGHT_ANTI_JOIN ||
                               _join_op == TJoinOp::RIGHT_SEMI_JOIN),
           _is_left_semi_anti(_join_op == TJoinOp::LEFT_ANTI_JOIN ||
                              _join_op == TJoinOp::LEFT_SEMI_JOIN ||
-                             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN),
+                             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                             _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN),
           _is_outer_join(_match_all_build || _match_all_probe),
           _is_mark_join(tnode.__isset.nested_loop_join_node
-                                ? (tnode.nested_loop_join_node.__isset.is_mark
-                                           ? tnode.nested_loop_join_node.is_mark
-                                           : false)
-                        : tnode.hash_join_node.__isset.is_mark ? tnode.hash_join_node.is_mark
-                                                               : false),
-          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+                                ? tnode.nested_loop_join_node.__isset.is_mark &&
+                                          tnode.nested_loop_join_node.is_mark
+                                : tnode.hash_join_node.__isset.is_mark &&
+                                          tnode.hash_join_node.is_mark),
+          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                                                !_is_mark_join),
+          _runtime_filter_descs(tnode.runtime_filters) {
+    _runtime_filters.resize(_runtime_filter_descs.size());
     _init_join_op();
     if (_is_mark_join) {
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
-               _join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN)
-                << "Mark join is only supported for null aware left semi/anti join and cross join "
+               _join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+               _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
+               _join_op == TJoinOp::RIGHT_SEMI_JOIN)
+                << "Mark join is only supported for null aware left semi/anti join and right semi "
+                   "join "
                    "but this is "
                 << _join_op;
     }
+
     if (tnode.__isset.hash_join_node) {
         _output_row_desc.reset(
                 new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
@@ -144,8 +152,15 @@ void VJoinNodeBase::_construct_mutable_join_block() {
         }
     }
 
-    DCHECK(!_is_mark_join ||
-           _join_block.get_by_position(_join_block.columns() - 1).column->is_nullable());
+    if (_is_mark_join) {
+        _mark_column_id = _join_block.columns() - 1;
+#ifndef NDEBUG
+        const auto& mark_column = assert_cast<const ColumnNullable&>(
+                *_join_block.get_by_position(_mark_column_id).column);
+        auto& nested_column = mark_column.get_nested_column();
+        DCHECK(check_and_get_column<ColumnUInt8>(nested_column) != nullptr);
+#endif
+    }
 }
 
 Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block,
@@ -290,7 +305,8 @@ void VJoinNodeBase::_probe_side_open_thread(RuntimeState* state, std::promise<St
     M(CROSS_JOIN)                    \
     M(RIGHT_SEMI_JOIN)               \
     M(RIGHT_ANTI_JOIN)               \
-    M(NULL_AWARE_LEFT_ANTI_JOIN)
+    M(NULL_AWARE_LEFT_ANTI_JOIN)     \
+    M(NULL_AWARE_LEFT_SEMI_JOIN)
 
 void VJoinNodeBase::_init_join_op() {
     switch (_join_op) {

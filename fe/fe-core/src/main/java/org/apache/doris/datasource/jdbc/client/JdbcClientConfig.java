@@ -18,6 +18,8 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import org.apache.doris.catalog.JdbcResource;
+
 import com.google.common.collect.Maps;
 
 import java.util.Map;
@@ -30,23 +32,47 @@ public class JdbcClientConfig implements Cloneable {
     private String driverUrl;
     private String driverClass;
     private String onlySpecifiedDatabase;
-    private String isLowerCaseTableNames;
-    private int minPoolSize;
-    private int maxPoolSize;
-    private int minIdleSize;
-    private int maxIdleTime;
-    private int maxWaitTime;
-    private boolean keepAlive;
+    private String isLowerCaseMetaNames;
+    private String metaNamesMapping;
+    private int connectionPoolMinSize;
+    private int connectionPoolMaxSize;
+    private int connectionPoolMaxWaitTime;
+    private int connectionPoolMaxLifeTime;
+    private boolean connectionPoolKeepAlive;
 
-    private Map<String, Boolean> includeDatabaseMap = Maps.newHashMap();
-    private Map<String, Boolean> excludeDatabaseMap = Maps.newHashMap();
-    private Map<String, String> customizedProperties = Maps.newHashMap();
+    private Map<String, Boolean> includeDatabaseMap;
+    private Map<String, Boolean> excludeDatabaseMap;
+    private Map<String, String> customizedProperties;
+
+    public JdbcClientConfig() {
+        this.onlySpecifiedDatabase = JdbcResource.getDefaultPropertyValue(JdbcResource.ONLY_SPECIFIED_DATABASE);
+        this.isLowerCaseMetaNames = JdbcResource.getDefaultPropertyValue(JdbcResource.LOWER_CASE_META_NAMES);
+        this.metaNamesMapping = JdbcResource.getDefaultPropertyValue(JdbcResource.META_NAMES_MAPPING);
+        this.connectionPoolMinSize = Integer.parseInt(
+                JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MIN_SIZE));
+        this.connectionPoolMaxSize = Integer.parseInt(
+                JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MAX_SIZE));
+        this.connectionPoolMaxWaitTime = Integer.parseInt(
+                JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MAX_WAIT_TIME));
+        this.connectionPoolMaxLifeTime = Integer.parseInt(
+                JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MAX_LIFE_TIME));
+        this.connectionPoolKeepAlive = Boolean.parseBoolean(
+                JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_KEEP_ALIVE));
+        this.includeDatabaseMap = Maps.newHashMap();
+        this.excludeDatabaseMap = Maps.newHashMap();
+        this.customizedProperties = Maps.newHashMap();
+    }
 
     @Override
     public JdbcClientConfig clone() {
         try {
             JdbcClientConfig cloned = (JdbcClientConfig) super.clone();
 
+            cloned.connectionPoolMinSize = connectionPoolMinSize;
+            cloned.connectionPoolMaxSize = connectionPoolMaxSize;
+            cloned.connectionPoolMaxLifeTime = connectionPoolMaxLifeTime;
+            cloned.connectionPoolMaxWaitTime = connectionPoolMaxWaitTime;
+            cloned.connectionPoolKeepAlive = connectionPoolKeepAlive;
             cloned.includeDatabaseMap = Maps.newHashMap(includeDatabaseMap);
             cloned.excludeDatabaseMap = Maps.newHashMap(excludeDatabaseMap);
             cloned.customizedProperties = Maps.newHashMap(customizedProperties);
@@ -119,66 +145,66 @@ public class JdbcClientConfig implements Cloneable {
         return this;
     }
 
-    public String getIsLowerCaseTableNames() {
-        return isLowerCaseTableNames;
+    public String getIsLowerCaseMetaNames() {
+        return isLowerCaseMetaNames;
     }
 
-    public JdbcClientConfig setIsLowerCaseTableNames(String isLowerCaseTableNames) {
-        this.isLowerCaseTableNames = isLowerCaseTableNames;
+    public JdbcClientConfig setIsLowerCaseMetaNames(String isLowerCaseTableNames) {
+        this.isLowerCaseMetaNames = isLowerCaseTableNames;
         return this;
     }
 
-    public int getMinPoolSize() {
-        return minPoolSize;
+    public String getMetaNamesMapping() {
+        return metaNamesMapping;
     }
 
-    public JdbcClientConfig setMinPoolSize(int minPoolSize) {
-        this.minPoolSize = minPoolSize;
+    public JdbcClientConfig setMetaNamesMapping(String metaNamesMapping) {
+        this.metaNamesMapping = metaNamesMapping;
         return this;
     }
 
-    public int getMaxPoolSize() {
-        return maxPoolSize;
+    public int getConnectionPoolMinSize() {
+        return connectionPoolMinSize;
     }
 
-    public JdbcClientConfig setMaxPoolSize(int maxPoolSize) {
-        this.maxPoolSize = maxPoolSize;
+    public JdbcClientConfig setConnectionPoolMinSize(int connectionPoolMinSize) {
+        this.connectionPoolMinSize = connectionPoolMinSize;
         return this;
     }
 
-    public int getMinIdleSize() {
-        return minIdleSize;
+    public int getConnectionPoolMaxSize() {
+        return connectionPoolMaxSize;
     }
 
-    public JdbcClientConfig setMinIdleSize(int minIdleSize) {
-        this.minIdleSize = minIdleSize;
+    public JdbcClientConfig setConnectionPoolMaxSize(int connectionPoolMaxSize) {
+        this.connectionPoolMaxSize = connectionPoolMaxSize;
         return this;
     }
 
-    public int getMaxIdleTime() {
-        return maxIdleTime;
+    public int getConnectionPoolMaxLifeTime() {
+        return connectionPoolMaxLifeTime;
     }
 
-    public JdbcClientConfig setMaxIdleTime(int maxIdleTime) {
-        this.maxIdleTime = maxIdleTime;
+    public JdbcClientConfig setConnectionPoolMaxLifeTime(int connectionPoolMaxLifeTime) {
+        this.connectionPoolMaxLifeTime = connectionPoolMaxLifeTime;
         return this;
     }
 
-    public int getMaxWaitTime() {
-        return maxWaitTime;
+    public int getConnectionPoolMaxWaitTime() {
+        return connectionPoolMaxWaitTime;
     }
 
-    public JdbcClientConfig setMaxWaitTime(int maxWaitTime) {
-        this.maxWaitTime = maxWaitTime;
+    public JdbcClientConfig setConnectionPoolMaxWaitTime(int connectionPoolMaxWaitTime) {
+        this.connectionPoolMaxWaitTime = connectionPoolMaxWaitTime;
         return this;
     }
 
-    public boolean isKeepAlive() {
-        return keepAlive;
+    public boolean isConnectionPoolKeepAlive() {
+        return connectionPoolKeepAlive;
     }
 
-    public JdbcClientConfig setKeepAlive(boolean keepAlive) {
-        this.keepAlive = keepAlive;
+    public JdbcClientConfig setConnectionPoolKeepAlive(boolean connectionPoolKeepAlive) {
+        this.connectionPoolKeepAlive = connectionPoolKeepAlive;
         return this;
     }
 

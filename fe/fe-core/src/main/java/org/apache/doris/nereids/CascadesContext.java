@@ -119,6 +119,7 @@ public class CascadesContext implements ScheduleContext {
     private boolean isLeadingJoin = false;
 
     private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
+    private final boolean shouldCheckRelationAuthentication;
 
     /**
      * Constructor of OptimizerContext.
@@ -128,7 +129,7 @@ public class CascadesContext implements ScheduleContext {
      */
     private CascadesContext(Optional<CascadesContext> parent, Optional<CTEId> currentTree,
             StatementContext statementContext, Plan plan, Memo memo,
-            CTEContext cteContext, PhysicalProperties requireProperties) {
+            CTEContext cteContext, PhysicalProperties requireProperties, boolean shouldCheckRelationAuthentication) {
         this.parent = Objects.requireNonNull(parent, "parent should not null");
         this.currentTree = Objects.requireNonNull(currentTree, "currentTree should not null");
         this.statementContext = Objects.requireNonNull(statementContext, "statementContext should not null");
@@ -142,6 +143,7 @@ public class CascadesContext implements ScheduleContext {
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
         this.materializationContexts = new ArrayList<>();
+        this.shouldCheckRelationAuthentication = shouldCheckRelationAuthentication;
     }
 
     /**
@@ -150,7 +152,13 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext initContext(StatementContext statementContext,
             Plan initPlan, PhysicalProperties requireProperties) {
         return newContext(Optional.empty(), Optional.empty(), statementContext,
-                initPlan, new CTEContext(), requireProperties);
+                initPlan, new CTEContext(), requireProperties, true);
+    }
+
+    public static CascadesContext initViewContext(StatementContext statementContext,
+                                              Plan initPlan, PhysicalProperties requireProperties) {
+        return newContext(Optional.empty(), Optional.empty(), statementContext,
+            initPlan, new CTEContext(), requireProperties, false);
     }
 
     /**
@@ -159,13 +167,14 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext newContextWithCteContext(CascadesContext cascadesContext,
             Plan initPlan, CTEContext cteContext) {
         return newContext(Optional.of(cascadesContext), Optional.empty(),
-                cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY);
+                cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY,
+            cascadesContext.shouldCheckRelationAuthentication);
     }
 
     public static CascadesContext newCurrentTreeContext(CascadesContext context) {
         return CascadesContext.newContext(context.getParent(), context.getCurrentTree(), context.getStatementContext(),
                 context.getRewritePlan(), context.getCteContext(),
-                context.getCurrentJobContext().getRequiredProperties());
+                context.getCurrentJobContext().getRequiredProperties(), context.shouldCheckRelationAuthentication);
     }
 
     /**
@@ -174,13 +183,14 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext newSubtreeContext(Optional<CTEId> subtree, CascadesContext context,
             Plan plan, PhysicalProperties requireProperties) {
         return CascadesContext.newContext(Optional.of(context), subtree, context.getStatementContext(),
-                plan, context.getCteContext(), requireProperties);
+                plan, context.getCteContext(), requireProperties, context.shouldCheckRelationAuthentication);
     }
 
     private static CascadesContext newContext(Optional<CascadesContext> parent, Optional<CTEId> subtree,
-            StatementContext statementContext, Plan initPlan,
-            CTEContext cteContext, PhysicalProperties requireProperties) {
-        return new CascadesContext(parent, subtree, statementContext, initPlan, null, cteContext, requireProperties);
+            StatementContext statementContext, Plan initPlan, CTEContext cteContext,
+            PhysicalProperties requireProperties, boolean shouldCheckRelationAuthentication) {
+        return new CascadesContext(parent, subtree, statementContext, initPlan, null,
+            cteContext, requireProperties, shouldCheckRelationAuthentication);
     }
 
     public CascadesContext getRoot() {
@@ -634,6 +644,10 @@ public class CascadesContext implements ScheduleContext {
 
     public void setLeadingJoin(boolean leadingJoin) {
         isLeadingJoin = leadingJoin;
+    }
+
+    public boolean shouldCheckRelationAuthentication() {
+        return shouldCheckRelationAuthentication;
     }
 
     public Map<String, Hint> getHintMap() {

@@ -199,6 +199,7 @@ DEFINE_mInt32(download_low_speed_time, "300");
 // log dir
 DEFINE_String(sys_log_dir, "${DORIS_HOME}/log");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
+DEFINE_String(pipeline_tracing_log_dir, "${DORIS_HOME}/log/tracing");
 // INFO, WARNING, ERROR, FATAL
 DEFINE_mString(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -217,11 +218,6 @@ DEFINE_String(log_buffer_level, "");
 // number of threads available to serve backend execution requests
 DEFINE_Int32(be_service_threads, "64");
 
-// Controls the number of threads to run work per core.  It's common to pick 2x
-// or 3x the number of cores.  This keeps the cores busy without causing excessive
-// thrashing.
-DEFINE_Int32(num_threads_per_core, "3");
-DEFINE_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 DEFINE_mInt32(status_report_interval, "5");
 // The pipeline task has a high concurrency, therefore reducing its report frequency
@@ -260,6 +256,7 @@ DEFINE_mInt32(doris_scanner_queue_size, "1024");
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
+DEFINE_mInt32(min_bytes_in_scanner_queue, "67108864");
 // number of max scan keys
 DEFINE_mInt32(doris_max_scan_key_num, "48");
 // the max number of push down values of a single column.
@@ -274,7 +271,8 @@ DEFINE_mInt64(column_dictionary_key_size_threshold, "0");
 DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 DEFINE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
-DEFINE_mInt32(cache_prune_stale_interval, "10");
+DEFINE_mInt32(cache_prune_interval_sec, "10");
+DEFINE_mInt32(cache_periodic_prune_stale_sweep_sec, "300");
 // the clean interval of tablet lookup cache
 DEFINE_mInt32(tablet_lookup_cache_stale_sweep_time_sec, "30");
 DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
@@ -588,11 +586,11 @@ DEFINE_Int32(memory_max_alignment, "16");
 // memtable insert memory tracker will multiply input block size with this ratio
 DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
 // max write buffer size before flush, default 200MB
-DEFINE_mInt64(write_buffer_size, "104857600");
+DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
 // max parallel flush task per memtable writer
-DEFINE_mInt32(memtable_flush_running_count_limit, "5");
+DEFINE_mInt32(memtable_flush_running_count_limit, "2");
 
 DEFINE_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 
@@ -766,15 +764,15 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 DEFINE_Bool(share_delta_writers, "true");
 // timeout for open load stream rpc in ms
 DEFINE_Int64(open_load_stream_timeout_ms, "60000"); // 60s
-// timeout for load stream close wait in ms
-DEFINE_Int64(close_load_stream_timeout_ms, "600000"); // 10 min
+// enable write background when using brpc stream
+DEFINE_mBool(enable_brpc_stream_write_background, "true");
 
 // brpc streaming max_buf_size in bytes
 DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
 // brpc streaming messages_in_batch
 DEFINE_Int32(load_stream_messages_in_batch, "128");
 // brpc streaming StreamWait seconds on EAGAIN
-DEFINE_Int32(load_stream_eagain_wait_seconds, "60");
+DEFINE_Int32(load_stream_eagain_wait_seconds, "600");
 // max tasks per flush token in load stream
 DEFINE_Int32(load_stream_flush_token_max_tasks, "15");
 // max wait flush token time in load stream
@@ -802,6 +800,9 @@ DEFINE_mInt32(segment_compression_threshold_kb, "256");
 
 // The connection timeout when connecting to external table such as odbc table.
 DEFINE_mInt32(external_table_connect_timeout_sec, "30");
+
+// Time to clean up useless JDBC connection pool cache
+DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
@@ -888,7 +889,7 @@ DEFINE_mInt64(small_column_size_buffer, "100");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
-DEFINE_mInt32(bloom_filter_predicate_check_row_num, "204800");
+DEFINE_mInt32(rf_predicate_check_row_num, "204800");
 
 // cooldown task configs
 DEFINE_Int32(cooldown_thread_num, "5");
@@ -938,7 +939,7 @@ DEFINE_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 DEFINE_Bool(hide_webserver_config_page, "false");
 
-DEFINE_Bool(enable_segcompaction, "false");
+DEFINE_Bool(enable_segcompaction, "true");
 
 // Max number of segments allowed in a single segcompaction task.
 DEFINE_Int32(segcompaction_batch_size, "10");
@@ -1111,6 +1112,7 @@ DEFINE_Int16(bitmap_serialize_version, "1");
 DEFINE_String(group_commit_wal_path, "");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
+DEFINE_Int32(group_commit_replay_wal_retry_interval_max_seconds, "1800");
 DEFINE_Int32(group_commit_relay_wal_threads, "10");
 // This config can be set to limit thread number in group commit request fragment thread pool.
 DEFINE_Int32(group_commit_insert_threads, "10");
@@ -1133,7 +1135,7 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
-DEFINE_mBool(enable_cgroup_cpu_soft_limit, "false");
+DEFINE_mBool(enable_cgroup_cpu_soft_limit, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
@@ -1146,7 +1148,7 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
-DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
+DEFINE_mInt32(buffered_reader_read_timeout_ms, "600000");
 
 DEFINE_Bool(enable_snapshot_action, "false");
 
@@ -1165,6 +1167,14 @@ DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
 DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
 // 30s
 DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
+
+// consider two high usage disk at the same available level if they do not exceed this diff.
+DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
+
+// create tablet in partition random robin idx lru size, default 10000
+DEFINE_Int32(partition_disk_index_lru_size, "10000");
+
+DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 // clang-format off
 #ifdef BE_TEST

@@ -121,7 +121,7 @@ partial_columns:true
 ```
 'sink.properties.partial_columns' = 'true',
 ```
-同时在`sink.properties.column`中指定要导入的列（必须包含所有key列，不然无法更新）
+同时在`sink.properties.columns`中指定要导入的列（必须包含所有key列，不然无法更新）
 
 #### INSERT INTO
 
@@ -221,9 +221,7 @@ INSERT INTO order_tbl (order_id, order_status) values (1,'待发货');
 
 ### Unique Key模型Merge-on-Write实现
 
-在2.0版本中，同一批次数据写入任务（无论是导入任务还是`INSERT INTO`）的所有行只能更新相同的列，如果需要更新不同列的数据，则需要分不同的批次进行写入
-
-在2.1版本中，我们将支持灵活的列更新，用户可以在同一批导入中，每一行更新不同的列
+同一批次数据写入任务（无论是导入任务还是`INSERT INTO`）的所有行只能更新相同的列，如果需要更新不同列的数据，则需要分不同的批次进行写入
 
 ### Aggregate Key模型
 

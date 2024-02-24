@@ -19,7 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -39,7 +39,7 @@ public class TransStateProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        GlobalTransactionMgr transactionMgr = Env.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
         result.setRows(transactionMgr.getDbTransStateInfo(dbId));
         return result;
     }

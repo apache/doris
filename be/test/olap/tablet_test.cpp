@@ -24,9 +24,12 @@
 #include <gtest/gtest-test-part.h>
 #include <unistd.h>
 
+#include <memory>
+
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/numbers.h"
 #include "http/action/pad_rowset_action.h"
+#include "http/http_request.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/options.h"
@@ -45,7 +48,7 @@ using namespace std;
 namespace doris {
 using RowsetMetaSharedContainerPtr = std::shared_ptr<std::vector<RowsetMetaSharedPtr>>;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 static const std::string kTestDir = "/data_test/data/tablet_test";
 static const uint32_t MAX_PATH_LEN = 1024;
 
@@ -88,8 +91,7 @@ public:
                             .ok());
 
         doris::EngineOptions options;
-        k_engine = new StorageEngine(options);
-        ExecEnv::GetInstance()->set_storage_engine(k_engine);
+        k_engine = std::make_unique<StorageEngine>(options);
 
         _data_dir = std::make_unique<DataDir>(*k_engine, absolute_dir);
         static_cast<void>(_data_dir->update_capacity());
@@ -97,12 +99,7 @@ public:
 
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-            ExecEnv::GetInstance()->set_storage_engine(nullptr);
-        }
+        k_engine.reset();
     }
 
     TabletMetaSharedPtr new_tablet_meta(TTabletSchema schema, bool enable_merge_on_write = false) {
@@ -289,8 +286,7 @@ TEST_F(TestTablet, pad_rowset) {
     ASSERT_FALSE(_tablet->capture_rs_readers(version, &splits, false).ok());
     splits.clear();
 
-    PadRowsetAction action(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
-    static_cast<void>(action._pad_rowset(_tablet, version));
+    static_cast<void>(PadRowsetAction::_pad_rowset(_tablet.get(), version));
     ASSERT_TRUE(_tablet->capture_rs_readers(version, &splits, false).ok());
 }
 

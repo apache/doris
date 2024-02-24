@@ -26,16 +26,21 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -58,6 +63,9 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     @Override
     public Plan visit(Plan plan, CascadesContext context) {
         if (!plan.children().isEmpty()) {
+            Preconditions.checkArgument(plan.children().size() == 1,
+                    plan.getClass().getSimpleName()
+                    + " has more than one child, needs its own visitor implementation");
             plan.child(0).accept(this, context);
             if (context.getRuntimeFilterContext().isEffectiveSrcNode(plan.child(0))) {
                 RuntimeFilterContext.EffectiveSrcType childType = context.getRuntimeFilterContext()
@@ -66,6 +74,45 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             }
         }
         return plan;
+    }
+
+    @Override
+    public PhysicalSetOperation visitPhysicalSetOperation(PhysicalSetOperation setOperation, CascadesContext context) {
+        for (Plan child : setOperation.children()) {
+            child.accept(this, context);
+        }
+        return setOperation;
+    }
+
+    @Override
+    public PhysicalIntersect visitPhysicalIntersect(PhysicalIntersect intersect, CascadesContext context) {
+        for (Plan child : intersect.children()) {
+            child.accept(this, context);
+        }
+        context.getRuntimeFilterContext().addEffectiveSrcNode(intersect, RuntimeFilterContext.EffectiveSrcType.NATIVE);
+        return intersect;
+    }
+
+    @Override
+    public PhysicalNestedLoopJoin visitPhysicalNestedLoopJoin(
+            PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
+            CascadesContext context) {
+        join.right().accept(this, context);
+        join.left().accept(this, context);
+        if (context.getRuntimeFilterContext().isEffectiveSrcNode(join.child(0))) {
+            RuntimeFilterContext.EffectiveSrcType childType = context.getRuntimeFilterContext()
+                    .getEffectiveSrcType(join.child(0));
+            context.getRuntimeFilterContext().addEffectiveSrcNode(join, childType);
+        }
+        return join;
+    }
+
+    @Override
+    public PhysicalCTEAnchor visitPhysicalCTEAnchor(PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
+                                                    CascadesContext context) {
+        cteAnchor.child(0).accept(this, context);
+        cteAnchor.child(1).accept(this, context);
+        return cteAnchor;
     }
 
     @Override
@@ -100,7 +147,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
                     outputExprIdOfExpandTargets.addAll(expand.target2.getOutputExprIds());
                     rfContext.getTargetExprIdByFilterJoin(join)
                             .stream().filter(exprId -> outputExprIdOfExpandTargets.contains(exprId))
-                            .forEach(exprId -> rfContext.removeFilter(exprId, join));
+                            .forEach(exprId -> rfContext.removeFilters(exprId, join));
                 }
             }
             RuntimeFilterContext.EffectiveSrcType childType =
@@ -116,7 +163,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
                     }
                 }
                 if (!isEffective) {
-                    exprIds.stream().forEach(exprId -> rfContext.removeFilter(exprId, join));
+                    exprIds.stream().forEach(exprId -> rfContext.removeFilters(exprId, join));
                 }
             }
         }

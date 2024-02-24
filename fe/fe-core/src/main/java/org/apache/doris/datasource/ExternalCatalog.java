@@ -23,22 +23,21 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.EsExternalDatabase;
-import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.catalog.external.IcebergExternalDatabase;
-import org.apache.doris.catalog.external.JdbcExternalDatabase;
-import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
-import org.apache.doris.catalog.external.PaimonExternalDatabase;
-import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.es.EsExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
+import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
+import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -104,6 +103,10 @@ public abstract class ExternalCatalog
 
     private ExternalSchemaCache schemaCache;
     private String comment;
+    // A cached and being converted properties for external catalog.
+    // generated from catalog properties.
+    private byte[] propLock = new byte[0];
+    private Map<String, String> convertedProperties = null;
 
     public ExternalCatalog() {
     }
@@ -124,14 +127,17 @@ public abstract class ExternalCatalog
         return conf;
     }
 
-    protected List<String> listDatabaseNames() {
-        throw new UnsupportedOperationException("Unsupported operation: "
-                + "listDatabaseNames from remote client when init catalog with " + logType.name());
+    /**
+     * set some default properties when creating catalog
+     */
+    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
+
     }
 
-    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
-        // set some default properties when creating catalog
-    }
+    /**
+     * @return list of database names in this catalog
+     */
+    protected abstract List<String> listDatabaseNames();
 
     /**
      * @param dbName
@@ -149,7 +155,14 @@ public abstract class ExternalCatalog
     public abstract boolean tableExist(SessionContext ctx, String dbName, String tblName);
 
     /**
+     * init some local objects such as:
+     * hms client, read properties from hive-site.xml, es client
+     */
+    protected abstract void initLocalObjectsImpl();
+
+    /**
      * check if the specified table exist in doris.
+     * Currently only be used for hms event handler.
      *
      * @param dbName
      * @param tblName
@@ -193,10 +206,6 @@ public abstract class ExternalCatalog
     public boolean isInitialized() {
         return this.initialized;
     }
-
-    // init some local objects such as:
-    // hms client, read properties from hive-site.xml, es client
-    protected abstract void initLocalObjectsImpl();
 
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
@@ -298,14 +307,13 @@ public abstract class ExternalCatalog
     public void onRefresh(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
+        synchronized (this.propLock) {
+            this.convertedProperties = null;
+        }
         this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
-    }
-
-    public void updateDbList() {
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
     }
 
     public final List<Column> getSchema(String dbName, String tblName) {
@@ -421,7 +429,17 @@ public abstract class ExternalCatalog
 
     @Override
     public Map<String, String> getProperties() {
-        return PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
+        // convert properties may be a heavy operation, so we cache the result.
+        if (convertedProperties != null) {
+            return convertedProperties;
+        }
+        synchronized (propLock) {
+            if (convertedProperties != null) {
+                return convertedProperties;
+            }
+            convertedProperties = PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
+            return convertedProperties;
+        }
     }
 
     @Override
@@ -521,13 +539,6 @@ public abstract class ExternalCatalog
         return null;
     }
 
-    /**
-     * External catalog has no cluster semantics.
-     */
-    protected static String getRealTableName(String tableName) {
-        return ClusterNamespace.getNameFromFullName(tableName);
-    }
-
     public static ExternalCatalog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ExternalCatalog.class);
@@ -546,9 +557,6 @@ public abstract class ExternalCatalog
             db.setTableExtCatalog(this);
         }
         objectCreated = false;
-        if (this instanceof HMSExternalCatalog) {
-            ((HMSExternalCatalog) this).setLastSyncedEventId(-1L);
-        }
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrate to the new version.
         if (logType == null) {
@@ -562,6 +570,7 @@ public abstract class ExternalCatalog
                 }
             }
         }
+        this.propLock = new byte[0];
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
@@ -569,11 +578,11 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
-    public void dropDatabaseForReplay(String dbName) {
+    public void dropDatabase(String dbName) {
         throw new NotImplementedException("dropDatabase not implemented");
     }
 
-    public void createDatabaseForReplay(long dbId, String dbName) {
+    public void createDatabase(long dbId, String dbName) {
         throw new NotImplementedException("createDatabase not implemented");
     }
 
@@ -600,16 +609,6 @@ public abstract class ExternalCatalog
             }
         }
         return specifiedDatabaseMap;
-    }
-
-    public boolean useSelfSplitter() {
-        Map<String, String> properties = catalogProperty.getProperties();
-        boolean ret = true;
-        if (properties.containsKey(HMSExternalCatalog.ENABLE_SELF_SPLITTER)
-                && properties.get(HMSExternalCatalog.ENABLE_SELF_SPLITTER).equalsIgnoreCase("false")) {
-            ret = false;
-        }
-        return ret;
     }
 
     public String bindBrokerName() {
@@ -644,4 +643,3 @@ public abstract class ExternalCatalog
         return new ConcurrentHashMap<>(idToDb);
     }
 }
-

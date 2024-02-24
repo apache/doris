@@ -22,13 +22,15 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
 #include <pthread.h>
-#include <stdlib.h>
+
+#include <cstdlib>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
 #include <chrono> // IWYU pragma: keep
 #include <map>
+#include <memory>
 #include <ostream>
 #include <typeinfo>
 #include <utility>
@@ -115,10 +117,10 @@ namespace doris::pipeline {
 bvar::Adder<int64_t> g_pipeline_tasks_count("doris_pipeline_tasks_count");
 
 PipelineFragmentContext::PipelineFragmentContext(
-        const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
-        int backend_num, std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
+        const TUniqueId& query_id, const TUniqueId& instance_id, int fragment_id, int backend_num,
+        std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
         const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb)
+        report_status_callback report_status_cb)
         : _query_id(query_id),
           _fragment_instance_id(instance_id),
           _fragment_id(fragment_id),
@@ -127,11 +129,8 @@ PipelineFragmentContext::PipelineFragmentContext(
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
           _is_report_on_cancel(true),
-          _report_status_cb(report_status_cb),
+          _report_status_cb(std::move(report_status_cb)),
           _create_time(MonotonicNanos()) {
-    if (_query_ctx->get_task_group()) {
-        _task_group_entity = _query_ctx->get_task_group()->task_entity();
-    }
     _fragment_watcher.start();
 }
 
@@ -161,13 +160,12 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     // make result receiver on fe be stocked on rpc forever until timeout...
     // We need a more detail discussion.
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
-        if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
+        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+            _is_report_on_cancel = false;
+        } else {
             LOG(WARNING) << "PipelineFragmentContext "
                          << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
                          << " is canceled, cancel message: " << msg;
-
-        } else {
-            _set_is_report_on_cancel(false); // TODO bug llj fix this not projected by lock
         }
 
         _runtime_state->set_process_status(_query_ctx->exec_status());
@@ -212,8 +210,7 @@ PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     return pipeline;
 }
 
-Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
-                                        const size_t idx) {
+Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request, size_t idx) {
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
@@ -232,18 +229,17 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     // 1. init _runtime_state
     _runtime_state = RuntimeState::create_unique(
             local_params.fragment_instance_id, request.query_id, request.fragment_id,
-            request.query_options, _query_ctx->query_globals, _exec_env);
-    if (local_params.__isset.runtime_filter_params) {
-        _runtime_state->set_runtime_filter_params(local_params.runtime_filter_params);
+            request.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
+    if (idx == 0 && local_params.__isset.runtime_filter_params) {
+        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                local_params.runtime_filter_params);
     }
 
     _runtime_state->set_task_execution_context(shared_from_this());
-    _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
     SCOPED_ATTACH_TASK(_runtime_state.get());
-    static_cast<void>(_runtime_state->runtime_filter_mgr()->init());
     _runtime_state->set_be_number(local_params.backend_num);
 
     if (request.__isset.backend_id) {
@@ -299,16 +295,16 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
                   << local_params.per_node_scan_ranges.size();
 
     // set scan range in ScanNode
-    for (int i = 0; i < scan_nodes.size(); ++i) {
+    for (auto& i : scan_nodes) {
         // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
-        ExecNode* node = scan_nodes[i];
+        ExecNode* node = i;
         if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ||
             typeid(*node) == typeid(vectorized::NewFileScanNode) ||
             typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
             typeid(*node) == typeid(vectorized::NewEsScanNode) ||
             typeid(*node) == typeid(vectorized::VMetaScanNode) ||
             typeid(*node) == typeid(vectorized::NewJdbcScanNode)) {
-            auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
+            auto* scan_node = static_cast<vectorized::VScanNode*>(i);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
             const bool shared_scan =
@@ -316,7 +312,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges);
             scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
         } else {
-            ScanNode* scan_node = static_cast<ScanNode*>(node);
+            auto* scan_node = static_cast<ScanNode*>(node);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
             static_cast<void>(scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges));
@@ -694,7 +690,8 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(ExecNode
     OperatorBuilderPtr sink_builder =
             std::make_shared<SetSinkOperatorBuilder<is_intersect>>(node->id(), node);
     RETURN_IF_ERROR(build_pipeline->set_sink_builder(sink_builder));
-
+    std::vector<PipelinePtr> all_pipelines;
+    all_pipelines.emplace_back(build_pipeline);
     for (int child_id = 1; child_id < node->children_count(); ++child_id) {
         auto probe_pipeline = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(child_id), probe_pipeline));
@@ -702,6 +699,9 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(ExecNode
                 std::make_shared<SetProbeSinkOperatorBuilder<is_intersect>>(node->id(), child_id,
                                                                             node);
         RETURN_IF_ERROR(probe_pipeline->set_sink_builder(probe_sink_builder));
+        //eg: These sinks must be completed one by one in order, child(1) must wait child(0) build finish
+        probe_pipeline->add_dependency(all_pipelines[child_id - 1]);
+        all_pipelines.emplace_back(probe_pipeline);
     }
 
     OperatorBuilderPtr source_builder =
@@ -717,12 +717,7 @@ Status PipelineFragmentContext::submit() {
 
     int submit_tasks = 0;
     Status st;
-    auto* scheduler = _exec_env->pipeline_task_scheduler();
-    if (_query_ctx->get_task_scheduler()) {
-        scheduler = _query_ctx->get_task_scheduler();
-    } else if (_task_group_entity && _query_ctx->use_task_group_for_cpu_limit.load()) {
-        scheduler = _exec_env->pipeline_task_group_scheduler();
-    }
+    auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
     for (auto& task : _tasks) {
         st = scheduler->schedule_task(task.get());
         if (!st) {
@@ -850,10 +845,10 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
                                       {false})
                             : sink_->row_desc();
             // 1. create the data stream sender sink
-            _multi_cast_stream_sink_senders[i].reset(new vectorized::VDataStreamSender(
+            _multi_cast_stream_sink_senders[i] = std::make_unique<vectorized::VDataStreamSender>(
                     _runtime_state.get(), _runtime_state->obj_pool(), sender_id, row_desc,
                     thrift_sink.multi_cast_stream_sink.sinks[i],
-                    thrift_sink.multi_cast_stream_sink.destinations[i]));
+                    thrift_sink.multi_cast_stream_sink.destinations[i]);
 
             // 2. create and set the source operator of multi_cast_data_stream_source for new pipeline
             OperatorBuilderPtr source_op =
@@ -893,6 +888,21 @@ void PipelineFragmentContext::_close_fragment_instance() {
     _runtime_state->runtime_profile()->total_time_counter()->update(
             _fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
+    if (_is_report_success) {
+        std::stringstream ss;
+        // Compute the _local_time_percent before pretty_print the runtime_profile
+        // Before add this operation, the print out like that:
+        // UNION_NODE (id=0):(Active: 56.720us, non-child: 00.00%)
+        // After add the operation, the print out like that:
+        // UNION_NODE (id=0):(Active: 56.720us, non-child: 82.53%)
+        // We can easily know the exec node execute time without child time consumed.
+        _runtime_state->runtime_profile()->compute_time_in_profile();
+        _runtime_state->runtime_profile()->pretty_print(&ss);
+        if (_runtime_state->load_channel_profile()) {
+            _runtime_state->load_channel_profile()->pretty_print(&ss);
+        }
+        LOG(INFO) << ss.str();
+    }
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
@@ -941,29 +951,11 @@ Status PipelineFragmentContext::send_report(bool done) {
              _fragment_instance_id,
              _backend_num,
              _runtime_state.get(),
-             std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
-             std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2),
-             _query_ctx->get_query_statistics()},
+             [this](Status st) { return update_status(st); },
+             [this](const PPlanFragmentCancelReason& reason, const std::string& msg) {
+                 cancel(reason, msg);
+             }},
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
-}
-
-bool PipelineFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
-    OlapTableSchemaParam schema;
-    if (!schema.init(sink.schema).ok()) {
-        return false;
-    }
-    if (schema.is_partial_update()) {
-        return true;
-    }
-    for (const auto& index_schema : schema.indexes()) {
-        for (const auto& index : index_schema->indexes) {
-            if (index->index_type() == INVERTED) {
-                return true;
-            }
-        }
-    }
-    return false;
 }
 
 std::string PipelineFragmentContext::debug_string() {

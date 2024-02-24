@@ -115,7 +115,7 @@ public class LoadManager implements Writable {
     /**
      * This method will be invoked by the broker load(v2) now.
      */
-    public long createLoadJobFromStmt(LoadStmt stmt) throws DdlException {
+    public long createLoadJobFromStmt(LoadStmt stmt) throws DdlException, UserException {
         Database database = checkDb(stmt.getLabel().getDbName());
         long dbId = database.getId();
         LoadJob loadJob;
@@ -144,6 +144,12 @@ public class LoadManager implements Writable {
         } finally {
             writeUnlock();
         }
+
+        if (Config.enable_workload_group) {
+            loadJob.settWorkloadGroups(
+                    Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get()));
+        }
+
         Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
 
         // The job must be submitted after edit log.
@@ -826,7 +832,7 @@ public class LoadManager implements Writable {
         // 2. Remove from DatabaseTransactionMgr
         try {
             Env.getCurrentGlobalTransactionMgr().cleanLabel(dbId, label, isReplay);
-        } catch (AnalysisException e) {
+        } catch (Exception e) {
             // just ignore, because we don't want to throw any exception here.
             LOG.warn("Exception:", e);
         }

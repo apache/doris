@@ -70,7 +70,7 @@ public class InitMaterializationContextHook implements PlannerHook {
         List<BaseTableInfo> usedBaseTables =
                 collectedTables.stream().map(BaseTableInfo::new).collect(Collectors.toList());
         Set<MTMV> availableMTMVs = Env.getCurrentEnv().getMtmvService().getRelationManager()
-                .getAvailableMTMVs(usedBaseTables);
+                .getAvailableMTMVs(usedBaseTables, cascadesContext.getConnectContext());
         if (availableMTMVs.isEmpty()) {
             return;
         }

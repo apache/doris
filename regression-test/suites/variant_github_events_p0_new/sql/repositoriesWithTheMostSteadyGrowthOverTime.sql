@@ -1,4 +1,4 @@
-SELECT
+SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
     repo_name,
     max(stars) AS daily_stars,
     sum(stars) AS total_stars,

@@ -130,7 +130,6 @@ Status VSortNode::alloc_resource(doris::RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(state->check_query_state("vsort, while open."));
 
     return Status::OK();
 }
@@ -140,7 +139,6 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
     if (input_block->rows() > 0) {
         RETURN_IF_ERROR(_sorter->append_block(input_block));
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
 
         // update runtime predicate
         if (_use_topn_opt) {

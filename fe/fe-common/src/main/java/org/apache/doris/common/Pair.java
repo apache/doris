@@ -86,7 +86,7 @@ public class Pair<F, S> {
         return firstStr + ":" + secondStr;
     }
 
-    public static class PairComparator<T extends Pair<?, Comparable>> implements Comparator<T> {
+    public static class PairComparator<T extends Pair<?, ? extends Comparable>> implements Comparator<T> {
         @Override
         public int compare(T o1, T o2) {
             return o1.second.compareTo(o2.second);

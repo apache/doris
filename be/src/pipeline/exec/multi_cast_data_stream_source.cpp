@@ -17,13 +17,11 @@
 
 #include "multi_cast_data_stream_source.h"
 
-#include <functional>
-
 #include "common/status.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/exec/operator.h"
-#include "runtime/query_statistics.h"
 #include "vec/core/block.h"
+#include "vec/core/materialize_block.h"
 
 namespace doris::pipeline {
 
@@ -40,7 +38,7 @@ OperatorPtr MultiCastDataStreamerSourceOperatorBuilder::build_operator() {
             this, _consumer_id, _multi_cast_data_streamer, _t_data_stream_sink);
 }
 
-const RowDescriptor& MultiCastDataStreamerSourceOperatorBuilder::row_desc() {
+const RowDescriptor& MultiCastDataStreamerSourceOperatorBuilder::row_desc() const {
     return _multi_cast_data_streamer->row_desc();
 }
 
@@ -108,7 +106,7 @@ Status MultiCastDataStreamerSourceOperator::get_block(RuntimeState* state, vecto
     if (!_output_expr_contexts.empty() && output_block->rows() > 0) {
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
                 _output_expr_contexts, *output_block, block, true));
-        materialize_block_inplace(*block);
+        vectorized::materialize_block_inplace(*block);
     }
     if (eos) {
         source_state = SourceState::FINISHED;
@@ -142,8 +140,7 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
-    _shared_state->multi_cast_data_streamer.set_dep_by_sender_idx(
-            p._consumer_id, static_cast<MultiCastSourceDependency*>(_dependency));
+    _shared_state->multi_cast_data_streamer.set_dep_by_sender_idx(p._consumer_id, _dependency);
     _output_expr_contexts.resize(p._output_expr_contexts.size());
     for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
         RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));
@@ -176,7 +173,7 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
     if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
                 local_state._output_expr_contexts, *output_block, block, true));
-        materialize_block_inplace(*block);
+        vectorized::materialize_block_inplace(*block);
     }
     COUNTER_UPDATE(local_state._rows_returned_counter, block->rows());
     if (eos) {

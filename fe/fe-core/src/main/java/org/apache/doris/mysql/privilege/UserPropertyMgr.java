@@ -239,7 +239,9 @@ public class UserPropertyMgr implements Writable {
         for (int i = 0; i < size; ++i) {
             UserProperty userProperty = UserProperty.read(in);
             propertyMap.put(userProperty.getQualifiedUser(), userProperty);
-            LOG.debug("read user property: {}: {}", userProperty.getQualifiedUser(), userProperty);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("read user property: {}: {}", userProperty.getQualifiedUser(), userProperty);
+            }
         }
         // Read resource
         resourceVersion = new AtomicLong(in.readLong());

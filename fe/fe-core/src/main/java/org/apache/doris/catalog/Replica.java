@@ -70,7 +70,8 @@ public class Replica implements Writable {
         VERSION_ERROR, // missing version
         MISSING, // replica does not exist
         SCHEMA_ERROR, // replica's schema hash does not equal to index's schema hash
-        BAD // replica is broken.
+        BAD, // replica is broken.
+        DROP,  // user force drop replica on this backend
     }
 
     @SerializedName(value = "id")
@@ -158,6 +159,8 @@ public class Replica implements Writable {
      */
     private long preWatermarkTxnId = -1;
     private long postWatermarkTxnId = -1;
+
+    private long userDropTime = -1;
 
     public Replica() {
     }
@@ -445,9 +448,11 @@ public class Replica implements Writable {
 
         // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
-            LOG.debug("current version {} is larger than last failed version {}, "
-                        + "maybe a fatal error or be report version, print a stack here ",
-                    this.version, lastFailedVersion, new Exception());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("current version {} is larger than last failed version {}, "
+                            + "maybe a fatal error or be report version, print a stack here ",
+                        this.version, lastFailedVersion, new Exception());
+            }
         }
 
         if (lastFailedVersion != this.lastFailedVersion) {
@@ -516,8 +521,10 @@ public class Replica implements Writable {
         }
 
         if (this.version < expectedVersion) {
-            LOG.debug("replica version does not catch up with version: {}. replica: {}",
-                      expectedVersion, this);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("replica version does not catch up with version: {}. replica: {}",
+                          expectedVersion, this);
+            }
             return false;
         }
         return true;
@@ -671,7 +678,7 @@ public class Replica implements Writable {
     }
 
     public static Replica read(DataInput in) throws IOException {
-        Replica replica = EnvFactory.createReplica();
+        Replica replica = EnvFactory.getInstance().createReplica();
         replica.readFields(in);
         return replica;
     }
@@ -760,9 +767,29 @@ public class Replica implements Writable {
         return postWatermarkTxnId;
     }
 
+    public void setUserDropTime(long userDropTime) {
+        this.userDropTime = userDropTime;
+    }
+
+    public boolean isUserDrop() {
+        if (userDropTime > 0) {
+            if (System.currentTimeMillis() - userDropTime < Config.manual_drop_replica_valid_second * 1000L) {
+                return true;
+            }
+            userDropTime = -1;
+        }
+
+        return false;
+    }
+
     public boolean isAlive() {
         return getState() != ReplicaState.CLONE
                 && getState() != ReplicaState.DECOMMISSION
                 && !isBad();
+    }
+
+    public boolean isScheduleAvailable() {
+        return Env.getCurrentSystemInfo().checkBackendScheduleAvailable(backendId)
+            && !isUserDrop();
     }
 }

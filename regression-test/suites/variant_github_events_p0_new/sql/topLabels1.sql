@@ -1,4 +1,4 @@
--- SELECT
+-- SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
 --     label,
 --     count() AS c
 -- FROM github_events

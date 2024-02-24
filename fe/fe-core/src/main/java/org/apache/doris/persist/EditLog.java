@@ -51,6 +51,7 @@ import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
@@ -74,6 +75,9 @@ import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
+import org.apache.doris.plsql.metastore.PlsqlPackage;
+import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
+import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
@@ -81,7 +85,9 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.AnalysisJobInfo;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -158,7 +164,9 @@ public class EditLog {
     public static void loadJournal(Env env, Long logId, JournalEntity journal) {
         short opCode = journal.getOpCode();
         if (opCode != OperationType.OP_SAVE_NEXTID && opCode != OperationType.OP_TIMESTAMP) {
-            LOG.debug("replay journal op code: {}", opCode);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("replay journal op code: {}", opCode);
+            }
         }
         try {
             switch (opCode) {
@@ -528,7 +536,9 @@ public class EditLog {
                 case OperationType.OP_UPSERT_TRANSACTION_STATE: {
                     final TransactionState state = (TransactionState) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
-                    LOG.debug("logid: {}, opcode: {}, tid: {}", logId, opCode, state.getTransactionId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("logid: {}, opcode: {}, tid: {}", logId, opCode, state.getTransactionId());
+                    }
 
                     // state.loadedTableIndexIds is updated after replay
                     if (state.getTransactionStatus() == TransactionStatus.VISIBLE) {
@@ -540,7 +550,9 @@ public class EditLog {
                 case OperationType.OP_DELETE_TRANSACTION_STATE: {
                     final TransactionState state = (TransactionState) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayDeleteTransactionState(state);
-                    LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
+                    }
                     break;
                 }
                 case OperationType.OP_BATCH_REMOVE_TXNS: {
@@ -980,7 +992,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
-                    log.getTableIf().dropConstraint(log.getConstraint().getName());
+                    log.getTableIf().replayDropConstraint(log.getConstraint().getName());
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {
@@ -1009,38 +1021,24 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_TABLE: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayDropExternalTable(log);
                     break;
                 }
                 case OperationType.OP_CREATE_EXTERNAL_TABLE: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayCreateExternalTableFromEvent(log);
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_DB: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayDropExternalDatabase(log);
                     break;
                 }
                 case OperationType.OP_CREATE_EXTERNAL_DB: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayCreateExternalDatabase(log);
                     break;
                 }
                 case OperationType.OP_ADD_EXTERNAL_PARTITIONS: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayAddExternalPartitions(log);
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_PARTITIONS: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayDropExternalPartitions(log);
                     break;
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalPartitions(log);
                     break;
                 }
                 case OperationType.OP_CREATE_WORKLOAD_GROUP: {
@@ -1080,6 +1078,10 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_JOB: {
+                    if (journal.getData() instanceof AnalysisJobInfo) {
+                        // For rollback compatible.
+                        break;
+                    }
                     AnalysisInfo info = (AnalysisInfo) journal.getData();
                     if (AnalysisManager.needAbandon(info)) {
                         break;
@@ -1088,6 +1090,10 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_TASK: {
+                    if (journal.getData() instanceof AnalysisTaskInfo) {
+                        // For rollback compatible.
+                        break;
+                    }
                     AnalysisInfo info = (AnalysisInfo) journal.getData();
                     if (AnalysisManager.needAbandon(info)) {
                         break;
@@ -1101,6 +1107,22 @@ public class EditLog {
                 }
                 case OperationType.OP_DELETE_ANALYSIS_TASK: {
                     env.getAnalysisManager().replayDeleteAnalysisTask((AnalyzeDeletionLog) journal.getData());
+                    break;
+                }
+                case OperationType.OP_ADD_PLSQL_STORED_PROCEDURE: {
+                    env.getPlsqlManager().replayAddPlsqlStoredProcedure((PlsqlStoredProcedure) journal.getData());
+                    break;
+                }
+                case OperationType.OP_DROP_PLSQL_STORED_PROCEDURE: {
+                    env.getPlsqlManager().replayDropPlsqlStoredProcedure((PlsqlProcedureKey) journal.getData());
+                    break;
+                }
+                case OperationType.OP_ADD_PLSQL_PACKAGE: {
+                    env.getPlsqlManager().replayAddPlsqlPackage((PlsqlPackage) journal.getData());
+                    break;
+                }
+                case OperationType.OP_DROP_PLSQL_PACKAGE: {
+                    env.getPlsqlManager().replayDropPlsqlPackage((PlsqlProcedureKey) journal.getData());
                     break;
                 }
                 case OperationType.OP_ALTER_DATABASE_PROPERTY: {
@@ -1131,7 +1153,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_PERSIST_AUTO_JOB: {
-                    env.getAnalysisManager().replayPersistSysJob((AnalysisInfo) journal.getData());
+                    // Do nothing
                     break;
                 }
                 case OperationType.OP_DELETE_TABLE_STATS: {
@@ -1153,6 +1175,16 @@ public class EditLog {
                 case OperationType.OP_ALTER_REPOSITORY: {
                     Repository repository = (Repository) journal.getData();
                     env.getBackupHandler().getRepoMgr().alterRepo(repository, true);
+                    break;
+                }
+                case OperationType.OP_ADD_META_ID_MAPPINGS: {
+                    env.getExternalMetaIdMgr().replayMetaIdMappingsLog((MetaIdMappingsLog) journal.getData());
+                    break;
+                }
+                case OperationType.OP_LOG_UPDATE_ROWS:
+                case OperationType.OP_LOG_NEW_PARTITION_LOADED:
+                case OperationType.OP_LOG_ALTER_COLUMN_STATS: {
+                    // TODO: implement this while statistics finished related work.
                     break;
                 }
                 default: {
@@ -1709,6 +1741,22 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_WORKLOAD_SCHED_POLICY, new DropWorkloadSchedPolicyOperatorLog(policyId));
     }
 
+    public void logAddPlsqlStoredProcedure(PlsqlStoredProcedure plsqlStoredProcedure) {
+        logEdit(OperationType.OP_ADD_PLSQL_STORED_PROCEDURE, plsqlStoredProcedure);
+    }
+
+    public void logDropPlsqlStoredProcedure(PlsqlProcedureKey plsqlProcedureKey) {
+        logEdit(OperationType.OP_DROP_PLSQL_STORED_PROCEDURE, plsqlProcedureKey);
+    }
+
+    public void logAddPlsqlPackage(PlsqlPackage pkg) {
+        logEdit(OperationType.OP_ADD_PLSQL_PACKAGE, pkg);
+    }
+
+    public void logDropPlsqlPackage(PlsqlProcedureKey plsqlProcedureKey) {
+        logEdit(OperationType.OP_DROP_PLSQL_PACKAGE, plsqlProcedureKey);
+    }
+
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
         logEdit(OperationType.OP_ALTER_STORAGE_POLICY, storagePolicy);
     }
@@ -1870,26 +1918,32 @@ public class EditLog {
         logEdit(OperationType.OP_REFRESH_EXTERNAL_TABLE, log);
     }
 
+    @Deprecated
     public void logDropExternalTable(ExternalObjectLog log) {
         logEdit(OperationType.OP_DROP_EXTERNAL_TABLE, log);
     }
 
+    @Deprecated
     public void logCreateExternalTable(ExternalObjectLog log) {
         logEdit(OperationType.OP_CREATE_EXTERNAL_TABLE, log);
     }
 
+    @Deprecated
     public void logDropExternalDatabase(ExternalObjectLog log) {
         logEdit(OperationType.OP_DROP_EXTERNAL_DB, log);
     }
 
+    @Deprecated
     public void logCreateExternalDatabase(ExternalObjectLog log) {
         logEdit(OperationType.OP_CREATE_EXTERNAL_DB, log);
     }
 
+    @Deprecated
     public void logAddExternalPartitions(ExternalObjectLog log) {
         logEdit(OperationType.OP_ADD_EXTERNAL_PARTITIONS, log);
     }
 
+    @Deprecated
     public void logDropExternalPartitions(ExternalObjectLog log) {
         logEdit(OperationType.OP_DROP_EXTERNAL_PARTITIONS, log);
     }
@@ -1968,10 +2022,6 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
     }
 
-    public void logAutoJob(AnalysisInfo analysisInfo) {
-        logEdit(OperationType.OP_PERSIST_AUTO_JOB, analysisInfo);
-    }
-
     public void logDeleteTableStats(TableStatsDeletionLog log) {
         logEdit(OperationType.OP_DELETE_TABLE_STATS, log);
     }
@@ -1991,6 +2041,10 @@ public class EditLog {
 
     public void logInsertOverwrite(InsertOverwriteLog log) {
         logEdit(OperationType.OP_INSERT_OVERWRITE, log);
+    }
+
+    public void logMetaIdMappingsLog(MetaIdMappingsLog log) {
+        logEdit(OperationType.OP_ADD_META_ID_MAPPINGS, log);
     }
 
     public String getNotReadyReason() {

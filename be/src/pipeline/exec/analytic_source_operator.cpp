@@ -27,7 +27,7 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, SourceOperator)
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState<AnalyticSourceDependency>(state, parent),
+        : PipelineXLocalState<AnalyticSharedState>(state, parent),
           _output_block_index(0),
           _window_end_position(0),
           _next_partition(false),
@@ -159,7 +159,7 @@ bool AnalyticLocalState::_whether_need_next_partition(
 }
 
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSourceDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
@@ -167,9 +167,8 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
     _agg_functions_size = p._agg_functions.size();
 
-    _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
     _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage");
+            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
     _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
 
     _agg_functions.resize(p._agg_functions.size());
@@ -391,8 +390,8 @@ Status AnalyticLocalState::_get_next_for_range(size_t current_block_rows) {
            _window_end_position < current_block_rows) {
         if (_shared_state->current_row_position >= _order_by_end.pos) {
             _update_order_by_range();
-            _executor.execute(_order_by_start.pos, _order_by_end.pos, _order_by_start.pos,
-                              _order_by_end.pos);
+            _executor.execute(_partition_by_start.pos, _shared_state->partition_by_end.pos,
+                              _order_by_start.pos, _order_by_end.pos);
         }
         _executor.insert_result(current_block_rows);
     }
@@ -565,7 +564,7 @@ Status AnalyticLocalState::close(RuntimeState* state) {
 
     std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
     _result_window_columns.swap(tmp_result_window_columns);
-    return PipelineXLocalState<AnalyticSourceDependency>::close(state);
+    return PipelineXLocalState<AnalyticSharedState>::close(state);
 }
 
 Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {

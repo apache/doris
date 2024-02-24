@@ -60,26 +60,14 @@ private:
     vectorized::VSetOperationNode<is_intersect>* _set_node = nullptr;
 };
 
-class SetSinkDependency final : public Dependency {
-public:
-    using SharedState = SetSharedState;
-    SetSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SetSinkDependency", true, query_ctx) {}
-    ~SetSinkDependency() override = default;
-
-    void set_cur_child_id(int id) {
-        ((SetSharedState*)_shared_state.get())->probe_finished_children_dependency[id] = this;
-    }
-};
-
 template <bool is_intersect>
 class SetSinkOperatorX;
 
 template <bool is_intersect>
-class SetSinkLocalState final : public PipelineXSinkLocalState<SetSinkDependency> {
+class SetSinkLocalState final : public PipelineXSinkLocalState<SetSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(SetSinkLocalState);
-    using Base = PipelineXSinkLocalState<SetSinkDependency>;
+    using Base = PipelineXSinkLocalState<SetSharedState>;
     using Parent = SetSinkOperatorX<is_intersect>;
 
     SetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}

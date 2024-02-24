@@ -28,11 +28,12 @@ namespace doris {
 class HttpRequest;
 
 class ExecEnv;
+class StorageEngine;
 
 // Get BE tablets distribution info from http API.
 class TabletsDistributionAction : public HttpHandlerWithAuth {
 public:
-    TabletsDistributionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+    TabletsDistributionAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
                               TPrivilegeType::type type);
 
     ~TabletsDistributionAction() override = default;
@@ -44,6 +45,7 @@ public:
     std::string host() { return _host; }
 
 private:
+    StorageEngine& _engine;
     std::string _host;
 };
 } // namespace doris

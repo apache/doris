@@ -32,7 +32,7 @@ std::string WalInfo::get_wal_path() {
     return _wal_path;
 }
 
-int64_t WalInfo::get_retry_num() {
+int32_t WalInfo::get_retry_num() {
     return _retry_num;
 }
 

@@ -1,6 +1,6 @@
 -- TABLES: part,SUPPLIER,lineitem,partsupp,orders,NATION
 -- ERROR: not stable
-SELECT
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
   NATION,
   O_YEAR,
   SUM(AMOUNT) AS SUM_PROFIT

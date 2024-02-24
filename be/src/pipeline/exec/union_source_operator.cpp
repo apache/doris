@@ -54,15 +54,17 @@ bool UnionSourceOperator::_has_data() {
 
 // we assumed it can read to process const expr， Although we don't know whether there is
 // ,and queue have data, could read also
+// The source operator's run dependences on Node's alloc_resource, which is called in Sink's open.
+// So hang until SinkOperator was scheduled to open.
 bool UnionSourceOperator::can_read() {
-    return _has_data() || _data_queue->is_all_finish();
+    return _node->resource_allocated() && (_has_data() || _data_queue->is_all_finish());
 }
 
 Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* block, bool* eos) {
     // here we precess const expr firstly
     if (_need_read_for_const_expr) {
         if (_node->has_more_const(state)) {
-            static_cast<void>(_node->get_next_const(state, block));
+            RETURN_IF_ERROR(_node->get_next_const(state, block));
         }
         _need_read_for_const_expr = _node->has_more_const(state);
     } else {
@@ -105,28 +107,19 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
 }
 
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
     int child_count = p.get_child_count();
-    auto ss = create_shared_state();
     if (child_count != 0) {
         auto& deps = info.upstream_dependencies;
         for (auto& dep : deps) {
-            ((UnionSinkDependency*)dep.get())->set_shared_state(ss);
+            dep->set_shared_state(_dependency->shared_state());
         }
-    } else {
-        auto& deps = info.upstream_dependencies;
-        DCHECK(child_count == 0);
-        DCHECK(deps.size() == 1);
-        DCHECK(deps.front() == nullptr);
-        //child_count == 0 , we need to creat a  UnionDependency
-        deps.front() = std::make_shared<UnionSourceDependency>(
-                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
-        ((UnionSourceDependency*)deps.front().get())->set_shared_state(ss);
     }
-    RETURN_IF_ERROR(Base::init(state, info));
-    ss->data_queue.set_source_dependency(info.dependency);
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    ((UnionSharedState*)_dependency->shared_state())
+            ->data_queue.set_source_dependency(info.dependency);
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
     if (state->per_fragment_instance_idx() == 0) {
@@ -149,13 +142,6 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         _dependency->set_ready();
     }
     return Status::OK();
-}
-
-std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
-    auto& p = _parent->cast<Parent>();
-    std::shared_ptr<UnionSharedState> data_queue =
-            std::make_shared<UnionSharedState>(p._child_size);
-    return data_queue;
 }
 
 std::string UnionSourceLocalState::debug_string(int indentation_level) const {
@@ -217,15 +203,23 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
         tmp_block.insert({vectorized::ColumnUInt8::create(1),
                           std::make_shared<vectorized::DataTypeUInt8>(), ""});
         int const_expr_lists_size = _const_expr_lists[_const_expr_list_idx].size();
+        if (_const_expr_list_idx && const_expr_lists_size != _const_expr_lists[0].size()) {
+            return Status::InternalError(
+                    "[UnionNode]const expr at {}'s count({}) not matched({} expected)",
+                    _const_expr_list_idx, const_expr_lists_size, _const_expr_lists[0].size());
+        }
+
         std::vector<int> result_list(const_expr_lists_size);
         for (size_t i = 0; i < const_expr_lists_size; ++i) {
             RETURN_IF_ERROR(_const_expr_lists[_const_expr_list_idx][i]->execute(&tmp_block,
                                                                                 &result_list[i]));
         }
         tmp_block.erase_not_in(result_list);
-        VLOG_ROW << "query id: " << print_id(state->query_id())
-                 << ", instance id: " << print_id(state->fragment_instance_id())
-                 << ", tmp_block rows: " << tmp_block.rows();
+        if (tmp_block.columns() != mblock.columns()) {
+            return Status::InternalError(
+                    "[UnionNode]columns count of const expr block not matched ({} vs {})",
+                    tmp_block.columns(), mblock.columns());
+        }
         if (tmp_block.rows() > 0) {
             RETURN_IF_ERROR(mblock.merge(tmp_block));
             tmp_block.clear();
@@ -235,9 +229,6 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we
     // need add one row to make sure the union node exec const expr return at least one row
-    VLOG_ROW << "query id: " << print_id(state->query_id())
-             << ", instance id: " << print_id(state->fragment_instance_id())
-             << ", tmp_block rows: " << block->rows();
     if (block->rows() == 0) {
         block->insert({vectorized::ColumnUInt8::create(1),
                        std::make_shared<vectorized::DataTypeUInt8>(), ""});

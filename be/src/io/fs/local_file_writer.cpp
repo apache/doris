@@ -200,6 +200,7 @@ Status LocalFileWriter::_close(bool sync) {
     if (0 != ::close(_fd)) {
         return localfs_error(errno, fmt::format("failed to close {}", _path.native()));
     }
+    _closed = true;
 
     DBUG_EXECUTE_IF("LocalFileWriter.close.failed", {
         // spare '.testfile' to make bad disk checker happy
@@ -208,7 +209,6 @@ Status LocalFileWriter::_close(bool sync) {
         }
     });
 
-    _closed = true;
     return Status::OK();
 }
 

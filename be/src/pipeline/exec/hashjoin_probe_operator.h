@@ -59,19 +59,13 @@ using HashTableCtxVariants = std::variant<
         vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN, HashJoinProbeLocalState>,
         vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN, HashJoinProbeLocalState>,
         vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN,
+                                          HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN,
                                           HashJoinProbeLocalState>>;
-
-class HashJoinProbeDependency final : public Dependency {
-public:
-    using SharedState = HashJoinSharedState;
-    HashJoinProbeDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "HashJoinProbeDependency", query_ctx) {}
-    ~HashJoinProbeDependency() override = default;
-};
 
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState final
-        : public JoinProbeLocalState<HashJoinProbeDependency, HashJoinProbeLocalState> {
+        : public JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState> {
 public:
     using Parent = HashJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(HashJoinProbeLocalState);
@@ -120,10 +114,16 @@ private:
     std::atomic<bool> _probe_inited = false;
     int _last_probe_match;
 
+    // For mark join, last probe index of null mark
+    int _last_probe_null_mark;
+
     vectorized::Block _probe_block;
     vectorized::ColumnRawPtrs _probe_columns;
     // other expr
     vectorized::VExprContextSPtrs _other_join_conjuncts;
+
+    vectorized::VExprContextSPtrs _mark_join_conjuncts;
+
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<uint16_t> _probe_column_disguise_null;
@@ -141,6 +141,7 @@ private:
     RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage = nullptr;
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
 };
@@ -187,6 +188,9 @@ private:
     const bool _is_broadcast_join;
     // other expr
     vectorized::VExprContextSPtrs _other_join_conjuncts;
+
+    vectorized::VExprContextSPtrs _mark_join_conjuncts;
+
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     bool _probe_ignore_null = false;

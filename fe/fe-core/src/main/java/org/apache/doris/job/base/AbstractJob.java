@@ -50,6 +50,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
@@ -128,7 +129,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         this.executeSql = executeSql;
     }
 
-    private List<T> runningTasks = new ArrayList<>();
+    private CopyOnWriteArrayList<T> runningTasks = new CopyOnWriteArrayList<>();
 
     private Lock createTaskLock = new ReentrantLock();
 
@@ -140,7 +141,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         for (T task : runningTasks) {
             task.cancel();
         }
-        runningTasks = new ArrayList<>();
+        runningTasks = new CopyOnWriteArrayList<>();
     }
 
     private static final ImmutableList<String> TITLE_NAMES =
@@ -166,7 +167,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             throw new JobException("no running task");
         }
         runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
-                .orElseThrow(() -> new JobException("no task id: " + taskId)).cancel();
+                .orElseThrow(() -> new JobException("Not found task id: " + taskId)).cancel();
         runningTasks.removeIf(task -> task.getTaskId().equals(taskId));
         if (jobConfig.getExecuteType().equals(JobExecuteType.ONE_TIME)) {
             updateJobStatus(JobStatus.FINISHED);
@@ -244,11 +245,11 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         if (null == newJobStatus) {
             throw new IllegalArgumentException("jobStatus cannot be null");
         }
+        if (jobStatus == newJobStatus) {
+            return;
+        }
         String errorMsg = String.format("Can't update job %s status to the %s status",
                 jobStatus.name(), newJobStatus.name());
-        if (jobStatus == newJobStatus) {
-            throw new IllegalArgumentException(errorMsg);
-        }
         if (newJobStatus.equals(JobStatus.RUNNING) && !jobStatus.equals(JobStatus.PAUSED)) {
             throw new IllegalArgumentException(errorMsg);
         }
@@ -270,7 +271,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     public static AbstractJob readFields(DataInput in) throws IOException {
         String jsonJob = Text.readString(in);
         AbstractJob job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
-        job.runningTasks = new ArrayList<>();
+        job.runningTasks = new CopyOnWriteArrayList();
         job.createTaskLock = new ReentrantLock();
         return job;
     }
@@ -289,19 +290,19 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
     @Override
     public void onTaskFail(T task) throws JobException {
-        updateJobStatusIfEnd();
+        updateJobStatusIfEnd(false);
         runningTasks.remove(task);
     }
 
     @Override
     public void onTaskSuccess(T task) throws JobException {
-        updateJobStatusIfEnd();
+        updateJobStatusIfEnd(true);
         runningTasks.remove(task);
 
     }
 
 
-    private void updateJobStatusIfEnd() throws JobException {
+    private void updateJobStatusIfEnd(boolean taskSuccess) throws JobException {
         JobExecuteType executeType = getJobConfig().getExecuteType();
         if (executeType.equals(JobExecuteType.MANUAL)) {
             return;
@@ -309,7 +310,12 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         switch (executeType) {
             case ONE_TIME:
             case INSTANT:
-                Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
+                this.finishTimeMs = System.currentTimeMillis();
+                if (taskSuccess) {
+                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
+                } else {
+                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.STOPPED);
+                }
                 break;
             case RECURRING:
                 TimerDefinition timerDefinition = getJobConfig().getTimerDefinition();

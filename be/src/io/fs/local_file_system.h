@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <time.h>
-
+#include <cstdint>
+#include <ctime>
 #include <functional>
 #include <memory>
 #include <string>
@@ -29,8 +28,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 class LocalFileSystem final : public FileSystem {
 public:
@@ -62,6 +60,10 @@ public:
     static bool contain_path(const Path& parent, const Path& sub);
     // delete dir or file
     Status delete_directory_or_file(const Path& path);
+    // change the file permission of the given path
+    Status permission(const Path& file, std::filesystem::perms prms);
+
+    static std::filesystem::perms PERMS_OWNER_RW;
 
     Status canonicalize_local_file(const std::string& dir, const std::string& file_path,
                                    std::string* full_path);
@@ -94,6 +96,7 @@ protected:
                                   const std::function<bool(const FileInfo&)>& cb);
     Status get_space_info_impl(const Path& path, size_t* capacity, size_t* available);
     Status copy_path_impl(const Path& src, const Path& dest);
+    Status permission_impl(const Path& file, std::filesystem::perms prms);
 
 private:
     // a wrapper for glob(), return file list in "res"
@@ -101,7 +104,6 @@ private:
     LocalFileSystem(Path&& root_path, std::string&& id = "");
 };
 
-const std::shared_ptr<LocalFileSystem>& global_local_filesystem();
+PURE const std::shared_ptr<LocalFileSystem>& global_local_filesystem();
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

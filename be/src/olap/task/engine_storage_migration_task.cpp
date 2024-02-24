@@ -49,11 +49,13 @@ namespace doris {
 
 using std::stringstream;
 
-EngineStorageMigrationTask::EngineStorageMigrationTask(const TabletSharedPtr& tablet,
-                                                       DataDir* dest_store)
-        : _tablet(tablet), _dest_store(dest_store) {
+EngineStorageMigrationTask::EngineStorageMigrationTask(StorageEngine& engine,
+                                                       TabletSharedPtr tablet, DataDir* dest_store)
+        : _engine(engine), _tablet(std::move(tablet)), _dest_store(dest_store) {
     _task_start_time = time(nullptr);
 }
+
+EngineStorageMigrationTask::~EngineStorageMigrationTask() = default;
 
 Status EngineStorageMigrationTask::execute() {
     return _migrate();
@@ -69,7 +71,7 @@ Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t*
         return Status::NotSupported(
                 "currently not support migrate tablet with cooldowned remote data");
     }
-    const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
+    const RowsetSharedPtr last_version = _tablet->get_rowset_with_max_version();
     if (last_version == nullptr) {
         return Status::InternalError("failed to get rowset with max version, tablet={}",
                                      _tablet->tablet_id());
@@ -82,8 +84,8 @@ Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t*
                    << ", start_version=" << start_version << ", end_version=" << *end_version;
         return Status::OK();
     }
-    return _tablet->capture_consistent_rowsets(Version(start_version, *end_version),
-                                               consistent_rowsets);
+    return _tablet->capture_consistent_rowsets_unlocked(Version(start_version, *end_version),
+                                                        consistent_rowsets);
 }
 
 bool EngineStorageMigrationTask::_is_timeout() {
@@ -91,7 +93,7 @@ bool EngineStorageMigrationTask::_is_timeout() {
     int64_t timeout = std::max<int64_t>(config::migration_task_timeout_secs,
                                         _tablet->tablet_local_size() >> 20);
     if (time_elapsed > timeout) {
-        LOG(WARNING) << "migration failed due to timeout, time_eplapsed=" << time_elapsed
+        LOG(WARNING) << "migration failed due to timeout, time_elapsed=" << time_elapsed
                      << ", tablet=" << _tablet->tablet_id();
         return true;
     }
@@ -103,9 +105,9 @@ Status EngineStorageMigrationTask::_check_running_txns() {
     int64_t partition_id;
     std::set<int64_t> transaction_ids;
     // check if this tablet has related running txns. if yes, can not do migration.
-    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(
-            _tablet->tablet_id(), _tablet->tablet_uid(), &partition_id, &transaction_ids);
-    if (transaction_ids.size() > 0) {
+    _engine.txn_manager()->get_tablet_related_txns(_tablet->tablet_id(), _tablet->tablet_uid(),
+                                                   &partition_id, &transaction_ids);
+    if (!transaction_ids.empty()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has unfinished txns",
                                                                _tablet->tablet_id());
     }
@@ -154,7 +156,7 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
 
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
-    _pending_rs_guards = DORIS_TRY(SnapshotManager::instance()->convert_rowset_ids(
+    _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
             full_path, tablet_id, _tablet->replica_id(), _tablet->partition_id(), schema_hash));
     return Status::OK();
 }
@@ -167,12 +169,12 @@ Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) 
     // need hold migration lock and push lock outside
     int64_t tablet_id = _tablet->tablet_id();
     int32_t schema_hash = _tablet->schema_hash();
-    RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
-            _dest_store, tablet_id, schema_hash, full_path, false));
+    RETURN_IF_ERROR(_engine.tablet_manager()->load_tablet_from_dir(_dest_store, tablet_id,
+                                                                   schema_hash, full_path, false));
 
     // if old tablet finished schema change, then the schema change status of the new tablet is DONE
     // else the schema change status of the new tablet is FAILED
-    TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    TabletSharedPtr new_tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (new_tablet == nullptr) {
         return Status::NotFound("could not find tablet {}", tablet_id);
     }
@@ -319,7 +321,7 @@ Status EngineStorageMigrationTask::_migrate() {
 void EngineStorageMigrationTask::_generate_new_header(
         uint64_t new_shard, const std::vector<RowsetSharedPtr>& consistent_rowsets,
         TabletMetaSharedPtr new_tablet_meta, int64_t end_version) {
-    _tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
+    _tablet->generate_tablet_meta_copy_unlocked(*new_tablet_meta);
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {

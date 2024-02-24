@@ -44,18 +44,10 @@ public:
     bool can_write() override { return true; }
 };
 
-class NestedLoopJoinBuildSinkDependency final : public Dependency {
-public:
-    using SharedState = NestedLoopJoinSharedState;
-    NestedLoopJoinBuildSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "NestedLoopJoinBuildSinkDependency", true, query_ctx) {}
-    ~NestedLoopJoinBuildSinkDependency() override = default;
-};
-
 class NestedLoopJoinBuildSinkOperatorX;
 
 class NestedLoopJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
+        : public JoinBuildSinkLocalState<NestedLoopJoinSharedState,
                                          NestedLoopJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(NestedLoopJoinBuildSinkLocalState);
@@ -65,7 +57,6 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs();
     vectorized::VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
     RuntimeProfile::Counter* runtime_filter_compute_timer() {
         return _runtime_filter_compute_timer;
@@ -115,7 +106,6 @@ private:
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 
-    const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;
 };

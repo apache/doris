@@ -296,10 +296,21 @@ struct TypeId<String> {
 /// Not a data type in database, defined just for convenience.
 using Strings = std::vector<String>;
 
-using Int128 = __int128;
+using IPv4 = uint32_t;
+using IPv6 = uint128_t;
 
-using IPv4 = UInt32;
-using IPv6 = Int128;
+template <>
+inline constexpr bool IsNumber<IPv6> = true;
+template <>
+struct TypeName<IPv6> {
+    static const char* get() { return "IPv6"; }
+};
+template <>
+struct TypeId<IPv6> {
+    static constexpr const TypeIndex value = TypeIndex::IPv6;
+};
+
+using Int128 = __int128;
 
 template <>
 inline constexpr bool IsNumber<Int128> = true;
@@ -514,6 +525,7 @@ struct Decimal {
     explicit(IsInt256) Decimal(Int32 value) noexcept : value(value) {}
     explicit(IsInt256) Decimal(Int64 value) noexcept : value(value) {}
     explicit(IsInt256) Decimal(Int128 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(IPv6 value) noexcept : value(value) {}
     explicit(IsInt256) Decimal(wide::Int256 value) noexcept : value(value) {}
     explicit(IsInt256) Decimal(UInt64 value) noexcept : value(value) {}
     explicit(IsInt256) Decimal(UInt32 value) noexcept : value(value) {}
@@ -658,6 +670,7 @@ struct Decimal128V3 : public Decimal<Int128> {
 
     DECLARE_NUMERIC_CTOR(wide::Int256)
     DECLARE_NUMERIC_CTOR(Int128)
+    DECLARE_NUMERIC_CTOR(IPv6)
     DECLARE_NUMERIC_CTOR(Int32)
     DECLARE_NUMERIC_CTOR(Int64)
     DECLARE_NUMERIC_CTOR(UInt32)

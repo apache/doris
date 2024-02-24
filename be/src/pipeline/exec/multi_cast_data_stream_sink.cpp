@@ -35,15 +35,4 @@ std::string MultiCastDataStreamSinkLocalState::name_suffix() {
     return id_name;
 }
 
-Status MultiCastDataStreamSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    auto multi_cast_data_streamer = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent)
-                                            ->create_multi_cast_data_streamer();
-    auto& deps = info.dependencys;
-    for (auto dep : deps) {
-        ((MultiCastSinkDependency*)dep.get())->set_shared_state(multi_cast_data_streamer);
-    }
-    RETURN_IF_ERROR(Base::init(state, info));
-    return Status::OK();
-}
-
 } // namespace doris::pipeline
