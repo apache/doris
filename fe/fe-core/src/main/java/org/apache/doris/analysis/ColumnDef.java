@@ -461,7 +461,7 @@ public class ColumnDef {
         Preconditions.checkNotNull(defaultValue);
         Preconditions.checkArgument(type.isScalarType());
         ScalarType scalarType = (ScalarType) type;
-
+        // do nothing just test regression
         // check if default value is valid.
         // if not, some literal constructor will throw AnalysisException
         PrimitiveType primitiveType = scalarType.getPrimitiveType();
