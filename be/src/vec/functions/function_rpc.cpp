@@ -67,7 +67,8 @@ Status RPCFnImpl::vec_call(FunctionContext* context, Block& block, const ColumnN
 }
 
 static Status RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& arguments,
-                                          size_t input_rows_count, PFunctionCallRequest* request) {
+                                                 size_t input_rows_count,
+                                                 PFunctionCallRequest* request) {
     size_t row_count = std::min(block.rows(), input_rows_count);
     for (size_t col_idx : arguments) {
         PValues* arg = request->add_args();
