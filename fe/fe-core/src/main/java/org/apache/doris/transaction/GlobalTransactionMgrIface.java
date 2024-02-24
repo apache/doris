@@ -39,6 +39,7 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 public interface GlobalTransactionMgrIface extends Writable {
@@ -151,6 +152,8 @@ public interface GlobalTransactionMgrIface extends Writable {
     public List<List<String>> getDbTransStateInfo(Long dbId) throws AnalysisException;
 
     public List<List<String>> getDbTransInfo(Long dbId, boolean running, int limit) throws AnalysisException;
+
+    public Map<Long, List<Long>> getDbRunningTransInfo(long dbId) throws AnalysisException;
 
     public List<List<Comparable>> getTableTransInfo(long dbId, long txnId) throws AnalysisException;
 

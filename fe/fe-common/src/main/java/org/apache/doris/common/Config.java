@@ -142,6 +142,14 @@ public class Config extends ConfigBase {
                     + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
     public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
+    @ConfField(description = {"JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔"
+            + "默认为 * 全部允许，如果设置为空责全部不允许",
+            "The safe path of the JDBC driver. When creating a JDBC Catalog,"
+                    + "you can configure multiple files or network paths that are allowed to be used,"
+                    + "separated by semicolons"
+                    + "The default is * to allow all, if set to empty, all are not allowed"})
+    public static String jdbc_driver_secure_path = "*";
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 8;
@@ -1795,16 +1803,27 @@ public class Config extends ConfigBase {
      * And the max number of compute node is controlled by min_backend_num_for_external_table.
      * If set to false, query on external table will assign to any node.
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, description = {"如果设置为true，外部表的查询将优先分配给计算节点。",
+            "并且计算节点的最大数量由min_backend_num_for_external_table控制。",
+            "如果设置为false，外部表的查询将分配给任何节点。"
+                    + "如果集群内没有计算节点，则该参数不生效。",
+            "If set to true, query on external table will prefer to assign to compute node. "
+                    + "And the max number of compute node is controlled by min_backend_num_for_external_table. "
+                    + "If set to false, query on external table will assign to any node. "
+                    + "If there is no compute node in cluster, this config takes no effect."})
     public static boolean prefer_compute_node_for_external_table = false;
-    /**
-     * Only take effect when prefer_compute_node_for_external_table is true.
-     * If the compute node number is less than this value, query on external table will try to get some mix node
-     * to assign, to let the total number of node reach this value.
-     * If the compute node number is larger than this value, query on external table will assign to compute node only.
-     */
-    @ConfField(mutable = true, masterOnly = false)
-    public static int min_backend_num_for_external_table = 3;
+
+    @ConfField(mutable = true, description = {"只有当prefer_compute_node_for_external_table为true时生效，"
+            + "如果计算节点数小于这个值，外部表的查询会尝试获取一些混合节点来分配，以使节点总数达到这个值。"
+            + "如果计算节点数大于这个值，外部表的查询将只分配给计算节点。-1表示只是用当前数量的计算节点",
+            "Only take effect when prefer_compute_node_for_external_table is true. "
+                    + "If the compute node number is less than this value, "
+                    + "query on external table will try to get some mix de to assign, "
+                    + "to let the total number of node reach this value. "
+                    + "If the compute node number is larger than this value, "
+                    + "query on external table will assign to compute de only. "
+                    + "-1 means only use current compute node."})
+    public static int min_backend_num_for_external_table = -1;
 
     /**
      * Max query profile num.
@@ -1893,6 +1912,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false, description = {"远程文件系统缓存的最大数量",
         "Max cache number of remote file system."})
     public static long max_remote_file_system_cache_num = 100;
+
+    @ConfField(mutable = false, masterOnly = false, description = {"外表行数缓存最大数量",
+        "Max cache number of external table row count"})
+    public static long max_external_table_row_count_cache_num = 100000;
 
     /**
      * Max cache loader thread-pool size.

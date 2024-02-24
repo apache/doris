@@ -220,15 +220,8 @@ public:
         // TODO add hash function
     }
 
-    virtual void update_hashes_with_value(
-            std::vector<SipHash>& hashes,
-            const uint8_t* __restrict null_data = nullptr) const override {
-        // TODO add hash function
-    }
-
-    virtual void update_hashes_with_value(
-            uint64_t* __restrict hashes,
-            const uint8_t* __restrict null_data = nullptr) const override {
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override {
         // TODO add hash function
     }
 

@@ -34,25 +34,21 @@ class VRuntimeFilterSlots {
 public:
     VRuntimeFilterSlots(
             const std::vector<std::shared_ptr<vectorized::VExprContext>>& build_expr_ctxs,
-            const std::vector<IRuntimeFilter*>& runtime_filters, bool is_global = false)
+            const std::vector<IRuntimeFilter*>& runtime_filters, bool need_local_merge = false)
             : _build_expr_context(build_expr_ctxs),
               _runtime_filters(runtime_filters),
-              _is_global(is_global) {}
+              _need_local_merge(need_local_merge) {}
 
     Status init(RuntimeState* state, int64_t hash_table_size) {
         // runtime filter effect strategy
         // 1. we will ignore IN filter when hash_table_size is too big
         // 2. we will ignore BLOOM filter and MinMax filter when hash_table_size
         // is too small and IN filter has effect
-
         std::map<int, bool> has_in_filter;
 
         auto ignore_local_filter = [&](int filter_id) {
-            // Now pipeline x have bug in ignore, after fix the problem enable ignore logic in pipeline x
-            if (_is_global) {
-                return Status::OK();
-            }
-            auto runtime_filter_mgr = state->runtime_filter_mgr();
+            auto runtime_filter_mgr = _need_local_merge ? state->global_runtime_filter_mgr()
+                                                        : state->local_runtime_filter_mgr();
 
             std::vector<IRuntimeFilter*> filters;
             RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(filter_id, filters));
@@ -217,7 +213,7 @@ public:
 private:
     const std::vector<std::shared_ptr<vectorized::VExprContext>>& _build_expr_context;
     std::vector<IRuntimeFilter*> _runtime_filters;
-    const bool _is_global = false;
+    const bool _need_local_merge = false;
     // prob_contition index -> [IRuntimeFilter]
     std::map<int, std::list<IRuntimeFilter*>> _runtime_filters_map;
 };

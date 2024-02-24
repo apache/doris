@@ -61,11 +61,31 @@ PROPERTIES ("key"="value", ...)
 
 `driver_url` 可以通过以下三种方式指定：
 
-1. 文件名。如 `mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在 FE 和 BE 部署目录的 `jdbc_drivers/` 目录下。系统会自动在这个目录下寻找。该目录的位置，也可以由 fe.conf 和 be.conf 中的 `jdbc_drivers_dir` 配置修改。
+1. 文件名。如 `mysql-connector-java-8.0.25.jar`。需将 Jar 包预先存放在 FE 和 BE 部署目录的 `jdbc_drivers/` 目录下。系统会自动在这个目录下寻找。该目录的位置，也可以由 fe.conf 和 be.conf 中的 `jdbc_drivers_dir` 配置修改。
 
-2. 本地绝对路径。如 `file:///path/to/mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在所有 FE/BE 节点指定的路径下。
+2. 本地绝对路径。如 `file:///path/to/mysql-connector-java-8.0.25.jar`。需将 Jar 包预先存放在所有 FE/BE 节点指定的路径下。
 
 3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
+
+**驱动包安全性**
+
+为了防止在创建 Catalog 时使用了未允许路径的 Driver Jar 包，Doris 会对 Jar 包进行路径管理和校验和检查。
+
+1. 针对上述方式 1，Doris 默认用户配置的 `jdbc_drivers_dir` 和其目录下的所有 Jar 包都是安全的，不会对其进行路径检查。
+
+2. 针对上述方式 2、3 ，Doris 会对 Jar 包的来源进行检查，检查规则如下： 
+   
+   * 通过 FE 配置项 `jdbc_driver_secure_path` 来控制允许的驱动包路径，该配置项可配置多个路径，以分号分隔。当配置了该项时，Doris 会检查 Catalog properties 中 driver_url 的路径是的部分前缀是否在 `jdbc_driver_secure_path` 中，如果不在其中，则会拒绝创建 Catalog。
+   * 此参数默认为 `*` ，表示允许所有路径的 Jar 包。
+   * 如果配置 `jdbc_driver_secure_path` 为空，则不允许所有路径的驱动包，也就意味着只能使用上述方式 1 来指定驱动包。
+
+   > 如配置 `jdbc_driver_secure_path = "file:///path/to/jdbc_drivers;http://path/to/jdbc_drivers"`, 则只允许以 `file:///path/to/jdbc_drivers` 或 `http://path/to/jdbc_drivers` 开头的驱动包路径。
+
+3. 在创建 Catalog 时，可以通过 `checksum` 参数来指定驱动包的校验和，Doris 会在加载驱动包后，对驱动包进行校验，如果校验失败，则会拒绝创建 Catalog。
+
+:::warning
+上述的校验只会在创建 Catalog 时进行，对于已经创建的 Catalog，不会再次进行校验。
+:::
 
 ### 小写名称同步
 
@@ -975,3 +995,6 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
     可以先下载[lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar)包，然后放到DorisFE lib 目录以及BE 的 `lib/lib/java_extensions`目录中（Doris 2.0 之前的版本需放到 BE 的 lib 目录下）。
 
     从 2.0.2 版本起，可以将这个文件放置在 FE 和 BE 的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
+
+11. 如果通过 Jdbc catalog 查询 MySQL 的时候，出现长时间卡住没有返回结果，或着卡住很长时间并且 fe.warn.log 中出现出现大量 write lock 日志，可以尝试在 url 添加 socketTimeout ，例如：`jdbc:mysql://host:port/database?socketTimeout=30000` ， 防止 MySQL 在关闭连接后 Jdbc 客户端无限等待。
+

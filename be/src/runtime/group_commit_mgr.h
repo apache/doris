@@ -78,6 +78,10 @@ public:
     int64_t txn_id;
     int64_t schema_version;
     bool wait_internal_group_commit_finish = false;
+    bool data_size_condition = false;
+
+    // counts of load in one group commit
+    std::atomic_size_t group_commit_load_count = 0;
 
     // the execute status of this internal group commit
     std::mutex mutex;

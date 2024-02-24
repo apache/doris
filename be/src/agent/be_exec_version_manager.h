@@ -65,6 +65,7 @@ private:
  *    d. unix_timestamp function support timestamp with float for datetimev2, and change nullable mode.
  *    e. change shuffle serialize/deserialize way 
  *    f. shrink some function's nullable mode.
+ *    g. do local merge of remote runtime filter
 */
 constexpr inline int BeExecVersionManager::max_be_exec_version = 3;
 constexpr inline int BeExecVersionManager::min_be_exec_version = 0;

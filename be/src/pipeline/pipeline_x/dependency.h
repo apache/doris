@@ -46,8 +46,6 @@
 namespace doris::pipeline {
 
 class Dependency;
-class AnalyticSourceDependency;
-class AnalyticSinkDependency;
 class PipelineXTask;
 struct BasicSharedState;
 using DependencySPtr = std::shared_ptr<Dependency>;
@@ -78,9 +76,8 @@ struct BasicSharedState {
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
-    ENABLE_FACTORY_CREATOR(Dependency);
-
 public:
+    ENABLE_FACTORY_CREATOR(Dependency);
     Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : _id(id),
               _node_id(node_id),
@@ -137,7 +134,28 @@ public:
     }
 
     // Notify downstream pipeline tasks this dependency is blocked.
-    virtual void block() { _ready = false; }
+    void block() {
+        if (_always_ready) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_ready_lock);
+        if (_always_ready) {
+            return;
+        }
+        _ready = false;
+    }
+
+    void set_always_ready() {
+        if (_always_ready) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_ready_lock);
+        if (_always_ready) {
+            return;
+        }
+        _always_ready = true;
+        set_ready();
+    }
 
 protected:
     void _add_block_task(PipelineXTask* task);
@@ -156,9 +174,13 @@ protected:
 
     std::mutex _task_lock;
     std::vector<PipelineXTask*> _blocked_task;
+
+    // If `_always_ready` is true, `block()` will never block tasks.
+    std::atomic<bool> _always_ready = false;
+    std::mutex _always_ready_lock;
 };
 
-struct FakeSharedState : public BasicSharedState {};
+struct FakeSharedState final : public BasicSharedState {};
 
 struct FakeDependency final : public Dependency {
 public:
@@ -181,9 +203,10 @@ public:
 class RuntimeFilterDependency;
 class RuntimeFilterTimer {
 public:
-    RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
+    RuntimeFilterTimer(int filter_id, int64_t registration_time, int32_t wait_time_ms,
                        std::shared_ptr<RuntimeFilterDependency> parent)
-            : _parent(std::move(parent)),
+            : _filter_id(filter_id),
+              _parent(std::move(parent)),
               _registration_time(registration_time),
               _wait_time_ms(wait_time_ms) {}
 
@@ -193,7 +216,9 @@ public:
 
     void call_has_ready();
 
-    void call_has_release();
+    // When the use count is equal to 1, only the timer queue still holds ownership,
+    // so there is no need to take any action.
+    void call_has_release() {};
 
     bool has_ready();
 
@@ -201,6 +226,7 @@ public:
     int32_t wait_time_ms() const { return _wait_time_ms; }
 
 private:
+    int _filter_id = -1;
     bool _call_ready {};
     bool _call_timeout {};
     std::shared_ptr<RuntimeFilterDependency> _parent;
@@ -281,7 +307,7 @@ public:
             : Dependency(id, node_id, name, query_ctx) {}
     Dependency* is_blocked_by(PipelineXTask* task) override;
     void add_filters(IRuntimeFilter* runtime_filter);
-    void sub_filters();
+    void sub_filters(int id);
     void set_blocked_by_rf(std::shared_ptr<std::atomic_bool> blocked_by_rf) {
         _blocked_by_rf = blocked_by_rf;
     }
@@ -290,12 +316,17 @@ public:
 
 protected:
     std::atomic_int _filters;
+    phmap::flat_hash_map<int, bool> _filter_ready_map;
     std::shared_ptr<std::atomic_bool> _blocked_by_rf;
 };
 
+struct EmptySharedState final : public BasicSharedState {};
+
+struct AndSharedState final : public BasicSharedState {};
+
 class AndDependency final : public Dependency {
 public:
-    using SharedState = FakeSharedState;
+    using SharedState = AndSharedState;
     ENABLE_FACTORY_CREATOR(AndDependency);
     AndDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AndDependency", query_ctx) {}
@@ -341,7 +372,6 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
-    std::unique_ptr<DataQueue> data_queue = std::make_unique<DataQueue>(1, true);
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
@@ -402,8 +432,7 @@ public:
 
 struct UnionSharedState : public BasicSharedState {
 public:
-    UnionSharedState(int child_count = 1)
-            : data_queue(child_count, false), _child_count(child_count) {};
+    UnionSharedState(int child_count = 1) : data_queue(child_count), _child_count(child_count) {};
     int child_count() const { return _child_count; }
     DataQueue data_queue;
     const int _child_count;
@@ -486,7 +515,7 @@ public:
 
 class AsyncWriterDependency final : public Dependency {
 public:
-    using SharedState = FakeSharedState;
+    using SharedState = BasicSharedState;
     ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
     AsyncWriterDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AsyncWriterDependency", true, query_ctx) {}
@@ -634,10 +663,10 @@ public:
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
     void sub_running_sink_operators();
-    void _set_ready_for_read() {
+    void _set_always_ready() {
         for (auto& dep : source_dependencies) {
             DCHECK(dep);
-            dep->set_ready();
+            dep->set_always_ready();
         }
     }
 

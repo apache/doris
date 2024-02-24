@@ -216,8 +216,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
     if (master_info.__isset.backend_id) {
         _master_info->__set_backend_id(master_info.backend_id);
+        BackendOptions::set_backend_id(master_info.backend_id);
     }
-
     if (master_info.__isset.frontend_infos) {
         ExecEnv::GetInstance()->update_frontends(master_info.frontend_infos);
     } else {

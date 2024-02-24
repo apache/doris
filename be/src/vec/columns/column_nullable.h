@@ -219,8 +219,6 @@ public:
                                const uint8_t* __restrict null_data) const override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-    void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                  const uint8_t* __restrict null_data) const override;
     void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;

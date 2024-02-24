@@ -57,53 +57,11 @@ public:
     std::string debug_string() const override;
 };
 
-class ScanDependency final : public Dependency {
-public:
-    using SharedState = FakeSharedState;
-    ENABLE_FACTORY_CREATOR(ScanDependency);
-    ScanDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "ScanDependency", query_ctx) {}
-
-    void block() override {
-        if (_scanner_done) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(_always_done_lock);
-        if (_scanner_done) {
-            return;
-        }
-        Dependency::block();
-    }
-
-    void set_scanner_done() {
-        if (_scanner_done) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(_always_done_lock);
-        if (_scanner_done) {
-            return;
-        }
-        _scanner_done = true;
-        Dependency::set_ready();
-    }
-
-    std::string debug_string(int indentation_level = 0) override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "{}, _scanner_done = {}",
-                       Dependency::debug_string(indentation_level), _scanner_done);
-        return fmt::to_string(debug_string_buffer);
-    }
-
-private:
-    bool _scanner_done {false};
-    std::mutex _always_done_lock;
-};
-
-class ScanLocalStateBase : public PipelineXLocalState<ScanDependency>,
+class ScanLocalStateBase : public PipelineXLocalState<EmptySharedState>,
                            public vectorized::RuntimeFilterConsumer {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<ScanDependency>(state, parent),
+            : PipelineXLocalState<EmptySharedState>(state, parent),
               vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
     virtual ~ScanLocalStateBase() = default;
@@ -138,7 +96,6 @@ protected:
     virtual Status _init_profile() = 0;
 
     std::atomic<bool> _opened {false};
-    std::shared_ptr<ScanDependency> _scan_dependency;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;

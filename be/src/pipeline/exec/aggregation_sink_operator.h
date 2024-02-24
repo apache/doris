@@ -45,21 +45,13 @@ public:
     bool can_write() override { return true; }
 };
 
-class AggSinkDependency final : public Dependency {
-public:
-    using SharedState = AggSharedState;
-    AggSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AggSinkDependency", true, query_ctx) {}
-    ~AggSinkDependency() override = default;
-};
-
-template <typename LocalStateType>
 class AggSinkOperatorX;
 
-template <typename DependencyType, typename Derived>
-class AggSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
+class AggSinkLocalState : public PipelineXSinkLocalState<AggSharedState> {
 public:
-    using Base = PipelineXSinkLocalState<DependencyType>;
+    ENABLE_FACTORY_CREATOR(AggSinkLocalState);
+    using Base = PipelineXSinkLocalState<AggSharedState>;
+    AggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~AggSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -69,21 +61,16 @@ public:
     Status try_spill_disk(bool eos = false);
 
 protected:
-    AggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
-
-    template <typename LocalStateType>
     friend class AggSinkOperatorX;
 
     struct ExecutorBase {
-        virtual Status execute(AggSinkLocalState<DependencyType, Derived>* local_state,
-                               vectorized::Block* block) = 0;
-        virtual void update_memusage(AggSinkLocalState<DependencyType, Derived>* local_state) = 0;
+        virtual Status execute(AggSinkLocalState* local_state, vectorized::Block* block) = 0;
+        virtual void update_memusage(AggSinkLocalState* local_state) = 0;
         virtual ~ExecutorBase() = default;
     };
     template <bool WithoutKey, bool NeedToMerge>
     struct Executor final : public ExecutorBase {
-        Status execute(AggSinkLocalState<DependencyType, Derived>* local_state,
-                       vectorized::Block* block) override {
+        Status execute(AggSinkLocalState* local_state, vectorized::Block* block) override {
             if constexpr (WithoutKey) {
                 if constexpr (NeedToMerge) {
                     return local_state->_merge_without_key(block);
@@ -98,7 +85,7 @@ protected:
                 }
             }
         }
-        void update_memusage(AggSinkLocalState<DependencyType, Derived>* local_state) override {
+        void update_memusage(AggSinkLocalState* local_state) override {
             if constexpr (WithoutKey) {
                 local_state->_update_memusage_without_key();
             } else {
@@ -309,7 +296,6 @@ protected:
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
-    RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::Counter* _build_table_convert_timer = nullptr;
     RuntimeProfile::Counter* _serialize_key_timer = nullptr;
     RuntimeProfile::Counter* _merge_timer = nullptr;
@@ -333,29 +319,14 @@ protected:
     std::unique_ptr<ExecutorBase> _executor = nullptr;
 };
 
-class BlockingAggSinkLocalState
-        : public AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState> {
-public:
-    ENABLE_FACTORY_CREATOR(BlockingAggSinkLocalState);
-    using Parent = AggSinkOperatorX<BlockingAggSinkLocalState>;
-
-    BlockingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState>(parent, state) {}
-    ~BlockingAggSinkLocalState() override = default;
-};
-
-class StreamingAggSinkDependency;
-class StreamingAggSinkLocalState;
-
-template <typename LocalStateType = BlockingAggSinkLocalState>
-class AggSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
+class AggSinkOperatorX final : public DataSinkOperatorX<AggSinkLocalState> {
 public:
     AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                     const DescriptorTbl& descs, bool is_streaming = false);
+                     const DescriptorTbl& descs);
     ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
-                                     DataSinkOperatorX<LocalStateType>::_name);
+                                     DataSinkOperatorX<AggSinkLocalState>::_name);
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
@@ -368,25 +339,22 @@ public:
 
     DataDistribution required_data_distribution() const override {
         if (_probe_expr_ctxs.empty()) {
-            return _needs_finalize || DataSinkOperatorX<LocalStateType>::_child_x
+            return _needs_finalize || DataSinkOperatorX<AggSinkLocalState>::_child_x
                                               ->ignore_data_distribution()
                            ? DataDistribution(ExchangeType::PASSTHROUGH)
-                           : DataSinkOperatorX<LocalStateType>::required_data_distribution();
+                           : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
         }
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
-    using DataSinkOperatorX<LocalStateType>::id;
-    using DataSinkOperatorX<LocalStateType>::operator_id;
-    using DataSinkOperatorX<LocalStateType>::get_local_state;
+    using DataSinkOperatorX<AggSinkLocalState>::id;
+    using DataSinkOperatorX<AggSinkLocalState>::operator_id;
+    using DataSinkOperatorX<AggSinkLocalState>::get_local_state;
 
 protected:
-    using LocalState = LocalStateType;
-    template <typename DependencyType, typename Derived>
+    using LocalState = AggSinkLocalState;
     friend class AggSinkLocalState;
-    friend class StreamingAggSinkLocalState;
-    friend class DistinctStreamingAggSinkLocalState;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
 
@@ -415,7 +383,6 @@ protected:
     size_t _spill_partition_count_bits;
     int64_t _limit; // -1: no limit
     bool _have_conjuncts;
-    const bool _is_streaming;
 
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;

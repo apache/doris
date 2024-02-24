@@ -51,17 +51,9 @@ public:
     Status close(RuntimeState* state) override;
 };
 
-class NestedLoopJoinProbeDependency final : public Dependency {
-public:
-    using SharedState = NestedLoopJoinSharedState;
-    NestedLoopJoinProbeDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "NestedLoopJoinProbeDependency", query_ctx) {}
-    ~NestedLoopJoinProbeDependency() override = default;
-};
-
 class NestedLoopJoinProbeOperatorX;
 class NestedLoopJoinProbeLocalState final
-        : public JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState> {
+        : public JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState> {
 public:
     using Parent = NestedLoopJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(NestedLoopJoinProbeLocalState);
@@ -234,7 +226,7 @@ public:
         return {ExchangeType::ADAPTIVE_PASSTHROUGH};
     }
 
-    const RowDescriptor& row_desc() override {
+    const RowDescriptor& row_desc() const override {
         return _old_version_flag
                        ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
                        : *_output_row_desc;

@@ -58,7 +58,6 @@
 #include "common/config.h"
 #include "common/daemon.h"
 #include "common/logging.h"
-#include "common/phdr_cache.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
@@ -488,8 +487,8 @@ int main(int argc, char** argv) {
     auto* exec_env(doris::ExecEnv::GetInstance());
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, broken_paths);
     if (status != Status::OK()) {
-        LOG(ERROR) << "failed to init doris storage engine, res=" << status;
-        exit(-1);
+        std::cerr << "failed to init doris storage engine, res=" << status;
+        return 0;
     }
 
     // begin to start services
@@ -509,9 +508,8 @@ int main(int argc, char** argv) {
 
     status = be_server->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris Be server did not start correctly, exiting";
-        doris::shutdown_logging();
-        exit(1);
+        std::cerr << "Doris BE server did not start correctly, exiting\n";
+        exit(-1);
     }
 
     // 2. bprc service
@@ -519,9 +517,8 @@ int main(int argc, char** argv) {
             std::make_unique<doris::BRpcService>(exec_env);
     status = brpc_service->start(doris::config::brpc_port, doris::config::brpc_num_threads);
     if (!status.ok()) {
-        LOG(ERROR) << "BRPC service did not start correctly, exiting";
-        doris::shutdown_logging();
-        exit(1);
+        std::cerr << "BRPC service did not start correctly, exiting\n";
+        exit(-1);
     }
 
     // 3. http service
@@ -529,9 +526,8 @@ int main(int argc, char** argv) {
             exec_env, doris::config::webserver_port, doris::config::webserver_num_workers);
     status = http_service->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris Be http service did not start correctly, exiting";
-        doris::shutdown_logging();
-        exit(1);
+        std::cerr << "Doris Be http service did not start correctly, exiting\n";
+        exit(-1);
     }
 
     // 4. heart beat server
@@ -542,16 +538,15 @@ int main(int argc, char** argv) {
             doris::config::heartbeat_service_thread_count, master_info);
 
     if (!heartbeat_status.ok()) {
-        LOG(ERROR) << "Heartbeat services did not start correctly, exiting";
-        doris::shutdown_logging();
-        exit(1);
+        std::cerr << "Heartbeat services did not start correctly, exiting";
+        exit(-1);
     }
 
     status = heartbeat_thrift_server->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: " << status;
-        doris::shutdown_logging();
-        exit(1);
+        std::cerr << "Doris BE HeartBeat Service did not start correctly, exiting: " << status
+                  << '\n';
+        exit(-1);
     }
 
     // 5. arrow flight service
@@ -563,10 +558,9 @@ int main(int argc, char** argv) {
     doris::Daemon daemon;
     daemon.start();
     if (!status.ok()) {
-        LOG(ERROR) << "Arrow Flight Service did not start correctly, exiting, "
-                   << status.to_string();
-        doris::shutdown_logging();
-        exit(1);
+        std::cerr << "Arrow Flight Service did not start correctly, exiting, " << status.to_string()
+                  << '\n';
+        exit(-1);
     }
 
     while (!doris::k_doris_exit) {

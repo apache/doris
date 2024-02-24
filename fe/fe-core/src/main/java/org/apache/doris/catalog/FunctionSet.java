@@ -1931,6 +1931,7 @@ public class FunctionSet<T> {
         addTableFunctionWithCombinator(EXPLODE, Type.WILDCARD_DECIMAL, Function.NullableMode.ALWAYS_NULLABLE,
                 Lists.newArrayList(new ArrayType(Type.WILDCARD_DECIMAL)), false,
                 "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
+
     }
 
     public boolean isAggFunctionName(String name) {

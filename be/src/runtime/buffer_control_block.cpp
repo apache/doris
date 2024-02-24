@@ -300,7 +300,7 @@ Status PipBufferControlBlock::cancel() {
 }
 
 void PipBufferControlBlock::set_dependency(
-        std::shared_ptr<pipeline::ResultSinkDependency> result_sink_dependency) {
+        std::shared_ptr<pipeline::Dependency> result_sink_dependency) {
     _result_sink_dependency = result_sink_dependency;
 }
 
