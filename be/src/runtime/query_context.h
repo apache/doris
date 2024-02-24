@@ -70,7 +70,7 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options);
+                 const TQueryOptions& query_options, TNetworkAddress coord_addr);
 
     ~QueryContext();
 

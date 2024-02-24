@@ -22,24 +22,22 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CacheException;
-import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.RemoteFiles;
 import org.apache.doris.fs.remote.RemoteFile;
@@ -51,7 +49,6 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
-import org.apache.doris.planner.external.FileSplit;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -523,10 +520,12 @@ public class HiveMetaStoreCache {
                     e, catalog.getName());
         }
 
-        LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
-                fileLists.stream().mapToInt(l -> l.getFiles() == null
-                        ? (l.getSplits() == null ? 0 : l.getSplits().size()) : l.getFiles().size()).sum(),
-                partitions.size(), catalog.getName(), (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
+                    fileLists.stream().mapToInt(l -> l.getFiles() == null
+                            ? (l.getSplits() == null ? 0 : l.getSplits().size()) : l.getFiles().size()).sum(),
+                    partitions.size(), catalog.getName(), (System.currentTimeMillis() - start));
+        }
         return fileLists;
     }
 
@@ -559,8 +558,10 @@ public class HiveMetaStoreCache {
             throw new CacheException("failed to get partition in catalog %s", e, catalog.getName());
         }
 
-        LOG.debug("get #{} partitions in catalog {} cost: {} ms", partitions.size(), catalog.getName(),
-                (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get #{} partitions in catalog {} cost: {} ms", partitions.size(), catalog.getName(),
+                    (System.currentTimeMillis() - start));
+        }
         return partitions;
     }
 
@@ -579,9 +580,11 @@ public class HiveMetaStoreCache {
                 }
             }
             partitionValuesCache.invalidate(key);
-            LOG.debug("invalid table cache for {}.{} in catalog {}, cache num: {}, cost: {} ms",
-                    dbName, tblName, catalog.getName(), partitionValues.partitionValuesMap.size(),
-                    (System.currentTimeMillis() - start));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("invalid table cache for {}.{} in catalog {}, cache num: {}, cost: {} ms",
+                        dbName, tblName, catalog.getName(), partitionValues.partitionValuesMap.size(),
+                        (System.currentTimeMillis() - start));
+            }
         } else {
             /**
              * A file cache entry can be created reference to
@@ -621,15 +624,19 @@ public class HiveMetaStoreCache {
                 invalidateTableCache(dbName, key.tblName);
             }
         }
-        LOG.debug("invalid db cache for {} in catalog {}, cache num: {}, cost: {} ms", dbName, catalog.getName(),
-                keys.size(), (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid db cache for {} in catalog {}, cache num: {}, cost: {} ms", dbName, catalog.getName(),
+                    keys.size(), (System.currentTimeMillis() - start));
+        }
     }
 
     public void invalidateAll() {
         partitionValuesCache.invalidateAll();
         partitionCache.invalidateAll();
         fileCacheRef.get().invalidateAll();
-        LOG.debug("invalid all meta cache in catalog {}", catalog.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid all meta cache in catalog {}", catalog.getName());
+        }
     }
 
     // partition name format: nation=cn/city=beijing
@@ -755,7 +762,7 @@ public class HiveMetaStoreCache {
     public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds,
             boolean isFullAcid, long tableId, String bindBrokerName) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
-        String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
+        String remoteUser = jobConf.get(AuthenticationConfig.HADOOP_USER_NAME);
         try {
             for (HivePartition partition : partitions) {
                 FileCacheValue fileCacheValue = new FileCacheValue();
@@ -1121,4 +1128,3 @@ public class HiveMetaStoreCache {
         }
     }
 }
-

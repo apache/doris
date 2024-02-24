@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.test;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -109,4 +108,3 @@ public class TestExternalCatalog extends ExternalCatalog {
         Map<String, Map<String, List<Column>>> getMetadata();
     }
 }
-

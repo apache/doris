@@ -47,6 +47,7 @@ import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSslContext;
+import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -336,14 +337,20 @@ public class ConnectContext {
     }
 
     public ConnectContext() {
-        this((StreamConnection) null);
+        this(null);
     }
 
     public ConnectContext(StreamConnection connection) {
+        this(connection, false);
+    }
+
+    public ConnectContext(StreamConnection connection, boolean isProxy) {
         connectType = ConnectType.MYSQL;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         if (connection != null) {
             mysqlChannel = new MysqlChannel(connection, this);
+        } else if (isProxy) {
+            mysqlChannel = new ProxyMysqlChannel();
         } else {
             mysqlChannel = new DummyMysqlChannel();
         }
@@ -999,9 +1006,6 @@ public class ConnectContext {
 
         public List<String> toRow(int connId, long nowMs, boolean showFe) {
             List<String> row = Lists.newArrayList();
-            if (showFe) {
-                row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            }
             if (connId == connectionId) {
                 row.add("Yes");
             } else {
@@ -1028,6 +1032,11 @@ public class ConnectContext {
             } else {
                 row.add("");
             }
+
+            if (showFe) {
+                row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            }
+
             return row;
         }
     }
@@ -1116,11 +1125,15 @@ public class ConnectContext {
                     .getBackendsByClusterName(cloudClusterName);
             AtomicBoolean hasAliveBe = new AtomicBoolean(false);
             bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
-                LOG.debug("get a clusterName {}, it's has more than one alive be {}", clusterName, backend);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", clusterName, backend);
+                }
                 hasAliveBe.set(true);
             });
             if (hasAliveBe.get()) {
-                LOG.debug("set context cluster name {}", cloudClusterName);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("set context cluster name {}", cloudClusterName);
+                }
                 return cloudClusterName;
             }
         }
@@ -1184,4 +1197,3 @@ public class ConnectContext {
         return this.sessionVariable.getNetWriteTimeout();
     }
 }
-

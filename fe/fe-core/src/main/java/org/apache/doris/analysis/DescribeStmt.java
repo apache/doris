@@ -344,7 +344,9 @@ public class DescribeStmt extends ShowStmt {
                                     getDb(), getTableName(), Sets.newHashSet(row.get(0)), PrivPredicate.SHOW);
                     res.add(row);
                 } catch (UserException e) {
-                    LOG.debug(e.getMessage());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(e.getMessage());
+                    }
                 }
             }
             return res;

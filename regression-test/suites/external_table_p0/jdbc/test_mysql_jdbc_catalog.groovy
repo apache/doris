@@ -175,7 +175,6 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             order_qt_ex_tb21_7  """ select (`key` +1) as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
             order_qt_ex_tb21_8  """ select `key` as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
             order_qt_information_schema """ show tables from information_schema; """
-            order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
             order_qt_dt """select * from ${dt}; """
             order_qt_dt_null """select * from ${dt_null} order by 1; """
             order_qt_test_dz """select * from ${test_zd} order by 1; """
@@ -518,6 +517,90 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 			}
 		}
         sql """ drop catalog if exists mysql_fun_push_catalog; """
+
+        // test insert null
+
+        sql """drop catalog if exists ${catalog_name} """
+
+        sql """create catalog if not exists ${catalog_name} properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver"
+        );"""
+
+        sql """switch ${catalog_name}"""
+        sql """ use ${ex_db_name}"""
+
+        order_qt_auto_default_t1 """insert into ${auto_default_t}(name) values('a'); """
+        test {
+            sql "insert into ${auto_default_t}(name,dt) values('a', null);"
+            exception "Column `dt` is not nullable, but the inserted value is nullable."
+        }
+        test {
+            sql "insert into ${auto_default_t}(name,dt) select '1', null;"
+            exception "Column `dt` is not nullable, but the inserted value is nullable."
+        }
+        explain {
+            sql "insert into ${auto_default_t}(name,dt) select col1,col12 from ex_tb15;"
+            contains "PreparedStatement SQL: INSERT INTO `doris_test`.`auto_default_t`(`name`,`dt`) VALUES (?, ?)"
+        }
+        order_qt_auto_default_t2 """insert into ${auto_default_t}(name,dt) select col1, coalesce(col12,'2022-01-01 00:00:00') from ex_tb15 limit 1;"""
+        sql """drop catalog if exists ${catalog_name} """
+
+        // test lower_case_meta_names
+
+        sql """ drop catalog if exists mysql_lower_case_catalog """
+        sql """ CREATE CATALOG mysql_lower_case_catalog PROPERTIES (
+                    "type"="jdbc",
+                    "user"="root",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "lower_case_meta_names" = "true",
+                    "meta_names_mapping" = '{"databases": [{"remoteDatabase": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","mapping": "doris_2"},{"remoteDatabase": "doris","mapping": "doris_3"}],"tables": [{"remoteDatabase": "Doris","remoteTable": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","remoteTable": "Doris","mapping": "doris_2"},{"remoteDatabase": "Doris","remoteTable": "doris","mapping": "doris_3"}]}'
+            );
+        """
+
+        qt_sql "show databases from mysql_lower_case_catalog;"
+        qt_sql "show tables from mysql_lower_case_catalog.doris_2;"
+        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_1 order by id;"
+        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_2 order by id;"
+        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_3 order by id;"
+
+        sql """ drop catalog if exists mysql_lower_case_catalog; """
+        sql """ drop catalog if exists mysql_lower_case_catalog2; """
+        test {
+            sql """ CREATE CATALOG mysql_lower_case_catalog2 PROPERTIES (
+                        "type"="jdbc",
+                        "user"="root",
+                        "password"="123456",
+                        "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+                        "driver_url" = "${driver_url}",
+                        "driver_class" = "com.mysql.cj.jdbc.Driver",
+                        "lower_case_table_names" = "true",
+                        "meta_names_mapping" = '{"databases": [{"remoteDatabase": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","mapping": "doris_2"},{"remoteDatabase": "doris","mapping": "doris_3"}],"tables": [{"remoteDatabase": "Doris","remoteTable": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","remoteTable": "Doris","mapping": "doris_2"},{"remoteDatabase": "Doris","remoteTable": "doris","mapping": "doris_3"}]}'
+                    );
+                """
+            exception "Jdbc catalog property lower_case_table_names is not supported, please use lower_case_meta_names instead"
+            }
+        sql """ drop catalog if exists mysql_lower_case_catalog2; """
+        sql """ drop catalog if exists mysql_lower_case_catalog3; """
+        sql """ CREATE CATALOG mysql_lower_case_catalog3 PROPERTIES (
+                    "type"="jdbc",
+                    "user"="root",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "lower_case_meta_names" = "true",
+                    "meta_names_mapping" = "{\\\"databases\\\": [{\\\"remoteDatabase\\\": \\\"DORIS\\\",\\\"mapping\\\": \\\"doris_1\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"mapping\\\": \\\"doris_2\\\"},{\\\"remoteDatabase\\\": \\\"doris\\\",\\\"mapping\\\": \\\"doris_3\\\"}],\\\"tables\\\": [{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"DORIS\\\",\\\"mapping\\\": \\\"doris_1\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"Doris\\\",\\\"mapping\\\": \\\"doris_2\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"doris\\\",\\\"mapping\\\": \\\"doris_3\\\"}]}"
+                    );
+                """
+        sql """ drop catalog if exists mysql_lower_case_catalog3; """
     }
 }
 

@@ -110,14 +110,18 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void addDatabaseTransactionMgr(Long dbId) {
         if (dbIdToDatabaseTransactionMgrs.putIfAbsent(dbId,
                 new DatabaseTransactionMgr(dbId, env, idGenerator)) == null) {
-            LOG.debug("add database transaction manager for db {}", dbId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("add database transaction manager for db {}", dbId);
+            }
         }
     }
 
     @Override
     public void removeDatabaseTransactionMgr(Long dbId) {
         if (dbIdToDatabaseTransactionMgrs.remove(dbId) != null) {
-            LOG.debug("remove database transaction manager for db {}", dbId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remove database transaction manager for db {}", dbId);
+            }
         }
     }
 
@@ -197,7 +201,9 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
         }
 
-        LOG.debug("try to pre-commit transaction: {}", transactionId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try to pre-commit transaction: {}", transactionId);
+        }
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.preCommitTransaction2PC(tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
     }
@@ -224,7 +230,9 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
         }
 
-        LOG.debug("try to commit transaction: {}", transactionId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try to commit transaction: {}", transactionId);
+        }
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.commitTransaction(tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
     }

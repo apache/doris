@@ -53,9 +53,7 @@ template <typename T>
 struct HashCRC32;
 
 namespace doris {
-
 class ObjectPool;
-class IRuntimeFilter;
 class DescriptorTbl;
 class RuntimeState;
 
@@ -77,11 +75,11 @@ class HashJoinNode;
 template <typename Parent>
 Status process_runtime_filter_build(RuntimeState* state, Block* block, Parent* parent,
                                     bool is_global = false) {
-    if (parent->runtime_filter_descs().empty()) {
+    if (parent->runtime_filters().empty()) {
         return Status::OK();
     }
     parent->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-            parent->_build_expr_ctxs, parent->runtime_filter_descs(), is_global);
+            parent->_build_expr_ctxs, parent->runtime_filters(), is_global);
 
     RETURN_IF_ERROR(parent->_runtime_filter_slots->init(state, block->rows()));
 
@@ -226,13 +224,6 @@ public:
 
     bool should_build_hash_table() const { return _should_build_hash_table; }
 
-    bool ready_for_finish() {
-        if (_runtime_filter_slots == nullptr) {
-            return true;
-        }
-        return _runtime_filter_slots->ready_finish_publish();
-    }
-
     bool have_other_join_conjunct() const { return _have_other_join_conjunct; }
     bool is_right_semi_anti() const { return _is_right_semi_anti; }
     bool is_outer_join() const { return _is_outer_join; }
@@ -243,7 +234,6 @@ public:
     DataTypes right_table_data_types() { return _right_table_data_types; }
     DataTypes left_table_data_types() { return _left_table_data_types; }
     bool build_unique() const { return _build_unique; }
-    std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
     std::shared_ptr<vectorized::Arena> arena() { return _arena; }
 
 protected:
@@ -407,9 +397,6 @@ private:
     friend Status process_runtime_filter_build(RuntimeState* state, vectorized::Block* block,
                                                Parent* parent, bool is_global);
 
-    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-
-    std::vector<IRuntimeFilter*> _runtime_filters;
     std::atomic_bool _probe_open_finish = false;
     std::vector<int> _build_col_ids;
 };

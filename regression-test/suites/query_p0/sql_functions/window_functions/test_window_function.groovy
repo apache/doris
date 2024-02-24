@@ -289,6 +289,10 @@ suite("test_window_function") {
     qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
     // DENSE_RANK
     qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, dense_rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
+    // PERCENT_RANK
+    qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, percent_rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
+    // CUME_DIST
+    qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, cume_dist() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
     // ROW_NUMBER
     qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, row_number() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
 

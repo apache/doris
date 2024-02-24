@@ -448,7 +448,10 @@ archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
-    archive_content="regression-test/log fe/conf fe/log be/conf be/log"
+    archive_content="fe/conf fe/log be/conf be/log"
+    if [[ -d "${DORIS_HOME}"/regression-test/log ]]; then
+        archive_content="${archive_content} regression-test/log"
+    fi
     if [[ -f "${DORIS_HOME:-}"/session_variables ]]; then
         archive_content="${archive_content} session_variables"
     fi

@@ -303,10 +303,6 @@ public:
         return _rowset_segment_id;
     }
 
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
-        LOG(FATAL) << "not support";
-    }
-
     bool is_dict_sorted() const { return _dict_sorted; }
 
     bool is_dict_empty() const { return _dict.empty(); }

@@ -371,10 +371,11 @@ public class CloudEnv extends Env {
         }
 
         if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames().contains(clusterName)) {
-            LOG.debug("current instance does not have a cluster name :{}", clusterName);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("current instance does not have a cluster name :{}", clusterName);
+            }
             throw new DdlException(String.format("Cluster %s not exist", clusterName),
                 ErrorCode.ERR_CLOUD_CLUSTER_ERROR);
         }
     }
 }
-

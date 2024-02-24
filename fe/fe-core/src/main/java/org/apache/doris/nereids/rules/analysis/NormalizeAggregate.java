@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot;
-import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotContext;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -220,6 +220,11 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // normalize trival-aggs by bottomProjects
         List<AggregateFunction> normalizedAggFuncs =
                 bottomSlotContext.normalizeToUseSlotRef(aggFuncs);
+        if (normalizedAggFuncs.stream().anyMatch(agg -> !agg.children().isEmpty()
+                && agg.child(0).containsType(AggregateFunction.class))) {
+            throw new AnalysisException(
+                    "aggregate function cannot contain aggregate parameters");
+        }
 
         // build normalized agg output
         NormalizeToSlotContext normalizedAggFuncsToSlotContext =

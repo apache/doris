@@ -50,10 +50,7 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
             List<FdItem> uniqueFdItems = new ArrayList<>();
             List<FdItem> nonUniqueFdItems = new ArrayList<>();
             if (agg.getGroupByExpressions().isEmpty()
-                    || agg.getGroupByExpressions().equals(agg.getOutputExpressions())
-                    || !agg.getGroupByExpressions().stream().allMatch(e -> e instanceof SlotReference)
-                    || agg.getGroupByExpressions().stream().allMatch(e ->
-                        ((SlotReference) e).getColumn().isPresent() && ((SlotReference) e).getTable().isPresent())) {
+                    || !agg.getGroupByExpressions().stream().allMatch(e -> e instanceof SlotReference)) {
                 return null;
             }
             ImmutableSet<FdItem> fdItems = childPlan.getLogicalProperties().getFunctionalDependencies().getFdItems();
