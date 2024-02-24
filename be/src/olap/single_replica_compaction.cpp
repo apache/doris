@@ -496,11 +496,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
     {
         do {
             // check clone dir existed
-            bool exists = true;
-            RETURN_IF_ERROR(io::global_local_filesystem()->exists(clone_dir, &exists));
-            if (!exists) {
-                return Status::InternalError("clone dir not existed. clone_dir={}", clone_dir);
-            }
+            RETURN_IF_ERROR(io::global_local_filesystem()->exists(clone_dir));
 
             // Load src header.
             // The tablet meta info is downloaded from source BE as .hdr file.
@@ -528,7 +524,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
             // check all files in /clone and /tablet
             io::FileListIteratorPtr clone_files;
             RETURN_IF_ERROR(
-                    io::global_local_filesystem()->list(clone_dir, true, &clone_files, &exists));
+                    io::global_local_filesystem()->list(clone_dir, true, &clone_files));
             std::unordered_set<std::string> clone_file_names;
             while (clone_files->has_next()) {
                 const auto& file = DORIS_TRY(clone_files->next());
@@ -538,7 +534,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
             io::FileListIteratorPtr local_files;
             const auto& tablet_dir = _tablet->tablet_path();
             RETURN_IF_ERROR(
-                    io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));
+                    io::global_local_filesystem()->list(tablet_dir, true, &local_files));
             std::unordered_set<std::string> local_file_names;
             while (local_files->has_next()) {
                 const auto& file = DORIS_TRY(local_files->next());

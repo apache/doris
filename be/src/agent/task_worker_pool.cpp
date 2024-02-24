@@ -1078,10 +1078,9 @@ void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         // snapshot_path like: data/snapshot/20180417205230.1.86400
         // we need to add subdir: tablet_id/schema_hash/
         io::FileListIteratorPtr files_iter;
-        bool exists = true;
         io::Path path = fmt::format("{}/{}/{}/", snapshot_path, snapshot_request.tablet_id,
                                     snapshot_request.schema_hash);
-        status = io::global_local_filesystem()->list(path, true, &files_iter, &exists);
+        status = io::global_local_filesystem()->list(path, true, &files_iter);
         if (status.ok()) {
             status = files_iter->files(&files);
         }

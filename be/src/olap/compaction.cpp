@@ -586,16 +586,15 @@ void CompactionMixin::construct_skip_inverted_index(RowsetWriterContext& ctx) {
                         InvertedIndexDescriptor::get_index_file_name(
                                 segment_file, index_meta->index_id(),
                                 index_meta->get_index_suffix());
-                bool exists = false;
-                if (!fs->exists(inverted_index_src_file_path, &exists).ok()) {
-                    LOG(ERROR) << inverted_index_src_file_path << " fs->exists error";
-                    return false;
-                }
-
-                if (!exists) {
+                auto st = fs->exists(inverted_index_src_file_path);
+                if (st.is<ErrorCode::NOT_FOUND>()) {
                     LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
                                  << col_unique_id << "]," << inverted_index_src_file_path
                                  << " is not exists, will skip index compaction";
+                    return false;
+                }
+                if (!st.ok()) {
+                    LOG(ERROR) << inverted_index_src_file_path << " fs->exists error";
                     return false;
                 }
 

@@ -553,12 +553,14 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
     if (fs->type() == io::FileSystemType::S3) {
         return;
     }
-    bool exists = false;
-    LOG_AND_THROW_IF_ERROR(fs->exists(directory, &exists), "Doris compound directory init IO error")
-    if (!exists) {
+    auto st = fs->exists(directory);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         auto e = "Doris compound directory init error: " + directory + " is not a directory";
         LOG(WARNING) << e;
         _CLTHROWA(CL_ERR_IO, e.c_str());
+    }
+    if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+        LOG_AND_THROW_IF_ERROR(st, "Doris compound directory init IO error");
     }
 }
 
@@ -583,8 +585,7 @@ bool DorisCompoundDirectory::list(std::vector<std::string>* names) const {
     char fl[CL_MAX_DIR];
     priv_getFN(fl, "");
     io::FileListIteratorPtr files_iter;
-    bool exists;
-    LOG_AND_THROW_IF_ERROR(fs->list(fl, true, &files_iter, &exists), "List file IO error");
+    LOG_AND_THROW_IF_ERROR(fs->list(fl, true, &files_iter), "List file IO error");
     std::vector<io::FileInfo> files;
     LOG_AND_THROW_IF_ERROR(files_iter->files(&files), "List file IO error");
     for (const auto& file : files) {
@@ -597,9 +598,14 @@ bool DorisCompoundDirectory::fileExists(const char* name) const {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, name);
-    bool exists = false;
-    LOG_AND_THROW_IF_ERROR(fs->exists(fl, &exists), "File exists IO error")
-    return exists;
+    auto st = fs->exists(directory);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        return false;
+    }
+    if (!st.ok()) {
+        LOG_AND_THROW_IF_ERROR(st, "File exists IO error");
+    }
+    return true;
 }
 
 const char* DorisCompoundDirectory::getCfsDirName() const {
@@ -681,9 +687,11 @@ void DorisCompoundDirectory::renameFile(const char* from, const char* to) {
     char nu[CL_MAX_DIR];
     priv_getFN(nu, to);
 
-    bool exists = false;
-    LOG_AND_THROW_IF_ERROR(fs->exists(nu, &exists), "File exists IO error")
-    if (exists) {
+    auto st = fs->exists(nu);
+    if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+        LOG_AND_THROW_IF_ERROR(st, "File exists IO error");
+    }
+    if (st.ok()) {
         LOG_AND_THROW_IF_ERROR(fs->delete_directory(nu), fmt::format("Delete {} IO error", nu))
     }
     LOG_AND_THROW_IF_ERROR(fs->rename(old, nu), fmt::format("Rename {} to {} IO error", old, nu))
@@ -693,13 +701,18 @@ lucene::store::IndexOutput* DorisCompoundDirectory::createOutput(const char* nam
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, name);
-    bool exists = false;
-    LOG_AND_THROW_IF_ERROR(fs->exists(fl, &exists), "Create output file exists IO error")
-    if (exists) {
+    auto st = fs->exists(fl);
+    if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+        LOG_AND_THROW_IF_ERROR(st, "Create output file exists IO error");
+    }
+    if (st.ok()) {
         LOG_AND_THROW_IF_ERROR(fs->delete_file(fl),
                                fmt::format("Create output delete file {} IO error", fl))
-        LOG_AND_THROW_IF_ERROR(fs->exists(fl, &exists), "Create output file exists IO error")
-        assert(!exists);
+        st = fs->exists(fl);
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            LOG_AND_THROW_IF_ERROR(st, "Create output file exists IO error");
+        }
+        assert(st.is<ErrorCode::NOT_FOUND>());
     }
     auto* ret = _CLNEW FSIndexOutput();
     try {
@@ -926,9 +939,11 @@ DorisCompoundDirectory* DorisCompoundDirectoryFactory::getDirectory(
     if (config::inverted_index_ram_dir_enable && can_use_ram_dir) {
         dir = _CLNEW DorisRAMCompoundDirectory();
     } else {
-        bool exists = false;
-        LOG_AND_THROW_IF_ERROR(_fs->exists(file, &exists), "Get directory exists IO error")
-        if (!exists) {
+        auto st = _fs->exists(file);
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            LOG_AND_THROW_IF_ERROR(st, "Get directory exists IO error");
+        }
+        if (st.is<ErrorCode::NOT_FOUND>()) {
             LOG_AND_THROW_IF_ERROR(_fs->create_directory(file),
                                    "Get directory create directory IO error")
         }

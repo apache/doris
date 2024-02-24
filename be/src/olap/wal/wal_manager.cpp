@@ -107,18 +107,19 @@ Status WalManager::_init_wal_dirs_conf() {
 }
 
 Status WalManager::_init_wal_dirs() {
-    bool exists = false;
     for (auto wal_dir : _wal_dirs) {
         std::string tmp_dir = wal_dir + "/" + _tmp;
         LOG(INFO) << "wal_dir:" << wal_dir << ", tmp_dir:" << tmp_dir;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(wal_dir, &exists));
-        if (!exists) {
+        auto st = io::global_local_filesystem()->exists(wal_dir);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(wal_dir));
         }
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(tmp_dir, &exists));
-        if (!exists) {
+        RETURN_IF_ERROR(st);
+        st = io::global_local_filesystem()->exists(tmp_dir);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_dir));
         }
+        RETURN_IF_ERROR(st);
     }
     return Status::OK();
 }
@@ -263,10 +264,11 @@ Status WalManager::_load_wals() {
         WARN_IF_ERROR(_scan_wals(wal_dir, wals), fmt::format("fail to scan wal dir={}", wal_dir));
     }
     for (const auto& wal : wals) {
-        bool exists = false;
-        WARN_IF_ERROR(io::global_local_filesystem()->exists(wal.wal_path, &exists),
-                      fmt::format("fail to check exist on wal file={}", wal.wal_path));
-        if (!exists) {
+        auto st = io::global_local_filesystem()->exists(wal.wal_path);
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            LOG_WARNING(fmt::format("fail to check exist on wal file={}", wal.wal_path));
+        }
+        if (st.is<ErrorCode::NOT_FOUND>()) {
             continue;
         }
         LOG(INFO) << "find wal: " << wal.wal_path;
@@ -297,9 +299,8 @@ Status WalManager::_load_wals() {
 }
 
 Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalInfo>& res) {
-    bool exists = false;
     io::FileListIteratorPtr dbs_iter;
-    Status st = io::global_local_filesystem()->list(wal_path, false, &dbs_iter, &exists);
+    Status st = io::global_local_filesystem()->list(wal_path, false, &dbs_iter);
     if (!st.ok()) {
         LOG(WARNING) << "failed list files for wal_dir=" << wal_path << ", st=" << st.to_string();
         return st;
@@ -311,7 +312,7 @@ Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalIn
         }
         io::FileListIteratorPtr tables;
         auto db_path = wal_path + "/" + database_id.file_name;
-        st = io::global_local_filesystem()->list(db_path, false, &tables, &exists);
+        st = io::global_local_filesystem()->list(db_path, false, &tables);
         if (!st.ok()) {
             LOG(WARNING) << "failed list files for wal_dir=" << db_path
                          << ", st=" << st.to_string();
@@ -324,7 +325,7 @@ Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalIn
             }
             io::FileListIteratorPtr wals;
             auto table_path = db_path + "/" + table_id.file_name;
-            st = io::global_local_filesystem()->list(table_path, false, &wals, &exists);
+            st = io::global_local_filesystem()->list(table_path, false, &wals);
             if (!st.ok()) {
                 LOG(WARNING) << "failed list files for wal_dir=" << table_path
                              << ", st=" << st.to_string();
@@ -592,11 +593,11 @@ Status WalManager::rename_to_tmp_path(const std::string wal, int64_t table_id, i
     for (auto path : path_element) {
         wal_path.append(path);
     }
-    bool exists = false;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(wal_path.parent_path(), &exists));
-    if (!exists) {
+    auto st = io::global_local_filesystem()->exists(wal_path.parent_path());
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(wal_path.parent_path()));
     }
+    RETURN_IF_ERROR(st);
     auto res = std::rename(wal.c_str(), wal_path.string().c_str());
     if (res < 0) {
         LOG(INFO) << "failed to rename wal from " << wal << " to " << wal_path.string();

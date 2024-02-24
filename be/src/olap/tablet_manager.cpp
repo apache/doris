@@ -489,12 +489,11 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
 
         // Because the tablet is removed asynchronously, so that the dir may still exist when BE
         // receive create-tablet request again, For example retried schema-change request
-        bool exists = true;
-        res = io::global_local_filesystem()->exists(schema_hash_dir, &exists);
-        if (!res.ok()) {
+        res = io::global_local_filesystem()->exists(schema_hash_dir);
+        if (!res.ok() && !res.is<ErrorCode::NOT_FOUND>()) {
             continue;
         }
-        if (exists) {
+        if (!res.is<ErrorCode::NOT_FOUND>()) {
             LOG(WARNING) << "skip this dir because tablet path exist, path=" << schema_hash_dir;
             continue;
         } else {
@@ -848,12 +847,12 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     // it may be cleared by gc-thread(see perform_path_gc_by_tablet) because the tablet meta may not be loaded to memory.
     // So clone task should check path and then failed and retry in this case.
     if (check_path) {
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(tablet->tablet_path(), &exists));
-        if (!exists) {
+        auto st = io::global_local_filesystem()->exists(tablet->tablet_path());
+        if (st.is<ErrorCode::NOT_FOUND>()) {
             return Status::Error<TABLE_ALREADY_DELETED_ERROR>(
                     "tablet path not exists, create tablet failed, path={}", tablet->tablet_path());
         }
+        RETURN_IF_ERROR(st);
     }
 
     if (tablet->tablet_meta()->tablet_state() == TABLET_SHUTDOWN) {
@@ -902,12 +901,12 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     std::string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
     int32_t shard = stol(shard_str);
 
-    bool exists = false;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(header_path, &exists));
-    if (!exists) {
+    auto st = io::global_local_filesystem()->exists(header_path);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::Error<FILE_NOT_EXIST>("fail to find header file. [header_path={}]",
                                              header_path);
     }
+    RETURN_IF_ERROR(st);
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     if (!tablet_meta->create_from_file(header_path).ok()) {
@@ -918,15 +917,14 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
 
     // remove rowset binlog metas
     auto binlog_metas_file = fmt::format("{}/rowset_binlog_metas.pb", schema_hash_path);
-    bool binlog_metas_file_exists = false;
     auto file_exists_status =
-            io::global_local_filesystem()->exists(binlog_metas_file, &binlog_metas_file_exists);
-    if (!file_exists_status.ok()) {
+            io::global_local_filesystem()->exists(binlog_metas_file);
+    if (!file_exists_status.ok() && !file_exists_status.is<ErrorCode::NOT_FOUND>()) {
         return file_exists_status;
     }
     bool contain_binlog = false;
     RowsetBinlogMetasPB rowset_binlog_metas_pb;
-    if (binlog_metas_file_exists) {
+    if (file_exists_status.is<ErrorCode::NOT_FOUND>()) {
         auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file);
         if (binlog_meta_filesize > 0) {
             contain_binlog = true;
@@ -940,7 +938,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
 
         io::FileListIteratorPtr files_iter;
         RETURN_IF_ERROR(
-                io::global_local_filesystem()->list(schema_hash_path, true, &files_iter, &exists));
+                io::global_local_filesystem()->list(schema_hash_path, true, &files_iter));
         while (files_iter->has_next()) {
             const auto& file = DORIS_TRY(files_iter->next());
             auto& filename = file.file_name;
@@ -1125,12 +1123,11 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
         }
         // move data to trash
         const auto& tablet_path = tablet->tablet_path();
-        bool exists = false;
-        Status exists_st = io::global_local_filesystem()->exists(tablet_path, &exists);
-        if (!exists_st) {
+        Status exists_st = io::global_local_filesystem()->exists(tablet_path);
+        if (!exists_st.ok() && !exists_st.is<ErrorCode::NOT_FOUND>()) {
             return false;
         }
-        if (exists) {
+        if (exists_st.ok()) {
             // take snapshot of tablet meta
             auto meta_file_path = fmt::format("{}/{}.hdr", tablet_path, tablet->tablet_id());
             int64_t save_meta_ts = MonotonicMicros();
@@ -1166,12 +1163,11 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
     } else {
         // if could not find tablet info in meta store, then check if dir existed
         const auto& tablet_path = tablet->tablet_path();
-        bool exists = false;
-        Status exists_st = io::global_local_filesystem()->exists(tablet_path, &exists);
-        if (!exists_st) {
+        Status exists_st = io::global_local_filesystem()->exists(tablet_path);
+        if (!exists_st.ok() && !exists_st.is<ErrorCode::NOT_FOUND>()) {
             return false;
         }
-        if (exists) {
+        if (!exists_st.is<ErrorCode::NOT_FOUND>()) {
             LOG(WARNING) << "errors while load meta from store, skip this tablet. "
                          << "tablet_id=" << tablet->tablet_id()
                          << ", schema_hash=" << tablet->schema_hash();
@@ -1220,9 +1216,8 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
     }
 
     // TODO(ygl): may do other checks in the future
-    bool exists = false;
-    Status exists_st = io::global_local_filesystem()->exists(schema_hash_path, &exists);
-    if (exists_st && exists) {
+    Status exists_st = io::global_local_filesystem()->exists(schema_hash_path);
+    if (exists_st.ok()) {
         LOG(INFO) << "start to move tablet to trash. tablet_path = " << schema_hash_path;
         Status rm_st = data_dir->move_to_trash(schema_hash_path);
         if (!rm_st.ok()) {

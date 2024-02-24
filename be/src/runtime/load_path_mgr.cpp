@@ -179,9 +179,8 @@ void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t rese
 }
 
 void LoadPathMgr::clean_one_path(const std::string& path) {
-    bool exists = true;
     io::FileListIteratorPtr dbs_iter;
-    Status st = io::global_local_filesystem()->list(path, false, &dbs_iter, &exists);
+    Status st = io::global_local_filesystem()->list(path, false, &dbs_iter);
     if (!st) {
         return;
     }
@@ -198,7 +197,7 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
         }
         std::string db_dir = path + "/" + db.file_name;
         io::FileListIteratorPtr sub_dirs_iter;
-        status = io::global_local_filesystem()->list(db_dir, false, &sub_dirs_iter, &exists);
+        status = io::global_local_filesystem()->list(db_dir, false, &sub_dirs_iter);
         if (!status.ok()) {
             LOG(WARNING) << "scan db of trash dir failed: " << status;
             continue;
@@ -220,8 +219,7 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
                 // sub_dir starts with SHARD_PREFIX
                 // process shard sub dir
                 io::FileListIteratorPtr labels_iter;
-                status =
-                        io::global_local_filesystem()->list(sub_path, false, &labels_iter, &exists);
+                status = io::global_local_filesystem()->list(sub_path, false, &labels_iter);
                 if (!status.ok()) {
                     LOG(WARNING) << "scan one path to delete directory failed: " << status;
                     continue;
@@ -253,10 +251,8 @@ void LoadPathMgr::clean() {
 
 void LoadPathMgr::clean_error_log() {
     time_t now = time(nullptr);
-    bool exists = true;
     io::FileListIteratorPtr sub_dirs_iter;
-    Status status =
-            io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs_iter, &exists);
+    Status status = io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs_iter);
     if (!status.ok()) {
         LOG(WARNING) << "scan error_log dir failed: " << status;
         return;
@@ -277,8 +273,8 @@ void LoadPathMgr::clean_error_log() {
             // process shard sub dir
             io::FileListIteratorPtr error_log_files_iter;
             std::vector<io::FileInfo> error_log_files;
-            Status status = io::global_local_filesystem()->list(sub_path, false,
-                                                                &error_log_files_iter, &exists);
+            Status status =
+                    io::global_local_filesystem()->list(sub_path, false, &error_log_files_iter);
             if (!status.ok()) {
                 LOG(WARNING) << "scan one path to delete directory failed: " << status;
                 continue;

@@ -29,6 +29,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "http/utils.h"
@@ -116,16 +117,15 @@ void handle_get_segment_file(StorageEngine& engine, HttpRequest* req,
 
     // Step 2: handle download
     // check file exists
-    bool exists = false;
-    Status status = io::global_local_filesystem()->exists(segment_file_path, &exists);
+    Status status = io::global_local_filesystem()->exists(segment_file_path);
+    if (status.is<ErrorCode::NOT_FOUND>()) {
+        HttpChannel::send_reply(req, HttpStatus::NOT_FOUND, "file not exist.");
+        LOG(WARNING) << "file not exist, file path: " << segment_file_path;
+        return;
+    }
     if (!status.ok()) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status.to_string());
         LOG(WARNING) << "check file exists failed, error: " << status.to_string();
-        return;
-    }
-    if (!exists) {
-        HttpChannel::send_reply(req, HttpStatus::NOT_FOUND, "file not exist.");
-        LOG(WARNING) << "file not exist, file path: " << segment_file_path;
         return;
     }
     do_file_response(segment_file_path, req, rate_limit_group);

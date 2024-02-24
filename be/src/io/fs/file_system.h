@@ -98,9 +98,9 @@ public:
     Status delete_file(const Path& file);
     Status delete_directory(const Path& dir);
     Status batch_delete(const std::vector<Path>& files);
-    Status exists(const Path& path, bool* res) const;
+    Status exists(const Path& path) const;
     Status file_size(const Path& file, int64_t* file_size) const;
-    Status list(const Path& dir, bool only_file, FileListIteratorPtr* files, bool* exists);
+    Status list(const Path& dir, bool only_file, FileListIteratorPtr* files);
     Status rename(const Path& orig_name, const Path& new_name);
 
     std::shared_ptr<FileSystem> getSPtr() { return shared_from_this(); }
@@ -149,7 +149,7 @@ protected:
     /// check if path exist
     /// return OK and res = 1 means exist, res = 0 means does not exist
     /// return ERR otherwise
-    virtual Status exists_impl(const Path& path, bool* res) const = 0;
+    virtual Status exists_impl(const Path& path) const = 0;
 
     /// return OK and get size of given file, save in "file_size".
     /// return ERR otherwise
@@ -161,8 +161,7 @@ protected:
     /// if "only_file" is true, will only return regular files, otherwise, return files and subdirs.
     /// the existence of dir will be saved in "exists"
     /// if "dir" does not exist, it will return Status::OK, but "exists" will to false
-    virtual Status list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files,
-                             bool* exists) = 0;
+    virtual Status list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files) = 0;
 
     /// rename file from orig_name to new_name
     virtual Status rename_impl(const Path& orig_name, const Path& new_name) = 0;

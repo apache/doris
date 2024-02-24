@@ -58,9 +58,9 @@ Status FileSystem::batch_delete(const std::vector<Path>& files) {
     FILESYSTEM_M(batch_delete_impl(abs_files));
 }
 
-Status FileSystem::exists(const Path& path, bool* res) const {
+Status FileSystem::exists(const Path& path) const {
     auto fs_path = absolute_path(path);
-    FILESYSTEM_M(exists_impl(fs_path, res));
+    FILESYSTEM_M(exists_impl(fs_path));
 }
 
 Status FileSystem::file_size(const Path& file, int64_t* file_size) const {
@@ -68,9 +68,9 @@ Status FileSystem::file_size(const Path& file, int64_t* file_size) const {
     FILESYSTEM_M(file_size_impl(path, file_size));
 }
 
-Status FileSystem::list(const Path& dir, bool only_file, FileListIteratorPtr* files, bool* exists) {
+Status FileSystem::list(const Path& dir, bool only_file, FileListIteratorPtr* files) {
     auto path = absolute_path(dir);
-    FILESYSTEM_M(list_impl(path, only_file, files, exists));
+    FILESYSTEM_M(list_impl(path, only_file, files));
 }
 
 Status FileSystem::rename(const Path& orig_name, const Path& new_name) {

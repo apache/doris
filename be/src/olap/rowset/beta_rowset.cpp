@@ -248,8 +248,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
     io::LocalFileSystem* local_fs = (io::LocalFileSystem*)fs.get();
     for (int i = 0; i < num_segments(); ++i) {
         auto dst_path = segment_file_path(dir, new_rowset_id, i + new_rowset_start_seg_id);
-        bool dst_path_exist = false;
-        if (!fs->exists(dst_path, &dst_path_exist).ok() || dst_path_exist) {
+        if (fs->exists(dst_path).ok()) {
             status = Status::Error<FILE_ALREADY_EXIST>(
                     "failed to create hard link, file already exist: {}", dst_path);
             return status;
@@ -276,9 +275,8 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                     src_path, index_id, index.get_index_suffix());
             std::string inverted_index_dst_file_path = InvertedIndexDescriptor::get_index_file_name(
                     dst_path, index_id, index.get_index_suffix());
-            bool index_file_exists = true;
-            RETURN_IF_ERROR(local_fs->exists(inverted_index_src_file_path, &index_file_exists));
-            if (index_file_exists) {
+            auto st = local_fs->exists(inverted_index_src_file_path);
+            if (st.ok()) {
                 DBUG_EXECUTE_IF(
                         "fault_inject::BetaRowset::link_files_to::_link_inverted_index_file", {
                             status = Status::Error<OS_ERROR>(
@@ -298,6 +296,8 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 LOG(INFO) << "success to create hard link. from=" << inverted_index_src_file_path
                           << ", "
                           << "to=" << inverted_index_dst_file_path;
+            } else if (!st.is<ErrorCode::NOT_FOUND>()) {
+                return st;
             } else {
                 LOG(WARNING) << "skip create hard link to not existed index file="
                              << inverted_index_src_file_path;
@@ -309,12 +309,12 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
 
 Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) {
     DCHECK(is_local());
-    bool exists = false;
     for (int i = 0; i < num_segments(); ++i) {
         auto dst_path = segment_file_path(dir, new_rowset_id, i);
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(dst_path, &exists));
-        if (exists) {
-            return Status::Error<FILE_ALREADY_EXIST>("file already exist: {}", dst_path);
+        auto st = io::global_local_filesystem()->exists(dst_path);
+        if (!st.is<ErrorCode::NOT_FOUND>()) {
+            return st.ok() ? Status::Error<FILE_ALREADY_EXIST>("file already exist: {}", dst_path)
+                           : st;
         }
         auto src_path = segment_file_path(i);
         RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(src_path, dst_path));
@@ -397,8 +397,7 @@ bool BetaRowset::check_file_exist() {
         if (!fs) {
             return false;
         }
-        bool seg_file_exist = false;
-        if (!fs->exists(seg_path, &seg_file_exist).ok() || !seg_file_exist) {
+        if (auto st = fs->exists(seg_path); st.is<ErrorCode::NOT_FOUND>()) {
             LOG(WARNING) << "data file not existed: " << seg_path
                          << " for rowset_id: " << rowset_id();
             return false;
@@ -452,11 +451,12 @@ Status BetaRowset::add_to_binlog() {
 
         if (binlog_dir.empty()) {
             binlog_dir = std::filesystem::path(seg_file).parent_path().append("_binlog").string();
-
-            bool exists = true;
-            RETURN_IF_ERROR(local_fs->exists(binlog_dir, &exists));
-            if (!exists) {
+            auto st = local_fs->exists(binlog_dir);
+            if (st.is<ErrorCode::NOT_FOUND>()) {
                 RETURN_IF_ERROR(local_fs->create_directory(binlog_dir));
+            }
+            if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+                return st;
             }
         }
 

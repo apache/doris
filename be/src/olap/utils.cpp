@@ -473,11 +473,11 @@ Status read_write_test_file(const std::string& test_file_path) {
 }
 
 Status check_datapath_rw(const std::string& path) {
-    bool exists = true;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(path, &exists));
-    if (!exists) {
+    auto st = io::global_local_filesystem()->exists(path);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::IOError("path does not exist: {}", path);
     }
+    RETURN_IF_ERROR(st);
     std::string file_path = path + "/.read_write_test_file";
     return read_write_test_file(file_path);
 }

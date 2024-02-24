@@ -80,6 +80,7 @@ static std::string hdfs_location = "/user/doris/";
 static std::string broker_ip = "127.0.0.1";
 static int broker_port = 8008;
 static std::string broker_location = "hdfs://my_nameservice/user/doris";
+using ErrorCode::NOT_FOUND:
 
 class RemoteFileSystemTest : public testing::Test {
 public:
@@ -138,14 +139,13 @@ TEST_F(RemoteFileSystemTest, TestBrokerFileSystem) {
     ASSERT_EQ(7, bytes_read);
 
     // exist
-    bool exists = false;
-    CHECK_STATUS_OK(fs->exists(file1, &exists));
-    ASSERT_TRUE(exists);
+    auto st = fs->exists(file1);
+    ASSERT_TRUE(st.ok());
     std::string file_non_exist = broker_location + "/non-exist";
-    CHECK_STATUS_OK(fs->exists(file_non_exist, &exists));
-    ASSERT_FALSE(exists);
-    CHECK_STATUS_OK(fs->exists(delete_path, &exists));
-    ASSERT_TRUE(exists);
+    st = fs->exists(file_non_exist);
+    ASSERT_FALSE(st.is<NOT_FOUND>());
+    st = fs->exists(delete_path);
+    ASSERT_TRUE(st.is<NOT_FOUND>());
 
     // file size
     int64_t file_size = 0;
@@ -163,9 +163,10 @@ TEST_F(RemoteFileSystemTest, TestBrokerFileSystem) {
     }
 
     // list files
+    std::unique_ptr<io::FileListIterator> files_iter;
     std::vector<io::FileInfo> files;
-    CHECK_STATUS_OK(fs->list(delete_path, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(delete_path, true, &files_iter));
+    CHECK_STATUS_OK(files_iter->files(&files));
     ASSERT_EQ(11, files.size());
     for (auto& file_info : files) {
         std::cout << "file name: " << file_info.file_name << std::endl;
@@ -174,28 +175,23 @@ TEST_F(RemoteFileSystemTest, TestBrokerFileSystem) {
     }
     std::string non_exist_path = broker_location + "/non_exist/";
     files.clear();
-    CHECK_STATUS_OK(fs->list(non_exist_path, true, &files, &exists));
-    ASSERT_FALSE(exists);
+    ASSERT_EQ(false, fs->list(non_exist_path, true, &files_iter).ok());
     ASSERT_EQ(0, files.size());
 
     // rename
     std::string src_name = file1;
     std::string dst_name = broker_location + "/tmp1/new_file1.txt";
     CHECK_STATUS_OK(fs->rename(src_name, dst_name));
-    CHECK_STATUS_OK(fs->exists(src_name, &exists));
-    ASSERT_FALSE(exists);
-    CHECK_STATUS_OK(fs->exists(dst_name, &exists));
-    ASSERT_TRUE(exists);
+    ASSERT_TRUE(fs->exists(src_name).is<NOT_FOUND>());
+    CHECK_STATUS_OK(fs->exists(dst_name));
 
     // rename dir
     std::string src_dir = delete_path;
     std::string dst_dir = broker_location + "/tmp2";
     CHECK_STATUS_OK(fs->rename_dir(src_dir, dst_dir));
-    CHECK_STATUS_OK(fs->exists(dst_name, &exists));
-    ASSERT_FALSE(exists);
+    ASSERT_TRUE(fs->exists(dst_name).is<NOT_FOUND>());
     std::string new_dst_name = dst_dir + "/new_file1.txt";
-    CHECK_STATUS_OK(fs->exists(new_dst_name, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->exists(new_dst_name));
 
     // batch delete
     std::vector<io::Path> delete_files;
@@ -207,17 +203,15 @@ TEST_F(RemoteFileSystemTest, TestBrokerFileSystem) {
 
     // list to check
     files.clear();
-    CHECK_STATUS_OK(fs->list(dst_dir, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(dst_dir, true, &files_iter));
+    CHECK_STATUS_OK(files_iter->files(&files));
     ASSERT_EQ(1, files.size());
 
     // upload
     std::string upload_file = "./be/test/io/fs/test_data/upload_file.txt";
     std::string remote_file = dst_dir + "/upload_file.txt";
     CHECK_STATUS_OK(fs->upload(upload_file, remote_file));
-    exists = false;
-    CHECK_STATUS_OK(fs->exists(remote_file, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->exists(remote_file));
 
     // batch upload
     std::vector<io::Path> local_files;
@@ -228,8 +222,8 @@ TEST_F(RemoteFileSystemTest, TestBrokerFileSystem) {
     }
     CHECK_STATUS_OK(fs->batch_upload(local_files, remote_files));
     files.clear();
-    CHECK_STATUS_OK(fs->list(dst_dir, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(dst_dir, true, &files_iter));
+    CHECK_STATUS_OK(files_iter->files(&files));
     ASSERT_EQ(12, files.size());
     for (auto& file : remote_files) {
         CHECK_STATUS_OK(fs->file_size(file, &file_size));
@@ -241,8 +235,8 @@ TEST_F(RemoteFileSystemTest, TestBrokerFileSystem) {
     std::string direct_remote_file = dst_dir + "/direct_upload_file";
     CHECK_STATUS_OK(fs->direct_upload(direct_remote_file, "abc"));
     files.clear();
-    CHECK_STATUS_OK(fs->list(dst_dir, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(dst_dir, true, &files_iter));
+    CHECK_STATUS_OK(files_iter->files(&files));
     ASSERT_EQ(13, files.size());
     CHECK_STATUS_OK(fs->file_size(direct_remote_file, &file_size));
     ASSERT_EQ(0, file_size);
@@ -288,14 +282,10 @@ TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
     ASSERT_EQ(7, bytes_read);
 
     // exist
-    bool exists = false;
-    CHECK_STATUS_OK(fs->exists(file1, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->exists(file1));
     std::string file_non_exist = "non-exist";
-    CHECK_STATUS_OK(fs->exists(file_non_exist, &exists));
-    ASSERT_FALSE(exists);
-    CHECK_STATUS_OK(fs->exists(delete_path, &exists));
-    ASSERT_TRUE(exists);
+    ASSERT_TRUE(fs->exists(file_non_exist).is<NOT_FOUND>());
+    CHECK_STATUS_OK(fs->exists(delete_path));
 
     // file size
     int64_t file_size = 0;
@@ -312,9 +302,10 @@ TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
     }
 
     // list files
+    std::unique_ptr<io::FileListIterator> files_iter;
     std::vector<io::FileInfo> files;
-    CHECK_STATUS_OK(fs->list(delete_path, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(delete_path, true, &files_iter));
+    ASSERT_TRUE(files_iter->files(&files));
     ASSERT_EQ(11, files.size());
     for (auto& file_info : files) {
         std::cout << "file name: " << file_info.file_name << std::endl;
@@ -323,28 +314,23 @@ TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
     }
     std::string non_exist_path = "non_exist/";
     files.clear();
-    CHECK_STATUS_OK(fs->list(non_exist_path, true, &files, &exists));
-    ASSERT_FALSE(exists);
+    ASSERT_TRUE(!fs->list(non_exist_path, true, &files_iter).ok());
     ASSERT_EQ(0, files.size());
 
     // rename
     std::string src_name = file1;
     std::string dst_name = "tmp1/new_file1.txt";
     CHECK_STATUS_OK(fs->rename(src_name, dst_name));
-    CHECK_STATUS_OK(fs->exists(src_name, &exists));
-    ASSERT_FALSE(exists);
-    CHECK_STATUS_OK(fs->exists(dst_name, &exists));
-    ASSERT_TRUE(exists);
+    ASSERT_TRUE(fs->exists(src_name).is<NOT_FOUND>());
+    CHECK_STATUS_OK(fs->exists(dst_name));
 
     // rename dir
     std::string src_dir = delete_path;
     std::string dst_dir = "tmp2";
     CHECK_STATUS_OK(fs->rename_dir(src_dir, dst_dir));
-    CHECK_STATUS_OK(fs->exists(dst_name, &exists));
-    ASSERT_FALSE(exists);
+    ASSERT_TRUE(fs->exists(dst_name).is<NOT_FOUND>());
     std::string new_dst_name = dst_dir + "/new_file1.txt";
-    CHECK_STATUS_OK(fs->exists(new_dst_name, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->exists(new_dst_name));
 
     // batch delete
     std::vector<io::Path> delete_files;
@@ -356,17 +342,15 @@ TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
 
     // list to check
     files.clear();
-    CHECK_STATUS_OK(fs->list(dst_dir, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(dst_dir, true, &files_iter));
+    CHECK_STATUS_OK(files_iter->files(&files));
     ASSERT_EQ(1, files.size());
 
     // upload
     std::string upload_file = "./be/test/io/fs/test_data/upload_file.txt";
     std::string remote_file = dst_dir + "/upload_file.txt";
     CHECK_STATUS_OK(fs->upload(upload_file, remote_file));
-    exists = false;
-    CHECK_STATUS_OK(fs->exists(remote_file, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->exists(remote_file));
 
     // batch upload
     std::vector<io::Path> local_files;
@@ -377,8 +361,8 @@ TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
     }
     CHECK_STATUS_OK(fs->batch_upload(local_files, remote_files));
     files.clear();
-    CHECK_STATUS_OK(fs->list(dst_dir, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(dst_dir, true, &files_iter));
+    CHECK_STATUS_OK(files_iter->files(&files));
     ASSERT_EQ(12, files.size());
     for (auto& file : remote_files) {
         CHECK_STATUS_OK(fs->file_size(file, &file_size));
@@ -389,8 +373,8 @@ TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
     std::string direct_remote_file = dst_dir + "/direct_upload_file";
     CHECK_STATUS_OK(fs->direct_upload(direct_remote_file, "abc"));
     files.clear();
-    CHECK_STATUS_OK(fs->list(dst_dir, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(dst_dir, true, &files_iter));
+    CHECK_STATUS_OK(files_iter->files(&files));
     ASSERT_EQ(13, files.size());
     CHECK_STATUS_OK(fs->file_size(direct_remote_file, &file_size));
     ASSERT_EQ(3, file_size);
@@ -445,14 +429,10 @@ TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     ASSERT_EQ(7, bytes_read);
 
     // exist
-    bool exists = false;
-    CHECK_STATUS_OK(fs->exists(file1, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->exists(file1));
     std::string file_non_exist = s3_location + "/non-exist";
-    CHECK_STATUS_OK(fs->exists(file_non_exist, &exists));
-    ASSERT_FALSE(exists);
-    CHECK_STATUS_OK(fs->exists(delete_path, &exists));
-    ASSERT_FALSE(exists);
+    ASSERT_TRUE(fs->exists(file_non_exist).is<NOT_FOUND>());
+    CHECK_STATUS_OK(fs->exists(delete_path));
 
     // file size
     int64_t file_size = 0;
@@ -469,9 +449,10 @@ TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     }
 
     // list files
+    std::unique_ptr<io::FileListIterator> files_iter;
     std::vector<io::FileInfo> files;
-    CHECK_STATUS_OK(fs->list(delete_path, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(delete_path, true, &files_iter));
+    CHECK_STATUS_OK(files_iter->files(&files));
     ASSERT_EQ(11, files.size());
     for (auto& file_info : files) {
         std::cout << "file name: " << file_info.file_name << std::endl;
@@ -480,28 +461,23 @@ TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     }
     std::string non_exist_path = s3_location + "/non_exist/";
     files.clear();
-    CHECK_STATUS_OK(fs->list(non_exist_path, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    ASSERT_TRUE(!fs->list(non_exist_path, true, &files_iter).ok());
     ASSERT_EQ(0, files.size());
 
     // rename
     std::string src_name = file1;
     std::string dst_name = s3_location + "/tmp1/new_file1.txt";
     CHECK_STATUS_OK(fs->rename(src_name, dst_name));
-    CHECK_STATUS_OK(fs->exists(src_name, &exists));
-    ASSERT_FALSE(exists);
-    CHECK_STATUS_OK(fs->exists(dst_name, &exists));
-    ASSERT_TRUE(exists);
+    ASSERT_TRUE(fs->exists(src_name).is<NOT_FOUND>());
+    CHECK_STATUS_OK(fs->exists(dst_name));
 
     // rename dir
     std::string src_dir = delete_path;
     std::string dst_dir = s3_location + "/tmp2";
     CHECK_STATUS_OK(fs->rename_dir(src_dir, dst_dir));
-    CHECK_STATUS_OK(fs->exists(dst_name, &exists));
-    ASSERT_FALSE(exists);
+    ASSERT_TRUE(fs->exists(dst_name).is<NOT_FOUND>());
     std::string new_dst_name = dst_dir + "/new_file1.txt";
-    CHECK_STATUS_OK(fs->exists(new_dst_name, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->exists(new_dst_name));
 
     // batch delete
     std::vector<io::Path> delete_files;
@@ -513,17 +489,15 @@ TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
 
     // list to check
     files.clear();
-    CHECK_STATUS_OK(fs->list(dst_dir, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(dst_dir, true, &files_iter));
+    ASSERT_TRUE(files_iter->files(&files));
     ASSERT_EQ(1, files.size());
 
     // upload
     std::string upload_file = "./be/test/io/fs/test_data/upload_file.txt";
     std::string remote_file = dst_dir + "/upload_file.txt";
     CHECK_STATUS_OK(fs->upload(upload_file, remote_file));
-    exists = false;
-    CHECK_STATUS_OK(fs->exists(remote_file, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->exists(remote_file));
 
     // batch upload
     std::vector<io::Path> local_files;
@@ -534,8 +508,8 @@ TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     }
     CHECK_STATUS_OK(fs->batch_upload(local_files, remote_files));
     files.clear();
-    CHECK_STATUS_OK(fs->list(dst_dir, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(dst_dir, true, &files_iter));
+    ASSERT_TRUE(files_iter->files(&files).ok());
     ASSERT_EQ(12, files.size());
     for (auto& file : remote_files) {
         CHECK_STATUS_OK(fs->file_size(file, &file_size));
@@ -546,8 +520,8 @@ TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     std::string direct_remote_file = dst_dir + "/direct_upload_file";
     CHECK_STATUS_OK(fs->direct_upload(direct_remote_file, "abc"));
     files.clear();
-    CHECK_STATUS_OK(fs->list(dst_dir, true, &files, &exists));
-    ASSERT_TRUE(exists);
+    CHECK_STATUS_OK(fs->list(dst_dir, true, &files_iter));
+    ASSERT_TRUE(files_iter->files(&files));
     ASSERT_EQ(13, files.size());
     CHECK_STATUS_OK(fs->file_size(direct_remote_file, &file_size));
     ASSERT_EQ(3, file_size);

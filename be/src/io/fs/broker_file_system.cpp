@@ -185,9 +185,8 @@ Status BrokerFileSystem::batch_delete_impl(const std::vector<Path>& files) {
     return Status::OK();
 }
 
-Status BrokerFileSystem::exists_impl(const Path& path, bool* res) const {
+Status BrokerFileSystem::exists_impl(const Path& path) const {
     CHECK_BROKER_CLIENT(_connection);
-    *res = false;
     try {
         TBrokerCheckPathExistRequest check_req;
         TBrokerCheckPathExistResponse check_rep;
@@ -206,10 +205,8 @@ Status BrokerFileSystem::exists_impl(const Path& path, bool* res) const {
             return Status::IOError("failed to check exist of path {}: {}", path.native(),
                                    error_msg(check_rep.opStatus.message));
         } else if (!check_rep.isPathExist) {
-            *res = false;
-            return Status::OK();
+            return Status::Error<ErrorCode::NOT_FOUND>("Path {} does not exist", path);
         } else {
-            *res = true;
             return Status::OK();
         }
     } catch (apache::thrift::TException& e) {
@@ -283,11 +280,13 @@ public:
     size_t file_size;
 };
 
-Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files,
-                                   bool* exists) {
-    RETURN_IF_ERROR(exists_impl(dir, exists));
-    if (!(*exists)) {
+Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files) {
+    Status st = exists_impl(dir);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::OK();
+    }
+    if (!st.ok()) {
+        return st;
     }
     CHECK_BROKER_CLIENT(_connection);
     Status status = Status::OK();
@@ -310,14 +309,12 @@ Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, FileListIter
 
         if (list_rep.opStatus.statusCode == TBrokerOperationStatusCode::FILE_NOT_FOUND) {
             LOG(INFO) << "path does not exist: " << dir;
-            *exists = false;
-            return Status::OK();
+            return Status::Error<ErrorCode::NOT_FOUND>("Path {} does not exist", dir);
         } else if (list_rep.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
             return Status::IOError("failed to list dir {}: {}", dir.native(),
                                    error_msg(list_rep.opStatus.message));
         }
         LOG(INFO) << "finished to list files from remote path. file num: " << list_rep.files.size();
-        *exists = true;
 
         *files = std::make_unique<BrokerFileListIterator>(std::move(list_rep.files), only_file);
     } catch (apache::thrift::TException& e) {

@@ -198,13 +198,12 @@ public:
                 _directory + "/" + _segment_file_name, _index_meta->index_id(),
                 _index_meta->get_index_suffix());
 
-        bool exists = false;
-        auto st = _fs->exists(index_path.c_str(), &exists);
-        if (!st.ok()) {
+        auto st = _fs->exists(index_path.c_str());
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
             LOG(ERROR) << "index_path: exists error:" << st;
             return st;
         }
-        if (exists) {
+        if (st.ok()) {
             LOG(ERROR) << "try to init a directory:" << index_path << " already exists";
             return Status::InternalError("init_fulltext_index directory already exists");
         }

@@ -956,9 +956,8 @@ Status LRUFileCache::write_file_cache_version() const {
 std::string LRUFileCache::read_file_cache_version() const {
     std::string version_path = get_version_path();
     const FileSystemSPtr& fs = global_local_filesystem();
-    bool exists = false;
-    static_cast<void>(fs->exists(version_path, &exists));
-    if (!exists) {
+    auto st = fs->exists(version_path);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return "1.0";
     }
     FileReaderSPtr version_reader;

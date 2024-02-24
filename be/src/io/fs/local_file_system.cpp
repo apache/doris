@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/exception.h"
+#include "common/status.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
@@ -96,12 +97,8 @@ Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
 }
 
 Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
-    if (failed_if_exists) {
-        bool exists = true;
-        RETURN_IF_ERROR(exists_impl(dir, &exists));
-        if (exists) {
-            return Status::AlreadyExist("failed to create {}, already exists", dir.native());
-        }
+    if (failed_if_exists && exists_impl(dir).ok()) {
+        return Status::InternalError("Failed to create dir {} because it exists", dir);
     }
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
@@ -112,10 +109,12 @@ Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_ex
 }
 
 Status LocalFileSystem::delete_file_impl(const Path& file) {
-    bool exists = true;
-    RETURN_IF_ERROR(exists_impl(file, &exists));
-    if (!exists) {
+    Status st = exists_impl(file);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::OK();
+    }
+    if (!st.ok()) {
+        return st;
     }
     if (!std::filesystem::is_regular_file(file)) {
         return Status::InternalError("failed to delete {}, not a file", file.native());
@@ -129,10 +128,12 @@ Status LocalFileSystem::delete_file_impl(const Path& file) {
 }
 
 Status LocalFileSystem::delete_directory_impl(const Path& dir) {
-    bool exists = true;
-    RETURN_IF_ERROR(exists_impl(dir, &exists));
-    if (!exists) {
+    Status st = exists_impl(dir);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::OK();
+    }
+    if (!st.ok()) {
+        return st;
     }
     if (!std::filesystem::is_directory(dir)) {
         return Status::InternalError("failed to delete {}, not a directory", dir.native());
@@ -167,11 +168,14 @@ Status LocalFileSystem::batch_delete_impl(const std::vector<Path>& files) {
     return Status::OK();
 }
 
-Status LocalFileSystem::exists_impl(const Path& path, bool* res) const {
+Status LocalFileSystem::exists_impl(const Path& path) const {
     std::error_code ec;
-    *res = std::filesystem::exists(path, ec);
+    bool res = std::filesystem::exists(path, ec);
     if (ec) {
         return localfs_error(ec, fmt::format("failed to check exists {}", path.native()));
+    }
+    if (!res) {
+        return Status::Error<ErrorCode::NOT_FOUND>("Path {} dost not exist", path);
     }
     return Status::OK();
 }
@@ -269,12 +273,8 @@ private:
     std::filesystem::directory_iterator end;
 };
 
-Status LocalFileSystem::list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files,
-                                  bool* exists) {
-    RETURN_IF_ERROR(exists_impl(dir, exists));
-    if (!exists) {
-        return Status::OK();
-    }
+Status LocalFileSystem::list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files) {
+    RETURN_IF_ERROR(exists_impl(dir));
     auto file_ptr = std::make_unique<LocalFileListIterator>(dir, only_file);
     auto st = file_ptr->init();
     *files = std::move(file_ptr);

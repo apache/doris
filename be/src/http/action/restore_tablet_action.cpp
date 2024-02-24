@@ -194,9 +194,8 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id,
 
 Status RestoreTabletAction::_create_hard_link_recursive(const std::string& src,
                                                         const std::string& dst) {
-    bool exists = true;
     io::FileListIteratorPtr files;
-    RETURN_IF_ERROR(io::global_local_filesystem()->list(src, false, &files, &exists));
+    RETURN_IF_ERROR(io::global_local_filesystem()->list(src, false, &files));
     while (files->has_next()) {
         const auto& file = DORIS_TRY(files->next());
         std::string from = src + "/" + file.file_name;
@@ -225,9 +224,8 @@ bool RestoreTabletAction::_get_latest_tablet_path_from_trash(int64_t tablet_id, 
     std::vector<std::string> schema_hash_paths;
     for (auto& tablet_path : tablet_paths) {
         std::string schema_hash_path = tablet_path + "/" + std::to_string(schema_hash);
-        bool exists = true;
-        Status st = io::global_local_filesystem()->exists(schema_hash_path, &exists);
-        if (st.ok() && exists) {
+        Status st = io::global_local_filesystem()->exists(schema_hash_path);
+        if (st.ok()) {
             schema_hash_paths.emplace_back(std::move(schema_hash_path));
         }
     }

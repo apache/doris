@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <fmt/format.h>
+
 #include <filesystem>
 
 namespace doris {
@@ -30,3 +32,17 @@ inline Path operator/(Path&& lhs, const Path& rhs) {
 
 } // namespace io
 } // namespace doris
+
+// specify formatter for Path
+template <>
+struct fmt::formatter<doris::io::Path> {
+    template <typename ParseContext>
+    constexpr auto parse(ParseContext& ctx) {
+        return ctx.begin();
+    }
+
+    template <typename FormatContext>
+    auto format(doris::io::Path const& path, FormatContext& ctx) {
+        return fmt::format_to(ctx.out(), "{}", path.native());
+    }
+};

@@ -272,7 +272,7 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
     return Status::OK();
 }
 
-Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
+Status S3FileSystem::exists_impl(const Path& path) const {
     auto client = get_client();
     CHECK_S3_CLIENT(client);
     GET_KEY(key, path);
@@ -282,11 +282,7 @@ Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
 
     SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
     auto outcome = client->HeadObject(request);
-    if (outcome.IsSuccess()) {
-        *res = true;
-    } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        *res = false;
-    } else {
+    if (!outcome.IsSuccess()) {
         return s3fs_error(outcome.GetError(),
                           fmt::format("failed to check exists {}", full_path(key)));
     }
@@ -378,11 +374,9 @@ public:
     decltype(outcome.GetResult().GetContents().begin()) iter;
 };
 
-Status S3FileSystem::list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files,
-                               bool* exists) {
+Status S3FileSystem::list_impl(const Path& dir, bool only_file, FileListIteratorPtr* files) {
     // For object storage, this path is always not exist.
     // So we ignore this property and set exists to true.
-    *exists = true;
     auto client = get_client();
     CHECK_S3_CLIENT(client);
     GET_KEY(prefix, dir);

@@ -53,9 +53,7 @@ std::string FileHeaderTest::_s_test_data_path = "./file_handler_testxxxx123";
 TEST_F(FileHeaderTest, TestWrite) {
     std::shared_ptr<io::LocalFileSystem> fs = io::global_local_filesystem();
     std::string file_name = _s_test_data_path + "/abcd123.txt";
-    bool exists = true;
-    EXPECT_TRUE(fs->exists(file_name, &exists).ok());
-    EXPECT_FALSE(exists);
+    EXPECT_TRUE(fs->exists(file_name).is<ErrorCode::NOT_FOUND>());
 
     io::FileWriterPtr file_writer;
     EXPECT_TRUE(fs->create_file(file_name, &file_writer).ok());

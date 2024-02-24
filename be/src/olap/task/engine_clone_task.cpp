@@ -89,14 +89,12 @@ Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
     auto to = fmt::format("{}/_binlog/{}", tablet_dir, new_clone_file);
 
     // check to to file exist
-    bool exists = true;
-    auto status = io::global_local_filesystem()->exists(to, &exists);
+    auto status = io::global_local_filesystem()->exists(to);
+    if (status.is<ErrorCode::NOT_FOUND>()) {
+        return to;
+    }
     if (!status.ok()) {
         return ResultError(std::move(status));
-    }
-
-    if (!exists) {
-        return to;
     }
 
     LOG(WARNING) << "binlog file already exist. "
@@ -590,10 +588,12 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     Defer remove_clone_dir {[&]() { std::filesystem::remove_all(clone_dir); }};
 
     // check clone dir existed
-    bool exists = true;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(clone_dir, &exists));
-    if (!exists) {
+    auto st = io::global_local_filesystem()->exists(clone_dir);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::InternalError("clone dir not existed. clone_dir={}", clone_dir);
+    }
+    if (!st.ok()) {
+        return st;
     }
 
     // Load src header.
@@ -609,15 +609,14 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     // remove rowset binlog metas
     const auto& tablet_dir = tablet->tablet_path();
     auto binlog_metas_file = fmt::format("{}/rowset_binlog_metas.pb", clone_dir);
-    bool binlog_metas_file_exists = false;
     auto file_exists_status =
-            io::global_local_filesystem()->exists(binlog_metas_file, &binlog_metas_file_exists);
-    if (!file_exists_status.ok()) {
+            io::global_local_filesystem()->exists(binlog_metas_file);
+    if (!file_exists_status.ok() && !file_exists_status.is<ErrorCode::NOT_FOUND>()) {
         return file_exists_status;
     }
     bool contain_binlog = false;
     RowsetBinlogMetasPB rowset_binlog_metas_pb;
-    if (binlog_metas_file_exists) {
+    if (!file_exists_status.is<ErrorCode::NOT_FOUND>()) {
         auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file);
         if (binlog_meta_filesize > 0) {
             contain_binlog = true;
@@ -632,7 +631,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
 
     // check all files in /clone and /tablet
     io::FileListIteratorPtr clone_files;
-    RETURN_IF_ERROR(io::global_local_filesystem()->list(clone_dir, true, &clone_files, &exists));
+    RETURN_IF_ERROR(io::global_local_filesystem()->list(clone_dir, true, &clone_files));
     std::unordered_set<std::string> clone_file_names;
     while (clone_files->has_next()) {
         const auto& file = DORIS_TRY(clone_files->next());
@@ -640,7 +639,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     }
 
     io::FileListIteratorPtr local_files;
-    RETURN_IF_ERROR(io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));
+    RETURN_IF_ERROR(io::global_local_filesystem()->list(tablet_dir, true, &local_files));
     std::unordered_set<std::string> local_file_names;
     while (local_files->has_next()) {
         const auto& file = DORIS_TRY(local_files->next());

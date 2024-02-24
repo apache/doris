@@ -174,10 +174,9 @@ void do_file_response(const std::string& file_path, HttpRequest* req,
 }
 
 void do_dir_response(const std::string& dir_path, HttpRequest* req) {
-    bool exists = true;
     io::FileListIteratorPtr files_iter;
     std::vector<io::FileInfo> files;
-    Status st = io::global_local_filesystem()->list(dir_path, true, &files_iter, &exists);
+    Status st = io::global_local_filesystem()->list(dir_path, true, &files_iter);
     if (!st.ok()) {
         LOG(WARNING) << "Failed to scan dir. " << st;
         HttpChannel::send_error(req, HttpStatus::INTERNAL_SERVER_ERROR);

@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
 #include "io/fs/err_utils.h"
@@ -213,10 +214,12 @@ Status HdfsFileSystem::batch_delete_impl(const std::vector<Path>& files) {
 }
 
 Status HdfsFileSystem::delete_internal(const Path& path, int is_recursive) {
-    bool exists = true;
-    RETURN_IF_ERROR(exists_impl(path, &exists));
-    if (!exists) {
+    Status st = exists_impl(path);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::OK();
+    }
+    if (!st.ok()) {
+        return st;
     }
     CHECK_HDFS_HANDLE(_fs_handle);
     Path real_path = convert_path(path, _fs_name);
@@ -227,7 +230,7 @@ Status HdfsFileSystem::delete_internal(const Path& path, int is_recursive) {
     return Status::OK();
 }
 
-Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
+Status HdfsFileSystem::exists_impl(const Path& path) const {
     CHECK_HDFS_HANDLE(_fs_handle);
     Path real_path = convert_path(path, _fs_name);
     int is_exists = hdfsExists(_fs_handle->hdfs_fs, real_path.string().c_str());
@@ -246,8 +249,8 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
                                (root_cause ? root_cause : "unknown"));
     }
 #endif
-    *res = (is_exists == 0);
-    return Status::OK();
+    return (is_exists == 0) ? Status::OK()
+                            : Status::Error<ErrorCode::NOT_FOUND>("Path {} does not exist", path);
 }
 
 Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) const {
@@ -295,12 +298,8 @@ private:
     size_t idx;
 };
 
-Status HdfsFileSystem::list_impl(const Path& path, bool only_file, FileListIteratorPtr* files,
-                                 bool* exists) {
-    RETURN_IF_ERROR(exists_impl(path, exists));
-    if (!(*exists)) {
-        return Status::OK();
-    }
+Status HdfsFileSystem::list_impl(const Path& path, bool only_file, FileListIteratorPtr* files) {
+    RETURN_IF_ERROR(exists_impl(path));
 
     CHECK_HDFS_HANDLE(_fs_handle);
     Path real_path = convert_path(path, _fs_name);

@@ -146,8 +146,8 @@ protected:
         return _local_fs->delete_directory(get_remote_path(path));
     }
 
-    Status exists_impl(const Path& path, bool* res) const override {
-        return _local_fs->exists(get_remote_path(path), res);
+    Status exists_impl(const Path& path) const override {
+        return _local_fs->exists(get_remote_path(path));
     }
 
     Status file_size_impl(const Path& path, int64_t* file_size) const override {
@@ -155,8 +155,8 @@ protected:
     }
 
     Status list_impl(const Path& dir, bool regular_file,
-                     std::unique_ptr<io::FileListIterator>* files, bool* exists) override {
-        RETURN_IF_ERROR(_local_fs->list(get_remote_path(dir), true, files, exists));
+                     std::unique_ptr<io::FileListIterator>* files) override {
+        RETURN_IF_ERROR(_local_fs->list(get_remote_path(dir), true, files));
         // for (auto& path : local_paths) {
         //     files->emplace_back(path.file_name.substr(config::storage_root_path.size() + 1));
         // }

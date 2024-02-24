@@ -114,9 +114,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = false;
-    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet->tablet_path(), &dir_exist).ok());
-    EXPECT_TRUE(dir_exist);
+    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet->tablet_path()).ok());
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
     Status check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
@@ -175,9 +173,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = false;
-    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet->tablet_path(), &dir_exist).ok());
-    EXPECT_TRUE(dir_exist);
+    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet->tablet_path()).ok());
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
     Status check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
@@ -233,9 +229,7 @@ TEST_F(TabletMgrTest, DropTablet) {
 
     // check dir exist
     std::string tablet_path = tablet->tablet_path();
-    bool dir_exist = false;
-    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
-    EXPECT_TRUE(dir_exist);
+    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path).ok());
 
     // do trash sweep, tablet will not be garbage collected
     // because tablet ptr referenced it
@@ -243,8 +237,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     EXPECT_TRUE(trash_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111, true);
     EXPECT_TRUE(tablet != nullptr);
-    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
-    EXPECT_TRUE(dir_exist);
+    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path).ok());
 
     // reset tablet ptr
     tablet.reset();
@@ -252,8 +245,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     EXPECT_TRUE(trash_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111, true);
     EXPECT_TRUE(tablet == nullptr);
-    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
-    EXPECT_FALSE(dir_exist);
+    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path).is<ErrorCode::NOT_FOUND>());
 }
 
 TEST_F(TabletMgrTest, GetRowsetId) {

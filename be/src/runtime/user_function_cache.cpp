@@ -199,9 +199,8 @@ Status UserFunctionCache::_load_cached_lib() {
         if (!path.is_absolute()) {
             path = io::global_local_filesystem()->root_path() / path;
         }
-        bool exists = true;
         io::FileListIteratorPtr files;
-        RETURN_IF_ERROR(io::global_local_filesystem()->list(path, false, &files, &exists));
+        RETURN_IF_ERROR(io::global_local_filesystem()->list(path, false, &files));
         while (files->has_next()) {
             const auto& file = DORIS_TRY(files->next());
             if (!scan_cb(file)) {

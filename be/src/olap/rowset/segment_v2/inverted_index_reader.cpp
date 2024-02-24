@@ -229,13 +229,13 @@ Status InvertedIndexReader::create_index_searcher(IndexSearcherPtr* searcher, io
                                                   MemTracker* mem_tracker,
                                                   InvertedIndexReaderType reader_type) {
     auto index_file_path = index_dir / index_file_name;
-    bool exists = false;
-    RETURN_IF_ERROR(fs->exists(index_file_path, &exists));
-    if (!exists) {
+    auto st = fs->exists(index_file_path);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         LOG(WARNING) << "inverted index: " << index_file_path << " not exist.";
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                 "inverted index input file {} not found", index_file_path.native());
     }
+    RETURN_IF_ERROR(st);
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
     bool open_idx_file_cache = true;
     auto* directory = new DorisCompoundReader(

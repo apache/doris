@@ -61,10 +61,8 @@ public:
 };
 
 bool check_exist(const std::string& path) {
-    bool res = false;
-    auto st = io::global_local_filesystem()->exists(path, &res);
-    EXPECT_TRUE(st.ok()) << st;
-    return res;
+    auto st = io::global_local_filesystem()->exists(path);
+    return !st.is<ErrorCode::NOT_FOUND>();
 }
 
 Status save_string_file(const std::string& path, const std::string& content) {
@@ -165,15 +163,14 @@ TEST_F(LocalFileSystemTest, List) {
     ASSERT_TRUE(check_exist(fname));
     std::unique_ptr<io::FileListIterator> files_iter;
     std::vector<io::FileInfo> files;
-    bool exists;
-    st = io::global_local_filesystem()->list(fname, false, &files_iter, &exists);
+    st = io::global_local_filesystem()->list(fname, false, &files_iter);
     ASSERT_FALSE(st.ok()) << st; // Not a dir, can not list
 
     auto dname = fmt::format("{}/dir/dir1/dir2", test_dir);
     st = io::global_local_filesystem()->create_directory(dname);
     ASSERT_TRUE(st.ok()) << st;
     files.clear();
-    st = io::global_local_filesystem()->list(dname, false, &files_iter, &exists);
+    st = io::global_local_filesystem()->list(dname, false, &files_iter);
     ASSERT_TRUE(st.ok()) << st;
     st = files_iter->files(&files);
     ASSERT_TRUE(st.ok()) << st;
@@ -183,7 +180,7 @@ TEST_F(LocalFileSystemTest, List) {
         ASSERT_TRUE(st.ok()) << st;
     }
     files.clear();
-    st = io::global_local_filesystem()->list(dname, false, &files_iter, &exists);
+    st = io::global_local_filesystem()->list(dname, false, &files_iter);
     ASSERT_TRUE(st.ok()) << st;
     st = files_iter->files(&files);
     ASSERT_TRUE(st.ok()) << st;

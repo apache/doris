@@ -226,9 +226,7 @@ std::string CGroupUtil::debug_string() {
 }
 
 bool CGroupUtil::enable() {
-    bool exists = true;
-    Status st = io::global_local_filesystem()->exists("/proc/cgroups", &exists);
-    return st.ok() && exists;
+    return io::global_local_filesystem()->exists("/proc/cgroups").ok();
 }
 
 } // namespace doris

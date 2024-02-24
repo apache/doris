@@ -82,9 +82,8 @@ Status SmallFileMgr::_load_local_files() {
     if (!path.is_absolute()) {
         path = io::global_local_filesystem()->root_path() / path;
     }
-    bool exists = true;
     io::FileListIteratorPtr files;
-    RETURN_IF_ERROR(io::global_local_filesystem()->list(path, false, &files, &exists));
+    RETURN_IF_ERROR(io::global_local_filesystem()->list(path, false, &files));
     while (files->has_next()) {
         const auto& file = DORIS_TRY(files->next());
         if (!scan_cb(file)) {
@@ -151,11 +150,11 @@ Status SmallFileMgr::get_file(int64_t file_id, const std::string& md5, std::stri
 }
 
 Status SmallFileMgr::_check_file(const CacheEntry& entry, const std::string& md5) {
-    bool exists;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(entry.path, &exists));
-    if (!exists) {
+    auto st = io::global_local_filesystem()->exists(entry.path);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
         return Status::InternalError("file not exist: {}", entry.path);
     }
+    RETURN_IF_ERROR(st);
     if (!iequal(md5, entry.md5)) {
         return Status::InternalError("invalid MD5 of file: {}", entry.path);
     }

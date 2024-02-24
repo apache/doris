@@ -1187,16 +1187,14 @@ void StorageEngine::do_remove_unused_remote_files() {
         std::vector<io::FileInfo> files;
         // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
         //  Maybe we should also list files in previously uploaded resources.
-        bool exists = true;
-        st = dest_fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files_iter,
-                           &exists);
+        st = dest_fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files_iter);
         if (!st.ok()) {
             LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
                          << t->tablet_id() << " : " << st;
             return;
         }
         st = files_iter->files(&files);
-        if (!st.ok() || !exists || files.empty()) {
+        if (!st.ok() || st.is<ErrorCode::NOT_FOUND>() || files.empty()) {
             return;
         }
         // get all cooldowned rowsets

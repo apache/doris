@@ -120,11 +120,11 @@ Status VFileResultWriter::_get_success_file_name(std::string* file_name) {
         // Because the file path is currently arbitrarily specified by the user,
         // Doris is not responsible for ensuring the correctness of the path.
         // This is just to prevent overwriting the existing file.
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(*file_name, &exists));
-        if (exists) {
+        auto st = io::global_local_filesystem()->exists(*file_name);
+        if (!st.is<ErrorCode::NOT_FOUND>()) {
             return Status::InternalError("File already exists: {}", *file_name);
         }
+        RETURN_IF_ERROR(st);
     }
 
     return Status::OK();
@@ -184,11 +184,11 @@ Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
         // Because the file path is currently arbitrarily specified by the user,
         // Doris is not responsible for ensuring the correctness of the path.
         // This is just to prevent overwriting the existing file.
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(*file_name, &exists));
-        if (exists) {
+        auto st = io::global_local_filesystem()->exists(*file_name);
+        if (!st.is<ErrorCode::NOT_FOUND>()) {
             return Status::InternalError("File already exists: {}", *file_name);
         }
+        RETURN_IF_ERROR(st);
     }
 
     return Status::OK();

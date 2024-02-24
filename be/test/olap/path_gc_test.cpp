@@ -190,8 +190,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
     data_dir._perform_path_gc_by_rowset(paths);
     for (auto&& t : active_tablets) {
         io::FileListIteratorPtr files_iter;
-        bool exists;
-        st = fs->list(t->tablet_path(), true, &files_iter, &exists);
+        st = fs->list(t->tablet_path(), true, &files_iter);
         std::vector<io::FileInfo> files;
         st = files_iter->files(&files);
         ASSERT_TRUE(st.ok()) << st;

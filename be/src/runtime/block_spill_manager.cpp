@@ -40,15 +40,18 @@ BlockSpillManager::BlockSpillManager(const std::vector<StorePath>& paths) : _sto
 Status BlockSpillManager::init() {
     for (const auto& path : _store_paths) {
         auto dir = fmt::format("{}/{}", path.path, BLOCK_SPILL_GC_DIR);
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(dir, &exists));
-        if (!exists) {
+        auto st = io::global_local_filesystem()->exists(dir);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(dir));
         }
+        RETURN_IF_ERROR(st);
 
         dir = fmt::format("{}/{}", path.path, BLOCK_SPILL_DIR);
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(dir, &exists));
-        if (!exists) {
+        st = io::global_local_filesystem()->exists(dir);
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            return st;
+        }
+        if (st.is<ErrorCode::NOT_FOUND>()) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(dir));
         } else {
             auto suffix = ToStringFromUnixMillis(UnixMillis());
@@ -76,7 +79,7 @@ void BlockSpillManager::gc(int64_t max_file_count) {
             continue;
         }
         io::FileListIteratorPtr dirs_iter;
-        auto st = io::global_local_filesystem()->list(gc_root_dir, false, &dirs_iter, &exists);
+        auto st = io::global_local_filesystem()->list(gc_root_dir, false, &dirs_iter);
         if (!st.ok()) {
             continue;
         }
@@ -88,7 +91,7 @@ void BlockSpillManager::gc(int64_t max_file_count) {
             }
             std::string abs_dir = fmt::format("{}/{}", gc_root_dir, dir.file_name);
             io::FileListIteratorPtr files_iter;
-            st = io::global_local_filesystem()->list(abs_dir, true, &files_iter, &exists);
+            st = io::global_local_filesystem()->list(abs_dir, true, &files_iter);
             if (!st.ok()) {
                 continue;
             }
