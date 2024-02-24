@@ -142,8 +142,6 @@ public class ConnectContext {
     protected volatile long currentDbId = -1;
     // Transaction
     protected volatile TransactionEntry txnEntry = null;
-    // cluster name
-    protected volatile String clusterName = "";
     // used for ShowSqlAction which don't allow a user account
     protected volatile boolean noAuth = false;
     // username@host of current login user
@@ -848,14 +846,6 @@ public class ConnectContext {
         return queryId;
     }
 
-    public String getClusterName() {
-        return clusterName;
-    }
-
-    public void setCluster(String clusterName) {
-        this.clusterName = clusterName;
-    }
-
     public String getSqlHash() {
         return sqlHash;
     }
@@ -1126,7 +1116,7 @@ public class ConnectContext {
             AtomicBoolean hasAliveBe = new AtomicBoolean(false);
             bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", clusterName, backend);
+                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", cloudClusterName, backend);
                 }
                 hasAliveBe.set(true);
             });
