@@ -30,7 +30,6 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
@@ -320,7 +319,6 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, ctx,
                 RedirectStatus.FORWARD_WITH_SYNC, false);
         if (LOG.isDebugEnabled()) {
