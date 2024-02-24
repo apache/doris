@@ -295,11 +295,11 @@ private:
 
     void _clean_unused_txns();
 
-    Status _clean_unused_rowset_metas();
+    void _clean_unused_rowset_metas();
 
-    Status _clean_unused_binlog_metas();
+    void _clean_unused_binlog_metas();
 
-    Status _clean_unused_delete_bitmap();
+    void _clean_unused_delete_bitmap();
 
     void _clean_unused_pending_publish_info();
 

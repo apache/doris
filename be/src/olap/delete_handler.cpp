@@ -116,6 +116,7 @@ Status DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
     for (auto& in_pred : *in_pred_list) {
         in_pred.set_column_unique_id(schema->column(in_pred.column_name()).unique_id());
     }
+    return Status::OK();
 }
 
 std::string DeleteHandler::construct_sub_predicate(const TCondition& condition) {

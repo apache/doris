@@ -415,6 +415,7 @@ Status PrefetchBuffer::reset_offset(size_t offset) {
     }
     RETURN_IF_ERROR(ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
             [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); }));
+    return Status::OK();
 }
 
 // only this function would run concurrently in another thread
@@ -671,7 +672,7 @@ PrefetchBufferedReader::~PrefetchBufferedReader() {
 Status PrefetchBufferedReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                             const IOContext* io_ctx) {
     if (!_initialized) {
-        reset_all_buffer(offset);
+        RETURN_IF_ERROR(reset_all_buffer(offset));
         _initialized = true;
     }
     if (UNLIKELY(result.get_size() == 0 || offset >= size())) {

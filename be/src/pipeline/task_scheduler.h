@@ -102,6 +102,6 @@ private:
     std::string _name;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 
-    Status _do_work(size_t index);
+    void _do_work(size_t index);
 };
 } // namespace doris::pipeline

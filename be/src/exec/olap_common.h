@@ -376,27 +376,27 @@ public:
 
     int scale() const { return _scale; }
 
-    static Status add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
-        RETURN_IF_ERROR(range.add_fixed_value(*value));
+    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
+        static_cast<void>(range.add_fixed_value(*value));
     }
 
     static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
         range.remove_fixed_value(*value);
     }
 
-    static Status add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
-                                  CppType* value) {
-        RETURN_IF_ERROR(range.add_range(op, *value));
+    static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+                                CppType* value) {
+        static_cast<void>(range.add_range(op, *value));
     }
 
-    static Status add_compound_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
-                                           CppType* value) {
-        RETURN_IF_ERROR(range.add_compound_value(op, *value));
+    static void add_compound_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+                                         CppType* value) {
+        static_cast<void>(range.add_compound_value(op, *value));
     }
 
-    static Status add_match_value_range(ColumnValueRange<primitive_type>& range,
-                                        MatchType match_type, CppType* match_value) {
-        RETURN_IF_ERROR(range.add_match_value(match_type, *match_value));
+    static void add_match_value_range(ColumnValueRange<primitive_type>& range, MatchType match_type,
+                                      CppType* match_value) {
+        static_cast<void>(range.add_match_value(match_type, *match_value));
     }
 
     static ColumnValueRange<primitive_type> create_empty_column_value_range(bool is_nullable_col,

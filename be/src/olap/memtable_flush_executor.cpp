@@ -26,6 +26,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
+#include "common/status.h"
 #include "olap/memtable.h"
 #include "olap/rowset/rowset_writer.h"
 #include "util/debug_points.h"
@@ -200,7 +201,7 @@ void FlushToken::_flush_memtable(std::unique_ptr<MemTable> memtable_ptr, int32_t
     _stats.flush_disk_size_bytes += flush_size;
 }
 
-void MemTableFlushExecutor::init(int num_disk) {
+Status MemTableFlushExecutor::init(int num_disk) {
     num_disk = std::max(1, num_disk);
     size_t min_threads = std::max(1, config::flush_thread_num_per_store);
     size_t max_threads = num_disk * min_threads;
@@ -216,6 +217,7 @@ void MemTableFlushExecutor::init(int num_disk) {
                             .set_max_threads(max_threads)
                             .build(&_high_prio_flush_pool));
     _register_metrics();
+    return Status::OK();
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
