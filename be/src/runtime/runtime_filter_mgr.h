@@ -133,7 +133,7 @@ private:
 class RuntimeFilterMergeControllerEntity {
 public:
     RuntimeFilterMergeControllerEntity(RuntimeFilterParamsContext* state)
-            : _query_id(0, 0), _fragment_instance_id(0, 0), _state(state) {}
+            : _query_id(0, 0), _state(state) {}
     ~RuntimeFilterMergeControllerEntity() = default;
 
     Status init(UniqueId query_id, const TRuntimeFilterParams& runtime_filter_params,
@@ -144,8 +144,6 @@ public:
                  bool opt_remote_rf);
 
     UniqueId query_id() const { return _query_id; }
-
-    UniqueId instance_id() const { return _fragment_instance_id; }
 
     struct RuntimeFilterCntlVal {
         int64_t merge_time;
@@ -170,7 +168,6 @@ private:
                            const int producer_size);
 
     UniqueId _query_id;
-    UniqueId _fragment_instance_id;
     // protect _filter_map
     std::shared_mutex _filter_map_mutex;
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -199,22 +196,21 @@ public:
         }
 
         // TODO: why we need string, direct use UniqueId
-        std::string query_id_str = query_id.to_string();
         uint32_t shard = _get_controller_shard_idx(query_id);
         std::lock_guard<std::mutex> guard(_controller_mutex[shard]);
-        auto iter = _filter_controller_map[shard].find(query_id_str);
+        auto iter = _filter_controller_map[shard].find(query_id);
         if (iter == _filter_controller_map[shard].end()) {
             *handle = std::shared_ptr<RuntimeFilterMergeControllerEntity>(
                     new RuntimeFilterMergeControllerEntity(state),
                     [this](RuntimeFilterMergeControllerEntity* entity) {
-                        static_cast<void>(remove_entity(entity->query_id()));
+                        remove_entity(entity->query_id());
                         delete entity;
                     });
-            _filter_controller_map[shard][query_id_str] = *handle;
+            _filter_controller_map[shard][query_id] = *handle;
             const TRuntimeFilterParams& filter_params = params.runtime_filter_params;
             RETURN_IF_ERROR(handle->get()->init(query_id, filter_params, query_options));
         } else {
-            *handle = _filter_controller_map[shard][query_id_str].lock();
+            *handle = _filter_controller_map[shard][query_id].lock();
         }
         return Status::OK();
     }
@@ -228,7 +224,7 @@ public:
     // thread safe
     // remove a entity by query-id
     // remove_entity will be called automatically by entity when entity is destroyed
-    Status remove_entity(UniqueId query_id);
+    void remove_entity(UniqueId query_id);
 
     static const int kShardNum = 128;
 
@@ -241,7 +237,7 @@ private:
     // We store the weak pointer here.
     // When the external object is destroyed, we need to clear this record
     using FilterControllerMap =
-            std::unordered_map<std::string, std::weak_ptr<RuntimeFilterMergeControllerEntity>>;
+            std::unordered_map<UniqueId, std::weak_ptr<RuntimeFilterMergeControllerEntity>>;
     // str(query-id) -> entity
     FilterControllerMap _filter_controller_map[kShardNum];
 };

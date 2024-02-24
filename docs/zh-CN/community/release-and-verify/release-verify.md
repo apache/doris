@@ -102,3 +102,29 @@ INFO Totally checked 5611 files, valid: 3926, invalid: 0, ignored: 1685, fixed: 
 * Doris 主代码编译，请参阅 [编译文档](/docs/install/source-install/compilation)
 * Flink Doris Connector 编译，请参阅 [编译文档](/docs/ecosystem/flink-doris-connector)
 * Spark Doris Connector 编译，请参阅 [编译文档](/docs/ecosystem/spark-doris-connector)
+
+## 5. 投票
+
+验证完成后，可以采用以下模板会发 dev@doris 邮件组中的投票邮件：
+
+```
+Here is my(your github id) vote +1 (binding)"
+
+I checked:
+
+[x] The download link is legal.
+[x] The PGP signature are valid.
+[x] The source code matches the current release version.
+[x] The LICENSE and NOTICE files are correct.
+[x] All files carry the necessary protocol header.
+[x] The compiled content is not included in the source package.
+[x] The compilation can be executed smoothly.
+
+Other comments...
+```
+
+> 1. 在投票邮件中注明 github id，以方便 Release Manager 统计票数。
+>
+> 2. 如果你是 Doris PMC 成员，则在投票邮件中注明（binding）。否则注明（non-binding）。
+>
+> 3. Release Manger 本身也需要显式的进行投票。

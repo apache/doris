@@ -35,6 +35,7 @@
 namespace doris {
 
 class MemTrackerLimiter;
+class RuntimeProfile;
 
 namespace pipeline {
 class PipelineTask;
@@ -83,12 +84,6 @@ public:
 
     void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
-    void task_group_info(TaskGroupInfo* tg_info) const;
-
-    std::vector<TgTrackerLimiterGroup>& mem_tracker_limiter_pool() {
-        return _mem_tracker_limiter_pool;
-    }
-
     // when mem_limit <=0 , it's an invalid value, then current group not participating in memory GC
     // because mem_limit is not a required property
     bool is_mem_limit_valid() {
@@ -123,6 +118,8 @@ public:
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _query_id_set.size();
     }
+
+    int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile);
 
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
