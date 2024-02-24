@@ -1116,7 +1116,7 @@ public class ConnectContext {
             AtomicBoolean hasAliveBe = new AtomicBoolean(false);
             bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", clusterName, backend);
+                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", cloudClusterName, backend);
                 }
                 hasAliveBe.set(true);
             });
