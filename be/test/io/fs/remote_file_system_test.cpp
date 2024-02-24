@@ -80,9 +80,9 @@ static std::string hdfs_location = "/user/doris/";
 static std::string broker_ip = "127.0.0.1";
 static int broker_port = 8008;
 static std::string broker_location = "hdfs://my_nameservice/user/doris";
-using ErrorCode::NOT_FOUND:
+using ErrorCode::NOT_FOUND :
 
-class RemoteFileSystemTest : public testing::Test {
+        class RemoteFileSystemTest : public testing::Test {
 public:
     virtual void SetUp() {
         s3_prop.emplace("AWS_ACCESS_KEY", ak);

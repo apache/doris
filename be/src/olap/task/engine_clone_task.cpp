@@ -609,8 +609,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     // remove rowset binlog metas
     const auto& tablet_dir = tablet->tablet_path();
     auto binlog_metas_file = fmt::format("{}/rowset_binlog_metas.pb", clone_dir);
-    auto file_exists_status =
-            io::global_local_filesystem()->exists(binlog_metas_file);
+    auto file_exists_status = io::global_local_filesystem()->exists(binlog_metas_file);
     if (!file_exists_status.ok() && !file_exists_status.is<ErrorCode::NOT_FOUND>()) {
         return file_exists_status;
     }

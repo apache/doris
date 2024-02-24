@@ -917,8 +917,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
 
     // remove rowset binlog metas
     auto binlog_metas_file = fmt::format("{}/rowset_binlog_metas.pb", schema_hash_path);
-    auto file_exists_status =
-            io::global_local_filesystem()->exists(binlog_metas_file);
+    auto file_exists_status = io::global_local_filesystem()->exists(binlog_metas_file);
     if (!file_exists_status.ok() && !file_exists_status.is<ErrorCode::NOT_FOUND>()) {
         return file_exists_status;
     }
@@ -937,8 +936,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(binlog_dir));
 
         io::FileListIteratorPtr files_iter;
-        RETURN_IF_ERROR(
-                io::global_local_filesystem()->list(schema_hash_path, true, &files_iter));
+        RETURN_IF_ERROR(io::global_local_filesystem()->list(schema_hash_path, true, &files_iter));
         while (files_iter->has_next()) {
             const auto& file = DORIS_TRY(files_iter->next());
             auto& filename = file.file_name;
