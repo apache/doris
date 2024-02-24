@@ -409,7 +409,7 @@ private:
     size_t get_buffer_offset(int64_t position) const {
         return (position / s_max_pre_buffer_size) * s_max_pre_buffer_size;
     }
-    Status reset_all_buffer(size_t position) {
+    static Status reset_all_buffer(size_t position) {
         for (int64_t i = 0; i < _pre_buffers.size(); i++) {
             int64_t cur_pos = position + i * s_max_pre_buffer_size;
             int cur_buf_pos = get_buffer_pos(cur_pos);
