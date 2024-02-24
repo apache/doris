@@ -101,15 +101,15 @@ struct SimplifiedScanTask {
 
 class SimplifiedScanScheduler {
 public:
-    SimplifiedScanScheduler(std::string wg_name, CgroupCpuCtl* cgroup_cpu_ctl) {
+    SimplifiedScanScheduler(std::string sched_name, CgroupCpuCtl* cgroup_cpu_ctl) {
         _is_stop.store(false);
         _cgroup_cpu_ctl = cgroup_cpu_ctl;
-        _wg_name = wg_name;
+        _sched_name = sched_name;
     }
 
     ~SimplifiedScanScheduler() {
         stop();
-        LOG(INFO) << "Scanner sche " << _wg_name << " shutdown";
+        LOG(INFO) << "Scanner sche " << _sched_name << " shutdown";
     }
 
     void stop() {
@@ -119,7 +119,7 @@ public:
     }
 
     Status start() {
-        RETURN_IF_ERROR(ThreadPoolBuilder("Scan_" + _wg_name)
+        RETURN_IF_ERROR(ThreadPoolBuilder(_sched_name)
                                 .set_min_threads(config::doris_scanner_thread_pool_thread_num)
                                 .set_max_threads(config::doris_scanner_thread_pool_thread_num)
                                 .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
@@ -131,7 +131,7 @@ public:
         if (!_is_stop) {
             return _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
         } else {
-            return Status::InternalError<false>("scanner pool {} is shutdown.", _wg_name);
+            return Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);
         }
     }
 
@@ -148,11 +148,33 @@ public:
         }
     }
 
+    void reset_max_thread_num(int thread_num) {
+        int max_thread_num = _scan_thread_pool->max_threads();
+
+        if (max_thread_num != thread_num) {
+            Status st = _scan_thread_pool->set_max_threads(thread_num);
+            if (!st.ok()) {
+                LOG(INFO) << "reset max thread num failed, sche name=" << _sched_name;
+            }
+        }
+    }
+
+    void reset_min_thread_num(int thread_num) {
+        int min_thread_num = _scan_thread_pool->min_threads();
+
+        if (min_thread_num != thread_num) {
+            Status st = _scan_thread_pool->set_min_threads(thread_num);
+            if (!st.ok()) {
+                LOG(INFO) << "reset min thread num failed, sche name=" << _sched_name;
+            }
+        }
+    }
+
 private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;
     std::atomic<bool> _is_stop;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
-    std::string _wg_name;
+    std::string _sched_name;
 };
 
 } // namespace doris::vectorized

@@ -157,12 +157,12 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
         bool ret = false;
         if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-            if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
+            if (auto* scan_sched = ctx->get_simple_scan_scheduler()) {
                 auto work_func = [this, scanner_ref = scan_task, ctx]() {
                     this->_scanner_scan(ctx, scanner_ref);
                 };
                 SimplifiedScanTask simple_scan_task = {work_func, ctx};
-                ret = scan_sche->submit_scan_task(simple_scan_task);
+                ret = scan_sched->submit_scan_task(simple_scan_task);
             } else {
                 PriorityThreadPool::Task task;
                 task.work_function = [this, scanner_ref = scan_task, ctx]() {
@@ -172,12 +172,20 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                 ret = _local_scan_thread_pool->offer(task);
             }
         } else {
-            PriorityThreadPool::Task task;
-            task.work_function = [this, scanner_ref = scan_task, ctx]() {
-                this->_scanner_scan(ctx, scanner_ref);
-            };
-            task.priority = nice;
-            ret = _remote_scan_thread_pool->offer(task);
+            if (auto* remote_scan_sched = ctx->get_remote_scan_scheduler()) {
+                auto work_func = [this, scanner_ref = scan_task, ctx]() {
+                    this->_scanner_scan(ctx, scanner_ref);
+                };
+                SimplifiedScanTask simple_scan_task = {work_func, ctx};
+                ret = remote_scan_sched->submit_scan_task(simple_scan_task);
+            } else {
+                PriorityThreadPool::Task task;
+                task.work_function = [this, scanner_ref = scan_task, ctx]() {
+                    this->_scanner_scan(ctx, scanner_ref);
+                };
+                task.priority = nice;
+                ret = _remote_scan_thread_pool->offer(task);
+            }
         }
         if (!ret) {
             scan_task->set_status(
