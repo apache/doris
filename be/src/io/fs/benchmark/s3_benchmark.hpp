@@ -165,8 +165,7 @@ public:
         auto start = std::chrono::high_resolution_clock::now();
         io::FileListIteratorPtr files_iter;
         std::vector<FileInfo> files;
-        bool exists = true;
-        RETURN_IF_ERROR(fs->list(file_path, true, &files_iter, &exists));
+        RETURN_IF_ERROR(fs->list(file_path, true, &files_iter));
         RETURN_IF_ERROR(files_iter->files(&files));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
