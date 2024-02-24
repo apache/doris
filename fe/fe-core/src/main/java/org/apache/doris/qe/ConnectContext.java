@@ -138,7 +138,8 @@ public class ConnectContext {
     protected volatile long currentDbId = -1;
     // Transaction
     protected volatile TransactionEntry txnEntry = null;
-
+    // used for ShowSqlAction which don't allow a user account
+    protected volatile boolean noAuth = false;
     // username@host of current login user
     protected volatile String qualifiedUser;
     // LDAP authenticated but the Doris account does not exist,
@@ -1044,6 +1045,88 @@ public class ConnectContext {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
 
+<<<<<<< HEAD
+=======
+    // maybe user set cluster by SQL hint of session variable: cloud_cluster
+    // so first check it and then get from connect context.
+    public String getCurrentCloudCluster() {
+        String cluster = getSessionVariable().getCloudCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = getCloudCluster();
+        }
+        return cluster;
+    }
+
+    public void setCloudCluster(String cluster) {
+        this.cloudCluster = cluster;
+    }
+
+    /**
+     * @return Returns an available cluster in the following order
+     *         1 Use an explicitly specified cluster
+     *         2 If no cluster is specified, the user's default cluster is used
+     *         3 If the user does not have a default cluster, select a cluster with permissions for the user
+     *         Returns null when there is no available cluster
+     */
+    public String getCloudCluster() {
+        String cluster = null;
+        if (!Strings.isNullOrEmpty(this.cloudCluster)) {
+            cluster = this.cloudCluster;
+        }
+
+        String defaultCluster = getDefaultCloudCluster();
+        if (!Strings.isNullOrEmpty(defaultCluster)) {
+            cluster = defaultCluster;
+        }
+
+        String authorizedCluster = getAuthorizedCloudCluster();
+        if (!Strings.isNullOrEmpty(authorizedCluster)) {
+            cluster = authorizedCluster;
+        }
+
+        if (Strings.isNullOrEmpty(cluster)) {
+            LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
+            getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
+                    "Cant get a Valid cluster for you to use, plz connect admin");
+        } else {
+            this.cloudCluster = cluster;
+            LOG.info("finally set context cluster name {}", cloudCluster);
+        }
+
+        return cluster;
+    }
+
+    // TODO implement this function
+    public String getDefaultCloudCluster() {
+        return null;
+    }
+
+    public String getAuthorizedCloudCluster() {
+        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+        // get all available cluster of the user
+        for (String cloudClusterName : cloudClusterNames) {
+            // find a cluster has more than one alive be
+            List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getBackendsByClusterName(cloudClusterName);
+            AtomicBoolean hasAliveBe = new AtomicBoolean(false);
+            bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", cloudClusterName, backend);
+                }
+                hasAliveBe.set(true);
+            });
+            if (hasAliveBe.get()) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("set context cluster name {}", cloudClusterName);
+                }
+                return cloudClusterName;
+            }
+        }
+
+        return null;
+    }
+
+>>>>>>> c2fe99f7c2 ([monir] remove unused cluster code (#31360))
     public StatsErrorEstimator getStatsErrorEstimator() {
         return statsErrorEstimator;
     }
