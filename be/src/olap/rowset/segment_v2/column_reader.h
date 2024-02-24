@@ -171,7 +171,7 @@ public:
 
     uint64_t num_rows() const { return _num_rows; }
 
-    Status set_dict_encoding_type(DictEncodingType type) {
+    static Status set_dict_encoding_type(DictEncodingType type) {
         RETURN_IF_ERROR(_set_dict_encoding_type_once.call([&] {
             _dict_encoding_type = type;
             return Status::OK();
