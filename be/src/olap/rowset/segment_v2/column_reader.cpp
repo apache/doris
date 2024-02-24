@@ -396,9 +396,9 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
     }
 }
 
-static Status ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
-                                                      WrapperField* min_value_container,
-                                                      WrapperField* max_value_container) const {
+Status ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
+                                               WrapperField* min_value_container,
+                                               WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
         RETURN_IF_ERROR(min_value_container->from_string(zone_map.min()));
@@ -1020,7 +1020,7 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
             RETURN_IF_ERROR(seek_to_ordinal(_reader->num_rows() - 1));
             _is_all_dict_encoding = _page.is_dict_encoding;
-            RETURN_IF_ERROR(_reader->set_dict_encoding_type(
+            static_cast<void>(_reader->set_dict_encoding_type(
                     _is_all_dict_encoding ? ColumnReader::ALL_DICT_ENCODING
                                           : ColumnReader::PARTIAL_DICT_ENCODING));
         } else {
@@ -1056,7 +1056,7 @@ Status FileColumnIterator::seek_to_page_start() {
     return seek_to_ordinal(_page.first_ordinal);
 }
 
-Status FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) {
+Status FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const {
     if (page->offset_in_page == offset_in_page) {
         // fast path, do nothing
         return Status::OK();
