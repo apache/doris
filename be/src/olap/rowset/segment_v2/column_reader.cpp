@@ -396,7 +396,7 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
     }
 }
 
-Status ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
+static Status ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
                                                WrapperField* min_value_container,
                                                WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
