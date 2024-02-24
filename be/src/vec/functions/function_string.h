@@ -211,7 +211,8 @@ private:
             int len_value = is_const ? len[0] : len[i];
 
             // return empty string if start > src.length
-            if (start_value > str_size || str_size == 0 || start_value == 0 || len_value <= 0) {
+            if (start_value > str_size || str_size == 0 || start_value == 0
+                || len_value <= 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
             }
