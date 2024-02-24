@@ -210,7 +210,7 @@ Status HttpService::start() {
         register_local_handler(engine.to_local());
     }
 
-    RETURN_IF_ERROR(_ev_http_server->start());
+    _ev_http_server->start();
     return Status::OK();
 }
 // NOLINTEND(readability-function-size)
