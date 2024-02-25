@@ -45,7 +45,7 @@ void TopicSubscriber::handle_topic_info(const TPublishTopicRequest& topic_reques
         if (topic_request.topic_map.find(listener_pair.first) != topic_request.topic_map.end()) {
             listener_pair.second->handle_topic_info(
                     topic_request.topic_map.at(listener_pair.first));
-            LOG(INFO) << "handle topic " << listener_pair.first << " succ";
+            LOG(INFO) << "handle topic " << listener_pair.first << " successfully";
         }
     }
 }
