@@ -41,7 +41,9 @@ Status WalWriter::init() {
     if (st.is<ErrorCode::NOT_FOUND>()) {
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(parent_path));
     }
-    RETURN_IF_ERROR(st);
+    if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+        return st;
+    }
     RETURN_IF_ERROR(io::global_local_filesystem()->create_file(_file_name, &_file_writer));
     LOG(INFO) << "create wal " << _file_name;
     return Status::OK();

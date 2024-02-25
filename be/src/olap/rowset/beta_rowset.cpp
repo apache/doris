@@ -248,7 +248,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
     io::LocalFileSystem* local_fs = (io::LocalFileSystem*)fs.get();
     for (int i = 0; i < num_segments(); ++i) {
         auto dst_path = segment_file_path(dir, new_rowset_id, i + new_rowset_start_seg_id);
-        if (fs->exists(dst_path).ok()) {
+        if (auto st = fs->exists(dst_path); st.ok() || !st.is<ErrorCode::NOT_FOUND>()) {
             status = Status::Error<FILE_ALREADY_EXIST>(
                     "failed to create hard link, file already exist: {}", dst_path);
             return status;
@@ -397,7 +397,7 @@ bool BetaRowset::check_file_exist() {
         if (!fs) {
             return false;
         }
-        if (auto st = fs->exists(seg_path); st.is<ErrorCode::NOT_FOUND>()) {
+        if (!fs->exists(seg_path).ok()) {
             LOG(WARNING) << "data file not existed: " << seg_path
                          << " for rowset_id: " << rowset_id();
             return false;

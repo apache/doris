@@ -44,7 +44,9 @@ Status BlockSpillManager::init() {
         if (st.is<ErrorCode::NOT_FOUND>()) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(dir));
         }
-        RETURN_IF_ERROR(st);
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            return st;
+        }
 
         dir = fmt::format("{}/{}", path.path, BLOCK_SPILL_DIR);
         st = io::global_local_filesystem()->exists(dir);
@@ -85,6 +87,9 @@ void BlockSpillManager::gc(int64_t max_file_count) {
         }
         std::vector<io::FileInfo> dirs;
         st = dirs_iter->files(&dirs);
+        if (!st.ok()) {
+            continue;
+        }
         for (const auto& dir : dirs) {
             if (dir.is_file) {
                 continue;

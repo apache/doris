@@ -61,8 +61,7 @@ public:
 };
 
 bool check_exist(const std::string& path) {
-    auto st = io::global_local_filesystem()->exists(path);
-    return !st.is<ErrorCode::NOT_FOUND>();
+    return io::global_local_filesystem()->exists(path).ok();
 }
 
 Status save_string_file(const std::string& path, const std::string& content) {

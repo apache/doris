@@ -923,7 +923,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     }
     bool contain_binlog = false;
     RowsetBinlogMetasPB rowset_binlog_metas_pb;
-    if (file_exists_status.is<ErrorCode::NOT_FOUND>()) {
+    if (!file_exists_status.is<ErrorCode::NOT_FOUND>()) {
         auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file);
         if (binlog_meta_filesize > 0) {
             contain_binlog = true;

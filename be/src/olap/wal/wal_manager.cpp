@@ -114,12 +114,16 @@ Status WalManager::_init_wal_dirs() {
         if (st.is<ErrorCode::NOT_FOUND>()) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(wal_dir));
         }
-        RETURN_IF_ERROR(st);
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            return st;
+        }
         st = io::global_local_filesystem()->exists(tmp_dir);
         if (st.is<ErrorCode::NOT_FOUND>()) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_dir));
         }
-        RETURN_IF_ERROR(st);
+        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+            return st;
+        }
     }
     return Status::OK();
 }
@@ -597,7 +601,9 @@ Status WalManager::rename_to_tmp_path(const std::string wal, int64_t table_id, i
     if (st.is<ErrorCode::NOT_FOUND>()) {
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(wal_path.parent_path()));
     }
-    RETURN_IF_ERROR(st);
+    if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+        return st;
+    }
     auto res = std::rename(wal.c_str(), wal_path.string().c_str());
     if (res < 0) {
         LOG(INFO) << "failed to rename wal from " << wal << " to " << wal_path.string();
