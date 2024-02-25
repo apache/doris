@@ -77,6 +77,8 @@ void update_rowsets_and_segments_num_metrics() {
         auto* metrics = DorisMetrics::instance();
         metrics->all_rowsets_num->set_value(engine.tablet_manager()->get_rowset_nums());
         metrics->all_segments_num->set_value(engine.tablet_manager()->get_segment_nums());
+        g_adder_all_rowsets_num.set_value(engine.tablet_manager()->get_rowset_nums());
+        g_adder_all_segments_num.set_value(engine.tablet_manager()->get_segment_nums());
     }
 }
 
@@ -223,6 +225,7 @@ void Daemon::memory_maintenance_thread() {
             doris::MemInfo::refresh_allocator_mem();
             if (config::enable_system_metrics) {
                 DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
+                DorisBvarMetrics::instance()->system_metrics()->update_allocator_metrics();
             }
 #endif
 
@@ -314,7 +317,7 @@ void Daemon::calculate_metrics_thread() {
 
     do {
         DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
-
+        DorisBvarMetrics::instance()->metric_registry()->trigger_all_hooks(true);
         if (last_ts == -1L) {
             last_ts = GetMonoTimeMicros() / 1000;
             lst_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
@@ -332,13 +335,15 @@ void Daemon::calculate_metrics_thread() {
             int64_t current_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
             int64_t qps = (current_query_bytes - lst_query_bytes) / (interval + 1);
             DorisMetrics::instance()->query_scan_bytes_per_second->set_value(qps < 0 ? 0 : qps);
+            g_adder_query_scan_bytes_per_second.set_value(qps < 0 ? 0 : qps);
             lst_query_bytes = current_query_bytes;
 
             if (config::enable_system_metrics) {
                 // 2. max disk io util
                 DorisMetrics::instance()->system_metrics()->update_max_disk_io_util_percent(
                         lst_disks_io_time, 15);
-
+                DorisBvarMetrics::instance()->system_metrics()->update_max_disk_io_util_percent(
+                        lst_disks_io_time, 15);
                 // update lst map
                 DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
 
@@ -350,6 +355,10 @@ void Daemon::calculate_metrics_thread() {
                 DorisMetrics::instance()->system_metrics()->update_max_network_send_bytes_rate(
                         max_send);
                 DorisMetrics::instance()->system_metrics()->update_max_network_receive_bytes_rate(
+                        max_receive);
+                DorisBvarMetrics::instance()->system_metrics()->update_max_network_send_bytes_rate(
+                        max_send);
+                DorisBvarMetrics::instance()->system_metrics()->update_max_network_receive_bytes_rate(
                         max_receive);
                 // update lst map
                 DorisMetrics::instance()->system_metrics()->get_network_traffic(
