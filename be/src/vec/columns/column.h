@@ -46,19 +46,6 @@
 
 class SipHash;
 
-#define SIP_HASHES_FUNCTION_COLUMN_IMPL()                                \
-    auto s = hashes.size();                                              \
-    DCHECK(s == size());                                                 \
-    if (null_data == nullptr) {                                          \
-        for (size_t i = 0; i < s; i++) {                                 \
-            update_hash_with_value(i, hashes[i]);                        \
-        }                                                                \
-    } else {                                                             \
-        for (size_t i = 0; i < s; i++) {                                 \
-            if (null_data[i] == 0) update_hash_with_value(i, hashes[i]); \
-        }                                                                \
-    }
-
 #define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
     if (null_data == nullptr) {                                                      \
         for (size_t i = 0; i < s; i++) {                                             \
@@ -360,15 +347,6 @@ public:
     ///  passed bytes to hash must identify sequence of values unambiguously.
     virtual void update_hash_with_value(size_t n, SipHash& hash) const {
         LOG(FATAL) << get_name() << " update_hash_with_value siphash not supported";
-    }
-
-    /// Update state of hash function with value of n elements to avoid the virtual function call
-    /// null_data to mark whether need to do hash compute, null_data == nullptr
-    /// means all element need to do hash function, else only *null_data != 0 need to do hash func
-    /// do xxHash here, faster than other hash method
-    virtual void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                          const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << get_name() << " update_hashes_with_value siphash not supported";
     }
 
     /// Update state of hash function with value of n elements to avoid the virtual function call

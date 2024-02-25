@@ -47,7 +47,6 @@ public:
     virtual ExchangeType get_type() const = 0;
 
 protected:
-    friend struct LocalExchangeSourceDependency;
     friend struct LocalExchangeSharedState;
     friend struct ShuffleBlockWrapper;
     friend class LocalExchangeSourceLocalState;

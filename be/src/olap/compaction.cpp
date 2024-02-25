@@ -650,8 +650,10 @@ void CompactionMixin::construct_skip_inverted_index(RowsetWriterContext& ctx) {
 }
 
 Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
+    // only do index compaction for dup_keys and unique_keys with mow enabled
     if (config::inverted_index_compaction_enable &&
-        ((_tablet->keys_type() == KeysType::UNIQUE_KEYS ||
+        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+           _tablet->enable_unique_key_merge_on_write()) ||
           _tablet->keys_type() == KeysType::DUP_KEYS))) {
         construct_skip_inverted_index(ctx);
     }

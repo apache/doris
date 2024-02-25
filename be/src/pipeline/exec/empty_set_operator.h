@@ -43,12 +43,12 @@ public:
     bool can_read() override { return true; }
 };
 
-class EmptySetLocalState final : public PipelineXLocalState<FakeDependency> {
+class EmptySetLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(EmptySetLocalState);
 
     EmptySetLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeDependency>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~EmptySetLocalState() = default;
 };
 

@@ -69,19 +69,11 @@ private:
     bool _need_read_for_const_expr;
 };
 
-class UnionSourceDependency final : public Dependency {
-public:
-    using SharedState = UnionSharedState;
-    UnionSourceDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "UnionSourceDependency", query_ctx) {}
-    ~UnionSourceDependency() override = default;
-};
-
 class UnionSourceOperatorX;
-class UnionSourceLocalState final : public PipelineXLocalState<UnionSourceDependency> {
+class UnionSourceLocalState final : public PipelineXLocalState<UnionSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(UnionSourceLocalState);
-    using Base = PipelineXLocalState<UnionSourceDependency>;
+    using Base = PipelineXLocalState<UnionSharedState>;
     using Parent = UnionSourceOperatorX;
     UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 

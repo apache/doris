@@ -71,11 +71,6 @@ public:
     void set_source_block();
 
 private:
-    friend class AggSourceDependency;
-    friend class UnionSourceDependency;
-    friend class AggSinkDependency;
-    friend class UnionSinkDependency;
-
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;
     std::vector<std::deque<std::unique_ptr<vectorized::Block>>> _queue_blocks;
 
