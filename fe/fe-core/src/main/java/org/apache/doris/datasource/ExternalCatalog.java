@@ -595,7 +595,7 @@ public abstract class ExternalCatalog
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropDatabase not implemented");
-            throw new NotImplementedException("dropDatabase not implemented");
+            return;
         }
         try {
             metadataOps.createDb(stmt);
@@ -610,7 +610,7 @@ public abstract class ExternalCatalog
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropDatabase not implemented");
-            throw new NotImplementedException("dropDatabase not implemented");
+            return;
         }
         try {
             metadataOps.dropDb(stmt);
@@ -625,7 +625,7 @@ public abstract class ExternalCatalog
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("createTable not implemented");
-            throw new NotImplementedException("createTable not implemented");
+            return;
         }
         try {
             metadataOps.createTable(stmt);
@@ -640,7 +640,7 @@ public abstract class ExternalCatalog
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropTable not implemented");
-            throw new NotImplementedException("dropTable not implemented");
+            return;
         }
         try {
             metadataOps.dropTable(stmt);
