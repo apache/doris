@@ -25,6 +25,7 @@
 
 #include "olap/olap_define.h"
 #include "runtime/cache/cache_utils.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -277,6 +278,9 @@ void ResultCache::update_monitor() {
     DorisMetrics::instance()->query_cache_memory_total_byte->set_value(_cache_size);
     DorisMetrics::instance()->query_cache_sql_total_count->set_value(_node_count);
     DorisMetrics::instance()->query_cache_partition_total_count->set_value(_partition_count);
+    g_adder_query_cache_memory_total_byte.set_value(_cache_size);
+    g_adder_query_cache_sql_total_count.set_value(_node_count);
+    g_adder_query_cache_partition_total_count.set_value(_partition_count);
 }
 
 } // namespace doris

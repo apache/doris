@@ -21,6 +21,7 @@
 #include <string>
 
 #include "http/http_handler.h"
+#include "util/bvar_metrics.h"
 #include "util/metrics.h"
 
 namespace doris {
@@ -59,6 +60,10 @@ private:
     IntCounter* streaming_load_requests_total;
     IntCounter* streaming_load_duration_ms;
     IntGauge* streaming_load_current_processing;
+    std::shared_ptr<BvarMetricEntity> stream_load_entity_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> streaming_load_requests_total_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> streaming_load_duration_ms_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> streaming_load_current_processing_;
 };
 
 } // namespace doris

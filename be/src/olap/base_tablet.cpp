@@ -29,6 +29,7 @@
 #include "olap/tablet_fwd.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type_factory.hpp"

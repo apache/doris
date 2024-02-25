@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_segment.h"
+#include "util/bvar_metrics.h"
 #include "util/metrics.h"
 
 namespace doris {
@@ -225,6 +226,27 @@ private:
     UIntGauge* file_cache_disposable_queue_max_elements = nullptr;
     UIntGauge* file_cache_disposable_queue_curr_elements = nullptr;
     UIntGauge* file_cache_segment_reader_cache_size = nullptr;
+
+    std::shared_ptr<BvarMetricEntity> entity_;
+
+    std::shared_ptr<BvarAdderMetric<double>> file_cache_hits_ratio_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_removed_elements_;
+
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_index_queue_max_size_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_index_queue_curr_size_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_index_queue_max_elements_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_index_queue_curr_elements_;
+
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_normal_queue_max_size_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_normal_queue_curr_size_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_normal_queue_max_elements_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_normal_queue_curr_elements_;
+
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_disposable_queue_max_size_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_disposable_queue_curr_size_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_disposable_queue_max_elements_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_disposable_queue_curr_elements_;
+    std::shared_ptr<BvarAdderMetric<uint64_t>> file_cache_segment_reader_cache_size_;
 };
 
 } // namespace io

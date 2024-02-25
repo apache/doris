@@ -29,6 +29,7 @@
 #include "io/fs/err_utils.h"
 // #include "io/fs/hdfs_file_system.h"
 #include "service/backend_options.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/hdfs_util.h"
 
@@ -45,6 +46,8 @@ HdfsFileReader::HdfsFileReader(Path path, const std::string& name_node,
 
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
     DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
+    g_adder_hdfs_file_open_reading.increment(1);
+    g_adder_hdfs_file_reader_total.increment(1);
     if (_profile != nullptr && is_hdfs(_name_node)) {
 #ifdef USE_HADOOP_HDFS
         const char* hdfs_profile_name = "HdfsIO";
@@ -76,6 +79,7 @@ Status HdfsFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         DorisMetrics::instance()->hdfs_file_open_reading->increment(-1);
+        g_adder_hdfs_file_open_reading.increment(-1);
         if (_profile != nullptr && is_hdfs(_name_node)) {
 #ifdef USE_HADOOP_HDFS
             struct hdfsReadStatistics* hdfs_statistics = nullptr;

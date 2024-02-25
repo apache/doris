@@ -34,6 +34,7 @@
 #include "io/fs/err_utils.h"
 #include "io/fs/s3_common.h"
 #include "util/bvar_helper.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/s3_util.h"
 
@@ -55,6 +56,8 @@ S3FileReader::S3FileReader(size_t file_size, std::string key, std::shared_ptr<S3
     DorisMetrics::instance()->s3_file_reader_total->increment(1);
     s3_file_reader_total << 1;
     s3_file_being_read << 1;
+    g_adder_s3_file_open_reading.increment(1);
+    g_adder_s3_file_reader_total.increment(1);
 
     Aws::Http::SetCompliantRfc3986Encoding(true);
 }
@@ -68,6 +71,7 @@ Status S3FileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         DorisMetrics::instance()->s3_file_open_reading->increment(-1);
+        g_adder_s3_file_open_reading.increment(-1);
     }
     return Status::OK();
 }
@@ -111,6 +115,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     s3_bytes_read_total << *bytes_read;
     s3_file_reader_read_counter << 1;
     DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
+    g_adder_s3_bytes_read_total.increment(*bytes_read);
     return Status::OK();
 }
 

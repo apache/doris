@@ -120,6 +120,19 @@ void FileCacheMetric::register_entity() {
     INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, num_io_bytes_read_from_remote);
     entity->register_hook("cloud_file_cache",
                           std::bind(&FileCacheMetric::update_table_metrics, this));
+
+    entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
+            std::string("cloud_file_cache"),
+            {{"table_id", table_id_str}, {"partition_id", partition_id_str}});
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, num_io_bytes_read_total_, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::OPERATIONS, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, num_io_bytes_read_from_cache_, BvarMetricType::COUNTER,
+                                    BvarMetricUnit::OPERATIONS, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, num_io_bytes_read_from_remote_,
+                                    BvarMetricType::COUNTER, BvarMetricUnit::OPERATIONS, "", "",
+                                    Labels(), false)
+    entity_->register_hook("cloud_file_cache",
+                           std::bind(&FileCacheMetric::update_table_metrics, this));
 }
 
 void FileCacheMetric::update_table_metrics() const {
@@ -128,6 +141,10 @@ void FileCacheMetric::update_table_metrics() const {
     num_io_bytes_read_from_remote->set_value(stats->num_io_bytes_read_from_remote);
     num_io_bytes_read_total->set_value(stats->num_io_bytes_read_from_cache +
                                        stats->num_io_bytes_read_from_remote);
+    num_io_bytes_read_from_cache_->set_value(stats->num_io_bytes_read_from_cache);
+    num_io_bytes_read_from_remote_->set_value(stats->num_io_bytes_read_from_remote);
+    num_io_bytes_read_total_->set_value(stats->num_io_bytes_read_from_cache +
+                                        stats->num_io_bytes_read_from_remote);
 }
 
 void FileCacheMetric::update_partition_metrics() const {
@@ -136,6 +153,10 @@ void FileCacheMetric::update_partition_metrics() const {
     num_io_bytes_read_from_remote->set_value(stats->num_io_bytes_read_from_remote);
     num_io_bytes_read_total->set_value(stats->num_io_bytes_read_from_cache +
                                        stats->num_io_bytes_read_from_remote);
+    num_io_bytes_read_from_cache_->set_value(stats->num_io_bytes_read_from_cache);
+    num_io_bytes_read_from_remote_->set_value(stats->num_io_bytes_read_from_remote);
+    num_io_bytes_read_total_->set_value(stats->num_io_bytes_read_from_cache +
+                                        stats->num_io_bytes_read_from_remote);
 }
 
 } // namespace io

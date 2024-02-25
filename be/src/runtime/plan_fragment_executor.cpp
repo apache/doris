@@ -55,6 +55,7 @@
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/defer_op.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -413,6 +414,8 @@ Status PlanFragmentExecutor::execute() {
     }
     DorisMetrics::instance()->fragment_requests_total->increment(1);
     DorisMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
+    g_adder_fragment_requests_total.increment(1);
+    g_adder_fragment_request_duration_us.increment(duration_ns / 1000);
     return Status::OK();
 }
 

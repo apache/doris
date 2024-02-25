@@ -20,6 +20,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -39,6 +40,7 @@ EngineIndexChangeTask::~EngineIndexChangeTask() = default;
 Status EngineIndexChangeTask::execute() {
     SCOPED_ATTACH_TASK(_mem_tracker);
     DorisMetrics::instance()->alter_inverted_index_requests_total->increment(1);
+    g_adder_alter_inverted_index_requests_total.increment(1);
     uint64_t start = std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
@@ -50,6 +52,7 @@ Status EngineIndexChangeTask::execute() {
                      << ", job_id=" << _alter_inverted_index_req.job_id
                      << ", schema_hash=" << _alter_inverted_index_req.schema_hash;
         DorisMetrics::instance()->alter_inverted_index_requests_failed->increment(1);
+        g_adder_alter_inverted_index_requests_failed.increment(1);
         return res;
     }
 
