@@ -396,7 +396,6 @@ void TaskScheduler::_close_task(PipelineTask* task, PipelineTaskState state, Sta
 
 void TaskScheduler::stop() {
     if (!this->_shutdown.load()) {
-        this->_shutdown.store(true);
         if (_task_queue) {
             _task_queue->close();
         }
@@ -407,6 +406,11 @@ void TaskScheduler::stop() {
             _fix_thread_pool->shutdown();
             _fix_thread_pool->wait();
         }
+        // Should set at the ending of the stop to ensure that the
+        // pool is stopped. For example, if there are 2 threads call stop
+        // then if one thread set shutdown = false, then another thread will
+        // not check it and will free task scheduler.
+        this->_shutdown.store(true);
     }
 }
 
