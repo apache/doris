@@ -706,7 +706,8 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         return Status::Error<INIT_FAILED>("get fs failed");
     }
     io::FileWriterPtr file_writer;
-    Status st = fs->create_file(path, &file_writer);
+    io::FileWriterOptions opts {.create_empty_file = false};
+    Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;

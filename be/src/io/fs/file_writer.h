@@ -67,6 +67,7 @@ protected:
     FileSystemSPtr _fs;
     bool _closed = false;
     bool _opened = false;
+    bool _create_empty_file = true;
 };
 
 } // namespace io

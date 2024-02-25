@@ -596,7 +596,8 @@ void DorisCompoundDirectory::touchFile(const char* name) {
     snprintf(buffer, CL_MAX_DIR, "%s%s%s", directory.c_str(), PATH_DELIMITERA, name);
 
     io::FileWriterPtr tmp_writer;
-    LOG_AND_THROW_IF_ERROR(fs->create_file(buffer, &tmp_writer), "Touch file IO error")
+    io::FileWriterOptions opts {.create_empty_file = false};
+    LOG_AND_THROW_IF_ERROR(fs->create_file(buffer, &tmp_writer, &opts), "Touch file IO error")
 }
 
 int64_t DorisCompoundDirectory::fileLength(const char* name) const {

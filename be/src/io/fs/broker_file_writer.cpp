@@ -37,12 +37,15 @@ namespace io {
 
 BrokerFileWriter::BrokerFileWriter(ExecEnv* env, const TNetworkAddress& broker_address,
                                    const std::map<std::string, std::string>& properties,
-                                   const std::string& path, int64_t start_offset, FileSystemSPtr fs)
+                                   const std::string& path, int64_t start_offset, FileSystemSPtr fs,
+                                   const FileWriterOptions* opts)
         : FileWriter(path, fs),
           _env(env),
           _address(broker_address),
           _properties(properties),
-          _cur_offset(start_offset) {}
+          _cur_offset(start_offset) {
+    _create_empty_file = opts ? opts->create_empty_file : true;
+}
 
 BrokerFileWriter::~BrokerFileWriter() {
     if (_opened) {
@@ -159,7 +162,7 @@ Status BrokerFileWriter::finalize() {
 }
 
 Status BrokerFileWriter::open() {
-    if (!_opened) {
+    if (_create_empty_file && !_opened) {
         RETURN_IF_ERROR(_open());
         _opened = true;
     }

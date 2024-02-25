@@ -46,7 +46,7 @@ struct S3FileBuffer;
 class S3FileWriter final : public FileWriter {
 public:
     S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client, const S3Conf& s3_conf,
-                 FileSystemSPtr fs);
+                 FileSystemSPtr fs, const FileWriterOptions* opts);
     ~S3FileWriter() override;
 
     Status close() override;
