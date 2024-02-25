@@ -47,6 +47,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/slice.h"
 #include "util/stopwatch.hpp"
@@ -82,6 +83,52 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
                             7 * 24 * 60 * 60);
     _normal_queue = LRUQueue(cache_settings.query_queue_size, cache_settings.query_queue_elements,
                              24 * 60 * 60);
+    entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
+            "lru_file_cache", {{"path", _cache_base_path}});
+    entity_->register_hook(_cache_base_path, std::bind(&LRUFileCache::update_cache_metrics, this));
+    REGISTER_INIT_DOUBLE_BVAR_METRIC(entity_, file_cache_hits_ratio_, BvarMetricType::GAUGE,
+                                     BvarMetricUnit::NOUNIT, "", "", Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_removed_elements_, BvarMetricType::GAUGE,
+                                     BvarMetricUnit::OPERATIONS, "", "", Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_max_size_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+                                     false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_curr_size_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+                                     false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_max_elements_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                     Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_index_queue_curr_elements_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                     Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_max_size_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+                                     false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_curr_size_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+                                     false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_max_elements_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                     Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_normal_queue_curr_elements_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                     Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_max_size_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+                                     false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_curr_size_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(),
+                                     false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_max_elements_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                     Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_disposable_queue_curr_elements_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                     Labels(), false)
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, file_cache_segment_reader_cache_size_,
+                                     BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "",
+                                     Labels(), false)
 
     _entity = DorisMetrics::instance()->metric_registry()->register_entity(
             "lru_file_cache", {{"path", _cache_base_path}});
@@ -1138,6 +1185,25 @@ void LRUFileCache::update_cache_metrics() const {
     file_cache_disposable_queue_max_elements->set_value(_disposable_queue.get_max_element_size());
     file_cache_disposable_queue_curr_elements->set_value(_disposable_queue.get_elements_num(l));
     file_cache_segment_reader_cache_size->set_value(IFileCache::file_reader_cache_size());
+
+    file_cache_hits_ratio_->set_value(hit_ratio);
+    file_cache_removed_elements_->set_value(_num_removed_segments);
+
+    file_cache_index_queue_max_size_->set_value(_index_queue.get_max_size());
+    file_cache_index_queue_curr_size_->set_value(_index_queue.get_total_cache_size(l));
+    file_cache_index_queue_max_elements_->set_value(_index_queue.get_max_element_size());
+    file_cache_index_queue_curr_elements_->set_value(_index_queue.get_elements_num(l));
+
+    file_cache_normal_queue_max_size_->set_value(_normal_queue.get_max_size());
+    file_cache_normal_queue_curr_size_->set_value(_normal_queue.get_total_cache_size(l));
+    file_cache_normal_queue_max_elements_->set_value(_normal_queue.get_max_element_size());
+    file_cache_normal_queue_curr_elements_->set_value(_normal_queue.get_elements_num(l));
+
+    file_cache_disposable_queue_max_size_->set_value(_disposable_queue.get_max_size());
+    file_cache_disposable_queue_curr_size_->set_value(_disposable_queue.get_total_cache_size(l));
+    file_cache_disposable_queue_max_elements_->set_value(_disposable_queue.get_max_element_size());
+    file_cache_disposable_queue_curr_elements_->set_value(_disposable_queue.get_elements_num(l));
+    file_cache_segment_reader_cache_size_->set_value(IFileCache::file_reader_cache_size());
 }
 
 } // namespace io

@@ -110,6 +110,7 @@
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
@@ -1581,6 +1582,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
 
         compaction = std::make_shared<CumulativeCompaction>(tablet->_engine, tablet);
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
+        g_adder_cumulative_compaction_request_total.increment(1);
         Status res = compaction->prepare_compact();
         if (!config::disable_compaction_trace_log &&
             watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
@@ -1596,6 +1598,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             permits = 0;
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
+                g_adder_cumulative_compaction_request_failed.increment(1);
                 return Status::InternalError("prepare cumulative compaction with err: {}", res);
             }
             // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
@@ -1609,6 +1612,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
 
         compaction = std::make_shared<BaseCompaction>(tablet->_engine, tablet);
         DorisMetrics::instance()->base_compaction_request_total->increment(1);
+        g_adder_base_compaction_request_total.increment(1);
         Status res = compaction->prepare_compact();
         if (!config::disable_compaction_trace_log &&
             watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
@@ -1625,6 +1629,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             permits = 0;
             if (!res.is<BE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
+                g_adder_base_compaction_request_failed.increment(1);
                 return Status::InternalError("prepare base compaction with err: {}", res);
             }
             // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to

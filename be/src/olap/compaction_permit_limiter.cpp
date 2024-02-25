@@ -18,6 +18,7 @@
 #include "olap/compaction_permit_limiter.h"
 
 #include "common/config.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -26,6 +27,7 @@ CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0) {}
 
 void CompactionPermitLimiter::request(int64_t permits) {
     DorisMetrics::instance()->compaction_waitting_permits->set_value(permits);
+    g_adder_compaction_waitting_permits.set_value(permits);
     if (permits > config::total_permits_for_compaction_score) {
         // when tablet's compaction score is larger than "config::total_permits_for_compaction_score",
         // it's necessary to do compaction for this tablet because this tablet will not get "permits"
@@ -46,6 +48,8 @@ void CompactionPermitLimiter::request(int64_t permits) {
     _used_permits += permits;
     DorisMetrics::instance()->compaction_waitting_permits->set_value(0);
     DorisMetrics::instance()->compaction_used_permits->set_value(_used_permits);
+    g_adder_compaction_waitting_permits.set_value(0);
+    g_adder_compaction_used_permits.set_value(_used_permits);
 }
 
 void CompactionPermitLimiter::release(int64_t permits) {
@@ -53,5 +57,6 @@ void CompactionPermitLimiter::release(int64_t permits) {
     _used_permits -= permits;
     _permits_cv.notify_one();
     DorisMetrics::instance()->compaction_used_permits->set_value(_used_permits);
+    g_adder_compaction_used_permits.set_value(_used_permits);
 }
 } // namespace doris

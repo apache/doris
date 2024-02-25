@@ -40,6 +40,33 @@
 #include "util/core_local.h"
 
 namespace doris {
+#define INIT_INT64_G_ADDER_BVAR_METRIC(name, type, unit, description, group_name, labels, core) \
+    BvarAdderMetric<int64_t> g_adder_##name(type, unit, #name, description, group_name, labels, \
+                                            core);
+
+#define INIT_UINT64_G_ADDER_BVAR_METRIC(name, type, unit, description, group_name, labels, core) \
+    BvarAdderMetric<uint64_t> g_adder_##name(type, unit, #name, description, group_name, labels, \
+                                             core);
+
+#define REGISTER_BVAR_METRIC(entity, name) entity->register_metric(#name, name);
+
+#define REGISTER_INIT_INT64_BVAR_METRIC(entity, name, type, unit, description, group_name, labels, \
+                                        core)                                                      \
+    name = std::make_shared<BvarAdderMetric<int64_t>>(type, unit, #name, description, group_name,  \
+                                                      labels, core);                               \
+    entity->register_metric(#name, *name);
+
+#define REGISTER_INIT_UINT64_BVAR_METRIC(entity, name, type, unit, description, group_name,        \
+                                         labels, core)                                             \
+    name = std::make_shared<BvarAdderMetric<uint64_t>>(type, unit, #name, description, group_name, \
+                                                       labels, core);                              \
+    entity->register_metric(#name, *name);
+
+#define REGISTER_INIT_DOUBLE_BVAR_METRIC(entity, name, type, unit, description, group_name,      \
+                                         labels, core)                                           \
+    name = std::make_shared<BvarAdderMetric<double>>(type, unit, #name, description, group_name, \
+                                                     labels, core);                              \
+    entity->register_metric(#name, *name);
 
 namespace rj = RAPIDJSON_NAMESPACE;
 

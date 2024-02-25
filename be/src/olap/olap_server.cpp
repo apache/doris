@@ -74,6 +74,7 @@
 #include "service/point_query_executor.h"
 #include "util/brpc_client_cache.h"
 #include "util/countdown_latch.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/thread.h"
@@ -884,9 +885,11 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         if (compaction_type == CompactionType::BASE_COMPACTION) {
             DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(
                     max_compaction_score);
+            g_adder_tablet_base_max_compaction_score.set_value(max_compaction_score);
         } else {
             DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
                     max_compaction_score);
+            g_adder_tablet_cumulative_max_compaction_score.set_value(max_compaction_score);
         }
     }
     return tablets_compaction;

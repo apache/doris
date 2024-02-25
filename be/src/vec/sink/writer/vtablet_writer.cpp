@@ -74,6 +74,7 @@
 #include "service/backend_options.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/network_util.h"
@@ -1664,6 +1665,8 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     _state->update_num_bytes_load_total(bytes);
     DorisMetrics::instance()->load_rows->increment(rows);
     DorisMetrics::instance()->load_bytes->increment(bytes);
+    g_adder_load_rows.increment(rows);
+    g_adder_load_bytes.increment(bytes);
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
     bool load_block_to_single_tablet =

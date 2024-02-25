@@ -61,6 +61,7 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h" // for check_dir_existed
 #include "service/backend_options.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"

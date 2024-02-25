@@ -358,8 +358,9 @@ void Daemon::calculate_metrics_thread() {
                         max_receive);
                 DorisBvarMetrics::instance()->system_metrics()->update_max_network_send_bytes_rate(
                         max_send);
-                DorisBvarMetrics::instance()->system_metrics()->update_max_network_receive_bytes_rate(
-                        max_receive);
+                DorisBvarMetrics::instance()
+                        ->system_metrics()
+                        ->update_max_network_receive_bytes_rate(max_receive);
                 // update lst map
                 DorisMetrics::instance()->system_metrics()->get_network_traffic(
                         &lst_net_send_bytes, &lst_net_receive_bytes);

@@ -34,6 +34,7 @@
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "util/bit_util.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 
@@ -111,6 +112,7 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
         SCOPED_RAW_TIMER(&stats.remote_read_timer);
         RETURN_IF_ERROR(_remote_file_reader->read_at(offset, result, bytes_read, io_ctx));
         DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
+        g_adder_s3_bytes_read_total.increment(*bytes_read);
         if (io_ctx->file_cache_stats) {
             stats.bytes_read += bytes_req;
             _update_state(stats, io_ctx->file_cache_stats);
@@ -232,6 +234,7 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
     }
     DCHECK(*bytes_read == bytes_req);
     DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
+    g_adder_s3_bytes_read_total.increment(*bytes_read);
     if (io_ctx->file_cache_stats) {
         _update_state(stats, io_ctx->file_cache_stats);
     }

@@ -27,6 +27,8 @@
 
 #include "io/io_common.h"
 #include "olap/olap_common.h"
+#include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/runtime_profile.h"
@@ -51,6 +53,7 @@ struct FileCacheMetric {
     void register_entity();
     void deregister_entity() const {
         DorisMetrics::instance()->metric_registry()->deregister_entity(entity);
+        DorisBvarMetrics::instance()->metric_registry()->deregister_entity(entity_);
     }
     void update_table_metrics() const;
     void update_partition_metrics() const;
@@ -64,6 +67,10 @@ struct FileCacheMetric {
     IntAtomicCounter* num_io_bytes_read_total = nullptr;
     IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
     IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
+    std::shared_ptr<BvarMetricEntity> entity_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> num_io_bytes_read_total_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> num_io_bytes_read_from_cache_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> num_io_bytes_read_from_remote_;
 };
 
 struct FileCacheProfile {

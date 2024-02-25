@@ -59,9 +59,7 @@
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/byte_buffer.h"
 #include "util/debug_util.h"
-#include "util/doris_metrics.h"
 #include "util/load_util.h"
-#include "util/metrics.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
@@ -80,10 +78,23 @@ HttpStreamAction::HttpStreamAction(ExecEnv* exec_env) : _exec_env(exec_env) {
     INT_COUNTER_METRIC_REGISTER(_http_stream_entity, http_stream_requests_total);
     INT_COUNTER_METRIC_REGISTER(_http_stream_entity, http_stream_duration_ms);
     INT_GAUGE_METRIC_REGISTER(_http_stream_entity, http_stream_current_processing);
+    http_stream_entity_ =
+            DorisBvarMetrics::instance()->metric_registry()->register_entity("http_stream");
+    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_requests_total_,
+                                    BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, "", "",
+                                    Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_duration_ms_,
+                                    BvarMetricType::COUNTER, BvarMetricUnit::MILLISECONDS, "", "",
+                                    Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(http_stream_entity_, http_stream_current_processing_,
+                                    BvarMetricType::GAUGE, BvarMetricUnit::REQUESTS, "", "",
+                                    Labels(), false)
+    // http_stream_requests_total_->set_value(1000);  for test
 }
 
 HttpStreamAction::~HttpStreamAction() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_http_stream_entity);
+    DorisBvarMetrics::instance()->metric_registry()->deregister_entity(http_stream_entity_);
 }
 
 void HttpStreamAction::handle(HttpRequest* req) {
@@ -128,6 +139,9 @@ void HttpStreamAction::handle(HttpRequest* req) {
     http_stream_requests_total->increment(1);
     http_stream_duration_ms->increment(ctx->load_cost_millis);
     http_stream_current_processing->increment(-1);
+    http_stream_requests_total_->increment(1);
+    http_stream_duration_ms_->increment(ctx->load_cost_millis);
+    http_stream_current_processing_->increment(-1);
 }
 
 Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx) {
@@ -161,7 +175,7 @@ Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLo
 
 int HttpStreamAction::on_header(HttpRequest* req) {
     http_stream_current_processing->increment(1);
-
+    http_stream_current_processing_->increment(1);
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     req->set_handler_ctx(ctx);
 
@@ -185,6 +199,7 @@ int HttpStreamAction::on_header(HttpRequest* req) {
         str = str + '\n';
         HttpChannel::send_reply(req, str);
         http_stream_current_processing->increment(-1);
+        http_stream_current_processing_->increment(-1);
         if (config::enable_stream_load_record) {
             str = ctx->prepare_stream_load_record(str);
             _save_stream_load_record(ctx, str);

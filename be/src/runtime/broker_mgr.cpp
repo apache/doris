@@ -33,6 +33,8 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/hash_util.hpp"
 #include "util/metrics.h"

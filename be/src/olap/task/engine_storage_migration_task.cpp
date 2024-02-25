@@ -42,6 +42,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/txn_manager.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/uid_util.h"
 
@@ -200,6 +201,7 @@ Status EngineStorageMigrationTask::_migrate() {
               << "tablet_id=" << tablet_id << ", dest_store=" << _dest_store->path();
 
     DorisMetrics::instance()->storage_migrate_requests_total->increment(1);
+    g_adder_storage_migrate_requests_total.increment(1);
     int32_t start_version = 0;
     int32_t end_version = 0;
     std::vector<RowsetSharedPtr> consistent_rowsets;
