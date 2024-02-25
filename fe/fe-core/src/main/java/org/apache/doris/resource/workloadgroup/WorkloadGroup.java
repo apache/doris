@@ -90,7 +90,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     private int cpuHardLimit = 0;
 
-    private WorkloadGroup(long id, String name, Map<String, String> properties) {
+    WorkloadGroup(long id, String name, Map<String, String> properties) {
         this(id, name, properties, 0);
     }
 
