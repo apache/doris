@@ -1376,7 +1376,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     // when is_include is false, we shoudle append KEY_NORMAL_MARKER to the
     // encode key. Otherwise, we will get an incorrect upper bound.
     encode_key_with_padding<RowCursor, true>(
-            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include, true);
+            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include, false);
     if (index_key < _segment->min_key()) {
         *rowid = 0;
         return Status::OK();
