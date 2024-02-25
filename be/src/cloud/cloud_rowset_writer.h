@@ -21,7 +21,7 @@
 
 namespace doris {
 
-class CloudRowsetWriter final : public BaseBetaRowsetWriter {
+class CloudRowsetWriter : public BaseBetaRowsetWriter {
 public:
     CloudRowsetWriter();
 

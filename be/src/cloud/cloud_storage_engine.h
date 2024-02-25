@@ -76,6 +76,8 @@ public:
         return _cumulative_compaction_policy.get();
     }
 
+    Status submit_compaction_task(const CloudTabletSPtr& tablet, CompactionType compaction_type);
+
 private:
     void _refresh_s3_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
@@ -84,7 +86,6 @@ private:
     std::vector<CloudTabletSPtr> _generate_cloud_compaction_tasks(CompactionType compaction_type,
                                                                   bool check_score);
     void _adjust_compaction_thread_num();
-    Status submit_compaction_task(const CloudTabletSPtr& tablet, CompactionType compaction_type);
     Status _submit_base_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
