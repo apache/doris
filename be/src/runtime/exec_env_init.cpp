@@ -89,8 +89,10 @@
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
+#include "util/bvar_metrics.h"
 #include "util/metrics.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
@@ -136,6 +138,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
         }
     }
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
+    DorisBvarMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
