@@ -136,7 +136,7 @@ public:
                              ThreadPool** non_pipe_thread_pool,
                              vectorized::SimplifiedScanScheduler** remote_scan_sched);
 
-    void try_stop_task_scheduler();
+    void try_stop_schedulers();
 
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit

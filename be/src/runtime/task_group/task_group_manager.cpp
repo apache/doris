@@ -90,7 +90,7 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
 
     // 2 stop active thread
     for (uint64_t tg_id : deleted_tg_ids) {
-        _task_groups.at(tg_id)->try_stop_task_scheduler();
+        _task_groups.at(tg_id)->try_stop_schedulers();
     }
 
     // 3 release resource in memory
@@ -133,7 +133,7 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
 
 void TaskGroupManager::stop() {
     for (auto iter = _task_groups.begin(); iter != _task_groups.end(); iter++) {
-        iter->second->try_stop_task_scheduler();
+        iter->second->try_stop_schedulers();
     }
 }
 

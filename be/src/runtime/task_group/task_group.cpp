@@ -326,7 +326,7 @@ void TaskGroup::upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv
         std::unique_ptr<pipeline::TaskScheduler> pipeline_task_scheduler =
                 std::make_unique<pipeline::TaskScheduler>(
                         exec_env, exec_env->get_global_block_scheduler(), std::move(task_queue),
-                        "Exec_" + tg_name, cg_cpu_ctl_ptr);
+                        "Pipe_" + tg_name, cg_cpu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
         if (ret.ok()) {
             _task_sched = std::move(pipeline_task_scheduler);
@@ -418,7 +418,7 @@ void TaskGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
     *non_pipe_thread_pool = _non_pipe_thread_pool.get();
 }
 
-void TaskGroup::try_stop_task_scheduler() {
+void TaskGroup::try_stop_schedulers() {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
     if (_task_sched) {
         _task_sched->stop();
