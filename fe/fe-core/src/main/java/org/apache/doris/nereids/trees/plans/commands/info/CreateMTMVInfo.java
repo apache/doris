@@ -35,6 +35,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -304,8 +305,9 @@ public class CreateMTMVInfo {
                 if (!partitionColumnNames.contains(relatedTableInfo.get().getColumn())) {
                     throw new AnalysisException("error related column: " + relatedTableInfo.get().getColumn());
                 }
-                if (partitionColumnNames.size() != 1) {
-                    throw new AnalysisException("base table for partitioning only support single column.");
+                if (!(mtmvBaseRealtedTable instanceof HMSExternalTable)
+                        && partitionColumnNames.size() != 1) {
+                    throw new AnalysisException("only hms table support multi column partition.");
                 }
                 mvPartitionInfo.setRelatedTable(relatedTableInfo.get().getTableInfo());
                 mvPartitionInfo.setRelatedCol(relatedTableInfo.get().getColumn());
@@ -322,7 +324,7 @@ public class CreateMTMVInfo {
         List<AllPartitionDesc> allPartitionDescs = null;
         try {
             allPartitionDescs = MTMVPartitionUtil
-                    .getPartitionDescsByRelatedTable(relatedTable, properties);
+                    .getPartitionDescsByRelatedTable(relatedTable, properties, mvPartitionInfo.getRelatedCol());
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException("getPartitionDescsByRelatedTable failed", e);
         }
