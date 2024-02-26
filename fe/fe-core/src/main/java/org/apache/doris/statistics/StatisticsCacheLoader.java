@@ -22,77 +22,28 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
 
 public abstract class StatisticsCacheLoader<V> implements AsyncCacheLoader<StatisticsCacheKey, V> {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsCacheLoader.class);
 
-    private final Map<StatisticsCacheKey, CompletableFutureWithCreateTime<V>> inProgressing = new HashMap<>();
-
     @Override
     public @NonNull CompletableFuture<V> asyncLoad(
             @NonNull StatisticsCacheKey key,
             @NonNull Executor executor) {
-        CompletableFutureWithCreateTime<V> cfWrapper = inProgressing.get(key);
-        if (cfWrapper != null) {
-            return cfWrapper.cf;
-        }
         CompletableFuture<V> future = CompletableFuture.supplyAsync(() -> {
             long startTime = System.currentTimeMillis();
             try {
                 return doLoad(key);
             } finally {
                 long endTime = System.currentTimeMillis();
-                LOG.info("Query BE for column stats:{}-{} end time:{} cost time:{}", key.tableId, key.colName,
-                        endTime, endTime - startTime);
-                removeFromIProgressing(key);
+                LOG.info("Load statistic cache [{}] cost time ms:{}", key, endTime - startTime);
             }
         }, executor);
-        putIntoIProgressing(key,
-                new CompletableFutureWithCreateTime<V>(System.currentTimeMillis(), future));
         return future;
     }
 
     protected abstract V doLoad(StatisticsCacheKey k);
-
-    private static class CompletableFutureWithCreateTime<V> extends CompletableFuture<V> {
-
-        public final long startTime;
-        public final CompletableFuture<V> cf;
-        private final long expiredTimeMilli = TimeUnit.MINUTES.toMillis(30);
-
-        public CompletableFutureWithCreateTime(long startTime, CompletableFuture<V> cf) {
-            this.startTime = startTime;
-            this.cf = cf;
-        }
-
-        public boolean isExpired() {
-            return System.currentTimeMillis() - startTime > expiredTimeMilli;
-        }
-    }
-
-    private void putIntoIProgressing(StatisticsCacheKey k, CompletableFutureWithCreateTime<V> v) {
-        synchronized (inProgressing) {
-            inProgressing.put(k, v);
-        }
-    }
-
-    private void removeFromIProgressing(StatisticsCacheKey k) {
-        synchronized (inProgressing) {
-            inProgressing.remove(k);
-        }
-    }
-
-    public void removeExpiredInProgressing() {
-        // Quite simple logic that would complete very fast.
-        // Lock on object to avoid ConcurrentModificationException.
-        synchronized (inProgressing) {
-            inProgressing.entrySet().removeIf(e -> e.getValue().isExpired());
-        }
-    }
 }
