@@ -100,6 +100,9 @@ public class JoinCommute extends OneExplorationRuleFactory {
     }
 
     private boolean checkReorder(LogicalJoin<GroupPlan, GroupPlan> join) {
+        if (join.getJoinReorderContext().isLeadingJoin()) {
+            return false;
+        }
         return !join.getJoinReorderContext().hasCommute()
                 && !join.getJoinReorderContext().hasExchange();
     }

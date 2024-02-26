@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.Lists;
@@ -106,6 +107,10 @@ public class JoinExchange extends OneExplorationRuleFactory {
      * check reorder masks.
      */
     public static boolean checkReorder(LogicalJoin<? extends Plan, ? extends Plan> topJoin) {
+        if (topJoin.getJoinReorderContext().isLeadingJoin()
+                || isChildLeadingJoin(topJoin.left()) || isChildLeadingJoin(topJoin.right())) {
+            return false;
+        }
         if (topJoin.getJoinReorderContext().hasCommute()
                 || topJoin.getJoinReorderContext().hasLeftAssociate()
                 || topJoin.getJoinReorderContext().hasRightAssociate()
@@ -114,6 +119,24 @@ public class JoinExchange extends OneExplorationRuleFactory {
         } else {
             return true;
         }
+    }
+
+    /**
+     * check whether a child plan is generate by leading
+     * @param child input plan by rule
+     * @return boolean value if child is generate by leading
+     */
+    public static boolean isChildLeadingJoin(Plan child) {
+        if (child instanceof LogicalProject) {
+            if (((LogicalJoin) (child.child(0))).getJoinReorderContext().isLeadingJoin()) {
+                return true;
+            }
+        } else if (child instanceof LogicalJoin) {
+            if (((LogicalJoin) child).getJoinReorderContext().isLeadingJoin()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

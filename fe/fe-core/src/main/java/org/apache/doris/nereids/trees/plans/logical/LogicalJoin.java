@@ -126,10 +126,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
                        List<Expression> otherJoinConjuncts, List<Expression> markJoinConjuncts, DistributeHint hint,
                        Optional<MarkJoinSlotReference> markJoinSlotReference, LEFT_CHILD_TYPE leftChild,
-                       RIGHT_CHILD_TYPE rightChild) {
+                       RIGHT_CHILD_TYPE rightChild, JoinReorderContext joinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, hint,
                 markJoinSlotReference, Optional.empty(), Optional.empty(),
-                ImmutableList.of(leftChild, rightChild), null);
+                ImmutableList.of(leftChild, rightChild), joinReorderContext);
     }
 
     public LogicalJoin(long bitmap, JoinType joinType, List<Expression> hashJoinConjuncts,
@@ -254,6 +254,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public boolean isMarkJoin() {
         return markJoinSlotReference.isPresent();
+    }
+
+    public boolean isLeadingJoin() {
+        return joinReorderContext.isLeadingJoin();
     }
 
     public List<Expression> getMarkJoinConjuncts() {

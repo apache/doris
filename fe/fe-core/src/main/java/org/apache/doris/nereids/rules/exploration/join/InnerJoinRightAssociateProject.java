@@ -95,6 +95,10 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
      * Check JoinReorderContext
      */
     public static boolean checkReorder(LogicalJoin<? extends Plan, GroupPlan> topJoin) {
+        if (topJoin.getJoinReorderContext().isLeadingJoin()
+                || ((LogicalJoin) topJoin.left().child(0)).getJoinReorderContext().isLeadingJoin()) {
+            return false;
+        }
         return !topJoin.getJoinReorderContext().hasCommute()
                 && !topJoin.getJoinReorderContext().hasRightAssociate()
                 && !topJoin.getJoinReorderContext().hasLeftAssociate()

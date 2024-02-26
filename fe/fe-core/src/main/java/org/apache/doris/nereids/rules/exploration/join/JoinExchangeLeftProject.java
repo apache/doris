@@ -110,18 +110,4 @@ public class JoinExchangeLeftProject extends OneExplorationRuleFactory {
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE_LEFT_PROJECT);
     }
-
-    /**
-     * check reorder masks.
-     */
-    public static boolean checkReorder(LogicalJoin<? extends Plan, ? extends Plan> topJoin) {
-        if (topJoin.getJoinReorderContext().hasCommute()
-                || topJoin.getJoinReorderContext().hasLeftAssociate()
-                || topJoin.getJoinReorderContext().hasRightAssociate()
-                || topJoin.getJoinReorderContext().hasExchange()) {
-            return false;
-        } else {
-            return true;
-        }
-    }
 }

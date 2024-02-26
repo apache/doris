@@ -108,7 +108,7 @@ public class LogicalPlanBuilder {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
                 Collections.emptyList(), Collections.emptyList(),
                 new DistributeHint(DistributeType.NONE), Optional.of(new MarkJoinSlotReference("fake")),
-                this.plan, right);
+                this.plan, right, null);
         return from(join);
     }
 
