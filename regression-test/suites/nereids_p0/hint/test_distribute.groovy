@@ -19,9 +19,9 @@
 
 suite("test_distribute") {
     // create database and tables
-    sql 'DROP DATABASE IF EXISTS test_leading'
-    sql 'CREATE DATABASE IF NOT EXISTS test_leading'
-    sql 'use test_leading'
+    sql 'DROP DATABASE IF EXISTS test_distribute'
+    sql 'CREATE DATABASE IF NOT EXISTS test_distribute'
+    sql 'use test_distribute'
 
     // setting planner to nereids
     sql 'set enable_nereids_planner=true'
@@ -40,7 +40,7 @@ suite("test_distribute") {
 
     streamLoad {
         table "t1"
-        db "test_leading"
+        db "test_distribute"
         set 'column_separator', '|'
         set 'format', 'csv'
         file 't1.csv'
@@ -49,7 +49,7 @@ suite("test_distribute") {
 
     streamLoad {
         table "t2"
-        db "test_leading"
+        db "test_distribute"
         set 'column_separator', '|'
         set 'format', 'csv'
         file 't2.csv'
@@ -58,7 +58,7 @@ suite("test_distribute") {
 
     streamLoad {
         table "t3"
-        db "test_leading"
+        db "test_distribute"
         set 'column_separator', '|'
         set 'format', 'csv'
         file 't3.csv'
@@ -67,8 +67,7 @@ suite("test_distribute") {
 
     streamLoad {
         table "t4"
-        db "test_leading"
-        set 'column_separator', '|'
+        db "test_distribute"
         set 'format', 'csv'
         file 't4.csv'
         time 10000

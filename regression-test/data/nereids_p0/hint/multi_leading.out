@@ -589,3 +589,60 @@ SyntaxError: leading(t4 t2) Msg:one query block can only have one leading clause
 -- !sql4_res_7 --
 6224
 
+-- !sql5_1 --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalProject
+------PhysicalOlapScan[t1]
+--PhysicalResultSink
+----PhysicalDistribute[DistributionSpecGather]
+------PhysicalProject
+--------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > (cast(0.05 as DOUBLE) * avg(c11)))
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------PhysicalDistribute[DistributionSpecReplicated]
+------------PhysicalProject
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = cte.c11)) otherCondition=()
+------------------------PhysicalOlapScan[t1]
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------PhysicalProject
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+
+-- !sql5_2 --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalProject
+------PhysicalOlapScan[t1]
+--PhysicalResultSink
+----PhysicalDistribute[DistributionSpecGather]
+------PhysicalProject
+--------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > (cast(0.05 as DOUBLE) * avg(c11)))
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------PhysicalDistribute[DistributionSpecReplicated]
+------------PhysicalProject
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = cte.c11)) otherCondition=()
+------------------------PhysicalOlapScan[t1]
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------PhysicalProject
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+
+Hint log:
+Used: leading(cte t1 )
+UnUsed:
+SyntaxError:
+

@@ -158,7 +158,7 @@ LogicalCteAnchor[543] ( cteId=CTEId#0 )
 |--LogicalCteProducer[527] ( cteId=CTEId#0 )
 |  +--LogicalProject[525] ( distinct=false, projects=[col1#0, col2#1, col3#2, col4#3], excepts=[] )
 |     +--LogicalFilter[523] ( predicates=(__DORIS_DELETE_SIGN__#4 = 0) )
-|        +--LogicalOlapScan ( qualified=regression_test_nereids_rules_p0_cte.t1, indexName=t1, selectedIndexId=25396, preAgg=ON )
+|        +--LogicalOlapScan ( qualified=regression_test_nereids_rules_p0_cte.t1, indexName=t1, selectedIndexId=30511, preAgg=ON )
 +--LogicalResultSink[541] ( outputExprs=[col1#26, col2#27, col3#28] )
    +--LogicalAggregate[539] ( groupByExpr=[col1#26, col2#27, col3#28], outputExpr=[col1#26, col2#27, col3#28], hasRepeat=false )
       +--LogicalUnion ( qualifier=ALL, outputs=[col1#26, col2#27, col3#28], regularChildrenOutputs=[[col1#44, col2#45, col3#46], [col1#47, col2#48, col3#49]], constantExprsList=[], hasPushedFilter=false )
@@ -239,7 +239,7 @@ PLAN FRAGMENT 2
   0:VOlapScanNode(358)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#4] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col1[#0], col2[#1], col3[#2], col4[#3]
@@ -333,7 +333,7 @@ PLAN FRAGMENT 3
   0:VOlapScanNode(664)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#4] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col1[#0], col2[#1], col3[#2], col4[#3]
@@ -427,7 +427,7 @@ PLAN FRAGMENT 3
   0:VOlapScanNode(720)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#4] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col1[#0], col2[#1], col3[#2], col4[#3]
@@ -464,7 +464,7 @@ PLAN FRAGMENT 1
   0:VOlapScanNode(137)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#4] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col1[#0], col2[#1], col3[#2], col4[#3]
@@ -521,7 +521,7 @@ PLAN FRAGMENT 2
   2:VOlapScanNode(358)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#14] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col1[#10], col2[#11], col3[#12], col4[#13]
@@ -540,7 +540,7 @@ PLAN FRAGMENT 3
   0:VOlapScanNode(348)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#4] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col1[#0], col2[#1], col3[#2], col4[#3]
@@ -604,7 +604,7 @@ PLAN FRAGMENT 2
   2:VOlapScanNode(401)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#14] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col1[#10], col2[#11], col3[#12], col4[#13]
@@ -623,7 +623,7 @@ PLAN FRAGMENT 3
   0:VOlapScanNode(391)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#4] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col1[#0], col2[#1], col3[#2], col4[#3]
@@ -737,7 +737,7 @@ PLAN FRAGMENT 4
   2:VOlapScanNode(1004)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#14] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col1[#10], col2[#11], col3[#12], col4[#13]
@@ -756,7 +756,7 @@ PLAN FRAGMENT 5
   0:VOlapScanNode(994)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#4] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col1[#0], col2[#1], col3[#2], col4[#3]
@@ -827,7 +827,7 @@ PLAN FRAGMENT 2
   0:VOlapScanNode(311)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#4] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col1[#0], col2[#1], col3[#2], col4[#3]
@@ -891,7 +891,7 @@ PLAN FRAGMENT 2
   0:VOlapScanNode(257)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#4] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col2[#1], col3[#2]
@@ -962,7 +962,7 @@ PLAN FRAGMENT 2
   0:VOlapScanNode(330)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#4] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col3[#2]
@@ -1135,7 +1135,7 @@ PLAN FRAGMENT 5
   0:VOlapScanNode(838)
      TABLE: regression_test_nereids_rules_p0_cte.t1(t1), PREAGGREGATION: ON
      PREDICATES: (__DORIS_DELETE_SIGN__[#4] = 0)
-     partitions=1/1 (t1), tablets=3/3, tabletList=25397,25399,25401
+     partitions=1/1 (t1), tablets=3/3, tabletList=30512,30514,30516
      cardinality=0, avgRowSize=0.0, numNodes=1
      pushAggOp=NONE
      projections: col2[#1], col1[#0]
