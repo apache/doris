@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentPublishRequest;
 import org.apache.doris.thrift.TAgentResult;
@@ -80,7 +81,7 @@ public class GenericPoolTest {
     static int port;
 
     static {
-        port = UtFrameUtils.findValidPort();
+        port = UnitTestUtil.findValidPort();
     }
 
     static void close() {
