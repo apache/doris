@@ -265,7 +265,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             break;
         }
         status = scanner->get_block_after_projects(state, free_block.get(), &eos);
-        raw_bytes_read += free_block->allocated_bytes();
         first_read = false;
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
@@ -283,6 +282,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             eos = true;
             break;
         }
+        raw_bytes_read += free_block->allocated_bytes();
         if (!scan_task->cached_blocks.empty() &&
             scan_task->cached_blocks.back()->rows() + free_block->rows() <= ctx->batch_size()) {
             size_t block_size = scan_task->cached_blocks.back()->allocated_bytes();
