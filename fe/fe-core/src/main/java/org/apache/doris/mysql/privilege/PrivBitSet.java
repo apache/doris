@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -32,7 +33,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 // ....0000000000
 //        ^     ^
@@ -48,17 +51,17 @@ public class PrivBitSet implements Writable {
     }
 
     public void set(int index) {
-        Preconditions.checkState(index < Privilege.privileges.length, index);
+        Preconditions.checkState(Privilege.privileges.containsKey(index), index);
         set |= 1 << index;
     }
 
     public void unset(int index) {
-        Preconditions.checkState(index < Privilege.privileges.length, index);
+        Preconditions.checkState(Privilege.privileges.containsKey(index), index);
         set &= ~(1 << index);
     }
 
     public boolean get(int index) {
-        Preconditions.checkState(index < Privilege.privileges.length, index);
+        Preconditions.checkState(Privilege.privileges.containsKey(index), index);
         return (set & (1 << index)) > 0;
     }
 
@@ -101,7 +104,7 @@ public class PrivBitSet implements Writable {
     }
 
     public boolean containsResourcePriv() {
-        return containsPrivs(Privilege.USAGE_PRIV);
+        return containsPrivs(Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV);
     }
 
     public boolean containsDbTablePriv() {
@@ -120,11 +123,11 @@ public class PrivBitSet implements Writable {
 
     public List<Privilege> toPrivilegeList() {
         List<Privilege> privs = Lists.newArrayList();
-        for (int i = 0; i < Privilege.privileges.length; i++) {
-            if (get(i)) {
-                privs.add(Privilege.getPriv(i));
+        Privilege.privileges.keySet().forEach(idx -> {
+            if (get(idx)) {
+                privs.add(Privilege.getPriv(idx));
             }
-        }
+        });
         return privs;
     }
 
@@ -153,11 +156,11 @@ public class PrivBitSet implements Writable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < Privilege.privileges.length; i++) {
-            if (get(i)) {
-                sb.append(Privilege.getPriv(i)).append(" ");
+        Privilege.privileges.keySet().forEach(idx -> {
+            if (get(idx)) {
+                sb.append(Privilege.getPriv(idx)).append(" ");
             }
-        }
+        });
         return sb.toString();
     }
 
@@ -174,5 +177,21 @@ public class PrivBitSet implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static Set<Privilege> convertResourcePrivToCloudPriv(ResourcePattern resourcePattern,
+                                                                Set<Privilege> privileges) {
+        PrivBitSet privs = PrivBitSet.of();
+        for (Privilege privilege : privileges) {
+            if (resourcePattern.isGeneralResource()) {
+                privs.or(PrivBitSet.of(privilege));
+                continue;
+            }
+
+            if (resourcePattern.isClusterResource()) {
+                privs.or(PrivBitSet.of(Privilege.CLUSTER_USAGE_PRIV));
+            }
+        }
+        return new HashSet<>(privs.toPrivilegeList());
     }
 }
