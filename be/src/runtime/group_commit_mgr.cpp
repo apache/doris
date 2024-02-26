@@ -78,6 +78,7 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
         VLOG_DEBUG << "group commit meets commit condition for data size, label=" << label
                    << ", instance_id=" << load_instance_id << ", data_bytes=" << _data_bytes;
         _need_commit = true;
+        data_size_condition = true;
     }
     _get_cond.notify_all();
     return Status::OK();
@@ -417,6 +418,9 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
        << ", exec_plan_fragment status=" << status.to_string()
        << ", commit/abort txn rpc status=" << st.to_string()
        << ", commit/abort txn status=" << result_status.to_string()
+       << ", this group commit includes " << load_block_queue->group_commit_load_count << " loads"
+       << ", flush because meet "
+       << (load_block_queue->data_size_condition ? "data size " : "time ") << "condition"
        << ", wal space info:" << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();
     if (state) {
         if (!state->get_error_log_file_path().empty()) {

@@ -53,6 +53,7 @@ namespace doris {
 
 class Cache;
 class LRUCachePolicy;
+struct LRUHandle;
 
 enum LRUCacheType {
     SIZE, // The capacity of cache is based on the memory size of cache entry, memory size = handle size + charge.
@@ -150,11 +151,15 @@ private:
 // The entry with smaller CachePriority will evict firstly
 enum class CachePriority { NORMAL = 0, DURABLE = 1 };
 
-using CacheValuePredicate = std::function<bool(const void*)>;
+using CachePrunePredicate = std::function<bool(const LRUHandle*)>;
 // CacheValueTimeExtractor can extract timestamp
 // in cache value through the specified function,
 // such as last_visit_time in InvertedIndexSearcherCache::CacheValue
 using CacheValueTimeExtractor = std::function<int64_t(const void*)>;
+struct PrunedInfo {
+    int64_t pruned_count = 0;
+    int64_t pruned_size = 0;
+};
 
 class Cache {
 public:
@@ -219,12 +224,12 @@ public:
     // encouraged to override the default implementation.  A future release of
     // leveldb may change prune() to a pure abstract method.
     // return num of entries being pruned.
-    virtual int64_t prune() { return 0; }
+    virtual PrunedInfo prune() { return {0, 0}; }
 
     // Same as prune(), but the entry will only be pruned if the predicate matched.
     // NOTICE: the predicate should be simple enough, or the prune_if() function
     // may hold lock for a long time to execute predicate.
-    virtual int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) { return 0; }
+    virtual PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) { return {0, 0}; }
 
     virtual int64_t mem_consumption() = 0;
 
@@ -246,15 +251,17 @@ struct LRUHandle {
     struct LRUHandle* prev = nullptr;      // previous entry in lru list
     size_t charge;
     size_t key_length;
-    size_t total_size; // including key length
-    size_t bytes;      // Used by LRUCacheType::NUMBER, LRUCacheType::SIZE equal to total_size.
-    bool in_cache;     // Whether entry is in the cache.
+    size_t total_size; // Entry charge, used to limit cache capacity, LRUCacheType::SIZE including key length.
+    size_t bytes;  // Used by LRUCacheType::NUMBER, LRUCacheType::SIZE equal to total_size.
+    bool in_cache; // Whether entry is in the cache.
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
     MemTrackerLimiter* mem_tracker;
     LRUCacheType type;
-    char key_data[1]; // Beginning of key
+    int64_t last_visit_time; // Save the last visit time of this cache entry.
+    char key_data[1];        // Beginning of key
+    // Note! key_data must be at the end.
 
     CacheKey key() const {
         // For cheaper lookups, we allow a temporary Handle object
@@ -345,8 +352,8 @@ public:
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
-    int64_t prune();
-    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false);
+    PrunedInfo prune();
+    PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false);
 
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
@@ -384,8 +391,8 @@ private:
 
     HandleTable _table;
 
-    uint64_t _lookup_count = 0; // cache查找总次数
-    uint64_t _hit_count = 0;    // 命中cache的总次数
+    uint64_t _lookup_count = 0; // number of cache lookups
+    uint64_t _hit_count = 0;    // number of cache hits
 
     CacheValueTimeExtractor _cache_value_time_extractor;
     bool _cache_value_check_timestamp = false;
@@ -408,8 +415,8 @@ public:
     virtual void* value(Handle* handle) override;
     Slice value_slice(Handle* handle) override;
     virtual uint64_t new_id() override;
-    virtual int64_t prune() override;
-    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
+    PrunedInfo prune() override;
+    PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override;
     int64_t mem_consumption() override;
     int64_t get_usage() override;
     size_t get_total_capacity() override { return _total_capacity; };
@@ -479,8 +486,10 @@ public:
     void* value(Handle* handle) override;
     Slice value_slice(Handle* handle) override;
     uint64_t new_id() override { return 0; };
-    int64_t prune() override { return 0; };
-    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override { return 0; };
+    PrunedInfo prune() override { return {0, 0}; };
+    PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override {
+        return {0, 0};
+    };
     int64_t mem_consumption() override { return 0; };
     int64_t get_usage() override { return 0; };
     size_t get_total_capacity() override { return 0; };

@@ -456,7 +456,8 @@ archive_doris_logs() {
         archive_content="${archive_content} session_variables"
     fi
     if [[ -d "${DORIS_HOME}"/ms ]]; then
-        cp -rf /var/log/foundationdb "${DORIS_HOME}"/foundationdb/log
+        mkdir -p "${DORIS_HOME}"/foundationdb/log
+        cp -rf /var/log/foundationdb/* "${DORIS_HOME}"/foundationdb/log/
         archive_content="${archive_content} ms/conf ms/log foundationdb/log"
     fi
     if [[ -d "${DORIS_HOME}"/recycler ]]; then
@@ -556,22 +557,22 @@ print_doris_conf() {
 }
 
 function create_warehouse() {
-    if [[ -z ${COS_ak} || -z ${COS_sk} ]]; then
-        echo "ERROR: env COS_ak and COS_sk are required." && return 1
+    if [[ -z ${oss_ak} || -z ${oss_sk} ]]; then
+        echo "ERROR: env oss_ak and oss_sk are required." && return 1
     fi
     if curl "127.0.0.1:5000/MetaService/http/create_instance?token=greedisgood9999" -d "{
         \"instance_id\": \"cloud_instance_0\",
         \"name\":\"cloud_instance_0\",
         \"user_id\":\"user-id\",
         \"obj_info\": {
-            \"provider\": \"COS\",
-            \"region\": \"ap-beijing\",
-            \"bucket\": \"doris-build-1308700295\",
-            \"prefix\": \"ci\",
-            \"endpoint\": \"cos.ap-beijing.myqcloud.com\",
-            \"external_endpoint\": \"cos.ap-beijing.myqcloud.com\",
-            \"ak\": \"${COS_ak}\",
-            \"sk\": \"${COS_sk}\"
+            \"provider\": \"OSS\",
+            \"region\": \"oss-cn-hongkong\",
+            \"bucket\": \"doris-community-test\",
+            \"prefix\": \"cloud_regression\",
+            \"endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+            \"external_endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+            \"ak\": \"${oss_ak}\",
+            \"sk\": \"${oss_sk}\"
         }
     }"; then
         echo

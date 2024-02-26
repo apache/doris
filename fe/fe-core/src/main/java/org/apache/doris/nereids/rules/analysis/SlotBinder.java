@@ -260,6 +260,9 @@ public class SlotBinder extends SubExprAnalyzer {
             }
         }).collect(Collectors.toList());
 
+        if (slots.isEmpty()) {
+            throw new AnalysisException("unknown qualifier: " + StringUtils.join(qualifierStar, ".") + ".*");
+        }
         return new BoundStar(slots);
     }
 

@@ -106,9 +106,6 @@ public:
 
     std::shared_ptr<QueryStatistics> get_query_statistics_ptr();
 
-private:
-    static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
-
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().

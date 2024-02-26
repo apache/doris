@@ -110,12 +110,16 @@ public class IndexDefinition {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
             }
-            if (!column.isKey()
-                    && ((keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite)
-                        || keysType == KeysType.AGG_KEYS)) {
-                throw new AnalysisException(indexType.toString()
-                    + " index only used in columns of DUP_KEYS/UNIQUE_KEYS MOW table or key columns of all table."
-                    + " invalid index: " + name);
+            if (!column.isKey()) {
+                if (keysType == KeysType.AGG_KEYS) {
+                    throw new AnalysisException("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
+                        + " or key columns of AGG_KEYS table. invalid index: " + name);
+                } else if (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite
+                               && indexType == IndexType.INVERTED && properties != null
+                               && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
+                    throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
+                        + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + name);
+                }
             }
 
             if (indexType == IndexType.INVERTED) {

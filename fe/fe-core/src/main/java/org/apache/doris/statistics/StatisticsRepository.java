@@ -102,6 +102,11 @@ public class StatisticsRepository {
             + " ${inPredicate}"
             + " AND part_id IS NOT NULL";
 
+    private static final String FETCH_TABLE_STATISTICS = "SELECT * FROM "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
+            + " WHERE tbl_id = ${tblId}"
+            + " AND part_id IS NULL";
+
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, long indexId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, indexId, colName);
         if (resultRow == null) {
@@ -124,6 +129,14 @@ public class StatisticsRepository {
         return queryPartitionStatistics(dbObjects.table.getId(),
                 colName, partitionIds).stream().map(ColumnStatistic::fromResultRow).collect(
                 Collectors.toList());
+    }
+
+    public static List<ResultRow> queryColumnStatisticsForTable(long tableId)
+            throws AnalysisException {
+        Map<String, String> params = new HashMap<>();
+        params.put("tblId", String.valueOf(tableId));
+        List<ResultRow> rows = StatisticsUtil.executeQuery(FETCH_TABLE_STATISTICS, params);
+        return rows == null ? Collections.emptyList() : rows;
     }
 
     public static ResultRow queryColumnStatisticById(long tblId, long indexId, String colName) {

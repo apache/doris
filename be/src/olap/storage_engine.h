@@ -498,6 +498,7 @@ private:
     std::shared_mutex _async_publish_lock;
 
     bool _clear_segment_cache = false;
+    bool _clear_page_cache = false;
 
     std::atomic<bool> _need_clean_trash {false};
 
@@ -524,7 +525,7 @@ public:
 
     void set_index(const std::string& key, int next_idx);
 
-    struct CacheValue : public LRUCacheValueBase {
+    struct CacheValue {
         int idx = 0;
     };
 

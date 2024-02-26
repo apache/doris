@@ -50,7 +50,7 @@ class EliminateSemiJoinTest extends TestWithFeService implements MemoPatternMatc
                 .rewrite()
                 .matches(
                         logicalResultSink(
-                                logicalOlapScan()
+                                logicalProject(logicalJoin())
                         )
                 );
     }

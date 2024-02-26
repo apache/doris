@@ -102,7 +102,7 @@ After executing install, the AuditLoader directory will be automatically generat
     * database: Audit log database name.
     * audit_log_table: Audit log table name.
     * slow_log_table: Slow query log table name.
-    * enable_slow_log: Whether to enable the slow query log import function. The default value is false.
+    * enable_slow_log: Whether to enable the slow query log import function. The default value is false. You can set the slow query threshold in the FE configuration item. The parameter is qe_slow_log_ms and the default value is 5s.
     * user: Cluster username. The user must have INSERT permission on the corresponding table.
     * password: Cluster user password.
 

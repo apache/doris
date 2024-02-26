@@ -99,3 +99,29 @@ Please see the compilation documentation of each component to verify the compila
 * For Doris Core, see [compilation documentation](/docs/install/source-install/compilation)
 * Flink Doris Connector, see [compilation documentation](/docs/ecosystem/flink-doris-connector)
 * Spark Doris Connector, see [compilation documentation](/docs/ecosystem/spark-doris-connector)
+
+## 5. Vote
+
+After the verification is completed, the following template can be used to send voting emails to the dev@doris:
+
+```
+Here is my(your github id) vote +1 (binding)"
+
+I checked:
+
+[x] The download link is legal.
+[x] The PGP signature is valid.
+[x] The source code matches the current release version.
+[x] The LICENSE and NOTICE files are correct.
+[x] All files carry the necessary protocol header.
+[x] The compiled content is not included in the source package.
+[x] The compilation can be executed smoothly.
+
+Other comments...
+```
+
+> 1. Indicate the github id in the voting email to facilitate the Release Manager to count the votes.
+>
+> 2. If you are a Doris PMC member, please indicate (binding) in the voting email. Otherwise indicate (non-binding).
+>
+> 3. Release Manger himself/herself also needs to explicitly vote.

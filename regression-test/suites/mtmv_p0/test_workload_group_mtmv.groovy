@@ -53,7 +53,7 @@ suite("test_workload_group_mtmv") {
     sql """
             refresh MATERIALIZED VIEW ${mvName};
         """
-    jobName = getJobName(dbName, mvName);
+    def jobName = getJobName(dbName, mvName);
     logger.info(jobName)
     waitingMTMVTaskFinishedNotNeedSuccess(jobName)
     def errors = sql """select ErrorMsg from tasks('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"""

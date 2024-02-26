@@ -1533,8 +1533,6 @@ public class Env {
         editLog.logMasterInfo(masterInfo);
         LOG.info("logMasterInfo:{}", masterInfo);
 
-        this.workloadGroupMgr.init();
-
         // for master, the 'isReady' is set behind.
         // but we are sure that all metadata is replayed if we get here.
         // so no need to check 'isReady' flag in this method
@@ -2516,6 +2514,9 @@ public class Env {
 
     public void createReplayer() {
         replayer = new Daemon("replayer", REPLAY_INTERVAL_MS) {
+            // Avoid numerous 'meta out of date' log
+            private long lastLogMetaOutOfDateTime = 0;
+
             @Override
             protected void runOneCycle() {
                 boolean err = false;
@@ -2542,62 +2543,57 @@ public class Env {
                     }
                     err = true;
                 }
-
                 setCanRead(hasLog, err);
+            }
+
+            private void setCanRead(boolean hasLog, boolean err) {
+                if (err) {
+                    canRead.set(false);
+                    isReady.set(false);
+                    return;
+                }
+
+                if (Config.ignore_meta_check) {
+                    // can still offer read, but is not ready
+                    canRead.set(true);
+                    isReady.set(false);
+                    return;
+                }
+
+                long currentTimeMs = System.currentTimeMillis();
+                if (currentTimeMs - synchronizedTimeMs > Config.meta_delay_toleration_second * 1000) {
+                    if (currentTimeMs - lastLogMetaOutOfDateTime > 5000L) {
+                        // we still need this log to observe this situation
+                        // but service may be continued when there is no log being replayed.
+                        LOG.warn("meta out of date. currentTime:{}, syncTime:{}, delta:{}ms, hasLog:{}, feType:{}",
+                                currentTimeMs, synchronizedTimeMs, (currentTimeMs - synchronizedTimeMs),
+                                hasLog, feType);
+                        lastLogMetaOutOfDateTime = currentTimeMs;
+                    }
+                    if (hasLog || feType == FrontendNodeType.UNKNOWN) {
+                        // 1. if we read log from BDB, which means master is still alive.
+                        // So we need to set meta out of date.
+                        // 2. if we didn't read any log from BDB and feType is UNKNOWN,
+                        // which means this non-master node is disconnected with master.
+                        // So we need to set meta out of date either.
+                        metaReplayState.setOutOfDate(currentTimeMs, synchronizedTimeMs);
+                        canRead.set(false);
+                        isReady.set(false);
+
+                        if (editLog != null) {
+                            String reason = editLog.getNotReadyReason();
+                            if (!Strings.isNullOrEmpty(reason)) {
+                                LOG.warn("Not ready reason:{}", reason);
+                            }
+                        }
+                    }
+                } else {
+                    canRead.set(true);
+                    isReady.set(true);
+                }
             }
         };
         replayer.setMetaContext(metaContext);
-    }
-
-    private void setCanRead(boolean hasLog, boolean err) {
-        if (err) {
-            canRead.set(false);
-            isReady.set(false);
-            return;
-        }
-
-        if (Config.ignore_meta_check) {
-            // can still offer read, but is not ready
-            canRead.set(true);
-            isReady.set(false);
-            return;
-        }
-
-        long currentTimeMs = System.currentTimeMillis();
-        if (currentTimeMs - synchronizedTimeMs > Config.meta_delay_toleration_second * 1000) {
-            // we still need this log to observe this situation
-            // but service may be continued when there is no log being replayed.
-            LOG.warn("meta out of date. current time: {}, sync time: {}, delta: {} ms, hasLog: {}, feType: {}",
-                    currentTimeMs, synchronizedTimeMs, (currentTimeMs - synchronizedTimeMs), hasLog, feType);
-            if (hasLog || feType == FrontendNodeType.UNKNOWN) {
-                // 1. if we read log from BDB, which means master is still alive.
-                // So we need to set meta out of date.
-                // 2. if we didn't read any log from BDB and feType is UNKNOWN,
-                // which means this non-master node is disconnected with master.
-                // So we need to set meta out of date either.
-                metaReplayState.setOutOfDate(currentTimeMs, synchronizedTimeMs);
-                canRead.set(false);
-                isReady.set(false);
-
-                if (editLog != null) {
-                    String reason = editLog.getNotReadyReason();
-                    if (!Strings.isNullOrEmpty(reason)) {
-                        LOG.warn("Not ready reason:{}", reason);
-                    }
-                }
-            }
-
-            // sleep 5s to avoid numerous 'meta out of date' log
-            try {
-                Thread.sleep(5000L);
-            } catch (InterruptedException e) {
-                LOG.error("unhandled exception when sleep", e);
-            }
-
-        } else {
-            canRead.set(true);
-            isReady.set(true);
-        }
     }
 
     public void notifyNewFETypeTransfer(FrontendNodeType newType) {

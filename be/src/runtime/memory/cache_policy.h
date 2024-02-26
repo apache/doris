@@ -93,7 +93,7 @@ public:
     virtual ~CachePolicy();
 
     virtual void prune_stale() = 0;
-    virtual void prune_all(bool clear) = 0;
+    virtual void prune_all(bool force) = 0;
 
     CacheType type() { return _type; }
     bool enable_prune() const { return _enable_prune; }

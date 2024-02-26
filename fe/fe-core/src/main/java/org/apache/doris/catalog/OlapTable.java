@@ -1280,7 +1280,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public long getRowCount() {
+    public long fetchRowCount() {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
@@ -1295,11 +1295,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             rowCount += index == null ? 0 : index.getRowCount();
         }
         return rowCount;
-    }
-
-    @Override
-    public long getCacheRowCount() {
-        return getRowCount();
     }
 
     @Override

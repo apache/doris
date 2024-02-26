@@ -110,7 +110,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
         // Estimate the row count. This value is inaccurate if the table stats is empty.
         TableStatsMeta tableStatsStatus = Env.getCurrentEnv().getAnalysisManager()
                 .findTableStatsStatus(hmsExternalTable.getId());
-        long count = tableStatsStatus == null ? hmsExternalTable.estimatedRowCount() : tableStatsStatus.rowCount;
+        long count = tableStatsStatus == null ? hmsExternalTable.getRowCount() : tableStatsStatus.rowCount;
         dataSize = dataSize * count / partitionNames.size();
         numNulls = numNulls * count / partitionNames.size();
         int ndv = ndvPartValues.size();
@@ -131,7 +131,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
     private void getHmsColumnStats() throws Exception {
         TableStatsMeta tableStatsStatus = Env.getCurrentEnv().getAnalysisManager()
                 .findTableStatsStatus(hmsExternalTable.getId());
-        long count = tableStatsStatus == null ? hmsExternalTable.estimatedRowCount() : tableStatsStatus.rowCount;
+        long count = tableStatsStatus == null ? hmsExternalTable.getRowCount() : tableStatsStatus.rowCount;
 
         Map<String, String> params = buildStatsParams("NULL");
         Map<StatsType, String> statsParams = new HashMap<>();

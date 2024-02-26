@@ -107,8 +107,7 @@ Status Channel<Parent>::init(RuntimeState* state) {
 }
 
 template <typename Parent>
-std::shared_ptr<pipeline::LocalExchangeChannelDependency>
-PipChannel<Parent>::get_local_channel_dependency() {
+std::shared_ptr<pipeline::Dependency> PipChannel<Parent>::get_local_channel_dependency() {
     if (!Channel<Parent>::_local_recvr) {
         if constexpr (std::is_same_v<pipeline::ExchangeSinkLocalState, Parent>) {
             throw Exception(ErrorCode::INTERNAL_ERROR,

@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <time.h>
-
+#include <cstdint>
+#include <ctime>
 #include <functional>
 #include <memory>
 #include <string>
@@ -29,8 +28,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 class LocalFileSystem final : public FileSystem {
 public:
@@ -106,7 +104,6 @@ private:
     LocalFileSystem(Path&& root_path, std::string&& id = "");
 };
 
-const std::shared_ptr<LocalFileSystem>& global_local_filesystem();
+PURE const std::shared_ptr<LocalFileSystem>& global_local_filesystem();
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

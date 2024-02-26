@@ -297,10 +297,16 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public long getRowCount() {
-        return 0;
+        // All external table should get external row count from cache.
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
     }
 
-    public long getCacheRowCount() {
+    @Override
+    /**
+     * Default return 0. Subclass need to implement this interface.
+     * This is called by ExternalRowCountCache to load row count cache.
+     */
+    public long fetchRowCount() {
         return 0;
     }
 
@@ -353,11 +359,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         throw new NotImplementedException("createAnalysisTask not implemented");
-    }
-
-    @Override
-    public long estimatedRowCount() {
-        return 1;
     }
 
     @Override
