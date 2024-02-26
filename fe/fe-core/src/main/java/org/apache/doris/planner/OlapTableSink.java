@@ -514,7 +514,7 @@ public class OlapTableSink extends DataSink {
                                 + " < quorum replica num " + loadRequiredReplicaNum
                                 + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]";
                         errMsg += " or you may not have permission to access the current cluster";
-                        if (ConnectContext.get() != null && Config.isCloudMode()) {
+                        if (ConnectContext.get() != null) {
                             errMsg += " clusterName=" + ConnectContext.get().getCloudCluster();
                         }
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, errMsg);
