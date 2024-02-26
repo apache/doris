@@ -1664,7 +1664,7 @@ public class ShowExecutor {
         // | utf8mb4 | UTF-8 Unicode | utf8mb4_general_ci | 4|
         row.add("utf8mb4");
         row.add("UTF-8 Unicode");
-        row.add("utf8mb4_general_ci");
+        row.add("utf8mb4_0900_bin");
         row.add("4");
         rows.add(row);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
