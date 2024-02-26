@@ -64,6 +64,7 @@ TEST_F(StreamLoadTest, TestHeader) {
         auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
         HttpRequest req(evhttp_req);
         EXPECT_EQ(req.header(HttpHeaders::CONTENT_LENGTH).empty(), true);
+        EXPECT_EQ(load_size_smaller_than_wal_limit(-1), false);
         evhttp_request_free(evhttp_req);
     }
 
@@ -79,6 +80,7 @@ TEST_F(StreamLoadTest, TestHeader) {
         HttpRequest req(evhttp_req);
         req.init_from_evhttp();
         EXPECT_EQ(req.header(HttpHeaders::CONTENT_LENGTH).empty(), true);
+        EXPECT_EQ(load_size_smaller_than_wal_limit(-1), false);
         evhttp_uri_free(evhttp_req->uri_elems);
         evhttp_req->uri = nullptr;
         evhttp_req->uri_elems = nullptr;

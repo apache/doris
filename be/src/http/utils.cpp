@@ -193,7 +193,7 @@ void do_dir_response(const std::string& dir_path, HttpRequest* req) {
     HttpChannel::send_reply(req, result_str);
 }
 
-bool load_size_smaller_than_wal_limit(int64_t content_length) {
+bool load_size_smaller_than_wal_limit(size_t content_length) {
     // 1. req->header(HttpHeaders::CONTENT_LENGTH) will return streamload content length. If it is empty or equels to 0, it means this streamload
     // is a chunked streamload and we are not sure its size.
     // 2. if streamload content length is too large, like larger than 80% of the WAL constrain.
