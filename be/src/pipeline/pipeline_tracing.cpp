@@ -99,7 +99,9 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
     std::unique_lock<std::mutex> l(_data_lock); // can't rehash
     if (_dump_type == RecordType::PerQuery) {
         auto path = _dir / fmt::format("query{}", to_string(query_id));
-        int fd = ::open(path.c_str(), O_CREAT | O_WRONLY | O_TRUNC);
+        int fd = ::open(
+                path.c_str(), O_CREAT | O_WRONLY | O_TRUNC,
+                S_ISGID | S_ISUID | S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IWOTH | S_IROTH);
         if (fd < 0) [[unlikely]] {
             throw Exception(Status::Error<ErrorCode::CREATE_FILE_ERROR>(
                     "create tracing log file {} failed", path.c_str()));
@@ -123,7 +125,9 @@ void PipelineTracerContext::_dump(TUniqueId query_id) {
     } else if (_dump_type == RecordType::Periodic) {
         auto path = _dir / fmt::format("until{}",
                                        std::chrono::steady_clock::now().time_since_epoch().count());
-        int fd = ::open(path.c_str(), O_CREAT | O_WRONLY | O_TRUNC);
+        int fd = ::open(
+                path.c_str(), O_CREAT | O_WRONLY | O_TRUNC,
+                S_ISGID | S_ISUID | S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IWOTH | S_IROTH);
         if (fd < 0) [[unlikely]] {
             throw Exception(Status::Error<ErrorCode::CREATE_FILE_ERROR>(
                     "create tracing log file {} failed", path.c_str()));

@@ -312,7 +312,11 @@ void TaskScheduler::_do_work(size_t index) {
             if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
                 TUniqueId query_id = task->query_context()->query_id();
                 std::string task_name = task->task_name();
+#ifdef __APPLE__
+                uint32_t core_id = 0;
+#else
                 uint32_t core_id = sched_getcpu();
+#endif
                 std::thread::id tid = std::this_thread::get_id();
                 uint64_t thread_id = *reinterpret_cast<uint64_t*>(&tid);
                 uint64_t start_time = MonotonicMicros();
@@ -417,7 +421,6 @@ void TaskScheduler::_do_work(size_t index) {
 
 void TaskScheduler::stop() {
     if (!this->_shutdown.load()) {
-        this->_shutdown.store(true);
         if (_task_queue) {
             _task_queue->close();
         }
@@ -428,6 +431,11 @@ void TaskScheduler::stop() {
             _fix_thread_pool->shutdown();
             _fix_thread_pool->wait();
         }
+        // Should set at the ending of the stop to ensure that the
+        // pool is stopped. For example, if there are 2 threads call stop
+        // then if one thread set shutdown = false, then another thread will
+        // not check it and will free task scheduler.
+        this->_shutdown.store(true);
     }
 }
 

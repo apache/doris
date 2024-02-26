@@ -2633,6 +2633,7 @@ PARTITION `p599` VALUES IN (599)
      );
    """
     sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
+    sql """analyze table string_min_max with sync"""
     explain {
         sql("select min(name), max(name) from string_min_max")
         contains "pushAggOp=NONE"
