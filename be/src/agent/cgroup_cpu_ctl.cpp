@@ -172,7 +172,7 @@ Status CgroupV1CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_shares) {
 
 Status CgroupV1CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {
     int val = cpu_hard_limit > 0 ? (_cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100)
-                                 : CPU_HARD_LIMIT_DEFAULT_VALUE;
+                                 : CGROUP_CPU_HARD_LIMIT_DEFAULT_VALUE;
     std::string msg = "modify cpu quota value to " + std::to_string(val);
     return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_quota_file, val, msg, false);
 }
