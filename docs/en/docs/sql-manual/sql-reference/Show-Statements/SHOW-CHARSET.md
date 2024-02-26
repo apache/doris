@@ -43,7 +43,7 @@ Maxlen: Maximum byte length.
 ### Example
 
 ```sql
-mysql> show collation;
+mysql> show chatset;
 
 | Charset   | Description     | Default collation | Maxlen |
 |-----------|-----------------|-------------------|--------|

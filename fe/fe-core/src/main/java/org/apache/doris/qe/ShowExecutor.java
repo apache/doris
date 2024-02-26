@@ -1662,9 +1662,9 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
         // | utf8mb4 | UTF-8 Unicode | utf8mb4_general_ci | 4|
-        row.add("utf8mb4");
+        row.add(ctx.getSessionVariable().getCharsetServer());
         row.add("UTF-8 Unicode");
-        row.add("utf8mb4_0900_bin");
+        row.add(ctx.getSessionVariable().getCollationConnection());
         row.add("4");
         rows.add(row);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -1676,8 +1676,8 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
         // | utf8mb4_0900_bin | utf8mb4 | 309 | Yes | Yes | 1 |
-        row.add("utf8mb4_0900_bin");
-        row.add("utf8mb4");
+        row.add(ctx.getSessionVariable().getCollationConnection());
+        row.add(ctx.getSessionVariable().getCharsetServer());
         row.add("309");
         row.add("Yes");
         row.add("Yes");
