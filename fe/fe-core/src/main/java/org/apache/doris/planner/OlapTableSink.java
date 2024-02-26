@@ -20,6 +20,9 @@ package org.apache.doris.planner;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -472,7 +475,15 @@ public class OlapTableSink extends DataSink {
             for (PartitionKey partitionKey : partitionKeys) {
                 List<TExprNode> tExprNodes = new ArrayList<>();
                 for (int i = 0; i < partColNum; i++) {
-                    tExprNodes.add(partitionKey.getKeys().get(i).treeToThrift().getNodes().get(0));
+                    LiteralExpr literalExpr = partitionKey.getKeys().get(i);
+                    if (literalExpr instanceof IntLiteral) {
+                        IntLiteral intLiteral = (IntLiteral) literalExpr;
+                        if (intLiteral.getValue() == 1) {
+                            tExprNodes.add(new NullLiteral().treeToThrift().getNodes().get(0));
+                        }
+                    } else {
+                        tExprNodes.add(literalExpr.treeToThrift().getNodes().get(0));
+                    }
                 }
                 tPartition.addToInKeys(tExprNodes);
                 tPartition.setIsDefaultPartition(partitionItem.isDefaultPartition());
