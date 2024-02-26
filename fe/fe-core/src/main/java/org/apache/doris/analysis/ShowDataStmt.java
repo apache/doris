@@ -84,10 +84,6 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
                     .build();
 
-    public static final ImmutableList<String> SHOW_DATABASE_DATA_META_DATA_ORIGIN =
-            new ImmutableList.Builder<String>().add("DbId").add("DbName").add("Size")
-            .add("RemoteSize").add("RecycleSize").add("RecycleRemoteSize").build();
-
     public static final ImmutableList<String> SHOW_TABLE_DATA_META_DATA_ORIGIN =
             new ImmutableList.Builder<String>().add("TableName").add("Size").add("ReplicaCount")
             .add("RemoteSize").build();
@@ -246,12 +242,6 @@ public class ShowDataStmt extends ShowStmt {
                         + leftPair.second;
                 List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft), "");
                 totalRows.add(leftRow);
-
-                // txn quota
-                long txnQuota = db.getTransactionQuotaSize();
-                List<String> transactionQuotaList = Arrays.asList("Transaction Quota",
-                        String.valueOf(txnQuota), String.valueOf(txnQuota), "");
-                totalRows.add(transactionQuotaList);
             } finally {
                 db.readUnlock();
             }
@@ -409,11 +399,10 @@ public class ShowDataStmt extends ShowStmt {
     public String toSql() {
         StringBuilder builder = new StringBuilder();
         builder.append("SHOW DATA");
-        builder.append(" FROM ");
+
         if (tableName != null) {
+            builder.append(" FROM ");
             builder.append(tableName.toSql());
-        } else {
-            builder.append("`").append(dbName).append("`");
         }
 
         // Order By clause

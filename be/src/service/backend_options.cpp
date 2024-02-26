@@ -74,6 +74,10 @@ TBackend BackendOptions::get_local_backend() {
     return _backend;
 }
 
+void BackendOptions::set_backend_id(int64_t backend_id) {
+    _backend.__set_id(backend_id);
+}
+
 void BackendOptions::set_localhost(const std::string& host) {
     _s_localhost = host;
 }

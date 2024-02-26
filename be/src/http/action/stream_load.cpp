@@ -712,7 +712,10 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
     if (config::wait_internal_group_commit_finish) {
         group_commit_mode = "sync_mode";
     }
-    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode")) {
+    size_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
+                                    ? 0
+                                    : std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
+    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode") || content_length == 0) {
         // off_mode and empty
         ctx->group_commit = false;
         return Status::OK();
@@ -728,8 +731,7 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
         }
         ctx->group_commit = true;
         if (iequal(group_commit_mode, "async_mode")) {
-            group_commit_mode = load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
-            if (iequal(group_commit_mode, "sync_mode")) {
+            if (!load_size_smaller_than_wal_limit(content_length)) {
                 std::stringstream ss;
                 ss << "There is no space for group commit stream load async WAL. WAL dir info: "
                    << ExecEnv::GetInstance()->wal_mgr()->get_wal_dirs_info_string();

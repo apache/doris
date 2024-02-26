@@ -45,20 +45,12 @@ public:
     bool can_write() override { return true; }
 };
 
-class AggSinkDependency final : public Dependency {
-public:
-    using SharedState = AggSharedState;
-    AggSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "AggSinkDependency", true, query_ctx) {}
-    ~AggSinkDependency() override = default;
-};
-
 class AggSinkOperatorX;
 
-class AggSinkLocalState : public PipelineXSinkLocalState<AggSinkDependency> {
+class AggSinkLocalState : public PipelineXSinkLocalState<AggSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(AggSinkLocalState);
-    using Base = PipelineXSinkLocalState<DependencyType>;
+    using Base = PipelineXSinkLocalState<AggSharedState>;
     AggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~AggSinkLocalState() override = default;
 

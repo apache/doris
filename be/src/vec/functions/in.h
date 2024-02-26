@@ -125,7 +125,6 @@ public:
             state->hybrid_set.reset(
                     create_set(context->get_arg_type(0)->type, get_size_with_out_null(context)));
         }
-
         for (int i = 1; i < context->get_num_args(); ++i) {
             const auto& const_column_ptr = context->get_constant_col(i);
             if (const_column_ptr != nullptr) {
@@ -193,7 +192,7 @@ public:
                 }
 
             } else { // non-nullable
-                if (materialized_column->is_column_string()) {
+                if (WhichDataType(left_arg.type).is_string()) {
                     const auto* column_string_ptr =
                             assert_cast<const vectorized::ColumnString*>(materialized_column.get());
                     search_hash_set(in_state, input_rows_count, vec_res, column_string_ptr);

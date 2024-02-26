@@ -64,44 +64,9 @@ private:
     int _mult_cast_id = -1;
 };
 
-class ExchangeSinkQueueDependency final : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(ExchangeSinkQueueDependency);
-    ExchangeSinkQueueDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "ResultQueueDependency", true, query_ctx) {}
-    ~ExchangeSinkQueueDependency() override = default;
-};
-
-/**
- * We use this to control the execution for local exchange.
- *              +---------------+                                    +---------------+                               +---------------+
- *              | ExchangeSink1 |                                    | ExchangeSink2 |                               | ExchangeSink3 |
- *              +---------------+                                    +---------------+                               +---------------+
- *                     |                                                    |                                               |
- *                     |                       +----------------------------+----------------------------------+            |
- *                     +----+------------------|------------------------------------------+                    |            |
- *                          |                  |                 +------------------------|--------------------|------------+-----+
- *          Dependency 1-1  |   Dependency 2-1 |  Dependency 3-1 |         Dependency 1-2 |    Dependency 2-2  |  Dependency 3-2  |
- *                    +----------------------------------------------+               +----------------------------------------------+
- *                    |  queue1              queue2          queue3  |               |  queue1              queue2          queue3  |
- *                    |                   LocalRecvr                 |               |                   LocalRecvr                 |
- *                    +----------------------------------------------+               +----------------------------------------------+
- *                         +-----------------+                                                        +------------------+
- *                         | ExchangeSource1 |                                                        | ExchangeSource2 |
- *                         +-----------------+                                                        +------------------+
- */
-class LocalExchangeChannelDependency final : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(LocalExchangeChannelDependency);
-    LocalExchangeChannelDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "LocalExchangeChannelDependency", true, query_ctx) {}
-    ~LocalExchangeChannelDependency() override = default;
-    // TODO(gabriel): blocked by memory
-};
-
-class ExchangeSinkLocalState final : public PipelineXSinkLocalState<AndDependency> {
+class ExchangeSinkLocalState final : public PipelineXSinkLocalState<AndSharedState> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
-    using Base = PipelineXSinkLocalState<AndDependency>;
+    using Base = PipelineXSinkLocalState<AndSharedState>;
 
 public:
     ExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -189,9 +154,28 @@ private:
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
-    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
+    std::shared_ptr<Dependency> _queue_dependency;
     std::shared_ptr<Dependency> _broadcast_dependency;
-    std::vector<std::shared_ptr<LocalExchangeChannelDependency>> _local_channels_dependency;
+
+    /**
+     * We use this to control the execution for local exchange.
+     *              +---------------+                                    +---------------+                               +---------------+
+     *              | ExchangeSink1 |                                    | ExchangeSink2 |                               | ExchangeSink3 |
+     *              +---------------+                                    +---------------+                               +---------------+
+     *                     |                                                    |                                               |
+     *                     |                       +----------------------------+----------------------------------+            |
+     *                     +----+------------------|------------------------------------------+                    |            |
+     *                          |                  |                 +------------------------|--------------------|------------+-----+
+     *          Dependency 1-1  |   Dependency 2-1 |  Dependency 3-1 |         Dependency 1-2 |    Dependency 2-2  |  Dependency 3-2  |
+     *                    +----------------------------------------------+               +----------------------------------------------+
+     *                    |  queue1              queue2          queue3  |               |  queue1              queue2          queue3  |
+     *                    |                   LocalRecvr                 |               |                   LocalRecvr                 |
+     *                    +----------------------------------------------+               +----------------------------------------------+
+     *                         +-----------------+                                                        +------------------+
+     *                         | ExchangeSource1 |                                                        | ExchangeSource2 |
+     *                         +-----------------+                                                        +------------------+
+     */
+    std::vector<std::shared_ptr<Dependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     int _partition_count;
 

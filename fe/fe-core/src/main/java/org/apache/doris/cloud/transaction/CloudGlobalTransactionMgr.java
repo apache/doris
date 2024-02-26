@@ -49,12 +49,14 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TUniqueId;
@@ -83,6 +85,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
@@ -131,6 +134,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         LOG.info("try to begin transaction, dbId: {}, label: {}", dbId, label);
         if (Config.disable_load_job) {
             throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
+        }
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        if (!coordinator.isFromInternal) {
+            InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
 
         switch (sourceType) {
@@ -793,6 +801,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public List<List<String>> getDbTransInfo(Long dbId, boolean running, int limit) throws AnalysisException {
+        throw new AnalysisException(NOT_SUPPORTED_MSG);
+    }
+
+    @Override
+    public Map<Long, List<Long>> getDbRunningTransInfo(long dbId) throws AnalysisException {
         throw new AnalysisException(NOT_SUPPORTED_MSG);
     }
 

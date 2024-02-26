@@ -47,7 +47,6 @@ import com.google.common.collect.Maps;
 import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
@@ -83,6 +82,8 @@ public class HudiScanNode extends HiveScanNode {
 
     private final AtomicLong noLogsSplitNum = new AtomicLong(0);
 
+    private final boolean useHiveSyncPartition;
+
     /**
      * External file scan node for Query Hudi table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
@@ -91,8 +92,10 @@ public class HudiScanNode extends HiveScanNode {
      */
     public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv);
-        isCowOrRoTable = hmsTable.isHoodieCowTable() || "skip_merge".equals(
-                hmsTable.getCatalogProperties().get("hoodie.datasource.merge.type"));
+        Map<String, String> paras = hmsTable.getRemoteTable().getParameters();
+        isCowOrRoTable = hmsTable.isHoodieCowTable()
+                || "skip_merge".equals(hmsTable.getCatalogProperties().get("hoodie.datasource.merge.type"))
+                || (paras != null && "COPY_ON_WRITE".equalsIgnoreCase(paras.get("flink.table.type")));
         if (isCowOrRoTable) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Hudi table {} can read as cow/read optimize table", hmsTable.getName());
@@ -102,6 +105,7 @@ public class HudiScanNode extends HiveScanNode {
                 LOG.debug("Hudi table {} is a mor table, and will use JNI to read data in BE", hmsTable.getName());
             }
         }
+        useHiveSyncPartition = hmsTable.useHiveSyncPartition();
     }
 
     @Override
@@ -171,9 +175,10 @@ public class HudiScanNode extends HiveScanNode {
                     .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog());
             TablePartitionValues partitionValues;
             if (snapshotTimestamp.isPresent()) {
-                partitionValues = processor.getSnapshotPartitionValues(hmsTable, metaClient, snapshotTimestamp.get());
+                partitionValues = processor.getSnapshotPartitionValues(
+                    hmsTable, metaClient, snapshotTimestamp.get(), useHiveSyncPartition);
             } else {
-                partitionValues = processor.getPartitionValues(hmsTable, metaClient);
+                partitionValues = processor.getPartitionValues(hmsTable, metaClient, useHiveSyncPartition);
             }
             if (partitionValues != null) {
                 // 2. prune partitions by expr
@@ -235,19 +240,8 @@ public class HudiScanNode extends HiveScanNode {
 
         List<String> columnNames = new ArrayList<>();
         List<String> columnTypes = new ArrayList<>();
-        List<FieldSchema> allFields = Lists.newArrayList();
-        allFields.addAll(hmsTable.getRemoteTable().getSd().getCols());
-        allFields.addAll(hmsTable.getRemoteTable().getPartitionKeys());
-
         for (Schema.Field hudiField : hudiSchema.getFields()) {
-            String columnName = hudiField.name().toLowerCase(Locale.ROOT);
-            // keep hive metastore column in hudi avro schema.
-            Optional<FieldSchema> field = allFields.stream().filter(f -> f.getName().equals(columnName)).findFirst();
-            if (!field.isPresent()) {
-                String errorMsg = String.format("Hudi column %s not exists in hive metastore.", hudiField.name());
-                throw new IllegalArgumentException(errorMsg);
-            }
-            columnNames.add(columnName);
+            columnNames.add(hudiField.name().toLowerCase(Locale.ROOT));
             String columnType = HudiUtils.fromAvroHudiTypeToHiveTypeString(hudiField.schema());
             columnTypes.add(columnType);
         }
