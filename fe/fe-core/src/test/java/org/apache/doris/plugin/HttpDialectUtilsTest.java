@@ -26,10 +26,10 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.net.DatagramSocket;
-import java.net.ServerSocket;
-import java.net.SocketException;
-import java.net.Socket;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketException;
 import java.util.concurrent.CountDownLatch;
 
 public class HttpDialectUtilsTest {
@@ -99,8 +99,7 @@ public class HttpDialectUtilsTest {
                 }).start();
                 // Accept a connection from the client
                 try (Socket serverConn = socket.accept()) {
-                    // FIXME: handle empty block
-                    System.out.println("A client connected");
+                    // CHECKSTYLE IGNORE THIS LINE
                 } catch (IOException e) {
                     // CHECKSTYLE IGNORE THIS LINE
                 }
