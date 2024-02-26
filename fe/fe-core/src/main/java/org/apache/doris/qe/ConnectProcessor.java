@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -110,6 +111,19 @@ public abstract class ConnectProcessor {
         } else if (dbNames.length > 2) {
             ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
             return;
+        }
+
+        //  mysql client
+        if (Config.isCloudMode()) {
+            try {
+                dbName = ((CloudEnv) ctx.getEnv()).analyzeCloudCluster(dbName, ctx);
+            } catch (DdlException e) {
+                ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+                return;
+            }
+            if (dbName == null || dbName.isEmpty()) {
+                return;
+            }
         }
 
         // check catalog and db exists
