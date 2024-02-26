@@ -57,6 +57,7 @@ template <typename Impl>
 class FunctionArrayRange : public IFunction {
 public:
     static constexpr auto name = Impl::name;
+
     static FunctionPtr create() { return std::make_shared<FunctionArrayRange>(); }
 
     /// Get function name.
@@ -75,7 +76,7 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        auto nested_type = make_nullable(Impl::get_data_type_name());
+        auto nested_type = make_nullable(Impl::get_data_type());
         auto res = std::make_shared<DataTypeArray>(nested_type);
         return make_nullable(res);
     }
@@ -88,9 +89,11 @@ public:
 
 template <typename SourceDataType, typename TimeUnitOrVoid = void>
 struct RangeImplUtil {
-    using DataTypeName = std::conditional_t<std::is_same_v<SourceDataType, Int32>, DataTypeInt32,
-                                            DataTypeDateTimeV2>;
-    static DataTypePtr get_data_type_name() { return std::make_shared<DataTypeName>(); }
+    using DataType = std::conditional_t<std::is_same_v<SourceDataType, Int32>, DataTypeInt32,
+                                        DataTypeDateTimeV2>;
+
+    static DataTypePtr get_data_type() { return std::make_shared<DataType>(); }
+
     static constexpr const char* get_function_name() {
         if constexpr (std::is_same_v<SourceDataType, DateTimeV2> &&
                       !std::is_same_v<TimeUnitOrVoid, void>) {
@@ -123,11 +126,13 @@ struct RangeImplUtil {
             return "array_range";
         }
     }
+
     static constexpr auto name = get_function_name();
+
     static Status range_execute(Block& block, const ColumnNumbers& arguments, size_t result,
                                 size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 3);
-        auto return_nested_type = make_nullable(std::make_shared<DataTypeName>());
+        auto return_nested_type = make_nullable(std::make_shared<DataType>());
         auto dest_array_column_ptr = ColumnArray::create(return_nested_type->create_column(),
                                                          ColumnArray::ColumnOffsets::create());
         IColumn* dest_nested_column = &dest_array_column_ptr->get_data();
@@ -234,7 +239,7 @@ private:
 template <typename SourceDataType, typename TimeUnitOrVoid = void>
 struct RangeOneImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename RangeImplUtil<SourceDataType>::DataTypeName>()};
+        return {std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>()};
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
@@ -245,7 +250,7 @@ struct RangeOneImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
         auto start_column = ColumnType::create(input_rows_count, 0);
         auto step_column = ColumnInt32::create(input_rows_count, 1);
         block.insert({std::move(start_column),
-                      std::make_shared<typename RangeImplUtil<SourceDataType>::DataTypeName>(),
+                      std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>(),
                       "start_column"});
         block.insert({std::move(step_column), std::make_shared<DataTypeInt32>(), "step_column"});
         ColumnNumbers temp_arguments = {block.columns() - 2, arguments[0], block.columns() - 1};
@@ -257,8 +262,8 @@ struct RangeOneImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
 template <typename SourceDataType, typename TimeUnitOrVoid = void>
 struct RangeTwoImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename RangeImplUtil<SourceDataType>::DataTypeName>(),
-                std::make_shared<typename RangeImplUtil<SourceDataType>::DataTypeName>()};
+        return {std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>(),
+                std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>()};
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
@@ -275,8 +280,8 @@ struct RangeTwoImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
 template <typename SourceDataType, typename TimeUnitOrVoid = void>
 struct RangeThreeImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename RangeImplUtil<SourceDataType>::DataTypeName>(),
-                std::make_shared<typename RangeImplUtil<SourceDataType>::DataTypeName>(),
+        return {std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>(),
+                std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>(),
                 std::make_shared<DataTypeInt32>()};
     }
 
