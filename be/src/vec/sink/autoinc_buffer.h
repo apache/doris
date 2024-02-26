@@ -62,7 +62,7 @@ public:
     Status sync_request_ids(size_t length, std::vector<std::pair<int64_t, size_t>>* result);
 
 private:
-    void _prefetch_ids(size_t length);
+    Status _prefetch_ids(size_t length);
     [[nodiscard]] size_t _prefetch_size() const {
         return _batch_size * config::auto_inc_prefetch_size_ratio;
     }

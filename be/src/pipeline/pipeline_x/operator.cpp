@@ -554,7 +554,7 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
-    _writer->start_writer(state, _profile);
+    RETURN_IF_ERROR(_writer->start_writer(state, _profile));
     return Status::OK();
 }
 

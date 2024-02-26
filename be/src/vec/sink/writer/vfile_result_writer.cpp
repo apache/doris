@@ -199,7 +199,7 @@ Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
 // S3: {file_path}{fragment_instance_id}_
 // BROKER: {file_path}{fragment_instance_id}_
 
-Status VFileResultWriter::_get_file_url(std::string* file_url) {
+void VFileResultWriter::_get_file_url(std::string* file_url) {
     std::stringstream ss;
     if (_storage_type == TStorageBackendType::LOCAL) {
         ss << "file:///" << BackendOptions::get_localhost();
@@ -207,7 +207,6 @@ Status VFileResultWriter::_get_file_url(std::string* file_url) {
     ss << _file_opts->file_path;
     ss << print_id(_fragment_instance_id) << "_";
     *file_url = ss.str();
-    return Status::OK();
 }
 
 std::string VFileResultWriter::_file_format_to_name() {
@@ -306,7 +305,7 @@ Status VFileResultWriter::_send_result() {
     row_buffer.push_bigint(_written_rows_counter->value()); // total rows
     row_buffer.push_bigint(_written_data_bytes->value());   // file size
     std::string file_url;
-    static_cast<void>(_get_file_url(&file_url));
+    _get_file_url(&file_url);
     std::stringstream ss;
     ss << file_url << "*";
     file_url = ss.str();
