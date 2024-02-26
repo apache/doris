@@ -245,10 +245,9 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
 
         for (String indexName : table.getIndexNameToId().keySet()) {
             MaterializedIndexMeta meta = table.getIndexMetaByIndexId(table.getIndexIdByName(indexName));
-            Set<String> columns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            meta.getSchema().stream()
+            Set<String> columns = meta.getSchema().stream()
                     .map(col -> org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(col.getName()))
-                    .forEach(name -> columns.add(name));
+                    .collect(Collectors.toSet());
             if (!columns.contains(column.getName())) {
                 throw new AnalysisException("Column[" + column.getName() + "] not exist in index " + indexName
                         + ". maybe you need drop the corresponding materialized-view.");
