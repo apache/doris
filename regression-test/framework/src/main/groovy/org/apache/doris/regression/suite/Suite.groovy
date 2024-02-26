@@ -216,9 +216,20 @@ class Suite implements GroovyInterceptable {
             return
         }
 
+        boolean pipelineIsCloud = isCloudCluster()
+        boolean dockerIsCloud = false
+        if (options.cloudMode == null) {
+            dockerIsCloud = pipelineIsCloud
+        } else {
+            dockerIsCloud = options.cloudMode
+            if (dockerIsCloud != pipelineIsCloud && options.skipRunWhenPipelineDiff) {
+                return
+            }
+        }
+
         try {
             cluster.destroy(true)
-            cluster.init(options)
+            cluster.init(options, dockerIsCloud)
 
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
@@ -969,6 +980,10 @@ class Suite implements GroovyInterceptable {
             Assert.fail();
         }
         return result.last().get(0);
+    }
+
+    boolean isCloudCluster() {
+        return !getFeConfig("cloud_unique_id").isEmpty()
     }
 
     String getFeConfig(String key) {
