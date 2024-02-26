@@ -188,6 +188,4 @@ suite("stress_test_high_concurrency_load") {
             }
         }
     }
-
-    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '2000')"""
 }

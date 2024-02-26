@@ -196,6 +196,4 @@ suite("stress_test_same_date_range") {
     }
     def part_context_unique = part_context.clone().unique()
     assertTrue(part_context.size == part_context_unique.size)
-
-    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '2000')"""
 }
