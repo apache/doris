@@ -45,6 +45,7 @@
 
 #include "agent/utils.h"
 #include "cloud/cloud_delete_task.h"
+#include "cloud/cloud_schema_change_job.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -63,7 +64,6 @@
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "olap/task/engine_alter_tablet_task.h"
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clone_task.h"
@@ -188,8 +188,25 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
-        EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
-        status = engine_task.execute();
+        auto mem_tracker = std::make_shared<MemTrackerLimiter>(
+                MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
+                            std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
+                            std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
+                            config::memory_limitation_per_thread_for_schema_change_bytes));
+        SCOPED_ATTACH_TASK(mem_tracker);
+        DorisMetrics::instance()->create_rollup_requests_total->increment(1);
+        Status res = Status::OK();
+        try {
+            DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
+            SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2);
+            status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
+        } catch (const Exception& e) {
+            status = e.to_status();
+        }
+        if (!status.ok()) {
+            DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
+        }
     }
 
     if (status.ok()) {
@@ -252,8 +269,27 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
     TTabletId new_tablet_id = 0;
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
-        EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
-        status = engine_task.execute();
+        auto mem_tracker = std::make_shared<MemTrackerLimiter>(
+                MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
+                            std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
+                            std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
+                            config::memory_limitation_per_thread_for_schema_change_bytes));
+        SCOPED_ATTACH_TASK(mem_tracker);
+        DorisMetrics::instance()->create_rollup_requests_total->increment(1);
+        Status res = Status::OK();
+        try {
+            DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
+            CloudSchemaChangeJob job(engine,
+                                     std::to_string(agent_task_req.alter_tablet_req_v2.job_id),
+                                     agent_task_req.alter_tablet_req_v2.expiration);
+            status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
+        } catch (const Exception& e) {
+            status = e.to_status();
+        }
+        if (!status.ok()) {
+            DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
+        }
     }
 
     if (status.ok()) {

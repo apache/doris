@@ -32,7 +32,6 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     if (_context.fs) {
         _rowset_meta->set_fs(_context.fs);
     } else {
-        // TODO(plat1ko):
         // In cloud mode, this branch implies it is an intermediate rowset for external merge sort,
         // we use `global_local_filesystem` to write data to `tmp_file_dir`(see `BetaRowset::segment_file_path`).
         _context.rowset_dir = io::FileCacheFactory::instance()->get_cache_path();

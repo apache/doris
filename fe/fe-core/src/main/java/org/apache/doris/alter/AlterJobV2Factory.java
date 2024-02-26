@@ -34,10 +34,8 @@ public class AlterJobV2Factory {
     public static SchemaChangeJobV2 createSchemaChangeJobV2(String rawSql, long jobId, long dbId,
             long tableId, String tableName, long timeoutMs) {
         if (Config.isCloudMode()) {
-            LOG.info("lightman CloudSchemaChangeJobV2 cloud");
             return new CloudSchemaChangeJobV2(rawSql, jobId, dbId, tableId, tableName, timeoutMs);
         } else {
-            LOG.info("lightman CloudSchemaChangeJobV2 local");
             return new SchemaChangeJobV2(rawSql, jobId, dbId, tableId, tableName, timeoutMs, false);
         }
     }
@@ -50,12 +48,10 @@ public class AlterJobV2Factory {
             short rollupShortKeyColumnCount,
             OriginStatement origStmt) throws AnalysisException {
         if (Config.isCloudMode()) {
-            LOG.info("lightman createRollupJobV2 cloud");
             return new CloudRollupJobV2(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                     rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
                     baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
         } else {
-            LOG.info("lightman createRollupJobV2 local");
             return new RollupJobV2(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                     rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
                     baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt, false);

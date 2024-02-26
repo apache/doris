@@ -1622,7 +1622,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
                 schemaChangeJob.addPartitionShadowIndex(partitionId, shadowIndexId, shadowIndex);
             } // end for partition
-            LOG.info("lightman addIndexSchema shadowIndexId {} originIndexId {}", shadowIndexId, originIndexId);
             schemaChangeJob.addIndexSchema(shadowIndexId, originIndexId, newIndexName, newSchemaVersion, newSchemaHash,
                     newShortKeyColumnCount, entry.getValue());
         } // end for index

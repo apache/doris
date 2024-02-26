@@ -670,7 +670,6 @@ Status VLocalSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowse
         }
     }};
     _pending_rs_guards.clear();
-    LOG_INFO("lightman VLocalSchemaChangeWithSorting::_inner_process");
     return VBaseSchemaChangeWithSorting::_inner_process(rowset_reader, rowset_writer, new_tablet,
                                                         base_tablet_schema, new_tablet_schema);
 }
@@ -1165,13 +1164,11 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             auto mv_param = materialized_function_map.find(column_name_lower)->second;
             column_mapping->expr = mv_param.expr;
             if (column_mapping->expr != nullptr) {
-                LOG_INFO("lightman new_column.name in here {}", column_name_lower);
                 continue;
             }
         }
 
         int32_t column_index = base_tablet_schema->field_index(new_column.name());
-        LOG_INFO("lightman new_column.name {}", new_column.name());
         if (column_index >= 0) {
             column_mapping->ref_column = column_index;
             continue;
@@ -1405,20 +1402,6 @@ Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version)
     RETURN_IF_ERROR(_new_tablet->set_tablet_state(TabletState::TABLET_RUNNING));
     _new_tablet->save_meta();
     return Status::OK();
-}
-
-Status execute_schema_change_job(const TAlterTabletReqV2& request) {
-    Status st;
-    if (config::is_cloud_mode()) {
-        DCHECK(request.__isset.job_id);
-        CloudSchemaChangeJob job(ExecEnv::GetInstance()->storage_engine().to_cloud(),
-                                 std::to_string(request.job_id), request.expiration);
-        st = job.process_alter_tablet(request);
-    } else {
-        SchemaChangeJob job(ExecEnv::GetInstance()->storage_engine().to_local(), request);
-        st = job.process_alter_tablet(request);
-    }
-    return st;
 }
 
 } // namespace doris

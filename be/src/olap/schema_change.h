@@ -272,8 +272,6 @@ struct SchemaChangeParams {
     int32_t be_exec_version;
 };
 
-Status execute_schema_change_job(const TAlterTabletReqV2& request);
-
 class SchemaChangeJob {
 public:
     SchemaChangeJob(StorageEngine& local_storage_engine, const TAlterTabletReqV2& request);
