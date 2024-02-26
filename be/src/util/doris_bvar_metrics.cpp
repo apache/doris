@@ -18,15 +18,15 @@
 #include "util/doris_bvar_metrics.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <cerrno> // IWYU pragma: keep
 #include <glog/logging.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <cerrno> // IWYU pragma: keep
 #include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <unistd.h>
-
-#include <algorithm>
 #include <functional>
 #include <ostream>
 
