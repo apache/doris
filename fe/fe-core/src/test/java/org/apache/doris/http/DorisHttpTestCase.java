@@ -43,6 +43,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpServer;
@@ -74,15 +75,11 @@ import org.junit.BeforeClass;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
@@ -329,43 +326,8 @@ public abstract class DorisHttpTestCase {
 
     @BeforeClass
     public static void initHttpServer() throws IllegalArgException, InterruptedException {
-        ServerSocket socket = null;
-        try {
-            socket = new ServerSocket(0);
-            socket.setReuseAddress(true);
-            HTTP_PORT = socket.getLocalPort();
-            URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
-
-            // make sure socket's port enters TIME_WAIT state, so other ServerSocket(0) wouldn't pick up the same port
-            CountDownLatch latch = new CountDownLatch(1);
-            new Thread(() -> {
-                try (Socket clientSocket = new Socket()) {
-                    clientSocket.connect(new InetSocketAddress("localhost", HTTP_PORT));
-                    latch.await();  // Wait until the server closes the connection
-                } catch (IOException | InterruptedException e) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                }
-            }).start();
-
-            // Accept a connection from the client
-            try (Socket serverConn = socket.accept()) {
-                // CHECKSTYLE IGNORE THIS LINE
-            } catch (IOException e) {
-                // CHECKSTYLE IGNORE THIS LINE
-            }
-            latch.countDown();  // Signal that the server has closed the connection
-        } catch (Exception e) {
-            throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (Exception e) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                }
-            }
-        }
-
+        HTTP_PORT = UnitTestUtil.findValidPort();
+        URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
         FeConstants.runningUnitTest = true;
         httpServer = new HttpServer();
         httpServer.setPort(HTTP_PORT);
