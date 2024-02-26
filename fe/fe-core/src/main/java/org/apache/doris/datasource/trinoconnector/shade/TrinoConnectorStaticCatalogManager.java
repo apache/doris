@@ -16,7 +16,7 @@
 // under the License.
 // copied from https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/connector/StaticCatalogManager.java
 
-package org.apache.doris.datasource.shade;
+package org.apache.doris.datasource.trinoconnector.shade;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;

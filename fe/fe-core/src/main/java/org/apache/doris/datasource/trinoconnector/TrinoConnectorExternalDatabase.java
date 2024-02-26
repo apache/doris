@@ -15,16 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.external;
+package org.apache.doris.datasource.trinoconnector;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog.Type;
-import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
-
-import java.util.Comparator;
-import java.util.List;
-import java.util.stream.Collectors;
 
 public class TrinoConnectorExternalDatabase extends ExternalDatabase<TrinoConnectorExternalTable> {
 
@@ -35,11 +30,5 @@ public class TrinoConnectorExternalDatabase extends ExternalDatabase<TrinoConnec
     @Override
     protected TrinoConnectorExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new TrinoConnectorExternalTable(tblId, tableName, name, (TrinoConnectorExternalCatalog) extCatalog);
-    }
-
-    @Override
-    public List<TrinoConnectorExternalTable> getTablesOnIdOrder() {
-        // Sort the name instead, because the id may change.
-        return getTables().stream().sorted(Comparator.comparing(TableIf::getName)).collect(Collectors.toList());
     }
 }

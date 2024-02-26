@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external.trinoconnector;
+package org.apache.doris.datasource.trinoconnector.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.external.TrinoConnectorExternalTable;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TFileAttributes;
 
 import io.trino.Session;

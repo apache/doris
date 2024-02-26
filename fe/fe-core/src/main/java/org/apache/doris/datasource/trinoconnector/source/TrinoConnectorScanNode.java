@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external.trinoconnector;
+package org.apache.doris.datasource.trinoconnector.source;
 
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.TrinoConnectorExternalTable;
+import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.shade.TrinoColumnMetadata;
-import org.apache.doris.datasource.shade.TrinoConnectorPluginManager;
+import org.apache.doris.datasource.trinoconnector.shade.TrinoColumnMetadata;
+import org.apache.doris.datasource.trinoconnector.shade.TrinoConnectorPluginManager;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.external.FileQueryScanNode;
-import org.apache.doris.planner.external.TableFormatType;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;

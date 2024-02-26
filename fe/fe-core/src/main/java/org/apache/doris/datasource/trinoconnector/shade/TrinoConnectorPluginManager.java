@@ -16,7 +16,7 @@
 // under the License.
 // copied from https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/PluginManager.java
 
-package org.apache.doris.datasource.shade;
+package org.apache.doris.datasource.trinoconnector.shade;
 
 import org.apache.doris.common.EnvUtils;
 

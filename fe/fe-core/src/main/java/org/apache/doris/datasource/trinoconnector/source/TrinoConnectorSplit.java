@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external.trinoconnector;
+package org.apache.doris.datasource.trinoconnector.source;
 
-import org.apache.doris.planner.external.FileSplit;
-import org.apache.doris.planner.external.TableFormatType;
+import org.apache.doris.datasource.FileSplit;
+import org.apache.doris.datasource.TableFormatType;
 
 import io.trino.spi.connector.ConnectorSplit;
 import org.apache.hadoop.fs.Path;

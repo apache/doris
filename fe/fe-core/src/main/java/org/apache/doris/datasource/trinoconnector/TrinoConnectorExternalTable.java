@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.external;
+package org.apache.doris.datasource.trinoconnector;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
@@ -24,7 +24,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 import org.apache.doris.thrift.TTrinoConnectorTable;

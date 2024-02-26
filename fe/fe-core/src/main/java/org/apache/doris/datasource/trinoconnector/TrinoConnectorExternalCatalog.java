@@ -24,7 +24,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.constants.TrinoConnectorProperties;
-import org.apache.doris.datasource.shade.TrinoConnectorServicesProvider;
+import org.apache.doris.datasource.trinoconnector.shade.TrinoConnectorServicesProvider;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
