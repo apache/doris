@@ -1059,8 +1059,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-JOB"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW"
                                     ]
                                 },
                                 {
