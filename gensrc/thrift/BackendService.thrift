@@ -179,15 +179,10 @@ struct TWorkloadGroupInfo {
   9: optional i32 scan_thread_num
 }
 
-struct TWorkloadMoveQueryToGroupAction {
-    1: optional Types.TUniqueId query_id
-    2: optional i64 workload_group_id
-}
-
 enum TWorkloadMetricType {
     QUERY_TIME
-    SCAN_ROWS
-    SCAN_BYTES
+    BE_SCAN_ROWS
+    BE_SCAN_BYTES
 }
 
 enum TCompareOperator {
@@ -226,8 +221,7 @@ struct TWorkloadSchedPolicy {
 
 struct TopicInfo {
     1: optional TWorkloadGroupInfo workload_group_info
-    2: optional TWorkloadMoveQueryToGroupAction move_action
-    3: optional TWorkloadSchedPolicy workload_sched_policy
+    2: optional TWorkloadSchedPolicy workload_sched_policy
 }
 
 struct TPublishTopicRequest {

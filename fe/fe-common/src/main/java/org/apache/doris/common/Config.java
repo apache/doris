@@ -2391,9 +2391,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int workload_sched_policy_interval_ms = 10000; // 10s
 
-    @ConfField(mutable = true)
-    public static int workload_action_interval_ms = 10000; // 10s
-
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_max_policy_num = 25;
 
