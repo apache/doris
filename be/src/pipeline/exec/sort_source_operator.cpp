@@ -32,17 +32,12 @@ SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnod
                                          const DescriptorTbl& descs)
         : OperatorX<SortLocalState>(pool, tnode, operator_id, descs) {}
 
-Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                      SourceState& source_state) {
+Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    bool eos = false;
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
-            local_state._shared_state->sorter->get_next(state, block, &eos));
-    if (eos) {
-        source_state = SourceState::FINISHED;
-    }
-    local_state.reached_limit(block, source_state);
+            local_state._shared_state->sorter->get_next(state, block, eos));
+    local_state.reached_limit(block, eos);
     return Status::OK();
 }
 

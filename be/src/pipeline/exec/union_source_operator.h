@@ -96,8 +96,7 @@ public:
                          const DescriptorTbl& descs)
             : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {};
     ~UnionSourceOperatorX() override = default;
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
