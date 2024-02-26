@@ -17,5 +17,5 @@
 
 testGroups = "p0"
 //exclude groups and exclude suites is more prior than include groups and include suites.
-excludeSuites = "test_index_failure_injection,test_dump_image,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external,variant_p0,variant_github_events_p0,variant_github_events_p0_new"
-excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery"
+excludeSuites = "test_index_failure_injection,test_dump_image,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
+excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery,variant_p0,variant_github_events_p0,variant_github_events_p0_new"
