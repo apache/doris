@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -238,6 +239,17 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
                 throw new AnalysisException("delete predicate on value column only supports Unique table with"
                         + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
                         + "] is an unique table without merge-on-write.");
+            }
+        }
+
+        for (String indexName : table.getIndexNameToId().keySet()) {
+            MaterializedIndexMeta meta = table.getIndexMetaByIndexId(table.getIndexIdByName(indexName));
+            Set<String> columns = meta.getSchema().stream()
+                    .map(col -> org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(col.getName()))
+                    .collect(Collectors.toSet());
+            if (!columns.contains(column.getName())) {
+                throw new AnalysisException("Column[" + column.getName() + "] not exist in index " + indexName
+                        + ". maybe you need drop the corresponding materialized-view.");
             }
         }
     }
