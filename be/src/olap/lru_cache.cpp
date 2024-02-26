@@ -271,8 +271,8 @@ void LRUCache::release(Cache::Handle* handle) {
     bool last_ref = false;
     {
         std::lock_guard l(_mutex);
-         // if last_ref is true, key may have been evict from the cache,
-         // or if it is lru k, first insert of key may have failed.
+        // if last_ref is true, key may have been evict from the cache,
+        // or if it is lru k, first insert of key may have failed.
         last_ref = _unref(e);
         if (e->in_cache && e->refs == 1) {
             // only exists in cache

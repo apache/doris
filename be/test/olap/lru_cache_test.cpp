@@ -284,7 +284,9 @@ TEST_F(CacheTest, Usage) {
 
     CacheKey key7("950");
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
-    ASSERT_EQ(0, cache.get_usage()); // evict 322 722, because 950 + 122 > 1050, data was freed when handle release.
+    ASSERT_EQ(
+            0,
+            cache.get_usage()); // evict 322 722, because 950 + 122 > 1050, data was freed when handle release.
 
     CacheKey key8("900");
     insert_LRUCache(cache, key8, 900, CachePriority::NORMAL);
