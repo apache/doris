@@ -96,7 +96,9 @@ public:
 
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
-    void add_child(std::shared_ptr<Dependency> child) { _children.push_back(child); }
+    virtual void add_child(std::shared_ptr<Dependency> child) {
+        LOG(FATAL) << "Only AndDependency could add child, it is wrong usage";
+    }
     BasicSharedState* shared_state() { return _shared_state; }
     void set_shared_state(BasicSharedState* shared_state) { _shared_state = shared_state; }
     virtual std::string debug_string(int indentation_level = 0);
@@ -332,6 +334,8 @@ public:
             : Dependency(id, node_id, "AndDependency", query_ctx) {}
 
     std::string debug_string(int indentation_level = 0) override;
+
+    void add_child(std::shared_ptr<Dependency> child) override { _children.push_back(child); }
 
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override {
         for (auto& child : Dependency::_children) {
