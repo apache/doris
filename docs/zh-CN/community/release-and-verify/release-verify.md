@@ -123,7 +123,7 @@ I checked:
 Other comments...
 ```
 
-> 1. 在投票邮件中注明 github id，以方便 Release Manager 统计票数。
+> 1. 在投票邮件中注明 Apache ID，以方便 Release Manager 统计票数。
 >
 > 2. 如果你是 Doris PMC 成员，则在投票邮件中注明（binding）。否则注明（non-binding）。
 >
