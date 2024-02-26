@@ -120,7 +120,8 @@ static void encode_prefix(const T& t, std::string* key) {
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
-    if        constexpr (std::is_same_v<T, InstanceKeyInfo>) {
+    if        constexpr (std::is_same_v<T, InstanceKeyInfo>
+                      || std::is_same_v<T, StorageVaultKeyInfo>) {
         encode_bytes(INSTANCE_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, TxnLabelKeyInfo>
                       || std::is_same_v<T, TxnInfoKeyInfo>
@@ -170,6 +171,11 @@ static void encode_prefix(const T& t, std::string* key) {
 
 void instance_key(const InstanceKeyInfo& in, std::string* out) {
     encode_prefix(in, out); // 0x01 "instance" ${instance_id}
+}
+
+void storage_vault_key(const StorageVaultKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);
+    encode_bytes(std::get<1>(in), out);
 }
 
 //==============================================================================

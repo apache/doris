@@ -167,6 +167,54 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
     return 0;
 }
 
+static int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode& code,
+                                    std::string& msg) {
+    if (obj_info.has_encryption_info()) {
+        AkSkPair plain_ak_sk_pair;
+        if (int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), obj_info.encryption_info(),
+                                           &plain_ak_sk_pair, code, msg);
+            ret != 0) {
+            return ret;
+        }
+        obj_info.set_ak(std::move(plain_ak_sk_pair.first));
+        obj_info.set_sk(std::move(plain_ak_sk_pair.second));
+    }
+    return 0;
+};
+
+static int process_storage_valut(std::string storage_valut_key, std::string_view instance_id,
+                                 TxnKv* txn_kv, MetaServiceCode& code, std::string& msg) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create txn";
+        LOG(WARNING) << msg << " err=" << err;
+        return -1;
+    }
+    std::string val;
+    err = txn->get(storage_valut_key, &val);
+    LOG(INFO) << "get storage_valut_key=" << hex(storage_valut_key);
+
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get instance, instance_id={}, err={}", instance_id, err);
+        return -1;
+    }
+
+    StorageVaultPB storage_valut;
+    if (!storage_valut.ParseFromString(val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = "failed to parse InstanceInfoPB";
+        return -1;
+    }
+    if (storage_valut.has_hdfs_infos()) {
+        // TODO(ByeYue)
+        return 0;
+    }
+    return 0;
+}
+
 void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* controller,
                                          const GetObjStoreInfoRequest* request,
                                          GetObjStoreInfoResponse* response,
@@ -218,13 +266,18 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
         return;
     }
     for (auto& obj_info : *instance.mutable_obj_info()) {
-        if (obj_info.has_encryption_info()) {
-            AkSkPair plain_ak_sk_pair;
-            int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), obj_info.encryption_info(),
-                                           &plain_ak_sk_pair, code, msg);
-            if (ret != 0) return;
-            obj_info.set_ak(std::move(plain_ak_sk_pair.first));
-            obj_info.set_sk(std::move(plain_ak_sk_pair.second));
+        if (auto ret = decrypt_and_update_ak_sk(obj_info, code, msg); ret != 0) {
+            return;
+        }
+    }
+    // Iterate all the resources to return to the rpc caller
+    for (const auto& resource_id : instance.resource_ids()) {
+        std::string storage_vault_k;
+        storage_vault_key({instance_id, resource_id}, &storage_vault_k);
+        if (auto ret =
+                    process_storage_valut(storage_vault_k, instance_id, txn_kv_.get(), code, msg);
+            ret != 0) {
+            return;
         }
     }
     response->mutable_obj_info()->CopyFrom(instance.obj_info());
@@ -234,36 +287,48 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                                            const AlterObjStoreInfoRequest* request,
                                            AlterObjStoreInfoResponse* response,
                                            ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(alter_obj_store_info);
-    // Prepare data
-    if (!request->has_obj() || !request->obj().has_ak() || !request->obj().has_sk()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 obj info err " + proto_to_json(*request);
-        return;
-    }
-
-    auto& obj = request->obj();
-    std::string plain_ak = obj.has_ak() ? obj.ak() : "";
-    std::string plain_sk = obj.has_sk() ? obj.sk() : "";
-
+    std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region;
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
-    if (encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code, msg) !=
-        0) {
-        return;
-    }
-    const auto& [ak, sk] = cipher_ak_sk_pair;
-    std::string bucket = obj.has_bucket() ? obj.bucket() : "";
-    std::string prefix = obj.has_prefix() ? obj.prefix() : "";
-    std::string endpoint = obj.has_endpoint() ? obj.endpoint() : "";
-    std::string external_endpoint = obj.has_external_endpoint() ? obj.external_endpoint() : "";
-    std::string region = obj.has_region() ? obj.region() : "";
+    RPC_PREPROCESS(alter_obj_store_info);
+    switch (request->op()) {
+    case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
+    case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
+    case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
+        // Prepare data
+        if (!request->has_obj() || !request->obj().has_ak() || !request->obj().has_sk()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 obj info err " + proto_to_json(*request);
+            return;
+        }
 
-    //  obj size > 1k, refuse
-    if (obj.ByteSizeLong() > 1024) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 obj info greater than 1k " + proto_to_json(*request);
-        return;
+        auto& obj = request->obj();
+        std::string plain_ak = obj.has_ak() ? obj.ak() : "";
+        std::string plain_sk = obj.has_sk() ? obj.sk() : "";
+
+        if (encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
+                                 msg) != 0) {
+            return;
+        }
+        ak = cipher_ak_sk_pair.first;
+        sk = cipher_ak_sk_pair.second;
+        bucket = obj.has_bucket() ? obj.bucket() : "";
+        prefix = obj.has_prefix() ? obj.prefix() : "";
+        endpoint = obj.has_endpoint() ? obj.endpoint() : "";
+        external_endpoint = obj.has_external_endpoint() ? obj.external_endpoint() : "";
+        region = obj.has_region() ? obj.region() : "";
+
+        //  obj size > 1k, refuse
+        if (obj.ByteSizeLong() > 1024) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 obj info greater than 1k " + proto_to_json(*request);
+            return;
+        };
+    } break;
+    case AlterObjStoreInfoRequest::ADD_HDFS_INFO:
+        break;
+    case AlterObjStoreInfoRequest_Operation_UNKNOWN:
+        break;
     }
 
     // TODO(dx): check s3 info right
@@ -323,6 +388,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
 
+    // TODO(ByteYue): We need to handle different situations like the obj info lies in instance.obj
+    // or if the obj info lies in secondary indexs
     switch (request->op()) {
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK: {
         // get id
@@ -352,7 +419,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
     } break;
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO: {
-        if (!obj.has_provider()) {
+        if (!request->obj().has_provider()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf lease provider info";
             return;
@@ -373,7 +440,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         for (auto& it : objs) {
             if (bucket == it.bucket() && prefix == it.prefix() && endpoint == it.endpoint() &&
                 region == it.region() && ak == it.ak() && sk == it.sk() &&
-                obj.provider() == it.provider() && external_endpoint == it.external_endpoint()) {
+                request->obj().provider() == it.provider() &&
+                external_endpoint == it.external_endpoint()) {
                 // err, anything not changed
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "original obj infos has a same conf, please check it";
@@ -381,12 +449,14 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             }
         }
         // calc id
-        cloud::ObjectStoreInfoPB last_item;
+        ObjectStoreInfoPB last_item;
         last_item.set_ctime(time);
         last_item.set_mtime(time);
-        last_item.set_id(std::to_string(instance.obj_info().size() + 1));
-        if (obj.has_user_id()) {
-            last_item.set_user_id(obj.user_id());
+        // Use thr max(max(obj_info), max(resource_ids))
+        size_t vault_id = instance.obj_info().size() + instance.resource_ids().size() + 1;
+        last_item.set_id(std::to_string(vault_id));
+        if (request->obj().has_user_id()) {
+            last_item.set_user_id(request->obj().user_id());
         }
         last_item.set_ak(std::move(cipher_ak_sk_pair.first));
         last_item.set_sk(std::move(cipher_ak_sk_pair.second));
@@ -398,10 +468,13 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_endpoint(endpoint);
         last_item.set_external_endpoint(external_endpoint);
         last_item.set_region(region);
-        last_item.set_provider(obj.provider());
+        last_item.set_provider(request->obj().provider());
         last_item.set_sse_enabled(instance.sse_enabled());
         instance.add_obj_info()->CopyFrom(last_item);
     } break;
+    case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
+        break;
+    }
     default: {
         code = MetaServiceCode::INVALID_ARGUMENT;
         ss << "invalid request op, op=" << request->op();
@@ -626,14 +699,11 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
     LOG(INFO) << update_record.str();
 }
 
-void MetaServiceImpl::create_instance(google::protobuf::RpcController* controller,
-                                      const CreateInstanceRequest* request,
-                                      CreateInstanceResponse* response,
-                                      ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(create_instance);
-    instance_id = request->instance_id();
-    // Prepare data
-    auto& obj = request->obj_info();
+static int create_instance_with_object_info(std::string_view instance_id,
+                                            ObjectStoreInfoPB* obj_info,
+                                            const ObjectStoreInfoPB& obj, TxnKv* txn_kv,
+                                            bool sse_enabled, MetaServiceCode& code,
+                                            std::string& msg) {
     std::string plain_ak = obj.has_ak() ? obj.ak() : "";
     std::string plain_sk = obj.has_sk() ? obj.sk() : "";
     std::string bucket = obj.has_bucket() ? obj.bucket() : "";
@@ -649,34 +719,15 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         region.empty() || !obj.has_provider() || external_endpoint.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "s3 conf info err, please check it";
-        return;
+        return -1;
     }
-
-    if (request->has_ram_user()) {
-        auto& ram_user = request->ram_user();
-        std::string ram_user_id = ram_user.has_user_id() ? ram_user.user_id() : "";
-        std::string ram_user_ak = ram_user.has_ak() ? ram_user.ak() : "";
-        std::string ram_user_sk = ram_user.has_sk() ? ram_user.sk() : "";
-        if (ram_user_id.empty() || ram_user_ak.empty() || ram_user_sk.empty()) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "ram user info err, please check it";
-            return;
-        }
-    }
-
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
     if (encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code, msg) !=
         0) {
-        return;
+        return -1;
     }
-    InstanceInfoPB instance;
-    instance.set_instance_id(instance_id);
-    instance.set_user_id(request->has_user_id() ? request->user_id() : "");
-    instance.set_name(request->has_name() ? request->name() : "");
-    instance.set_status(InstanceInfoPB::NORMAL);
-    instance.set_sse_enabled(request->sse_enabled());
-    auto obj_info = instance.add_obj_info();
+
     if (obj.has_user_id()) {
         obj_info->set_user_id(obj.user_id());
     }
@@ -697,7 +748,40 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
     obj_info->set_ctime(time);
     obj_info->set_mtime(time);
-    obj_info->set_sse_enabled(instance.sse_enabled());
+    obj_info->set_sse_enabled(sse_enabled);
+    return 0;
+}
+
+void MetaServiceImpl::create_instance(google::protobuf::RpcController* controller,
+                                      const CreateInstanceRequest* request,
+                                      CreateInstanceResponse* response,
+                                      ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(create_instance);
+    if (request->has_ram_user()) {
+        auto& ram_user = request->ram_user();
+        std::string ram_user_id = ram_user.has_user_id() ? ram_user.user_id() : "";
+        std::string ram_user_ak = ram_user.has_ak() ? ram_user.ak() : "";
+        std::string ram_user_sk = ram_user.has_sk() ? ram_user.sk() : "";
+        if (ram_user_id.empty() || ram_user_ak.empty() || ram_user_sk.empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "ram user info err, please check it";
+            return;
+        }
+    }
+    instance_id = request->instance_id();
+    // Prepare data
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_user_id(request->has_user_id() ? request->user_id() : "");
+    instance.set_name(request->has_name() ? request->name() : "");
+    instance.set_status(InstanceInfoPB::NORMAL);
+    instance.set_sse_enabled(request->sse_enabled());
+    // TODO(ByteYue): Add hdfs support
+    if (0 != create_instance_with_object_info(instance_id, instance.add_obj_info(),
+                                              request->obj_info(), txn_kv_.get(),
+                                              request->sse_enabled(), code, msg)) {
+        return;
+    }
     if (request->has_ram_user()) {
         auto& ram_user = request->ram_user();
         EncryptionInfoPB encryption_info;
