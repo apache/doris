@@ -288,6 +288,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // build mv column item
                 mvColumnItemList.add(buildMVColumnItem(analyzer, functionCallExpr));
             } else {
+                if (!isReplay && selectListItemExpr.containsAggregate()) {
+                    throw new AnalysisException(
+                            "The materialized view's expr calculations cannot be included outside aggregate functions"
+                                    + ", expr: " + selectListItemExpr.toSql());
+                }
                 List<SlotRef> slots = new ArrayList<>();
                 selectListItemExpr.collect(SlotRef.class, slots);
                 if (!isReplay && slots.size() == 0) {
