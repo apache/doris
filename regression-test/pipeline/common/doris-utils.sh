@@ -446,32 +446,40 @@ function set_doris_session_variables_from_file() {
 
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    archive_name="$1"
+    local archive_name="$1"
+    local archive_dir="${archive_name%.tar.gz}"
+    mkdir -p "${archive_dir}"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
-    archive_content="fe/conf fe/log be/conf be/log"
+    cp -rf "fe/conf" "${archive_dir}"/
+    cp -rf "fe/log" "${archive_dir}"/
+    cp -rf "be/conf" "${archive_dir}"/
+    cp -rf "be/log" "${archive_dir}"/
     if [[ -d "${DORIS_HOME}"/regression-test/log ]]; then
-        archive_content="${archive_content} regression-test/log"
+        # try to hide ak and sk
+        if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" regression-test/log/* &>/dev/null; then :; fi
+        cp -rf "regression-test/log" "${archive_dir}"/
     fi
     if [[ -f "${DORIS_HOME:-}"/session_variables ]]; then
-        archive_content="${archive_content} session_variables"
+        cp -rf "session_variables" "${archive_dir}"/
     fi
     if [[ -d "${DORIS_HOME}"/ms ]]; then
-        mkdir -p "${DORIS_HOME}"/foundationdb/log
-        cp -rf /var/log/foundationdb/* "${DORIS_HOME}"/foundationdb/log/
-        archive_content="${archive_content} ms/conf ms/log foundationdb/log"
+        mkdir -p "${archive_dir}"/foundationdb/log
+        cp -rf /var/log/foundationdb/* "${archive_dir}"/foundationdb/log/
+        cp -rf "ms/conf" "${archive_dir}"/
+        cp -rf "ms/log" "${archive_dir}"/
     fi
     if [[ -d "${DORIS_HOME}"/recycler ]]; then
-        archive_content="${archive_content} recycler/conf recycler/log"
+        cp -rf "recycler/conf" "${archive_dir}"/
+        cp -rf "recycler/log" "${archive_dir}"/
     fi
     if [[ -d "${DORIS_HOME}"/be/storage/error_log ]]; then
-        archive_content="${archive_content} be/storage/error_log"
+        cp -rf "be/storage/error_log" "${archive_dir}"/
     fi
 
-    # shellcheck disable=SC2086
     if tar -I pigz \
         --directory "${DORIS_HOME}" \
         -cf "${DORIS_HOME}/${archive_name}" \
-        ${archive_content}; then
+        "${archive_dir}"; then
         echo "${DORIS_HOME}/${archive_name}"
     else
         return 1
