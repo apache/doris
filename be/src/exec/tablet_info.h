@@ -172,7 +172,7 @@ public:
                                    : _partitions_map->upper_bound(std::tuple {block, row, true});
         // for list partition it might result in default partition
         if (_is_in_partition) {
-            partition = (it != _partitions_map->end()) ? it->second : _default_partition;
+            partition = (it != _partitions_map->end()) ? it->second : _partitions_map->begin()->second;
             it = _partitions_map->end();
         }
         if (it != _partitions_map->end() &&
