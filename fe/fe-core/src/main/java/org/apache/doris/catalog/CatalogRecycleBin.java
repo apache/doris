@@ -220,7 +220,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     private synchronized boolean isExpire(long id, long currentTimeMs) {
         long latency = currentTimeMs - idToRecycleTime.get(id);
-        return latency > minEraseLatency && latency > Config.catalog_trash_expire_second * 1000L;
+        return (Config.catalog_trash_ignore_min_erase_latency || latency > minEraseLatency)
+                && latency > Config.catalog_trash_expire_second * 1000L;
     }
 
     private synchronized void eraseDatabase(long currentTimeMs, int keepNum) {

@@ -703,6 +703,9 @@ public class Config extends ConfigBase {
             "And this specifies the maximal data retention time. After time, the data will be deleted permanently."})
     public static long catalog_trash_expire_second = 86400L; // 1day
 
+    @ConfField
+    public static boolean catalog_trash_ignore_min_erase_latency = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {
             "单个 broker scanner 读取的最小字节数。Broker Load 切分文件时，"
                     + "如果切分后的文件大小小于此值，将不会切分。",
