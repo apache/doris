@@ -712,12 +712,12 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
     if (config::wait_internal_group_commit_finish) {
         group_commit_mode = "sync_mode";
     }
-    size_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
-                                    ? 0
-                                    : std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
-    if (static_cast<int64_t>(content_length) < 0) {
+    int64_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
+                                     ? 0
+                                     : std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+    if (content_length < 0) {
         std::stringstream ss;
-        ss << "This stream load content length <0 (" << static_cast<int64_t>(content_length)
+        ss << "This stream load content length <0 (" << content_length
            << "), please check your content length.";
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
