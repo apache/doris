@@ -38,6 +38,15 @@ class ClusterOptions {
     List<String> beConfigs = []
     boolean connectToFollower = false
 
+    // 1. cloudMode = true, only create cloud cluster.
+    // 2. cloudMode = false, only create none-cloud cluster.
+    // 3. cloudMode = null, create both cloud and none-cloud cluster, depend on the running pipeline mode.
+    Boolean cloudMode = false
+
+    // when cloudMode = true/false,  but the running pipeline is diff with cloudMode,
+    // skip run this docker test or not.
+    boolean skipRunWhenPipelineDiff = true
+
     // each be disks, a disks format is: disk_type=disk_num[,disk_capacity]
     // here disk_type=HDD or SSD,  disk capacity is in gb unit.
     // for example: beDisks = ["HDD=1", "SSD=2,10", "SSD=10,3"] means:
@@ -169,7 +178,7 @@ class SuiteCluster {
         this.running = false
     }
 
-    void init(ClusterOptions options) {
+    void init(ClusterOptions options, boolean isCloud) {
         assert name != null && name != ''
         assert options.feNum > 0 || options.beNum > 0
         assert config.image != null && config.image != ''
@@ -199,6 +208,9 @@ class SuiteCluster {
         }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
+        }
+        if (isCloud) {
+            cmd += ['--cloud']
         }
         cmd += ['--wait-timeout', String.valueOf(180)]
 
@@ -296,6 +308,8 @@ class SuiteCluster {
             } else if (name.startsWith('fe-')) {
                 int index = name.substring('fe-'.length()) as int
                 frontends.add(Frontend.fromCompose(header, index, row))
+            } else if (name.startsWith('ms-') || name.startsWith('recycle-') || name.startsWith('fdb-')) {
+            // TODO: handle these nodes
             } else {
                 assert false : 'Unknown node type with name: ' + name
             }
