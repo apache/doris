@@ -28,4 +28,16 @@ suite("test_multi_string_position") {
     qt_select "select multi_search_all_positions('jnckhtjqwycyihuejibqmddrdxe', ['tajzx', 'vuddoylclxatcjvinusdwt', 'spxkhxvzsljkmnzpeubszjnhqczavgtqopxn', 'ckhtjqwycyi', 'xlbfzdxspldoes', 'u', 'czosfebeznt', 'gzhabdsuyreisxvyfrfrkq', 'yihuejibqmd', 'jqwycyihuejibqm', 'cfbvprgzx', 'hxu', 'vxbhrfpzacgd', 'afoaij', 'htjqwycyihu', 'httzbskqd'])"
     qt_select "select multi_search_all_positions('dzejajvpoojdkqbnayahygidyrjmb', ['khwxxvtnqhobbvwgwkpusjlhlzifiuclycml', 'nzvuhtwdaivo', 'dkqbnayahygidyr', 'jajvpoo', 'j', 'wdtbvwmeqgyvetu', 'kqbn', 'idyrjmb', 'tsnxuxevsxrxpgpfdgrkhwqpkse', '', 'efsdgzuefhdzkmquxu', 'zejajvpoojdkqbnayahyg', 'ugwfuighbygrxyctop', 'fcbxzbdugc', 'dxmzzrcplob', 'ejaj', 'wmmupyxrylvawsyfccluiiene', 'ohzmsqhpzbafvbzqwzftbvftei'])"
     qt_select "select multi_search_all_positions('ffaujlverosspbzaqefjzql', ['lvero', 'erossp', 'f', 'ujlverosspbz', 'btfimgklzzxlbkbuqyrmnud', 'osspb', 'muqexvtjuaar', 'f', 'bzaq', 'lprihswhwkdhqciqhfaowarn', 'ffaujlve', 'uhbbjrqjb', 'jlver', 'umucyhbbu', 'pjthtzmgxhvpbdphesnnztuu', 'xfqhfdfsbbazactpastzvzqudgk', 'lvovjfoatc', 'z', 'givejzhoqsd', ''])"
+
+    try {
+        sql "select multi_search_all_positions('ffaujlverosspbzaqefjzql', 'lvero, erossp, f, ujlverosspbz, btfimgklzzxlbkbuqyrmnud, osspb, muqexvtjuaar, f, bzaq, lprihswhwkdhqciqhfaowarn, ffaujlve, uhbbjrqjb, jlver, umucyhbbu, pjthtzmgxhvpbdphesnnztuu, xfqhfdfsbbazactpastzvzqudgk, lvovjfoatc, z, givejzhoqsd')"
+    } catch (Exception ex) {
+        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_search_all_positions"))
+    }
+
+    try {
+        sql "select multi_search_all_positions('ffaujlverosspbzaqefjzql', '[lvero, erossp, f, ujlverosspbz, btfimgklzzxlbkbuqyrmnud, osspb, muqexvtjuaar, f, bzaq, lprihswhwkdhqciqhfaowarn, ffaujlve, uhbbjrqjb, jlver, umucyhbbu, pjthtzmgxhvpbdphesnnztuu, xfqhfdfsbbazactpastzvzqudgk, lvovjfoatc, z, givejzhoqsd]')"
+    } catch (Exception ex) {
+        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_search_all_positions"))
+    }
 }
