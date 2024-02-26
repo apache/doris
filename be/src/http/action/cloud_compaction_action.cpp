@@ -28,11 +28,9 @@ using namespace ErrorCode;
 const static std::string HEADER_JSON = "application/json";
 
 CloudCompactionAction::CloudCompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
-                                   CloudStorageEngine& engine, TPrivilegeHier::type hier,
-                                   TPrivilegeType::type ptype)
+                                             CloudStorageEngine& engine, TPrivilegeHier::type hier,
+                                             TPrivilegeType::type ptype)
         : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine), _type(ctype) {}
-
-
 
 void CloudCompactionAction::handle(HttpRequest* req) {
     std::string json_str = R"({"status" : "Success"})";

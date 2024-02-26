@@ -287,7 +287,7 @@ public:
 
 private:
     std::unique_ptr<SchemaChange> _get_sc_procedure(const BlockChanger& changer, bool sc_sorting,
-                                                   bool sc_directly) {
+                                                    bool sc_directly) {
         if (sc_sorting) {
             return std::make_unique<VLocalSchemaChangeWithSorting>(
                     changer, config::memory_limitation_per_thread_for_schema_change_bytes,

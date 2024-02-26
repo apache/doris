@@ -170,7 +170,8 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         if (item.__isset.mv_expr) {
             mv_param.expr = std::make_shared<TExpr>(item.mv_expr);
         }
-        sc_params.materialized_params_map.insert(std::make_pair(to_lower(item.column_name), mv_param));
+        sc_params.materialized_params_map.insert(
+                std::make_pair(to_lower(item.column_name), mv_param));
     }
     sc_params.enable_unique_key_merge_on_write = _new_tablet->enable_unique_key_merge_on_write();
     return _convert_historical_rowsets(sc_params);

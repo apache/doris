@@ -1070,7 +1070,6 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
 
     // c.Convert historical data
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {
-
         // set status for monitor
         // As long as there is a new_table as running, ref table is set as running
         // NOTE If the first sub_table fails first, it will continue to go as normal here

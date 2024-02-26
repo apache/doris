@@ -227,8 +227,9 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
     finish_task_request->__set_task_status(status.to_thrift());
 }
 
-void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& agent_task_req, int64_t signature,
-                  const TTaskType::type task_type, TFinishTaskRequest* finish_task_request) {
+void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& agent_task_req,
+                        int64_t signature, const TTaskType::type task_type,
+                        TFinishTaskRequest* finish_task_request) {
     Status status;
 
     std::string_view process_name;
