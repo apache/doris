@@ -98,7 +98,7 @@ Status WalTable::_relay_wal_one_by_one() {
             doris::wal_fail << 1;
             LOG(WARNING) << "failed to replay wal=" << wal_info->get_wal_path()
                          << ", st=" << st.to_string();
-            if (!st.is<ErrorCode::NOT_FOUND>() && !st.is<ErrorCode::CORRUPTION>()) {
+            if (!st.is<ErrorCode::NOT_FOUND>() && !st.is<ErrorCode::DATA_QUALITY_ERROR>()) {
                 need_retry_wals.push_back(wal_info);
             } else {
                 need_delete_wals.push_back(wal_info);
