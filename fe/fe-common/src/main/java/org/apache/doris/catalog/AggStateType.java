@@ -43,11 +43,10 @@ public class AggStateType extends ScalarType {
     public AggStateType(String functionName, Boolean resultIsNullable, List<Type> subTypes,
             List<Boolean> subTypeNullables) {
         super(PrimitiveType.AGG_STATE);
-        Preconditions.checkState((subTypes == null) == (subTypeNullables == null));
-        if (subTypes != null && subTypeNullables != null) {
-            Preconditions.checkState(subTypes.size() == subTypeNullables.size(),
-                    "AggStateType' subTypes.size()!=subTypeNullables.size()");
-        }
+        Preconditions.checkState(subTypes != null);
+        Preconditions.checkState(subTypeNullables != null);
+        Preconditions.checkState(subTypes.size() == subTypeNullables.size(),
+                "AggStateType' subTypes.size()!=subTypeNullables.size()");
         this.functionName = functionName;
         this.subTypes = subTypes;
         this.subTypeNullables = subTypeNullables;
