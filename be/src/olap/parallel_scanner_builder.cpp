@@ -46,8 +46,11 @@ Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
 
         TabletReader::ReadSource reade_source_with_delete_info;
         if (!_state->skip_delete_predicate()) {
-            RETURN_IF_ERROR(tablet->capture_rs_readers(
-                    {0, version}, &reade_source_with_delete_info.rs_splits, false));
+            {
+                std::shared_lock rdlock(tablet->get_header_lock());
+                RETURN_IF_ERROR(tablet->capture_rs_readers(
+                        {0, version}, &reade_source_with_delete_info.rs_splits, false));
+            }
             reade_source_with_delete_info.fill_delete_predicates();
         }
 
