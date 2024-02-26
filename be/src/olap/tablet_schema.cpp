@@ -1144,6 +1144,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
+    tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
 }
 
 size_t TabletSchema::row_size() const {
