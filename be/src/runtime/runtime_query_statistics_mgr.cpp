@@ -172,6 +172,25 @@ std::shared_ptr<QueryStatistics> RuntimeQueryStatiticsMgr::get_runtime_query_sta
     return qs_ptr;
 }
 
+void RuntimeQueryStatiticsMgr::get_metric_map(
+        std::string query_id, std::map<WorkloadMetricType, std::string>& metric_map) {
+    QueryStatistics ret_qs;
+    int64_t query_time_ms = 0;
+    {
+        std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
+        if (_query_statistics_ctx_map.find(query_id) != _query_statistics_ctx_map.end()) {
+            for (auto const& qs : _query_statistics_ctx_map[query_id]->_qs_list) {
+                ret_qs.merge(*qs);
+            }
+            query_time_ms =
+                    MonotonicMillis() - _query_statistics_ctx_map.at(query_id)->_query_start_time;
+        }
+    }
+    metric_map.emplace(WorkloadMetricType::QUERY_TIME, std::to_string(query_time_ms));
+    metric_map.emplace(WorkloadMetricType::SCAN_ROWS, std::to_string(ret_qs.get_scan_rows()));
+    metric_map.emplace(WorkloadMetricType::SCAN_BYTES, std::to_string(ret_qs.get_scan_bytes()));
+}
+
 void RuntimeQueryStatiticsMgr::set_workload_group_id(std::string query_id, int64_t wg_id) {
     // wg id just need eventual consistency, read lock is ok
     std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
