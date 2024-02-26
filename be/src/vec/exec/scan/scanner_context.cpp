@@ -128,6 +128,7 @@ Status ScannerContext::init() {
         if (_simple_scan_scheduler) {
             _should_reset_thread_name = false;
         }
+        _remote_scan_task_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
     }
 #endif
 
