@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -28,6 +29,7 @@ import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -38,6 +40,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
@@ -47,7 +50,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -241,6 +246,69 @@ public class MTMV extends OlapTable {
 
     public MTMVRefreshSnapshot getRefreshSnapshot() {
         return refreshSnapshot;
+    }
+
+    /**
+     * generateMvPartitionDescs
+     *
+     * @return mvPartitionId ==> mvPartitionKeyDesc
+     */
+    public Map<Long, PartitionKeyDesc> generateMvPartitionDescs() {
+        Map<Long, PartitionItem> mtmvItems = getPartitionItems();
+        Map<Long, PartitionKeyDesc> result = Maps.newHashMap();
+        for (Entry<Long, PartitionItem> entry : mtmvItems.entrySet()) {
+            result.put(entry.getKey(), entry.getValue().toPartitionKeyDesc());
+        }
+        return result;
+    }
+
+    /**
+     * generateRelatedPartitionDescs
+     * <p>
+     * Different partitions may generate the same PartitionKeyDesc through logical calculations
+     * (such as selecting only one column, or rolling up partitions), so it is a one to many relationship
+     *
+     * @return related PartitionKeyDesc ==> relatedPartitionIds
+     * @throws AnalysisException
+     */
+    public Map<PartitionKeyDesc, Set<Long>> generateRelatedPartitionDescs() throws AnalysisException {
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return Maps.newHashMap();
+        }
+        Map<PartitionKeyDesc, Set<Long>> res = new HashMap<>();
+        Map<Long, PartitionItem> relatedPartitionItems = mvPartitionInfo.getRelatedTable().getPartitionItems();
+        int relatedColPos = mvPartitionInfo.getRelatedColPos();
+        for (Entry<Long, PartitionItem> entry : relatedPartitionItems.entrySet()) {
+            PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(relatedColPos);
+            if (res.containsKey(partitionKeyDesc)) {
+                res.get(partitionKeyDesc).add(entry.getKey());
+            } else {
+                res.put(partitionKeyDesc, Sets.newHashSet(entry.getKey()));
+            }
+        }
+        return res;
+    }
+
+    /**
+     * Calculate the partition and associated partition mapping relationship of the MTMV
+     * It is the result of real-time comparison calculation, so there may be some costs,
+     * so it should be called with caution
+     *
+     * @return mvPartitionId ==> relationPartitionIds
+     * @throws AnalysisException
+     */
+    public Map<Long, Set<Long>> calculatePartitionMappings() throws AnalysisException {
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return Maps.newHashMap();
+        }
+        Map<Long, Set<Long>> res = Maps.newHashMap();
+        Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs = generateRelatedPartitionDescs();
+        Map<Long, PartitionItem> mvPartitionItems = getPartitionInfo().getIdToItem(false);
+        for (Entry<Long, PartitionItem> entry : mvPartitionItems.entrySet()) {
+            res.put(entry.getKey(),
+                    relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Sets.newHashSet()));
+        }
+        return res;
     }
 
     public void readMvLock() {

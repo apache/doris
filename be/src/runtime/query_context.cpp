@@ -226,8 +226,8 @@ Status QueryContext::set_task_group(taskgroup::TaskGroupPtr& tg) {
     // see task_group_manager::delete_task_group_by_ids
     RETURN_IF_ERROR(_task_group->add_query(_query_id));
     _task_group->add_mem_tracker_limiter(query_mem_tracker);
-    _exec_env->task_group_manager()->get_query_scheduler(
-            _task_group->id(), &_task_scheduler, &_scan_task_scheduler, &_non_pipe_thread_pool);
+    _task_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
+                                     &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
     return Status::OK();
 }
 

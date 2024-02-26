@@ -151,7 +151,8 @@ public class MTMVPartitionUtilTest {
 
     @Test
     public void testIsSyncWithPartition() throws AnalysisException {
-        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
+        boolean isSyncWithPartition = MTMVPartitionUtil
+                .isSyncWithPartitions(mtmv, 1L, baseOlapTable, Sets.newHashSet(2L));
         Assert.assertTrue(isSyncWithPartition);
     }
 
@@ -164,7 +165,8 @@ public class MTMVPartitionUtilTest {
                 result = false;
             }
         };
-        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartition(mtmv, 1L, baseOlapTable, 2L);
+        boolean isSyncWithPartition = MTMVPartitionUtil
+                .isSyncWithPartitions(mtmv, 1L, baseOlapTable, Sets.newHashSet(2L));
         Assert.assertFalse(isSyncWithPartition);
     }
 

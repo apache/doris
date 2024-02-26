@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthorizationException;
 
@@ -73,4 +74,7 @@ public interface CatalogAccessController {
 
     void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl,
             Set<String> cols, PrivPredicate wanted) throws AuthorizationException;
+
+    // ==== Cloud ====
+    boolean checkCloudPriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted, ResourceTypeEnum type);
 }

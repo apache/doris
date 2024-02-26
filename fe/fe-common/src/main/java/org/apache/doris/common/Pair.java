@@ -60,10 +60,16 @@ public class Pair<F, S> {
      */
     @Override
     public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+
         if (o instanceof Pair) {
             Pair<F, S> other = (Pair<F, S>) o;
-            return first.equals(other.first)
-                    && second.equals(other.second);
+
+            boolean firstEqual = Objects.isNull(first) ? null == other.first : first.equals(other.first);
+            boolean secondEqual = Objects.isNull(second) ? null == other.second : second.equals(other.second);
+            return firstEqual && secondEqual;
         }
         return false;
     }
@@ -75,7 +81,9 @@ public class Pair<F, S> {
 
     @Override
     public String toString() {
-        return first.toString() + ":" + second.toString();
+        String firstStr = Objects.nonNull(first) ? first.toString() : "";
+        String secondStr = Objects.nonNull(second) ? second.toString() : "";
+        return firstStr + ":" + secondStr;
     }
 
     public static class PairComparator<T extends Pair<?, ? extends Comparable>> implements Comparator<T> {
