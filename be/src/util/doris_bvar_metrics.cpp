@@ -15,9 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "doris_bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 
-#include <sstream>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <glog/logging.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <functional>
+#include <ostream>
+
+#include "common/status.h"
+#include "io/fs/local_file_system.h"
+#include "util/system_bvar_metrics.h"
 
 namespace doris {
 
