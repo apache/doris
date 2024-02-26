@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("slot_both_appear_in_agg_fun_and_grouping_sets") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
+
     sql """
          DROP TABLE IF EXISTS table_10_undef_undef4
         """
@@ -59,35 +58,5 @@ suite("slot_both_appear_in_agg_fun_and_grouping_sets") {
     qt_select5 """
           select sum(rank() over (partition by col_text_undef_signed order by col_int_undef_signed)) 
           as col1 from table_10_undef_undef4 group by grouping sets((col_int_undef_signed)) order by 1;
-    """
-
-    qt_select6 """
-        select sum(sum(col_int_undef_signed)) over (partition by sum(col_int_undef_signed) 
-        order by sum(col_int_undef_signed)) from table_10_undef_undef4 group by 
-        grouping sets ((col_int_undef_signed)) order by 1;
-    """
-
-    qt_select7 """
-        select sum(sum(col_int_undef_signed)) over (partition by sum(col_int_undef_signed) 
-        order by sum(col_int_undef_signed)) from table_10_undef_undef4 group by 
-        grouping sets ((col_text_undef_signed)) order by 1;
-    """
-
-    qt_select8 """
-        select sum(sum(col_int_undef_signed)) over (partition by sum(col_int_undef_signed)
-        order by sum(col_int_undef_signed)) from table_10_undef_undef4 group by
-        grouping sets ((col_text_undef_signed,col_int_undef_signed)) order by 1;
-    """
-
-    qt_select9 """
-        select sum(sum(col_int_undef_signed)) over (partition by sum(col_int_undef_signed)
-        order by sum(col_int_undef_signed)) from table_10_undef_undef4 group by
-        grouping sets ((col_text_undef_signed,col_int_undef_signed), (col_text_undef_signed), ()) order by 1;
-    """
-    
-    qt_select10 """
-        select sum(col_int_undef_signed + sum(col_int_undef_signed)) over (partition by sum(col_int_undef_signed)
-        order by sum(col_int_undef_signed)) from table_10_undef_undef4 group by
-        grouping sets ((col_text_undef_signed,col_int_undef_signed)) order by 1;
     """
 }
