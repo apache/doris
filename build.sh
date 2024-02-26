@@ -670,8 +670,10 @@ EOF
 
     # Fix Killed: 9 error on MacOS (arm64).
     # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
-    rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
-    cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
+    if [[ -f "${DORIS_HOME}/be/output/lib/doris_be" ]]; then
+        rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
+        cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
+    fi
     if [[ -d "${DORIS_HOME}/be/output/lib/doris_be.dSYM" ]]; then
         rm -rf "${DORIS_OUTPUT}/be/lib/doris_be.dSYM"
         cp -r "${DORIS_HOME}/be/output/lib/doris_be.dSYM" "${DORIS_OUTPUT}/be/lib"/
