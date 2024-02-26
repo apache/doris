@@ -123,10 +123,8 @@ I checked:
 Other comments...
 ```
 
-For a release vote to pass, a minimum of three positive binding votes and more positive binding votes than negative binding votes must be cast. Releases may not be vetoed. Votes cast by PMC members are binding, however, non-binding votes are greatly encouraged and a sign of a healthy project.
-
-Votes on whether a package is ready to release use majority approval -- at least three PMC members must vote affirmatively for release, and there must be more positive than negative votes. Releases may not be vetoed. For the sake of easy auditing, PMC member votes are typically marked "binding." However, the Release Manager needs to verify the validity of the votes. This can be done by checking whether the email addresses on the PMC roster match the email addresses of the voters. Therefore, it is recommended to use Apache mail address to vote to ensure the validity of the vote. At the same time, it is also recommended to indicate the Apache ID in the vote to facilitate Release Manager statistics.
-
-Generally the community will cancel the release vote if anyone identifies serious problems, but in most cases the ultimate decision lies with the individual serving as release manager. The specifics of the process may vary from project to project, but the 'minimum quorum of three +1 votes' rule is universal.
-
-**Note that there is no implicit +1 from the release manager, or from anyone in any ASF vote. Only explicit votes are valid.** The release manager is encouraged to vote on releases, like any reviewer would do.
+> 1. Indicate the Apache ID in the voting email to facilitate the Release Manager to count the votes.
+>
+> 2. If you are a Doris PMC member, please indicate (binding) in the voting email. Otherwise indicate (non-binding).
+>
+> 3. Release Manger himself/herself also needs to explicitly vote.

@@ -126,11 +126,9 @@ I checked:
 
 Other comments...
 ```
-PMC 成员拥有具有约束力的投票，但一般来说，社区鼓励所有成员投票，即使他们的投票只是建议性的。
 
-版本发布投票采用多数批准——即至少三名 PMC 成员必须对发布投赞成票，并且赞成票必须多于反对票。PMC 成员的投票是有约束力的，而其他投票则不是。但为了审查方便，PMC 成员投票通常显示指定 “binding”。
-但 Release Manager 需要检查投票的有效性。这可以通过 PMC 的花名册来验证电子邮件地址是否一致。所以，建议使用 Apache 邮箱进行投票，来确保投票的有效性。同时，也建议在投票中注明 Apache ID，方便 Release Manager 统计。
-
-一般来说，如果有人发现严重问题，社区将取消发布投票，但在大多数情况下，最终决定权在于 Release Manager。该流程的具体情况可能因项目而异，但“三+1 票的最低法定人数”规则是通用的。
-
-请注意，**Release Manager 或任何 ASF 投票中的任何人都不会隐含 +1。只有明确投票才有效。** 但我们我们鼓励 Release Manager 对版本进行投票。
+> 1. 在投票邮件中注明 Apache ID，以方便 Release Manager 统计票数。
+>
+> 2. 如果你是 Doris PMC 成员，则在投票邮件中注明（binding）。否则注明（non-binding）。
+>
+> 3. Release Manger 本身也需要显式的进行投票。
