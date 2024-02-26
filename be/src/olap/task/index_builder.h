@@ -60,7 +60,6 @@ public:
 private:
     Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, int32_t segment_idx,
                                       vectorized::Block* block);
-    Status handle_inverted_index_update();
     Status _add_data(const std::string& column_name,
                      const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
                      const uint8_t** ptr, size_t num_rows);
