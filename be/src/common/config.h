@@ -1253,7 +1253,7 @@ DECLARE_Int32(partition_disk_index_lru_size);
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 // max s3 client retry times
-DECLARE_mInt32(max_s3_client_retry_times);
+DECLARE_mInt32(max_s3_client_retry);
 
 #ifdef BE_TEST
 // test s3
