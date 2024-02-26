@@ -160,9 +160,9 @@ private:
 
     std::shared_mutex _task_sched_lock;
     std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl = nullptr;
-    std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched = nullptr;
-    std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched = nullptr;
-    std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched = nullptr;
+    std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
+    std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
+    std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
     std::unique_ptr<ThreadPool> _non_pipe_thread_pool = nullptr;
 };
 
