@@ -2252,6 +2252,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             List<SlotId> slotIdsByOrder, PlanTranslatorContext context) {
         // TODO: use smallest slot if do not need any slot in upper node
         SlotDescriptor smallest = scanNode.getTupleDesc().getSlots().get(0);
+        // TODO: add identify column for iceberg table v2
+        List<SlotDescriptor> identifySlots = scanNode.getTupleDesc().getSlots().stream()
+                .filter(s -> s.getColumn().isIdentifierKey()).filter(s -> !requiredSlotIdSet.contains(s.getId()))
+                .collect(Collectors.toList());
         if (CollectionUtils.isNotEmpty(slotIdsByOrder)) {
             // if we eliminate project above scan, we should ensure the slot order of scan's output is same with
             // the projection's output. So, we need to reorder the output slot in scan's tuple.
@@ -2268,6 +2272,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (scanNode.getTupleDesc().getSlots().isEmpty()) {
             scanNode.getTupleDesc().getSlots().add(smallest);
         }
+        if (!identifySlots.isEmpty()) {
+            for (SlotDescriptor identifySlot : identifySlots) {
+                scanNode.getTupleDesc().getSlots().add(identifySlot);
+            }
+        }
         try {
             if (context.getSessionVariable() != null
                     && context.getSessionVariable().forbidUnknownColStats
@@ -2279,6 +2288,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     }
                 }
                 context.removeScanFromStatsUnknownColumnsMap(scanNode);
+            }
+            if (!identifySlots.isEmpty()) {
+                for (SlotDescriptor identifySlot : identifySlots) {
+                    requiredByProjectSlotIdSet.add(identifySlot.getId());
+                }
             }
             scanNode.updateRequiredSlots(context, requiredByProjectSlotIdSet);
         } catch (UserException e) {

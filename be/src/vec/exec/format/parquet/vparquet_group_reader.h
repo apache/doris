@@ -30,6 +30,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "vec/columns/column.h"
 #include "vec/common/allocator.h"
+#include "vec/core/block.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vparquet_column_reader.h"
@@ -142,11 +143,29 @@ public:
         PositionDeleteContext(const PositionDeleteContext& filter) = default;
     };
 
+    class EqualityDeleteNode {
+    public:
+        size_t _row_pos;
+        std::map<size_t, int> _hit_map;
+        int _hit_max;
+
+    public:
+        EqualityDeleteNode(size_t pos) : _row_pos(pos), _hit_max(0) {}
+        int add(size_t des_pos) {
+            if (_hit_map.find(des_pos) == _hit_map.end()) _hit_map[des_pos] = 0;
+            _hit_map[des_pos] += 1;
+            if (_hit_max < _hit_map[des_pos]) _hit_max = _hit_map[des_pos];
+            return _hit_map[des_pos];
+        }
+        int max() { return _hit_max; }
+    };
+
     RowGroupReader(io::FileReaderSPtr file_reader, const std::vector<std::string>& read_columns,
                    const int32_t row_group_id, const tparquet::RowGroup& row_group,
                    cctz::time_zone* ctz, io::IOContext* io_ctx,
                    const PositionDeleteContext& position_delete_ctx,
-                   const LazyReadContext& lazy_read_ctx, RuntimeState* state);
+                   const Block& equality_delete_ids, const LazyReadContext& lazy_read_ctx,
+                   RuntimeState* state);
 
     ~RowGroupReader();
     Status init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
@@ -179,6 +198,7 @@ private:
             Block* block, size_t rows,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
     Status _build_pos_delete_filter(size_t read_rows);
+    Status _build_equality_delete_filter(Block* block, const size_t read_rows);
     Status _filter_block(Block* block, int column_to_keep,
                          const std::vector<uint32_t>& columns_to_filter);
     Status _filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
@@ -199,6 +219,7 @@ private:
     cctz::time_zone* _ctz = nullptr;
     io::IOContext* _io_ctx = nullptr;
     PositionDeleteContext _position_delete_ctx;
+    Block _equality_delete_block;
     // merge the row ranges generated from page index and position delete.
     std::vector<RowRange> _read_ranges;
 
@@ -207,6 +228,7 @@ private:
     // If continuous batches are skipped, we can cache them to skip a whole page
     size_t _cached_filtered_rows = 0;
     std::unique_ptr<IColumn::Filter> _pos_delete_filter_ptr;
+    std::unique_ptr<IColumn::Filter> _equ_delete_filter_ptr;
     int64_t _total_read_rows = 0;
     const TupleDescriptor* _tuple_descriptor = nullptr;
     const RowDescriptor* _row_descriptor = nullptr;

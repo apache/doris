@@ -26,6 +26,7 @@
 #include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
 #include <string.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
@@ -34,6 +35,7 @@
 #include <mutex>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/object_pool.h"
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
@@ -56,6 +58,7 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/table_format_reader.h"
+#include "vec/exprs/vexpr.h"
 
 namespace cctz {
 class time_zone;
@@ -108,6 +111,8 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", iceberg_profile);
     _iceberg_profile.delete_rows_sort_time =
             ADD_CHILD_TIMER(_profile, "DeleteRowsSortTime", iceberg_profile);
+    _iceberg_profile.delete_equality_files_read_time =
+            ADD_CHILD_TIMER(_profile, "DeleteEqualityFileReadTime", iceberg_profile);
 }
 
 Status IcebergTableReader::init_reader(
@@ -120,6 +125,7 @@ Status IcebergTableReader::init_reader(
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
     ParquetReader* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
+    _vconjunct_ctx = conjuncts;
     _col_id_name_map = col_id_name_map;
     _file_col_names = file_col_names;
     _colname_to_value_range = colname_to_value_range;
@@ -128,6 +134,11 @@ Status IcebergTableReader::init_reader(
     _gen_file_col_names();
     _gen_new_colname_to_value_range();
     parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
+    for (auto& kv : *colname_to_slot_id) {
+        _file_col_to_slot_id.emplace(_table_col_to_file_col[kv.first], kv.second);
+    }
+    parquet_reader->set_file_col_to_col_id_map(_file_col_to_col_id);
+    parquet_reader->set_file_col_to_slot_id_map(_file_col_to_slot_id);
     parquet_reader->iceberg_sanitize(_all_required_col_names);
     Status status = parquet_reader->init_reader(
             _all_required_col_names, _not_in_file_col_names, &_new_colname_to_value_range,
@@ -213,15 +224,15 @@ Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
     if (version < MIN_SUPPORT_DELETE_FILES_VERSION) {
         return Status::OK();
     }
-    auto& delete_file_type = table_desc.content;
+
     const std::vector<TIcebergDeleteFileDesc>& files = table_desc.delete_files;
     if (files.empty()) {
         return Status::OK();
     }
 
-    if (delete_file_type == POSITION_DELETE) {
-        RETURN_IF_ERROR(_position_delete(files));
-    }
+    RETURN_IF_ERROR(_position_delete(files));
+
+    RETURN_IF_ERROR(_equality_delete(files));
 
     // todo: equality delete
     //       If it is a count operation and it has equality delete file kind,
@@ -253,6 +264,10 @@ Status IcebergTableReader::_position_delete(
     int64_t num_delete_rows = 0;
     std::vector<DeleteFile*> erase_data;
     for (auto& delete_file : delete_files) {
+        if (delete_file.content != POSITION_DELETE) { // EQUALITY_DELETE
+            continue;
+        }
+
         if (whole_range.last_row <= delete_file.position_lower_bound ||
             whole_range.first_row > delete_file.position_upper_bound) {
             continue;
@@ -403,6 +418,114 @@ Status IcebergTableReader::_position_delete(
     return Status::OK();
 }
 
+Status IcebergTableReader::_equality_delete(
+        const std::vector<TIcebergDeleteFileDesc>& delete_files) {
+    std::vector<Block> block_list;
+    bool init_schema = false;
+    std::vector<std::string> delete_file_col_names;
+    std::vector<TypeDescriptor> delete_file_col_types;
+    for (auto& delete_file : delete_files) {
+        if (delete_file.content != EQUALITY_DELETE) { // NOT EQUALITY_DELETE
+            continue;
+        }
+
+        SCOPED_TIMER(_iceberg_profile.delete_equality_files_read_time);
+        Status create_status = Status::OK();
+        {
+            TFileRangeDesc delete_range;
+            delete_range.path = delete_file.path;
+            delete_range.start_offset = 0;
+            delete_range.size = -1;
+            delete_range.file_size = -1;
+            ParquetReader delete_reader(_profile, _params, delete_range, 102400,
+                                        const_cast<cctz::time_zone*>(&_state->timezone_obj()),
+                                        _io_ctx, _state);
+
+            if (!init_schema) {
+                static_cast<void>(delete_reader.get_parsed_schema(&delete_file_col_names,
+                                                                  &delete_file_col_types));
+                init_schema = true;
+                // check select columns contain equality_ids
+                for (auto& it : delete_file_col_names) {
+                    if (_table_col_to_file_col.find(it) == _table_col_to_file_col.end() &&
+                        std::find(_range.columns_from_path_keys.begin(),
+                                  _range.columns_from_path_keys.end(),
+                                  it) == _range.columns_from_path_keys.end()) {
+                        return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
+                                "Select iceberg with equality delete column not containe {}", it);
+                    }
+                }
+                // ToDo
+                // modify the conjunct context for equality delete
+            }
+            create_status = delete_reader.open();
+            if (!create_status.ok()) {
+                VLOG_NOTICE << "IcebergTableReader::_equality_delete delete_reader.open fail!";
+                return Status::Error<ErrorCode::IO_ERROR, false>("equalit delete open fail!");
+            }
+            std::vector<std::string> missing_column_names;
+            create_status = delete_reader.init_reader(delete_file_col_names, missing_column_names,
+                                                      nullptr, {}, nullptr, nullptr, nullptr,
+                                                      nullptr, nullptr, false);
+            if (!create_status.ok()) {
+                VLOG_NOTICE << "IcebergTableReader::_equality_delete init_reader fail!";
+                return Status::Error<ErrorCode::IO_ERROR, false>(
+                        "equalit delete init reader fail!");
+            }
+            std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+                    partition_columns;
+            std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+            static_cast<void>(delete_reader.set_fill_columns(partition_columns, missing_columns));
+            bool eof = false;
+            while (!eof) {
+                Block block = Block();
+                for (int i = 0; i < delete_file_col_names.size(); ++i) {
+                    DataTypePtr data_type = DataTypeFactory::instance().create_data_type(
+                            delete_file_col_types[i], true);
+                    MutableColumnPtr data_column = data_type->create_column();
+                    block.insert(ColumnWithTypeAndName(std::move(data_column), data_type,
+                                                       delete_file_col_names[i]));
+                }
+                eof = false;
+                size_t read_rows = 0;
+                create_status = delete_reader.get_next_block(&block, &read_rows, &eof);
+                if (!create_status.ok()) {
+                    VLOG_NOTICE << "IcebergTableReader::_equality_delete get_next_block fail!";
+                    return Status::Error<ErrorCode::IO_ERROR, false>("");
+                }
+                if (read_rows > 0) {
+                    block_list.push_back(block);
+                }
+            }
+        }
+    }
+    if (0 == block_list.size()) {
+        return Status::OK();
+    }
+    MutableBlock muatable_equality_delete_block =
+            vectorized::MutableBlock::build_mutable_block(&block_list[0]);
+    for (int i = 1; i < block_list.size(); ++i) {
+        muatable_equality_delete_block.add_rows(&block_list[i], 0, block_list[i].rows());
+    }
+
+    // save equality delete data into equality_delete_block
+    _equality_delete_block = muatable_equality_delete_block.to_block();
+    int pos = 0;
+    for (auto it_block = _equality_delete_block.begin(); it_block != _equality_delete_block.end();
+         ++it_block) {
+        it_block->name = delete_file_col_names[pos];
+        it_block->type =
+                DataTypeFactory::instance().create_data_type(delete_file_col_types[pos], true);
+        pos++;
+    }
+    _equality_delete_block.initialize_index_by_name();
+    ParquetReader* parquet_reader = (ParquetReader*)(_file_format_reader.get());
+    parquet_reader->set_equality_delete_ids(_equality_delete_block);
+    VLOG_NOTICE << "IcebergTableReader::_equality_delete set_equality_delete_ids size: "
+                << _equality_delete_block.rows();
+    return Status::OK();
+}
+
 IcebergTableReader::PositionDeleteRange IcebergTableReader::_get_range(
         const ColumnDictI32& file_path_column) {
     IcebergTableReader::PositionDeleteRange range;
@@ -530,6 +653,7 @@ Status IcebergTableReader::_gen_col_name_maps(std::vector<tparquet::KeyValue> pa
                         if (iter != _col_id_name_map.end()) {
                             _table_col_to_file_col.emplace(iter->second, name_string);
                             _file_col_to_table_col.emplace(name_string, iter->second);
+                            _file_col_to_col_id.emplace(name_string, j);
                             if (name_string != iter->second) {
                                 _has_schema_change = true;
                             }
@@ -574,6 +698,7 @@ void IcebergTableReader::_gen_file_col_names() {
             } else {
                 _table_col_to_file_col.emplace(name, name_low);
                 _file_col_to_table_col.emplace(name_low, name);
+                _file_col_to_col_id.emplace(name_low, i);
                 if (name != name_low) {
                     _has_schema_change = true;
                 }

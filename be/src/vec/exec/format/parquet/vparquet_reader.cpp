@@ -423,6 +423,20 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
+    // add equality delete column into predicate columns
+    if (_equality_delete_ids.rows() > 0) {
+        for (auto& col_name : _equality_delete_ids.get_names()) {
+            auto iter = predicate_columns.find(col_name);
+            if (iter == predicate_columns.end()) {
+                predicate_columns.emplace(col_name, std::make_pair(_file_col_to_col_id[col_name],
+                                                                   _file_col_to_slot_id[col_name]));
+                if (_file_col_to_col_id[col_name] == 0) {
+                    _lazy_read_ctx.resize_first_column = false;
+                }
+            }
+        }
+    }
+
     const FieldDescriptor& schema = _file_metadata->schema();
     for (auto& read_col : _read_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_col);
@@ -622,7 +636,7 @@ Status ParquetReader::_next_row_group_reader() {
     }
     _current_group_reader.reset(new RowGroupReader(
             group_file_reader, _read_columns, row_group_index.row_group_id, row_group, _ctz,
-            _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
+            _io_ctx, position_delete_ctx, _equality_delete_ids, _lazy_read_ctx, _state));
     _row_group_eof = false;
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,
                                        _tuple_descriptor, _row_descriptor, _colname_to_slot_id,
