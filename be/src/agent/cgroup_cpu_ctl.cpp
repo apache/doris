@@ -22,6 +22,8 @@
 
 #include <filesystem>
 
+#include "util/defer_op.h"
+
 namespace doris {
 
 Status CgroupCpuCtl::init() {
@@ -83,6 +85,12 @@ Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, int value, std::st
         LOG(ERROR) << "open path failed, path=" << file_path;
         return Status::InternalError<false>("open path failed, path={}", file_path);
     }
+
+    Defer defer {[&]() {
+        if (-1 == ::close(fd)) {
+            LOG(INFO) << "close file fd failed";
+        }
+    }};
 
     auto str = fmt::format("{}\n", value);
     int ret = write(fd, str.c_str(), str.size());
