@@ -87,4 +87,10 @@ public class IcebergExternalTable extends ExternalTable {
         makeSureInitialized();
         return new ExternalAnalysisTask(info);
     }
+
+    @Override
+    public long fetchRowCount() {
+        makeSureInitialized();
+        return IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
+    }
 }
