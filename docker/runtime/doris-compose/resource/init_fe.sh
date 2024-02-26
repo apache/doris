@@ -22,14 +22,12 @@ DIR=$(
 
 source $DIR/common.sh
 
-add_frontend() {
-    while true; do
-        read_master_fe_ip
-        if [ $? -ne 0 ]; then
-            sleep 1
-            continue
-        fi
+REGISTER_FILE=$DORIS_HOME/status/fe-$MY_IP-register
 
+add_local_fe() {
+    wait_master_fe_ready
+
+    while true; do
         output=$(mysql -P $FE_QUERY_PORT -h $MASTER_FE_IP -u root --execute "ALTER SYSTEM ADD FOLLOWER '$MY_IP:$FE_EDITLOG_PORT';" 2>&1)
         res=$?
         health_log "${output}\n"
@@ -37,6 +35,8 @@ add_frontend() {
         (echo $output | grep "frontend already exists") && break
         sleep 1
     done
+
+    touch $REGISTER_FILE
 }
 
 fe_daemon() {
@@ -81,6 +81,69 @@ fe_daemon() {
     done
 }
 
+add_cloud_fe() {
+    if [ -f "$REGISTER_FILE" ]; then
+        return
+    fi
+
+    wait_create_instance
+
+    action=add_cluster
+    node_type=FE_MASTER
+    if [ "$MY_ID" != "1" ]; then
+        wait_master_fe_ready
+        action=add_node
+        node_type=FE_OBSERVER
+    fi
+
+    nodes='{
+        "cloud_unique_id": "'"${CLOUD_UNIQUE_ID}"'",
+        "ip": "'"${MY_IP}"'",
+        "edit_log_port": "'"${FE_EDITLOG_PORT}"'",
+        "node_type": "'"${node_type}"'"
+    }'
+
+    lock_cluster
+
+    output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/${action}?token=greedisgood9999" \
+        -d '{"instance_id": "default_instance_id",
+        "cluster": {
+            "type": "SQL",
+            "cluster_name": "RESERVED_CLUSTER_NAME_FOR_SQL_SERVER",
+            "cluster_id": "RESERVED_CLUSTER_ID_FOR_SQL_SERVER",
+            "nodes": ['"${nodes}"']
+        }}')
+
+    unlock_cluster
+
+    health_log "add cluster. output: $output"
+    code=$(jq -r '.code' <<<$output)
+
+    if [ "$code" != "OK" ]; then
+        health_log "add cluster failed,  exit."
+        exit 1
+    fi
+
+    output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/get_cluster?token=greedisgood9999" \
+        -d '{"instance_id": "default_instance_id",
+            "cloud_unique_id": "'"${CLOUD_UNIQUE_ID}"'",
+            "cluster_name": "RESERVED_CLUSTER_NAME_FOR_SQL_SERVER",
+            "cluster_id": "RESERVED_CLUSTER_ID_FOR_SQL_SERVER"}')
+
+    health_log "get cluster is: $output"
+    code=$(jq -r '.code' <<<$output)
+
+    if [ "$code" != "OK" ]; then
+        health_log "get cluster failed,  exit."
+        exit 1
+    fi
+
+    touch $REGISTER_FILE
+    if [ "$MY_ID" == "1" ]; then
+        echo $MY_IP >$MASTER_FE_IP_FILE
+    fi
+}
+
 stop_frontend() {
     if [ "$STOP_GRACE" = "1" ]; then
         bash $DORIS_HOME/bin/stop_fe.sh --grace
@@ -96,7 +159,7 @@ wait_process() {
     for ((i = 0; i < 5; i++)); do
         sleep 1s
         pid=$(ps -elf | grep java | grep org.apache.doris.DorisFE | grep -v grep | awk '{print $4}')
-        if [ -n $pid ]; then
+        if [ -n "$pid" ]; then
             break
         fi
     done
@@ -104,16 +167,33 @@ wait_process() {
     wait_pid $pid
 }
 
-main() {
-    trap stop_frontend SIGTERM
+start_local_fe() {
+    if [ "$MY_ID" = "1" -a ! -f $REGISTER_FILE ]; then
+        touch $REGISTER_FILE
+    fi
 
-    if [ "$MY_ID" = "1" -o -d "${DORIS_HOME}/doris-meta/image" ]; then
+    if [ -f $REGISTER_FILE ]; then
         fe_daemon &
         bash $DORIS_HOME/bin/start_fe.sh --daemon
     else
-        add_frontend
+        add_local_fe
         fe_daemon &
         bash $DORIS_HOME/bin/start_fe.sh --helper $MASTER_FE_IP:$FE_EDITLOG_PORT --daemon
+    fi
+}
+
+start_cloud_fe() {
+    add_cloud_fe
+    bash $DORIS_HOME/bin/start_fe.sh --daemon
+}
+
+main() {
+    trap stop_frontend SIGTERM
+
+    if [ "$IS_CLOUD" == "1" ]; then
+        start_cloud_fe
+    else
+        start_local_fe
     fi
 
     wait_process
