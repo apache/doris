@@ -805,7 +805,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 StatementScopeIdGenerator.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
         query = withTableAlias(query, ctx.tableAlias());
         if (ctx.fromClause() != null) {
-            query = withRelations(query, ctx.fromClause().relation());
+            query = withRelations(query, ctx.fromClause().relations().relation());
         }
         query = withFilter(query, Optional.of(ctx.whereClause()));
         String tableAlias = null;
@@ -836,7 +836,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new DeleteFromCommand(tableName, tableAlias, partitionSpec.first, partitionSpec.second, query);
         } else {
             // convert to insert into select
-            query = withRelations(query, ctx.relation());
+            query = withRelations(query, ctx.relations().relation());
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
             Optional<LogicalPlan> cte = Optional.empty();
             if (ctx.cte() != null) {
@@ -2248,7 +2248,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitFromClause(FromClauseContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> visitRelations(ctx.relations()));
+    }
+
+    @Override
+    public LogicalPlan visitRelations(DorisParser.RelationsContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> withRelations(null, ctx.relation()));
+    }
+
+    @Override
+    public LogicalPlan visitRelationList(DorisParser.RelationListContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> withRelations(null, ctx.relations().relation()));
     }
 
     /* ********************************************************************************************

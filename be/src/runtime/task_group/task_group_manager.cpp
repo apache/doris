@@ -201,6 +201,7 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
                 task_group_ptr->shutdown();
                 // only when no query running in task group, its resource can be released in BE
                 if (task_group_ptr->query_num() == 0) {
+                    LOG(INFO) << "There is no query in wg " << tg_id << ", delete it.";
                     deleted_tg_ids.insert(tg_id);
                 }
             }
