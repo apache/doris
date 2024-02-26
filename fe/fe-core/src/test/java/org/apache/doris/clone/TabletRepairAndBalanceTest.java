@@ -113,6 +113,7 @@ public class TabletRepairAndBalanceTest {
         Config.schedule_slot_num_per_ssd_path = 10000;
         Config.schedule_batch_size = 10000;
         Config.disable_colocate_balance_between_groups = true;
+        Config.max_scheduling_tablets = 10000;
         Config.disable_balance = true;
         // 5 backends:
         // 127.0.0.1
@@ -325,7 +326,6 @@ public class TabletRepairAndBalanceTest {
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         Assert.assertEquals(tag2, be.getLocationTag());
         Thread.sleep(5000);
-        ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
         checkTableReplicaAllocation(tbl);
         Assert.assertEquals(90, replicaMetaTable.cellSet().size());
 
@@ -388,7 +388,7 @@ public class TabletRepairAndBalanceTest {
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         Assert.assertEquals(tag1, be.getLocationTag());
         Thread.sleep(5000);
-        ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
+        tbl.checkReplicaAllocation();
 
         checkTableReplicaAllocation(colTbl1);
         checkTableReplicaAllocation(colTbl2);
