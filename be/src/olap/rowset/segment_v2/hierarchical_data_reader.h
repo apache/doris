@@ -31,6 +31,7 @@
 #include "vec/columns/column_object.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/assert_cast.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/json/path_in_data.h"
@@ -66,7 +67,7 @@ public:
     HierarchicalDataReader(const vectorized::PathInData& path, bool output_as_raw_json = false)
             : _path(path), _output_as_raw_json(output_as_raw_json) {}
 
-    static Status create(std::unique_ptr<ColumnIterator>* reader,
+    static Status create(std::unique_ptr<ColumnIterator>* reader, vectorized::PathInData path,
                          const SubcolumnColumnReaders::Node* target_node,
                          const SubcolumnColumnReaders::Node* root, bool output_as_raw_json = false);
 
@@ -143,8 +144,9 @@ private:
 
         RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
             vectorized::MutableColumnPtr column = node.data.column->get_ptr();
-            bool add = container_variant.add_sub_column(node.path.pop_front(), std::move(column),
-                                                        node.data.type);
+            bool add = container_variant.add_sub_column(
+                    node.path.copy_pop_nfront(_path.get_parts().size()), std::move(column),
+                    node.data.type);
             if (!add) {
                 return Status::InternalError("Duplicated {}, type {}", node.path.get_path(),
                                              node.data.type->get_name());
@@ -209,8 +211,11 @@ private:
 // encodes sparse columns that are not materialized
 class ExtractReader : public ColumnIterator {
 public:
-    ExtractReader(const TabletColumn& col, std::unique_ptr<StreamReader>&& root_reader)
-            : _col(col), _root_reader(std::move(root_reader)) {}
+    ExtractReader(const TabletColumn& col, std::unique_ptr<StreamReader>&& root_reader,
+                  vectorized::DataTypePtr target_type_hint)
+            : _col(col),
+              _root_reader(std::move(root_reader)),
+              _target_type_hint(target_type_hint) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -228,9 +233,10 @@ public:
 private:
     Status extract_to(vectorized::MutableColumnPtr& dst, size_t nrows);
 
-    const TabletColumn& _col;
+    TabletColumn _col;
     // may shared among different column iterators
     std::unique_ptr<StreamReader> _root_reader;
+    vectorized::DataTypePtr _target_type_hint;
 };
 
 } // namespace segment_v2

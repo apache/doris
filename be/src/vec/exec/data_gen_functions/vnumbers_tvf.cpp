@@ -37,9 +37,6 @@
 
 namespace doris::vectorized {
 
-const static std::string NUMBER = std::string {"number"};
-const static std::string ZERO = std::string {"zero"};
-
 VNumbersTVF::VNumbersTVF(TupleId tuple_id, const TupleDescriptor* tuple_desc)
         : VDataGenFunctionInf(tuple_id, tuple_desc) {}
 

@@ -36,7 +36,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class RepeatOperator final : public StatefulOperator<RepeatOperatorBuilder> {
+class RepeatOperator final : public StatefulOperator<vectorized::VRepeatNode> {
 public:
     RepeatOperator(OperatorBuilderBase* operator_builder, ExecNode* repeat_node);
 
@@ -47,11 +47,11 @@ public:
 
 class RepeatOperatorX;
 
-class RepeatLocalState final : public PipelineXLocalState<FakeDependency> {
+class RepeatLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(RepeatLocalState);
     using Parent = RepeatOperatorX;
-    using Base = PipelineXLocalState<FakeDependency>;
+    using Base = PipelineXLocalState<FakeSharedState>;
     RepeatLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;

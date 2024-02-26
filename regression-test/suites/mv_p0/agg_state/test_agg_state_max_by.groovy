@@ -52,6 +52,17 @@ suite ("test_agg_state_max_by") {
         time 10000 // limit inflight 10s
     }
 
+    streamLoad {
+        set 'version', '1'
+        set 'sql', """
+                    insert into regression_test_mv_p0_agg_state.d_table select * from http_stream
+                    ("format"="csv", "column_separator"=",")
+                """
+        file './test'
+
+        time 10000 // limit inflight 10s
+    }
+
     qt_select_star "select * from d_table order by 1,2;"
     explain {
         sql("select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;")
@@ -66,6 +77,26 @@ suite ("test_agg_state_max_by") {
     sql "insert into d_table(k4,k2) values('d',4);"
     sql "set enable_nereids_dml = true"
     sql "insert into d_table(k4,k2) values('d',4);"
+
+    streamLoad {
+        table "d_table"
+        set 'column_separator', ','
+        file './test'
+        time 10000 // limit inflight 10s
+    }
+
+    streamLoad {
+        set 'version', '1'
+        set 'sql', """
+                    insert into regression_test_mv_p0_agg_state.d_table select * from http_stream
+                    ("format"="csv", "column_separator"=",")
+                """
+        file './test'
+
+        time 10000 // limit inflight 10s
+    }
+
+    qt_select_star "select * from d_table order by 1,2;"
 
     explain {
         sql("select k1,max_by(k2+k3,abs(k3)) from d_table group by k1 order by 1,2;")

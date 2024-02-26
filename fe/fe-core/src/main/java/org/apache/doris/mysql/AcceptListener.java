@@ -52,10 +52,15 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                 return;
             }
             connection.setOption(Options.KEEP_ALIVE, true);
-            LOG.debug("Connection established. remote={}", connection.getPeerAddress());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Connection established. remote={}", connection.getPeerAddress());
+            }
             // connection has been established, so need to call context.cleanup()
             // if exception happens.
             ConnectContext context = new ConnectContext(connection);
+            if (context.getSessionVariable().getQueryTimeoutS() <= 0) {
+                LOG.warn("Connection query timeout is invalid: {}", context.getSessionVariable().getQueryTimeoutS());
+            }
             context.setEnv(Env.getCurrentEnv());
             connectScheduler.submit(context);
 
@@ -78,8 +83,12 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         throw new AfterConnectedException("Reach limit of connections");
                     }
                     context.setStartTime();
-                    context.setUserQueryTimeout(
-                            context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser()));
+                    int userQueryTimeout = context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser());
+                    if (userQueryTimeout <= 0) {
+                        LOG.warn("Connection set query timeout to {}",
+                                    context.getSessionVariable().getQueryTimeoutS());
+                    }
+                    context.setUserQueryTimeout(userQueryTimeout);
                     context.setUserInsertTimeout(
                             context.getEnv().getAuth().getInsertTimeout(context.getQualifiedUser()));
                     ConnectProcessor processor = new MysqlConnectProcessor(context);
@@ -97,7 +106,9 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                     } else {
                         // for unauthrorized access such lvs probe request,
                         // may cause exception, just log it in debug level
-                        LOG.debug("connect processor exception because ", e);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("connect processor exception because ", e);
+                        }
                     }
                     context.cleanup();
                 } finally {

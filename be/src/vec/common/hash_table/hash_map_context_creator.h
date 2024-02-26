@@ -22,37 +22,38 @@
 
 namespace doris::vectorized {
 
-template <template <typename, typename, typename> typename HashMap,
-          template <typename> typename Hash, typename Key, typename Value, typename Variant>
+template <template <typename...> typename HashMap, template <typename> typename Hash, typename Key,
+          typename... Mapped, typename Variant>
 void get_hash_map_context_fixed(Variant& variant, bool has_nullable_key, const Sizes& key_sizes) {
     if (has_nullable_key) {
-        variant.template emplace<MethodKeysFixed<HashMap<Key, Value, Hash<Key>>, true>>(key_sizes);
+        variant.template emplace<MethodKeysFixed<HashMap<Key, Mapped..., Hash<Key>>, true>>(
+                key_sizes);
     } else {
-        variant.template emplace<MethodKeysFixed<HashMap<Key, Value, Hash<Key>>>>(key_sizes);
+        variant.template emplace<MethodKeysFixed<HashMap<Key, Mapped..., Hash<Key>>>>(key_sizes);
     }
 }
 
-template <template <typename, typename, typename> typename HashMap,
-          template <typename> typename Hash, typename Value, typename Variant>
+template <template <typename... Args> typename HashMap, template <typename> typename Hash,
+          typename... Mapped, typename Variant>
 void get_hash_map_context_fixed(Variant& variant, size_t size, bool has_nullable_key,
                                 const Sizes& key_sizes) {
     if (size <= sizeof(UInt64)) {
-        get_hash_map_context_fixed<HashMap, Hash, UInt64, Value>(variant, has_nullable_key,
-                                                                 key_sizes);
+        get_hash_map_context_fixed<HashMap, Hash, UInt64, Mapped...>(variant, has_nullable_key,
+                                                                     key_sizes);
     } else if (size <= sizeof(UInt128)) {
-        get_hash_map_context_fixed<HashMap, Hash, UInt128, Value>(variant, has_nullable_key,
-                                                                  key_sizes);
+        get_hash_map_context_fixed<HashMap, Hash, UInt128, Mapped...>(variant, has_nullable_key,
+                                                                      key_sizes);
     } else if (size <= sizeof(UInt136)) {
-        get_hash_map_context_fixed<HashMap, Hash, UInt136, Value>(variant, has_nullable_key,
-                                                                  key_sizes);
+        get_hash_map_context_fixed<HashMap, Hash, UInt136, Mapped...>(variant, has_nullable_key,
+                                                                      key_sizes);
     } else if (size <= sizeof(UInt256)) {
-        get_hash_map_context_fixed<HashMap, Hash, UInt256, Value>(variant, has_nullable_key,
-                                                                  key_sizes);
+        get_hash_map_context_fixed<HashMap, Hash, UInt256, Mapped...>(variant, has_nullable_key,
+                                                                      key_sizes);
     }
 }
 
-template <template <typename, typename, typename> typename HashMap,
-          template <typename> typename Hash, typename Value, typename Variant>
+template <template <typename... Args> typename HashMap, template <typename> typename Hash,
+          typename... Mapped, typename Variant>
 bool try_get_hash_map_context_fixed(Variant& variant, const VExprContextSPtrs& expr_ctxs) {
     Sizes key_sizes;
 
@@ -78,8 +79,8 @@ bool try_get_hash_map_context_fixed(Variant& variant, const VExprContextSPtrs& e
     }
 
     if (use_fixed_key) {
-        get_hash_map_context_fixed<HashMap, Hash, Value>(variant, bitmap_size + key_byte_size,
-                                                         has_null, key_sizes);
+        get_hash_map_context_fixed<HashMap, Hash, Mapped...>(variant, bitmap_size + key_byte_size,
+                                                             has_null, key_sizes);
     }
     return use_fixed_key;
 }

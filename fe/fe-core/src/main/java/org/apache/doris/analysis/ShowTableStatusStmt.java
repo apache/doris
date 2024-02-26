@@ -26,7 +26,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -36,8 +35,7 @@ import com.google.common.collect.Lists;
 
 // SHOW TABLE STATUS
 public class ShowTableStatusStmt extends ShowStmt {
-    private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
-            InfoSchemaDb.DATABASE_NAME, "tables");
+
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
             .addColumn(new Column("Name", ScalarType.createVarchar(64)))
             .addColumn(new Column("Engine", ScalarType.createVarchar(10)))
@@ -91,8 +89,6 @@ public class ShowTableStatusStmt extends ShowStmt {
             if (Strings.isNullOrEmpty(db)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-        } else {
-            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
         if (Strings.isNullOrEmpty(catalog)) {
             catalog = analyzer.getDefaultCatalog();
@@ -117,87 +113,87 @@ public class ShowTableStatusStmt extends ShowStmt {
         }
 
         analyze(analyzer);
-
+        TableName tablesTableName = new TableName(catalog, InfoSchemaDb.DATABASE_NAME, "tables");
         // Columns
         SelectList selectList = new SelectList();
         ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);
         // Name
-        SelectListItem item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_NAME"), "Name");
+        SelectListItem item = new SelectListItem(new SlotRef(tablesTableName, "TABLE_NAME"), "Name");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Name"), item.getExpr().clone(null));
         // Engine
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "ENGINE"), "Engine");
+        item = new SelectListItem(new SlotRef(tablesTableName, "ENGINE"), "Engine");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Engine"), item.getExpr().clone(null));
         // Version
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "VERSION"), "Version");
+        item = new SelectListItem(new SlotRef(tablesTableName, "VERSION"), "Version");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Version"), item.getExpr().clone(null));
         // Version
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "ROW_FORMAT"), "Row_format");
+        item = new SelectListItem(new SlotRef(tablesTableName, "ROW_FORMAT"), "Row_format");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Row_format"), item.getExpr().clone(null));
         // Rows
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_ROWS"), "Rows");
+        item = new SelectListItem(new SlotRef(tablesTableName, "TABLE_ROWS"), "Rows");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Rows"), item.getExpr().clone(null));
         // Avg_row_length
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "AVG_ROW_LENGTH"), "Avg_row_length");
+        item = new SelectListItem(new SlotRef(tablesTableName, "AVG_ROW_LENGTH"), "Avg_row_length");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Avg_row_length"), item.getExpr().clone(null));
         // Data_length
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "DATA_LENGTH"), "Data_length");
+        item = new SelectListItem(new SlotRef(tablesTableName, "DATA_LENGTH"), "Data_length");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Data_length"), item.getExpr().clone(null));
         // Max_data_length
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "MAX_DATA_LENGTH"), "Max_data_length");
+        item = new SelectListItem(new SlotRef(tablesTableName, "MAX_DATA_LENGTH"), "Max_data_length");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Max_data_length"), item.getExpr().clone(null));
         // Index_length
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "INDEX_LENGTH"), "Index_length");
+        item = new SelectListItem(new SlotRef(tablesTableName, "INDEX_LENGTH"), "Index_length");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Index_length"), item.getExpr().clone(null));
         // Data_free
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "DATA_FREE"), "Data_free");
+        item = new SelectListItem(new SlotRef(tablesTableName, "DATA_FREE"), "Data_free");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Data_free"), item.getExpr().clone(null));
         // Data_free
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "AUTO_INCREMENT"), "Auto_increment");
+        item = new SelectListItem(new SlotRef(tablesTableName, "AUTO_INCREMENT"), "Auto_increment");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Auto_increment"), item.getExpr().clone(null));
         // Create_time
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "CREATE_TIME"), "Create_time");
+        item = new SelectListItem(new SlotRef(tablesTableName, "CREATE_TIME"), "Create_time");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Create_time"), item.getExpr().clone(null));
         // Update_time
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "UPDATE_TIME"), "Update_time");
+        item = new SelectListItem(new SlotRef(tablesTableName, "UPDATE_TIME"), "Update_time");
         selectList.addItem(item);
         // Check_time
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "CHECK_TIME"), "Check_time");
+        item = new SelectListItem(new SlotRef(tablesTableName, "CHECK_TIME"), "Check_time");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Check_time"), item.getExpr().clone(null));
         // Collation
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_COLLATION"), "Collation");
+        item = new SelectListItem(new SlotRef(tablesTableName, "TABLE_COLLATION"), "Collation");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Collation"), item.getExpr().clone(null));
         // Checksum
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "CHECKSUM"), "Checksum");
+        item = new SelectListItem(new SlotRef(tablesTableName, "CHECKSUM"), "Checksum");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Checksum"), item.getExpr().clone(null));
         // Create_options
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "CREATE_OPTIONS"), "Create_options");
+        item = new SelectListItem(new SlotRef(tablesTableName, "CREATE_OPTIONS"), "Create_options");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Create_options"), item.getExpr().clone(null));
         // Comment
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_COMMENT"), "Comment");
+        item = new SelectListItem(new SlotRef(tablesTableName, "TABLE_COMMENT"), "Comment");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Comment"), item.getExpr().clone(null));
 
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
-                new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
+                new FromClause(Lists.newArrayList(new TableRef(tablesTableName, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
-        analyzer.setSchemaInfo(ClusterNamespace.getNameFromFullName(db), null, null, catalog);
+        analyzer.setSchemaInfo(ClusterNamespace.getNameFromFullName(db), null, catalog);
 
         return selectStmt;
     }

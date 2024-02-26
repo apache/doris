@@ -39,24 +39,24 @@ suite("test_mysql_jdbc_statistics", "p0,external,mysql,external_docker,external_
         def result = sql """show column stats ex_tb0 (name)"""
         assertTrue(result.size() == 1)
         assertTrue(result[0][0] == "name")
-        assertTrue(result[0][1] == "5.0")
         assertTrue(result[0][2] == "5.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "15.0")
-        assertTrue(result[0][5] == "3.0")
-        assertEquals(result[0][6], "'abc'")
-        assertEquals(result[0][7], "'abg'")
+        assertTrue(result[0][3] == "5.0")
+        assertTrue(result[0][4] == "0.0")
+        assertTrue(result[0][5] == "15.0")
+        assertTrue(result[0][6] == "3.0")
+        assertEquals(result[0][7], "'abc'")
+        assertEquals(result[0][8], "'abg'")
 
         result = sql """show column stats ex_tb0 (id)"""
         assertTrue(result.size() == 1)
         assertTrue(result[0][0] == "id")
-        assertTrue(result[0][1] == "5.0")
         assertTrue(result[0][2] == "5.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "20.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "111")
-        assertTrue(result[0][7] == "115")
+        assertTrue(result[0][3] == "5.0")
+        assertTrue(result[0][4] == "0.0")
+        assertTrue(result[0][5] == "20.0")
+        assertTrue(result[0][6] == "4.0")
+        assertTrue(result[0][7] == "111")
+        assertTrue(result[0][8] == "115")
 
         sql """drop catalog ${catalog_name}"""
     }

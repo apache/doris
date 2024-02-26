@@ -20,20 +20,25 @@ package org.apache.doris.statistics;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.StringJoiner;
 
 public class StatsId {
 
+    @SerializedName("id")
     public final String id;
+    @SerializedName("catalogId")
     public final long catalogId;
+    @SerializedName("dbId")
     public final long dbId;
+    @SerializedName("tblId")
     public final long tblId;
+    @SerializedName("idxId")
     public final long idxId;
-
+    @SerializedName("colId")
     public final String colId;
-
-    // nullable
+    @SerializedName("partId")
     public final String partId;
 
     @VisibleForTesting
@@ -69,12 +74,12 @@ public class StatsId {
 
     public String toSQL() {
         StringJoiner sj = new StringJoiner(",");
-        sj.add(StatisticsUtil.quote(id));
+        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(id)));
         sj.add(String.valueOf(catalogId));
         sj.add(String.valueOf(dbId));
         sj.add(String.valueOf(tblId));
         sj.add(String.valueOf(idxId));
-        sj.add(StatisticsUtil.quote(colId));
+        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(colId)));
         sj.add(partId);
         return sj.toString();
     }

@@ -40,7 +40,6 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
@@ -125,7 +124,6 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
 
     // If the right child is nullable, need to ensure that the left child is also nullable
     private List<Slot> resetNullableForLeftOutputs() {
-        Preconditions.checkState(children.size() == 2);
         List<Slot> resetNullableForLeftOutputs = new ArrayList<>();
         for (int i = 0; i < child(1).getOutput().size(); ++i) {
             if (child(1).getOutput().get(i).nullable() && !child(0).getOutput().get(i).nullable()) {

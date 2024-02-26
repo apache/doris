@@ -64,6 +64,7 @@ class TPipelineInstanceParams;
 class TScanColumnDesc;
 class TScanOpenParams;
 class Thread;
+class WorkloadQueryInfo;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
@@ -99,6 +100,14 @@ public:
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg = "");
     void cancel_instance_unlocked(const TUniqueId& instance_id,
+                                  const PPlanFragmentCancelReason& reason,
+                                  const std::unique_lock<std::mutex>& state_lock,
+                                  const std::string& msg = "");
+    // Cancel fragment (only pipelineX).
+    // {query id fragment} -> PipelineXFragmentContext
+    void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
+                         const PPlanFragmentCancelReason& reason, const std::string& msg = "");
+    void cancel_fragment_unlocked(const TUniqueId& query_id, int32_t fragment_id,
                                   const PPlanFragmentCancelReason& reason,
                                   const std::unique_lock<std::mutex>& state_lock,
                                   const std::string& msg = "");
@@ -144,6 +153,8 @@ public:
     }
 
     std::string dump_pipeline_tasks();
+
+    void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
 
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,

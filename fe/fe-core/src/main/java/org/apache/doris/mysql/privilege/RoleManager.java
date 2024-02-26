@@ -36,7 +36,6 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -66,10 +65,8 @@ public class RoleManager implements Writable, GsonPostProcessable {
     private Map<String, Role> roles = Maps.newHashMap();
 
     public RoleManager() {
-        roles.put(
-                Role.OPERATOR.getRoleName(), Role.OPERATOR);
-        roles.put(
-                Role.ADMIN.getRoleName(), Role.ADMIN);
+        roles.put(Role.OPERATOR.getRoleName(), Role.OPERATOR);
+        roles.put(Role.ADMIN.getRoleName(), Role.ADMIN);
     }
 
     public Role getRole(String name) {
@@ -198,14 +195,14 @@ public class RoleManager implements Writable, GsonPostProcessable {
         List<TablePattern> tablePatterns = Lists.newArrayList();
         TablePattern informationTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
-            informationTblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            informationTblPattern.analyze();
             tablePatterns.add(informationTblPattern);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
         TablePattern mysqlTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
         try {
-            mysqlTblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            mysqlTblPattern.analyze();
             tablePatterns.add(mysqlTblPattern);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);

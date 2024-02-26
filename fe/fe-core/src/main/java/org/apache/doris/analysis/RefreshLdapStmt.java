@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -52,9 +51,6 @@ public class RefreshLdapStmt extends DdlStmt {
         if (isAll || !Strings.isNullOrEmpty(user)) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-            }
-            if (!isAll) {
-                user = ClusterNamespace.getFullName(getClusterName(), user);
             }
         } else {
             user = analyzer.getQualifiedUser();

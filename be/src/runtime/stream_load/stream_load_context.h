@@ -139,6 +139,7 @@ public:
     int64_t table_id = -1;
     int64_t schema_version = -1;
     std::string label;
+    std::string sql_str;
     // optional
     std::string sub_label;
     double max_filter_ratio = 0.0;
@@ -207,6 +208,8 @@ public:
     int64_t pre_commit_txn_cost_nanos = 0;
     int64_t read_data_cost_nanos = 0;
     int64_t write_data_cost_nanos = 0;
+    int64_t receive_and_read_data_cost_nanos = 0;
+    int64_t begin_receive_and_read_data_cost_nanos = 0;
 
     std::string error_url = "";
     // if label already be used, set existing job's status here
@@ -230,6 +233,8 @@ public:
 
     // for single-stream-multi-table, we have table list
     std::vector<std::string> table_list;
+
+    bool memtable_on_sink_node = false;
 
 public:
     ExecEnv* exec_env() { return _exec_env; }

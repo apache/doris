@@ -61,7 +61,7 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                                 || j.left().child().getJoinType().isInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.left().isAllSlots())
-                        .whenNot(j -> j.left().child().hasJoinHint())
+                        .whenNot(j -> j.left().child().hasDistributeHint())
                         .then(topJoin -> {
                             LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.left();
                             Plan newLeft = pushdownProject(project);
@@ -75,7 +75,7 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                                 || j.right().child().getJoinType().isInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.right().isAllSlots())
-                        .whenNot(j -> j.right().child().hasJoinHint())
+                        .whenNot(j -> j.right().child().hasDistributeHint())
                         .then(topJoin -> {
                             LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.right();
                             Plan newRight = pushdownProject(project);

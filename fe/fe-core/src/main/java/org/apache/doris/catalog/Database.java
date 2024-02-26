@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -32,6 +33,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -82,16 +84,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     private long id;
     @SerializedName(value = "fullQualifiedName")
     private volatile String fullQualifiedName;
-    @SerializedName(value = "clusterName")
-    private String clusterName;
-    private ReentrantReadWriteLock rwLock;
+    private final ReentrantReadWriteLock rwLock;
 
     // table family group map
-    private Map<Long, Table> idToTable;
+    private final Map<Long, Table> idToTable;
     @SerializedName(value = "nameToTable")
     private Map<String, Table> nameToTable;
     // table name lower cast -> table name
-    private Map<String, String> lowerCaseToTableName;
+    private final Map<String, String> lowerCaseToTableName;
 
     // user define function
     @SerializedName(value = "name2Function")
@@ -145,7 +145,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 : Config.default_db_max_running_txn_num;
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
-        this.clusterName = "";
         this.dbEncryptKey = new DatabaseEncryptKey();
     }
 
@@ -217,7 +216,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public void setNameWithLock(String newName) {
         writeLock();
         try {
-            this.fullQualifiedName = newName;
+            // ClusterNamespace.getNameFromFullName should be removed in 3.0
+            this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
             for (Table table : idToTable.values()) {
                 table.setQualifiedDbName(fullQualifiedName);
             }
@@ -272,10 +272,19 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public long getUsedDataQuotaWithLock() {
-        long usedDataQuota = 0;
+        return getUsedDataSize().first;
+    }
+
+    public Pair<Long, Long> getUsedDataSize() {
+        long usedDataSize = 0;
+        long usedRemoteDataSize = 0;
+        List<Table> tables = new ArrayList<>();
         readLock();
-        List<Table> tables = new ArrayList<>(this.idToTable.values());
-        readUnlock();
+        try {
+            tables.addAll(this.idToTable.values());
+        } finally {
+            readUnlock();
+        }
 
         for (Table table : tables) {
             if (table.getType() != TableType.OLAP) {
@@ -285,12 +294,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             OlapTable olapTable = (OlapTable) table;
             olapTable.readLock();
             try {
-                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+                usedDataSize = usedDataSize + olapTable.getDataSize();
+                usedRemoteDataSize = usedRemoteDataSize + olapTable.getRemoteDataSize();
             } finally {
                 olapTable.readUnlock();
             }
         }
-        return usedDataQuota;
+        return Pair.of(usedDataSize, usedRemoteDataSize);
     }
 
     public long getReplicaCountWithLock() {
@@ -568,7 +578,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         StringBuilder sb = new StringBuilder(signatureVersion);
         sb.append(fullQualifiedName);
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of database {}: {}. signature string: {}", fullQualifiedName, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of database {}: {}. signature string: {}", fullQualifiedName, md5, sb.toString());
+        }
         return md5;
     }
 
@@ -577,7 +589,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         super.write(out);
 
         out.writeLong(id);
-        Text.writeString(out, fullQualifiedName);
+        Text.writeString(out, ClusterNamespace.getNameFromFullName(fullQualifiedName));
         // write tables
         discardHudiTable();
         int numTables = nameToTable.size();
@@ -587,7 +599,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
 
         out.writeLong(dataQuotaBytes);
-        Text.writeString(out, clusterName);
+        Text.writeString(out, SystemInfoService.DEFAULT_CLUSTER);
         Text.writeString(out, dbState.name());
         Text.writeString(out, attachDbName);
 
@@ -625,6 +637,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         id = in.readLong();
         fullQualifiedName = Text.readString(in);
+        fullQualifiedName = ClusterNamespace.getNameFromFullName(fullQualifiedName);
         // read groups
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
@@ -641,7 +654,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         // read quota
         dataQuotaBytes = in.readLong();
-        clusterName = Text.readString(in);
+        // cluster
+        Text.readString(in);
         dbState = DbState.valueOf(Text.readString(in));
         attachDbName = Text.readString(in);
 
@@ -687,33 +701,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 && idToTable.equals(other.idToTable)
                 && fullQualifiedName.equals(other.fullQualifiedName)
                 && dataQuotaBytes == other.dataQuotaBytes;
-    }
-
-    public String getClusterName() {
-        return clusterName;
-    }
-
-    public void setClusterName(String clusterName) {
-        this.clusterName = clusterName;
-    }
-
-    public DbState getDbState() {
-        return dbState;
-    }
-
-    public void setDbState(DbState dbState) {
-        if (dbState == null) {
-            return;
-        }
-        this.dbState = dbState;
-    }
-
-    public void setAttachDb(String name) {
-        this.attachDbName = name;
-    }
-
-    public String getAttachDb() {
-        return this.attachDbName;
     }
 
     public void setName(String name) {
@@ -919,11 +906,4 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public String toString() {
         return toJson();
     }
-
-    // Return ture if database is created for mysql compatibility.
-    // Currently, we have two dbs that are created for this purpose, InformationSchemaDb and MysqlDb,
-    public boolean isMysqlCompatibleDatabase() {
-        return false;
-    }
-
 }

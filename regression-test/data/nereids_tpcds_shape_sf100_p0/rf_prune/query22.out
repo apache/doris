@@ -2,11 +2,11 @@
 -- !ds_shape_22 --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
 ----------hashAgg[GLOBAL]
-------------PhysicalDistribute
+------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalRepeat
 ------------------PhysicalProject
@@ -14,10 +14,10 @@ PhysicalResultSink
 ----------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=()
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[inventory] apply RFs: RF1
-------------------------PhysicalDistribute
+------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[item]
-----------------------PhysicalDistribute
+----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_month_seq <= 1199) and (date_dim.d_month_seq >= 1188))
 ----------------------------PhysicalOlapScan[date_dim]

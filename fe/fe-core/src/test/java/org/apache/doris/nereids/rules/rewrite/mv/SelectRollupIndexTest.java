@@ -242,7 +242,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
-                    Assertions.assertEquals("Slot((v1 + 1)) in sum((v1 + 1)) is neither key column nor value column.",
+                    Assertions.assertEquals("do not support compound expression [(v1 + 1)] in SUM.",
                             preAgg.getOffReason());
                     return true;
                 }));
@@ -418,7 +418,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         String queryWithoutHint = "select k1, v1 from test_preagg_hint";
         // legacy planner
         Assertions.assertTrue(getSQLPlanOrErrorMsg(queryWithoutHint).contains(
-                "TABLE: default_cluster:test.test_preagg_hint(r1), PREAGGREGATION: OFF. Reason: No AggregateInfo"));
+                "TABLE: test.test_preagg_hint(r1), PREAGGREGATION: OFF. Reason: No AggregateInfo"));
         // nereids planner
         PlanChecker.from(connectContext)
                 .analyze(queryWithoutHint)
@@ -436,7 +436,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         String queryWithHint = "select k1, v1 from test_preagg_hint /*+ PREAGGOPEN*/";
         // legacy planner
         Assertions.assertTrue(getSQLPlanOrErrorMsg(queryWithHint).contains(
-                "TABLE: default_cluster:test.test_preagg_hint(r1), PREAGGREGATION: ON"));
+                "TABLE: test.test_preagg_hint(r1), PREAGGREGATION: ON"));
         // nereids planner
         PlanChecker.from(connectContext)
                 .analyze(queryWithHint)

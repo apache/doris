@@ -27,5 +27,7 @@
   "c_person": [
     {"name": "Andy", "age": 18},
     {"name": "Tim", "age": 28}
-  ]
+  ],
+  "my_wildcard": "This string can be quite lengthy",
+  "level": "debug"
 }

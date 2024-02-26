@@ -30,7 +30,6 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.planner.Planner;
@@ -38,7 +37,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.system.SystemInfoService;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
@@ -75,7 +73,7 @@ public class DorisAssert {
     }
 
     public DorisAssert useDatabase(String dbName) {
-        ctx.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
+        ctx.setDatabase(dbName);
         return this;
     }
 

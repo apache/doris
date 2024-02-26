@@ -21,8 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -30,8 +28,6 @@ import com.google.common.collect.Lists;
 
 // SHOW COLUMNS
 public class ShowColumnStmt extends ShowStmt {
-    private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
-            InfoSchemaDb.DATABASE_NAME, "COLUMNS");
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
             .addColumn(new Column("Field", ScalarType.createVarchar(20)))
             .addColumn(new Column("Type", ScalarType.createVarchar(20)))
@@ -76,6 +72,10 @@ public class ShowColumnStmt extends ShowStmt {
         this.where = where;
     }
 
+    public String getCtl() {
+        return tableName.getCtl();
+    }
+
     public String getDb() {
         return tableName.getDb();
     }
@@ -98,8 +98,6 @@ public class ShowColumnStmt extends ShowStmt {
             tableName.setDb(db);
         }
         tableName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         if (isVerbose) {
             metaData = META_DATA_VERBOSE;
         } else {
@@ -116,55 +114,56 @@ public class ShowColumnStmt extends ShowStmt {
             return selectStmt;
         }
         analyze(analyzer);
+        TableName columnsTableName = new TableName(tableName.getCtl(), InfoSchemaDb.DATABASE_NAME, "columns");
         // Columns
         SelectList selectList = new SelectList();
         ExprSubstitutionMap aliasMap = new ExprSubstitutionMap();
         // Field
-        SelectListItem item = new SelectListItem(new SlotRef(TABLE_NAME, "COLUMN_NAME"), "Field");
+        SelectListItem item = new SelectListItem(new SlotRef(columnsTableName, "COLUMN_NAME"), "Field");
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Field"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Field"), item.getExpr().clone(null));
         // Type
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "DATA_TYPE"), "Type");
+        item = new SelectListItem(new SlotRef(columnsTableName, "DATA_TYPE"), "Type");
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Type"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Type"), item.getExpr().clone(null));
         // Collation
         if (isVerbose) {
-            item = new SelectListItem(new SlotRef(TABLE_NAME, "COLLATION_NAME"), "Collation");
+            item = new SelectListItem(new SlotRef(columnsTableName, "COLLATION_NAME"), "Collation");
             selectList.addItem(item);
-            aliasMap.put(new SlotRef(null, "Collation"), item.getExpr().clone(null));
+            aliasMap.putNoAnalyze(new SlotRef(null, "Collation"), item.getExpr().clone(null));
         }
         // Null
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "IS_NULLABLE"), "Null");
+        item = new SelectListItem(new SlotRef(columnsTableName, "IS_NULLABLE"), "Null");
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Null"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Null"), item.getExpr().clone(null));
         // Key
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "COLUMN_KEY"), "Key");
+        item = new SelectListItem(new SlotRef(columnsTableName, "COLUMN_KEY"), "Key");
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Key"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Key"), item.getExpr().clone(null));
         // Default
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "COLUMN_DEFAULT"), "Default");
+        item = new SelectListItem(new SlotRef(columnsTableName, "COLUMN_DEFAULT"), "Default");
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Default"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Default"), item.getExpr().clone(null));
         // Extra
-        item = new SelectListItem(new SlotRef(TABLE_NAME, "EXTRA"), "Extra");
+        item = new SelectListItem(new SlotRef(columnsTableName, "EXTRA"), "Extra");
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Extra"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Extra"), item.getExpr().clone(null));
         if (isVerbose) {
             // Privileges
-            item = new SelectListItem(new SlotRef(TABLE_NAME, "PRIVILEGES"), "Privileges");
+            item = new SelectListItem(new SlotRef(columnsTableName, "PRIVILEGES"), "Privileges");
             selectList.addItem(item);
-            aliasMap.put(new SlotRef(null, "Privileges"), item.getExpr().clone(null));
+            aliasMap.putNoAnalyze(new SlotRef(null, "Privileges"), item.getExpr().clone(null));
             // Comment
-            item = new SelectListItem(new SlotRef(TABLE_NAME, "COLUMN_COMMENT"), "Comment");
+            item = new SelectListItem(new SlotRef(columnsTableName, "COLUMN_COMMENT"), "Comment");
             selectList.addItem(item);
-            aliasMap.put(new SlotRef(null, "Comment"), item.getExpr().clone(null));
+            aliasMap.putNoAnalyze(new SlotRef(null, "Comment"), item.getExpr().clone(null));
         }
 
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
-                new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
+                new FromClause(Lists.newArrayList(new TableRef(columnsTableName, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
-        analyzer.setSchemaInfo(tableName.getDb(), tableName.getTbl(), null, tableName.getCtl());
+        analyzer.setSchemaInfo(tableName.getDb(), tableName.getTbl(), tableName.getCtl());
 
         return selectStmt;
     }

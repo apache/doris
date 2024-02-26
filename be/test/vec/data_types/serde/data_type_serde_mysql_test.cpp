@@ -319,7 +319,7 @@ void serialize_and_deserialize_mysql_test() {
     // mysql_writer init
     vectorized::VMysqlResultWriter<false> mysql_writer(nullptr, _output_vexpr_ctxs, nullptr);
 
-    Status st = mysql_writer.append_block(block);
+    Status st = mysql_writer.write(block);
     EXPECT_TRUE(st.ok());
 }
 

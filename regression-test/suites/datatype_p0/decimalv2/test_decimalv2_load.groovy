@@ -85,6 +85,42 @@ suite("test_decimalv2_load", "nonConcurrent") {
     """
 
     sql """
+        drop table if exists test_decimalv2_insert;
+    """
+    sql """
+        CREATE TABLE `test_decimalv2_insert` (
+            `k1` decimalv2(27, 9) null,
+            `k2` decimalv2(27, 9) null
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql "set enable_insert_strict=true;"
+    // overflow, max is inserted
+    sql """
+        insert into test_decimalv2_insert values("999999999999999999999999999999",1);
+    """
+    // underflow, min is inserted
+    sql """
+        insert into test_decimalv2_insert values("-999999999999999999999999999999",2);
+    """
+    sql """
+        insert into test_decimalv2_insert values("999999999999999999.9999999991",3);
+    """
+    sql """
+        insert into test_decimalv2_insert values("-999999999999999999.9999999991",4);
+    """
+    sql """
+        insert into test_decimalv2_insert values("999999999999999999.9999999995",5);
+    """
+    sql """
+        insert into test_decimalv2_insert values("-999999999999999999.9999999995",6);
+    """
+    qt_decimalv2_insert "select * from test_decimalv2_insert order by 2; "
+
+    sql """
         admin set frontend config("enable_decimal_conversion" = "true");
     """
 }

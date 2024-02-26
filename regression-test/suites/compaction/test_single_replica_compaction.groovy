@@ -77,6 +77,26 @@ suite("test_single_replica_compaction", "p2") {
             return out
         } 
 
+        def triggerFullCompaction = { be_host, be_http_port, table_id ->
+            StringBuilder sb = new StringBuilder();
+            sb.append("curl -X POST http://${be_host}:${be_http_port}")
+            sb.append("/api/compaction/run?table_id=")
+            sb.append(table_id)
+            sb.append("&compact_type=full")
+
+            String command = sb.toString()
+            logger.info(command)
+            process = command.execute()
+            code = process.waitFor()
+            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+            out = process.getText()
+            logger.info("Run compaction: code=" + code + ", out=" + out + ", disableAutoCompaction " + disableAutoCompaction + ", err=" + err)
+            if (!disableAutoCompaction) {
+                return "Success, " + out
+            }
+            assertEquals(code, 0)
+            return out
+        }
         def waitForCompaction = { be_host, be_http_port, tablet_id ->
             boolean running = true
             do {
@@ -129,10 +149,10 @@ suite("test_single_replica_compaction", "p2") {
             UNIQUE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "3", "enable_single_replica_compaction" = "true" );
+            PROPERTIES ( "replication_num" = "3", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false" );
         """
 
-        String[][] tablets = sql """ show tablets from ${tableName}; """
+        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // wait for update replica infos
         // be.conf: update_replica_infos_interval_seconds
@@ -145,9 +165,12 @@ suite("test_single_replica_compaction", "p2") {
         // The test table only has one bucket with 3 replicas,
         // and `show tablets` will return 3 different replicas with the same tablet.
         // So we can use the same tablet_id to get tablet/trigger compaction with different backends.
-        String tablet_id = tablets[0][0]
-        for (String[] tablet in tablets) {
-            String trigger_backend_id = tablet[2]
+        String tablet_id = tablets[0].TabletId
+        def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
+        logger.info("tablet: " + tablet_info)
+        def table_id = tablet_info[0].TableId
+        for (def tablet in tablets) {
+            String trigger_backend_id = tablet.BackendId
             def tablet_status = getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
             def fetchFromPeerValue = tablet_status."fetch from peer"
 
@@ -213,8 +236,8 @@ suite("test_single_replica_compaction", "p2") {
 
         // trigger follower be to fetch compaction result
         for (String id in follower_backend_id) {
-            assertTrue(triggerCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id],
-                    "cumulative", tablet_id).contains("Success")); 
+            assertTrue(triggerFullCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], 
+                        table_id).contains("Success")); 
             waitForCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
         }
 
@@ -228,8 +251,8 @@ suite("test_single_replica_compaction", "p2") {
 
         // // trigger follower be to fetch compaction result
         for (String id in follower_backend_id) {
-            assertTrue(triggerCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id],
-                    "base", tablet_id).contains("Success")); 
+            assertTrue(triggerFullCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id],
+                        table_id).contains("Success")); 
             waitForCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
         }
 

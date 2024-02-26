@@ -30,6 +30,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -103,6 +104,7 @@ public abstract class Type {
     public static final ScalarType DECIMAL64 = DEFAULT_DECIMAL64;
     public static final ScalarType DECIMAL128 = DEFAULT_DECIMAL128;
     public static final ScalarType DECIMAL256 = DEFAULT_DECIMAL256;
+    public static final ScalarType WILDCARD_DECIMAL = ScalarType.createDecimalType(-1, -1);
     public static final ScalarType JSONB = new ScalarType(PrimitiveType.JSONB);
     // (ScalarType) ScalarType.createDecimalTypeInternal(-1, -1);
     public static final ScalarType DEFAULT_VARCHAR = ScalarType.createVarcharType(-1);
@@ -123,6 +125,7 @@ public abstract class Type {
     public static final ScalarType VARIANT = new ScalarType(PrimitiveType.VARIANT);
     public static final AnyType ANY_STRUCT_TYPE = new AnyStructType();
     public static final AnyType ANY_ELEMENT_TYPE = new AnyElementType();
+    private static final Map<String, Type> typeMap = new HashMap<>();
 
     private static final Logger LOG = LogManager.getLogger(Type.class);
     private static final ArrayList<ScalarType> integerTypes;
@@ -134,6 +137,43 @@ public abstract class Type {
     private static final ArrayList<Type> mapSubTypes;
     private static final ArrayList<Type> structSubTypes;
     private static final ArrayList<ScalarType> trivialTypes;
+
+    static {
+        typeMap.put("TINYINT", Type.TINYINT);
+        typeMap.put("SMALLINT", Type.SMALLINT);
+        typeMap.put("INT", Type.INT);
+        typeMap.put("BIGINT", Type.BIGINT);
+        typeMap.put("LARGEINT", Type.LARGEINT);
+        typeMap.put("UNSIGNED_TINYINT", Type.UNSUPPORTED);
+        typeMap.put("UNSIGNED_SMALLINT", Type.UNSUPPORTED);
+        typeMap.put("UNSIGNED_INT", Type.UNSUPPORTED);
+        typeMap.put("UNSIGNED_BIGINT", Type.UNSUPPORTED);
+        typeMap.put("FLOAT", Type.FLOAT);
+        typeMap.put("DISCRETE_DOUBLE", Type.DOUBLE);
+        typeMap.put("DOUBLE", Type.DOUBLE);
+        typeMap.put("CHAR", Type.CHAR);
+        typeMap.put("DATE", Type.DATE);
+        typeMap.put("DATEV2", Type.DATEV2);
+        typeMap.put("DATETIMEV2", Type.DATETIMEV2);
+        typeMap.put("DATETIME", Type.DATETIME);
+        typeMap.put("DECIMAL32", Type.DECIMAL32);
+        typeMap.put("DECIMAL64", Type.DECIMAL64);
+        typeMap.put("DECIMAL128I", Type.DECIMAL128);
+        typeMap.put("DECIMAL", Type.DECIMALV2);
+        typeMap.put("VARCHAR", Type.VARCHAR);
+        typeMap.put("STRING", Type.STRING);
+        typeMap.put("JSONB", Type.JSONB);
+        typeMap.put("VARIANT", Type.VARIANT);
+        typeMap.put("BOOLEAN", Type.BOOLEAN);
+        typeMap.put("HLL", Type.HLL);
+        typeMap.put("STRUCT", Type.STRUCT);
+        typeMap.put("LIST", Type.UNSUPPORTED);
+        typeMap.put("MAP", Type.MAP);
+        typeMap.put("OBJECT", Type.UNSUPPORTED);
+        typeMap.put("ARRAY", Type.ARRAY);
+        typeMap.put("QUANTILE_STATE", Type.QUANTILE_STATE);
+        typeMap.put("AGG_STATE", Type.AGG_STATE);
+    }
 
     static {
         integerTypes = Lists.newArrayList();
@@ -407,6 +447,47 @@ public abstract class Type {
             return PrimitiveType.typeWithPrecision.contains(((ArrayType) this).getItemType().getPrimitiveType());
         }
         return false;
+    }
+
+    public String hideVersionForVersionColumn(Boolean isToSql) {
+        if (isDatetimeV2()) {
+            StringBuilder typeStr = new StringBuilder("DATETIME");
+            if (((ScalarType) this).getScalarScale() > 0) {
+                typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
+            }
+            return typeStr.toString();
+        } else if (isDateV2()) {
+            return "DATE";
+        } else if (isDecimalV3()) {
+            StringBuilder typeStr = new StringBuilder("DECIMAL");
+            ScalarType sType = (ScalarType) this;
+            int scale = sType.getScalarScale();
+            int precision = sType.getScalarPrecision();
+            // not default
+            if (!sType.isDefaultDecimal()) {
+                typeStr.append("(").append(precision).append(", ").append(scale)
+                        .append(")");
+            }
+            return typeStr.toString();
+        } else if (isArrayType()) {
+            String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn(isToSql);
+            return "ARRAY<" + nestedDesc + ">";
+        } else if (isMapType()) {
+            String keyDesc = ((MapType) this).getKeyType().hideVersionForVersionColumn(isToSql);
+            String valueDesc = ((MapType) this).getValueType().hideVersionForVersionColumn(isToSql);
+            return "MAP<" + keyDesc + "," + valueDesc + ">";
+        } else if (isStructType()) {
+            List<String> fieldDesc = new ArrayList<>();
+            StructType structType = (StructType) this;
+            for (int i = 0; i < structType.getFields().size(); i++) {
+                StructField field = structType.getFields().get(i);
+                fieldDesc.add(field.getName() + ":" + field.getType().hideVersionForVersionColumn(isToSql));
+            }
+            return "STRUCT<" + StringUtils.join(fieldDesc, ",") + ">";
+        } else if (isToSql) {
+            return this.toSql();
+        }
+        return this.toString();
     }
 
     public boolean isDecimalV3OrContainsDecimalV3() {
@@ -2202,6 +2283,7 @@ public abstract class Type {
     }
 
     public static boolean matchExactType(Type type1, Type type2, boolean ignorePrecision) {
+        // we should make type decide to match other for itself to impl matchesType instead of switch case types
         if (type1.matchesType(type2)) {
             if (PrimitiveType.typeWithPrecision.contains(type2.getPrimitiveType())) {
                 // For types which has precision and scale, we also need to check quality between precisions and scales
@@ -2214,22 +2296,6 @@ public abstract class Type {
                     return isSameDecimalTypeWithDifferentPrecision(((ScalarType) type2).decimalPrecision(),
                             ((ScalarType) type1).decimalPrecision());
                 }
-            } else if (type2.isArrayType()) {
-                // For types array, we also need to check contains null for case like
-                // cast(array<not_null(int)> as array<int>)
-                if (((ArrayType) type2).getContainsNull() != ((ArrayType) type1).getContainsNull()) {
-                    return false;
-                }
-                return matchExactType(((ArrayType) type2).getItemType(), ((ArrayType) type1).getItemType());
-            } else if (type2.isMapType()) {
-                if (((MapType) type2).getIsKeyContainsNull() != ((MapType) type1).getIsKeyContainsNull()) {
-                    return false;
-                }
-                if (((MapType) type2).getIsValueContainsNull() != ((MapType) type1).getIsValueContainsNull()) {
-                    return false;
-                }
-                return matchExactType(((MapType) type2).getKeyType(), ((MapType) type1).getKeyType())
-                    && matchExactType(((MapType) type2).getValueType(), ((MapType) type1).getValueType());
             } else {
                 return true;
             }
@@ -2251,5 +2317,8 @@ public abstract class Type {
         }
         return false;
     }
-}
 
+    public static Type getTypeFromTypeName(String typeName) {
+        return typeMap.getOrDefault(typeName, Type.UNSUPPORTED);
+    }
+}

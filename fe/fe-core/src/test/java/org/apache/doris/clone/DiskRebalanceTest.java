@@ -84,7 +84,6 @@ public class DiskRebalanceTest {
         Config.used_capacity_percent_max_diff = 1.0;
         Config.balance_slot_num_per_path = 1;
         db = new Database(1, "test db");
-        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         new Expectations() {
             {
                 env.getInternalCatalog();

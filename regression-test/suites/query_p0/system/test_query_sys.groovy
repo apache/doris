@@ -46,4 +46,9 @@ suite("test_query_sys", "query,p0") {
     // INFORMATION_SCHEMA
     sql "SELECT table_name FROM INFORMATION_SCHEMA.TABLES where table_schema=\"test_query_db\" and TABLE_TYPE = \"BASE TABLE\" order by table_name"
     sql "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = \"${tableName}\" AND table_schema =\"test_query_db\" AND column_name LIKE \"k%\""
+
+    test {
+        sql "select * from http_stream('format'='csv');"
+        exception "No Alive backends"
+    }
 }

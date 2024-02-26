@@ -85,10 +85,11 @@ suite("create_table_use_policy") {
         DISTRIBUTED BY HASH (k1) BUCKETS 3
         PROPERTIES(
             "storage_policy" = "test_create_table_use_policy",
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "false"
         );
     """
-
+    // storage policy is disabled on mow table
     assertEquals(create_table_use_created_policy.size(), 1);
 
     sql """

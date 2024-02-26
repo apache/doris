@@ -42,8 +42,10 @@ class VTupleIsNullPredicate final : public VExpr {
 public:
     explicit VTupleIsNullPredicate(const TExprNode& node);
     ~VTupleIsNullPredicate() override = default;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
 
     [[nodiscard]] bool is_constant() const override { return false; }
 

@@ -19,7 +19,7 @@ suite("test_in_null") {
      sql """ DROP TABLE IF EXISTS db """
      sql """
         CREATE TABLE IF NOT EXISTS db(
-              `id` INT NULL ,
+              `id` INT NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1

@@ -46,7 +46,7 @@ public class ShowTableCreationStmtTest {
     public void testNormal() throws UserException {
         ShowTableCreationStmt stmt = new ShowTableCreationStmt("doris", "log");
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW TABLE CREATION FROM `testCluster:doris` LIKE `log`", stmt.toString());
+        Assert.assertEquals("SHOW TABLE CREATION FROM `doris` LIKE `log`", stmt.toString());
         Assert.assertEquals(5, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Database", stmt.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Table", stmt.getMetaData().getColumn(1).getName());
@@ -57,6 +57,6 @@ public class ShowTableCreationStmtTest {
     public void testNoDb() throws UserException {
         ShowTableCreationStmt stmt = new ShowTableCreationStmt(null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:testDb", stmt.getDbName());
+        Assert.assertEquals("testDb", stmt.getDbName());
     }
 }

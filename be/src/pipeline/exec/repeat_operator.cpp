@@ -34,12 +34,11 @@ OPERATOR_CODE_GENERATOR(RepeatOperator, StatefulOperator)
 
 Status RepeatOperator::prepare(doris::RuntimeState* state) {
     // just for speed up, the way is dangerous
-    _child_block.reset(_node->get_child_block());
+    _child_block = _node->get_child_block();
     return StatefulOperator::prepare(state);
 }
 
 Status RepeatOperator::close(doris::RuntimeState* state) {
-    _child_block.release();
     return StatefulOperator::close(state);
 }
 
@@ -159,6 +158,7 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int 
         cur_col++;
     }
 
+    const auto rows = child_block->rows();
     // Fill grouping ID to block
     for (auto slot_idx = 0; slot_idx < p._grouping_list.size(); slot_idx++) {
         DCHECK_LT(slot_idx, p._output_tuple_desc->slots().size());
@@ -170,9 +170,7 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int 
         DCHECK(!p._output_slots[cur_col]->is_nullable());
 
         auto* col = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column_ptr);
-        for (size_t i = 0; i < child_block->rows(); ++i) {
-            col->insert_value(val);
-        }
+        col->insert_raw_integers(val, rows);
         cur_col++;
     }
 

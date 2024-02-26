@@ -131,8 +131,8 @@ public class LocationPathTest {
         Assertions.assertTrue(locationPath.get().startsWith("cosn://"));
         // BE
         beLocation = locationPath.toScanRangeLocation().toString();
-        Assertions.assertTrue(beLocation.startsWith("cosn://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, null).first, FileSystemType.OFS);
+        Assertions.assertTrue(beLocation.startsWith("s3://"));
+        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, null).first, FileSystemType.S3);
 
         locationPath = new LocationPath("ofs://test.com", rangeProps);
         // FE
@@ -171,8 +171,22 @@ public class LocationPathTest {
         LocationPath locationPath = new LocationPath("unknown://test.com", rangeProps);
         // FE
         Assertions.assertTrue(locationPath.get().startsWith("unknown://"));
+        Assertions.assertTrue(locationPath.getLocationType() == LocationPath.LocationType.UNKNOWN);
         // BE
         String beLocation = locationPath.toScanRangeLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("unknown://"));
+    }
+
+    @Test
+    public void testNoSchemeLocation() {
+        // when use unknown location, pass to BE
+        Map<String, String> rangeProps = new HashMap<>();
+        LocationPath locationPath = new LocationPath("/path/to/local", rangeProps);
+        // FE
+        Assertions.assertTrue(locationPath.get().equalsIgnoreCase("/path/to/local"));
+        Assertions.assertTrue(locationPath.getLocationType() == LocationPath.LocationType.NOSCHEME);
+        // BE
+        String beLocation = locationPath.toScanRangeLocation().toString();
+        Assertions.assertTrue(beLocation.equalsIgnoreCase("/path/to/local"));
     }
 }

@@ -55,6 +55,12 @@ CREATE CATALOG hudi PROPERTIES (
 );
 ```
 
+Optional configuration parameters:
+
+|name|description|default|
+|---|---|---|
+|use_hive_sync_partition|Use hms synchronized partition data|false|
+
 ## Column Type Mapping
 
 Same as that in Hive Catalogs. See the relevant section in [Hive](./hive.md).

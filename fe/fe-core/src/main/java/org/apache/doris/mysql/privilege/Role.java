@@ -242,7 +242,9 @@ public class Role implements Writable, GsonPostProcessable {
         if (ctl != null && wanted == PrivPredicate.SHOW && checkAnyPrivWithinCatalog(ctl)) {
             return true;
         }
-        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        }
         return false;
     }
 
@@ -288,7 +290,9 @@ public class Role implements Writable, GsonPostProcessable {
             return true;
         }
 
-        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        }
         return false;
     }
 
@@ -360,7 +364,9 @@ public class Role implements Writable, GsonPostProcessable {
             return true;
         }
 
-        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        }
         return false;
     }
 
@@ -391,7 +397,9 @@ public class Role implements Writable, GsonPostProcessable {
             return true;
         }
 
-        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        }
         return false;
     }
 
@@ -412,7 +420,9 @@ public class Role implements Writable, GsonPostProcessable {
             return true;
         }
 
-        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        }
         return false;
     }
 
@@ -628,6 +638,9 @@ public class Role implements Writable, GsonPostProcessable {
             return;
         }
         existingPriv.remove(privs);
+        if (existingPriv.isEmpty()) {
+            tblPatternToPrivs.remove(tblPattern);
+        }
         revokePrivs(tblPattern, privs);
         revokeCols(colPrivileges);
     }
@@ -785,7 +798,9 @@ public class Role implements Writable, GsonPostProcessable {
             PrivBitSet privs = entry.getValue();
             if (privs.containsPrivs(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV, Privilege.USAGE_PRIV)
                     && tblPattern.getPrivLevel() != PrivLevel.GLOBAL) {
-                LOG.debug("rectify privs {}: {} -> {}", roleName, tblPattern, privs);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("rectify privs {}: {} -> {}", roleName, tblPattern, privs);
+                }
                 PrivBitSet copiedPrivs = privs.copy();
                 copiedPrivs.and(PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV, Privilege.USAGE_PRIV));
                 modifiedGlobalPrivs.or(copiedPrivs);
@@ -793,8 +808,10 @@ public class Role implements Writable, GsonPostProcessable {
                 privs.unset(Privilege.USAGE_PRIV.getIdx());
                 privs.unset(Privilege.NODE_PRIV.getIdx());
                 privs.unset(Privilege.ADMIN_PRIV.getIdx());
-                LOG.debug("alter rectify privs {}: {} -> {}, modified global priv: {}",
-                        roleName, tblPattern, privs, modifiedGlobalPrivs);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("alter rectify privs {}: {} -> {}, modified global priv: {}",
+                            roleName, tblPattern, privs, modifiedGlobalPrivs);
+                }
             }
         }
         if (!modifiedGlobalPrivs.isEmpty()) {

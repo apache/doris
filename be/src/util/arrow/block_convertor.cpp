@@ -178,7 +178,7 @@ public:
         size_t start = _cur_start;
         size_t num_rows = _cur_rows;
         if (auto* decimalv2_column = vectorized::check_and_get_column<
-                    vectorized::ColumnDecimal<vectorized::Decimal128>>(
+                    vectorized::ColumnDecimal<vectorized::Decimal128V2>>(
                     *vectorized::remove_nullable(_cur_col))) {
             std::shared_ptr<arrow::DataType> s_decimal_ptr =
                     std::make_shared<arrow::Decimal128Type>(27, 9);
@@ -198,7 +198,7 @@ public:
             }
             return arrow::Status::OK();
         } else if (auto* decimal128_column = vectorized::check_and_get_column<
-                           vectorized::ColumnDecimal<vectorized::Decimal128I>>(
+                           vectorized::ColumnDecimal<vectorized::Decimal128V3>>(
                            *vectorized::remove_nullable(_cur_col))) {
             std::shared_ptr<arrow::DataType> s_decimal_ptr =
                     std::make_shared<arrow::Decimal128Type>(38, decimal128_column->get_scale());

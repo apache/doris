@@ -27,7 +27,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
@@ -232,7 +231,6 @@ public class CatalogTestUtil {
         // db
         Database db = new Database(dbId, testDb1);
         db.createTable(table);
-        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
 
         // add a es table to catalog
         try {

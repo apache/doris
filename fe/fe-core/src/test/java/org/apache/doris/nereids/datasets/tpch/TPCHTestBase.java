@@ -21,7 +21,7 @@ public abstract class TPCHTestBase extends AnalyzeCheckTestBase {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("tpch");
-        connectContext.setDatabase("default_cluster:tpch");
+        connectContext.setDatabase("tpch");
         TPCHUtils.createTables(this);
     }
 }

@@ -1,1 +1,1 @@
-SELECT cast(repo:name as string), count() FROM github_events WHERE lower(cast(payload:comment.body as string)) LIKE '%spark%' GROUP BY cast(repo:name as string) ORDER BY count() DESC, cast(repo:name as string) ASC LIMIT 50
+-- SELECT cast(repo["name"] as string), count() FROM github_events WHERE lower(cast(payload["comment"]["body"] as string)) LIKE '%spark%' GROUP BY cast(repo["name"] as string) ORDER BY count() DESC, cast(repo["name"] as string) ASC LIMIT 50

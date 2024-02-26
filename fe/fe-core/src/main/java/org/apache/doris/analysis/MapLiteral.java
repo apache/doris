@@ -155,9 +155,19 @@ public class MapLiteral extends LiteralExpr {
     public String getStringValue() {
         List<String> list = new ArrayList<>(children.size());
         for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
-            list.add(children.get(i).getStringValue() + ":" + children.get(i + 1).getStringValue());
+            list.add(getStringValue(children.get(i)) + ":" + getStringValue(children.get(i + 1)));
         }
         return "{" + StringUtils.join(list, ", ") + "}";
+    }
+
+    private String getStringValue(Expr expr) {
+        if (expr instanceof NullLiteral) {
+            return "null";
+        }
+        if (expr instanceof StringLiteral) {
+            return "\"" + expr.getStringValue() + "\"";
+        }
+        return expr.getStringValue();
     }
 
     @Override

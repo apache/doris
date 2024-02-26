@@ -22,7 +22,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
@@ -103,12 +102,10 @@ public class TableNameInfo implements Writable {
             }
         }
         if (Strings.isNullOrEmpty(db)) {
-            db = ClusterNamespace.getFullName(ctx.getClusterName(), ctx.getDatabase());
+            db = ctx.getDatabase();
             if (Strings.isNullOrEmpty(db)) {
                 throw new AnalysisException("No database selected");
             }
-        } else {
-            db = ClusterNamespace.getFullName(ctx.getClusterName(), db);
         }
 
         if (Strings.isNullOrEmpty(tbl)) {

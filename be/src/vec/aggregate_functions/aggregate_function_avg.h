@@ -85,7 +85,7 @@ struct AggregateFunctionAvgData {
             DecimalV2Value decimal_val_count(count, 0);
             DecimalV2Value decimal_val_sum(sum);
             DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
-            Decimal128 ret(cal_ret.value());
+            Decimal128V2 ret(cal_ret.value());
             return ret;
         } else {
             if constexpr (IsDecimal256<T>) {
@@ -113,15 +113,15 @@ class AggregateFunctionAvg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
 public:
     using ResultType = std::conditional_t<
-            IsDecimalV2<T>, Decimal128,
+            IsDecimalV2<T>, Decimal128V2,
             std::conditional_t<IsDecimalNumber<T>, typename Data::ResultType, Float64>>;
     using ResultDataType = std::conditional_t<
-            IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
+            IsDecimalV2<T>, DataTypeDecimal<Decimal128V2>,
             std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<typename Data::ResultType>,
                                DataTypeNumber<Float64>>>;
     using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
     using ColVecResult = std::conditional_t<
-            IsDecimalV2<T>, ColumnDecimal<Decimal128>,
+            IsDecimalV2<T>, ColumnDecimal<Decimal128V2>,
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<typename Data::ResultType>,
                                ColumnVector<Float64>>>;
 

@@ -37,18 +37,18 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class EmptySetSourceOperator final : public SourceOperator<EmptySetSourceOperatorBuilder> {
+class EmptySetSourceOperator final : public SourceOperator<vectorized::VEmptySetNode> {
 public:
     EmptySetSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* empty_set_node);
     bool can_read() override { return true; }
 };
 
-class EmptySetLocalState final : public PipelineXLocalState<FakeDependency> {
+class EmptySetLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(EmptySetLocalState);
 
     EmptySetLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeDependency>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~EmptySetLocalState() = default;
 };
 

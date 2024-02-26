@@ -22,6 +22,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -37,7 +38,6 @@ import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
@@ -53,6 +53,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TEtlState;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -61,11 +62,9 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.common.collect.Table;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
@@ -137,109 +136,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected String comment = "";
 
-
-    public static class LoadStatistic {
-        // number of rows processed on BE, this number will be updated periodically by query report.
-        // A load job may has several load tasks(queries), and each task has several fragments.
-        // each fragment will report independently.
-        // load task id -> fragment id -> rows count
-        private Table<TUniqueId, TUniqueId, Long> counterTbl = HashBasedTable.create();
-
-        // load task id -> fragment id -> load bytes
-        private Table<TUniqueId, TUniqueId, Long> loadBytes = HashBasedTable.create();
-
-        // load task id -> unfinished backend id list
-        private Map<TUniqueId, List<Long>> unfinishedBackendIds = Maps.newHashMap();
-        // load task id -> all backend id list
-        private Map<TUniqueId, List<Long>> allBackendIds = Maps.newHashMap();
-
-        // number of file to be loaded
-        public int fileNum = 0;
-        public long totalFileSizeB = 0;
-
-        // init the statistic of specified load task
-        public synchronized void initLoad(TUniqueId loadId, Set<TUniqueId> fragmentIds, List<Long> relatedBackendIds) {
-            counterTbl.rowMap().remove(loadId);
-            for (TUniqueId fragId : fragmentIds) {
-                counterTbl.put(loadId, fragId, 0L);
-            }
-            loadBytes.rowMap().remove(loadId);
-            for (TUniqueId fragId : fragmentIds) {
-                loadBytes.put(loadId, fragId, 0L);
-            }
-            allBackendIds.put(loadId, relatedBackendIds);
-            // need to get a copy of relatedBackendIds, so that when we modify the "relatedBackendIds" in
-            // allBackendIds, the list in unfinishedBackendIds will not be changed.
-            unfinishedBackendIds.put(loadId, Lists.newArrayList(relatedBackendIds));
-        }
-
-        public synchronized void removeLoad(TUniqueId loadId) {
-            counterTbl.rowMap().remove(loadId);
-            loadBytes.rowMap().remove(loadId);
-            unfinishedBackendIds.remove(loadId);
-            allBackendIds.remove(loadId);
-        }
-
-        public synchronized void updateLoadProgress(long backendId, TUniqueId loadId, TUniqueId fragmentId,
-                                                    long rows, long bytes, boolean isDone) {
-            if (counterTbl.contains(loadId, fragmentId)) {
-                counterTbl.put(loadId, fragmentId, rows);
-            }
-
-            if (loadBytes.contains(loadId, fragmentId)) {
-                loadBytes.put(loadId, fragmentId, bytes);
-            }
-            if (isDone && unfinishedBackendIds.containsKey(loadId)) {
-                unfinishedBackendIds.get(loadId).remove(backendId);
-            }
-        }
-
-        public synchronized long getScannedRows() {
-            long total = 0;
-            for (long rows : counterTbl.values()) {
-                total += rows;
-            }
-            return total;
-        }
-
-        public synchronized long getLoadBytes() {
-            long total = 0;
-            for (long bytes : loadBytes.values()) {
-                total += bytes;
-            }
-            return total;
-        }
-
-        public synchronized String toJson() {
-            long total = 0;
-            for (long rows : counterTbl.values()) {
-                total += rows;
-            }
-            long totalBytes = 0;
-            for (long bytes : loadBytes.values()) {
-                totalBytes += bytes;
-            }
-
-            Map<String, Object> details = Maps.newHashMap();
-            details.put("ScannedRows", total);
-            details.put("LoadBytes", totalBytes);
-            details.put("FileNumber", fileNum);
-            details.put("FileSize", totalFileSizeB);
-            details.put("TaskNumber", counterTbl.rowMap().size());
-            details.put("Unfinished backends", getPrintableMap(unfinishedBackendIds));
-            details.put("All backends", getPrintableMap(allBackendIds));
-            Gson gson = new Gson();
-            return gson.toJson(details);
-        }
-
-        private Map<String, List<Long>> getPrintableMap(Map<TUniqueId, List<Long>> map) {
-            Map<String, List<Long>> newMap = Maps.newHashMap();
-            for (Map.Entry<TUniqueId, List<Long>> entry : map.entrySet()) {
-                newMap.put(DebugUtil.printId(entry.getKey()), entry.getValue());
-            }
-            return newMap;
-        }
-    }
+    protected List<TPipelineWorkloadGroup> tWorkloadGroups = null;
 
     public LoadJob(EtlJobType jobType) {
         this.jobType = jobType;
@@ -682,10 +579,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (abortTxn) {
             // abort txn
             try {
-                LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
-                        .add("transaction_id", transactionId)
-                        .add("msg", "begin to abort txn")
-                        .build());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
+                            .add("transaction_id", transactionId)
+                            .add("msg", "begin to abort txn")
+                            .build());
+                }
                 Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, transactionId, failMsg.getMsg());
             } catch (UserException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
@@ -860,7 +759,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         LoadJob job = null;
         EtlJobType type = EtlJobType.valueOf(Text.readString(in));
         if (type == EtlJobType.BROKER) {
-            job = new BrokerLoadJob();
+            job = EnvFactory.getInstance().createBrokerLoadJob();
         } else if (type == EtlJobType.SPARK) {
             job = new SparkLoadJob();
         } else if (type == EtlJobType.INSERT || type == EtlJobType.INSERT_JOB) {
@@ -1268,5 +1167,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public LoadStatistic getLoadStatistic() {
         return loadStatistic;
+    }
+
+    public void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
+        this.tWorkloadGroups = tWorkloadGroups;
     }
 }

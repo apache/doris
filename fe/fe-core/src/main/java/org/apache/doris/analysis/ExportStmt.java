@@ -103,6 +103,7 @@ public class ExportStmt extends StatementBase {
 
     private String maxFileSize;
     private String deleteExistingFiles;
+    private String withBom;
     private SessionVariable sessionVariables;
 
     private String qualifiedUser;
@@ -124,9 +125,12 @@ public class ExportStmt extends StatementBase {
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
         this.timeout = DEFAULT_TIMEOUT;
 
-        Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
-                ConnectContext.get().getSessionVariable());
-        this.sessionVariables = optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable());
+        // ConnectionContext may not exist when in replay thread
+        if (ConnectContext.get() != null) {
+            this.sessionVariables = VariableMgr.cloneSessionVariable(ConnectContext.get().getSessionVariable());
+        } else {
+            this.sessionVariables = VariableMgr.cloneSessionVariable(VariableMgr.getDefaultSessionVariable());
+        }
     }
 
     @Override
@@ -225,6 +229,7 @@ public class ExportStmt extends StatementBase {
         exportJob.setParallelism(this.parallelism);
         exportJob.setMaxFileSize(this.maxFileSize);
         exportJob.setDeleteExistingFiles(this.deleteExistingFiles);
+        exportJob.setWithBom(this.withBom);
 
         if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -261,7 +266,7 @@ public class ExportStmt extends StatementBase {
         table.readLock();
         try {
             // check table
-            if (!table.isPartitioned()) {
+            if (!table.isPartitionedTable()) {
                 throw new AnalysisException("Table[" + tblName.getTbl() + "] is not partitioned.");
             }
             Table.TableType tblType = table.getType();
@@ -351,6 +356,9 @@ public class ExportStmt extends StatementBase {
             // generate a random label
             this.label = "export_" + UUID.randomUUID();
         }
+
+        // with bom
+        this.withBom = properties.getOrDefault(OutFileClause.PROP_WITH_BOM, "false");
     }
 
     private void checkColumns() throws DdlException {

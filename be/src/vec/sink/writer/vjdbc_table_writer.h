@@ -44,13 +44,11 @@ public:
         return init_to_write(profile);
     }
 
-    Status append_block(vectorized::Block& block) override;
+    Status write(vectorized::Block& block) override;
+
+    Status finish(RuntimeState* state) override { return JdbcConnector::finish_trans(); }
 
     Status close(Status s) override { return JdbcConnector::close(s); }
-
-    bool in_transaction() override { return TableConnector::_is_in_transaction; }
-
-    Status commit_trans() override { return JdbcConnector::finish_trans(); }
 
 private:
     JdbcConnectorParam _param;

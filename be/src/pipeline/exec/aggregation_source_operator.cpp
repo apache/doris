@@ -17,6 +17,7 @@
 
 #include "aggregation_source_operator.h"
 
+#include <memory>
 #include <string>
 
 #include "common/exception.h"
@@ -49,9 +50,6 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _serialize_data_timer = ADD_TIMER(profile(), "SerializeDataTime");
     _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
     auto& p = _parent->template cast<AggSourceOperatorX>();
-    if (p._is_streaming) {
-        _shared_state->data_queue->set_source_dependency(_dependency);
-    }
     if (p._without_key) {
         if (p._needs_finalize) {
             _executor.get_result = std::bind<Status>(&AggLocalState::_get_without_key_result, this,
@@ -141,13 +139,13 @@ Status AggLocalState::_reset_hash_table() {
                     }
                 });
 
-                ss.aggregate_data_container.reset(new vectorized::AggregateDataContainer(
+                ss.aggregate_data_container = std::make_unique<vectorized::AggregateDataContainer>(
                         sizeof(typename HashTableType::key_type),
                         ((ss.total_size_of_aggregate_states + ss.align_aggregate_states - 1) /
                          ss.align_aggregate_states) *
-                                ss.align_aggregate_states));
-                hash_table = HashTableType();
-                ss.agg_arena_pool.reset(new vectorized::Arena);
+                                ss.align_aggregate_states);
+                agg_method.hash_table.reset(new HashTableType());
+                ss.agg_arena_pool = std::make_unique<vectorized::Arena>();
                 return Status::OK();
             },
             ss.agg_data->method_variant);
@@ -506,8 +504,9 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
                 if (!column_type->is_nullable() || data_types[i]->is_nullable() ||
                     !remove_nullable(column_type)->equals(*data_types[i])) {
                     return Status::InternalError(
-                            "column_type not match data_types, column_type={}, data_types={}",
-                            column_type->get_name(), data_types[i]->get_name());
+                            "node id = {}, column_type not match data_types, column_type={}, "
+                            "data_types={}",
+                            _parent->node_id(), column_type->get_name(), data_types[i]->get_name());
                 }
             }
 
@@ -527,9 +526,8 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
 }
 
 AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                                       const DescriptorTbl& descs, bool is_streaming)
+                                       const DescriptorTbl& descs)
         : Base(pool, tnode, operator_id, descs),
-          _is_streaming(is_streaming),
           _needs_finalize(tnode.agg_node.need_finalize),
           _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 

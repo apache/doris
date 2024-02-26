@@ -38,7 +38,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class DataGenOperator : public SourceOperator<DataGenOperatorBuilder> {
+class DataGenOperator : public SourceOperator<vectorized::VDataGenFunctionScanNode> {
 public:
     DataGenOperator(OperatorBuilderBase* operator_builder, ExecNode* datagen_node);
 

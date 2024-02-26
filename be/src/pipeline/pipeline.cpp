@@ -17,8 +17,8 @@
 
 #include "pipeline.h"
 
-#include <ostream>
-#include <typeinfo>
+#include <memory>
+#include <string>
 #include <utility>
 
 #include "pipeline/exec/operator.h"
@@ -26,13 +26,14 @@
 namespace doris::pipeline {
 
 void Pipeline::_init_profile() {
-    std::stringstream ss;
-    ss << "Pipeline"
-       << " (pipeline id=" << _pipeline_id << ")";
-    _pipeline_profile.reset(new RuntimeProfile(ss.str()));
+    auto s = fmt::format("Pipeline (pipeline id={})", _pipeline_id);
+    _pipeline_profile = std::make_unique<RuntimeProfile>(std::move(s));
 }
 
 Status Pipeline::build_operators() {
+    _name.reserve(_operator_builders.size() * 10);
+    _name.append(std::to_string(id()));
+
     OperatorPtr pre;
     for (auto& operator_t : _operator_builders) {
         auto o = operator_t->build_operator();
@@ -40,6 +41,11 @@ Status Pipeline::build_operators() {
             static_cast<void>(o->set_child(pre));
         }
         _operators.emplace_back(o);
+
+        _name.push_back('-');
+        _name.append(std::to_string(operator_t->id()));
+        _name.append(o->get_name());
+
         pre = std::move(o);
     }
     return Status::OK();
@@ -54,6 +60,7 @@ Status Pipeline::add_operator(OperatorBuilderPtr& op) {
 }
 
 Status Pipeline::add_operator(OperatorXPtr& op) {
+    op->set_parallel_tasks(num_tasks());
     operatorXs.emplace_back(op);
     if (op->is_source()) {
         std::reverse(operatorXs.begin(), operatorXs.end());
@@ -70,14 +77,14 @@ Status Pipeline::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status Pipeline::set_sink(OperatorBuilderPtr& sink_) {
-    if (_sink) {
+Status Pipeline::set_sink_builder(OperatorBuilderPtr& sink_) {
+    if (_sink_builder) {
         return Status::InternalError("set sink twice");
     }
     if (!sink_->is_sink()) {
         return Status::InternalError("should set a sink operator but {}", typeid(sink_).name());
     }
-    _sink = sink_;
+    _sink_builder = sink_;
     return Status::OK();
 }
 

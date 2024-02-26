@@ -131,6 +131,7 @@ class RegressionTest {
         actionExecutors = Executors.newFixedThreadPool(config.actionParallel, actionFactory)
 
         loadPlugins(config)
+        installDorisCompose(config)
     }
 
     static List<ScriptSource> findScriptSources(String root, Predicate<String> directoryFilter,
@@ -396,6 +397,23 @@ class RegressionTest {
                 })
             }
         })
+    }
+
+    static void installDorisCompose(Config config) {
+        if (config.excludeDockerTest) {
+            return
+        }
+        def requirements = new File(config.dorisComposePath).getParent() + "/requirements.txt"
+        def cmd = "python -m pip install --user -r " + requirements
+        def proc = cmd.execute()
+        def sout = new StringBuilder()
+        def serr = new StringBuilder()
+        proc.consumeProcessOutput(sout, serr)
+        proc.waitForOrKill(120_000)
+        if (proc.exitValue() != 0) {
+            log.warn("install doris compose requirements failed: code=${proc.exitValue()}, "
+                    + "output: ${sout.toString()}, error: ${serr.toString()}")
+        }
     }
 
     static void printPassed() {

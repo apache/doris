@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FdFactory;
+import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -210,7 +213,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     @Override
     public List<? extends Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>()
-                .addAll(groupByExpressions)
                 .addAll(outputExpressions)
                 .build();
     }
@@ -361,6 +363,31 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         // group by keys is unique
         fdBuilder.addUniqueSlot(groupByKeys);
         fdBuilder.pruneSlots(outputSet);
+
+        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
+        fdBuilder.addFdItems(fdItems);
+
         return fdBuilder.build();
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+
+        ImmutableSet<SlotReference> groupByExprs = getGroupByExpressions().stream()
+                .filter(SlotReference.class::isInstance)
+                .map(SlotReference.class::cast)
+                .collect(ImmutableSet.toImmutableSet());
+
+        // inherit from child
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
+        builder.addAll(childItems);
+
+        // todo: fill the table sets
+        TableFdItem fdItem = FdFactory.INSTANCE.createTableFdItem(groupByExprs, true,
+                false, ImmutableSet.of());
+        builder.add(fdItem);
+
+        return builder.build();
     }
 }

@@ -37,7 +37,7 @@ namespace doris {
 class PageCacheHandle;
 
 template <typename TAllocator>
-class PageBase : private TAllocator, public LRUCacheValueBase {
+class PageBase : private TAllocator {
 public:
     PageBase() : _data(nullptr), _size(0), _capacity(0) {}
 
@@ -157,12 +157,6 @@ public:
     void insert(const CacheKey& key, DataPage* data, PageCacheHandle* handle,
                 segment_v2::PageTypePB page_type, bool in_memory = false);
 
-    // Page cache available check.
-    // When percentage is set to 0 or 100, the index or data cache will not be allocated.
-    bool is_cache_available(segment_v2::PageTypePB page_type) {
-        return _get_page_cache(page_type) != nullptr;
-    }
-
 private:
     StoragePageCache();
 
@@ -177,26 +171,19 @@ private:
     Cache* _get_page_cache(segment_v2::PageTypePB page_type) {
         switch (page_type) {
         case segment_v2::DATA_PAGE: {
-            if (_data_page_cache) {
-                return _data_page_cache->get();
-            }
-            return nullptr;
+            return _data_page_cache->cache();
         }
         case segment_v2::INDEX_PAGE: {
-            if (_index_page_cache) {
-                return _index_page_cache->get();
-            }
-            return nullptr;
+            return _index_page_cache->cache();
         }
         case segment_v2::PRIMARY_KEY_INDEX_PAGE: {
-            if (_pk_index_page_cache) {
-                return _pk_index_page_cache->get();
-            }
-            return nullptr;
+            return _pk_index_page_cache->cache();
         }
         default:
-            return nullptr;
+            LOG(FATAL) << "get error type page cache";
         }
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
     }
 };
 
@@ -229,11 +216,6 @@ public:
     Slice data() const {
         DataPage* cache_value = (DataPage*)_cache->value(_handle);
         return Slice(cache_value->data(), cache_value->size());
-    }
-
-    void update_last_visit_time() {
-        DataPage* cache_value = (DataPage*)_cache->value(_handle);
-        cache_value->last_visit_time = UnixMillis();
     }
 
 private:

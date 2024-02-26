@@ -105,7 +105,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
 
         // gc
         sb.append(Joiner.on(" ").join(HELP, JVM_GC, "jvm gc stat\n"));
-        sb.append(Joiner.on(" ").join(TYPE, JVM_GC, "\n"));
+        sb.append(Joiner.on(" ").join(TYPE, JVM_GC, "gauge\n"));
         for (GarbageCollector gc : jvmStats.getGc()) {
             sb.append(JVM_GC).append("{");
             sb.append("name=\"").append(gc.getName()).append(" Count").append("\", ").append("type=\"count\"} ")

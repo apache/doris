@@ -52,7 +52,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 + "UNIQUE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
     }
 
     @Test

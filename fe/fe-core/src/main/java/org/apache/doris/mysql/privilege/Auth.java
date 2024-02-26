@@ -27,6 +27,7 @@ import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetLdapPassVar;
 import org.apache.doris.analysis.SetPassVar;
@@ -60,7 +61,6 @@ import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
 import com.google.common.base.Joiner;
@@ -83,6 +83,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+
 
 public class Auth implements Writable {
     private static final Logger LOG = LogManager.getLogger(Auth.class);
@@ -273,8 +274,10 @@ public class Auth implements Writable {
     // ==== Catalog ====
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
-            LOG.debug("should not check NODE priv in catalog level. user: {}, catalog: {}",
-                    currentUser, ctl);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("should not check NODE priv in catalog level. user: {}, catalog: {}",
+                        currentUser, ctl);
+            }
             return false;
         }
         readLock();
@@ -294,8 +297,10 @@ public class Auth implements Writable {
     // ==== Database ====
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
-            LOG.debug("should not check NODE priv in Database level. user: {}, db: {}",
-                    currentUser, db);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("should not check NODE priv in Database level. user: {}, db: {}",
+                        currentUser, db);
+            }
             return false;
         }
         readLock();
@@ -316,7 +321,9 @@ public class Auth implements Writable {
     // ==== Table ====
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
-            LOG.debug("should check NODE priv in GLOBAL level. user: {}, db: {}, tbl: {}", currentUser, db, tbl);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("should check NODE priv in GLOBAL level. user: {}, db: {}, tbl: {}", currentUser, db, tbl);
+            }
             return false;
         }
         readLock();
@@ -388,6 +395,12 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
+    }
+
+    // ==== cloud ====
+    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
+                                  PrivPredicate wanted, ResourceTypeEnum type) {
+        throw new RuntimeException("Auth.checkCloudPriv is not implemented");
     }
 
     // ==== Other ====
@@ -857,7 +870,9 @@ public class Auth implements Writable {
 
     public void replaySetLdapPassword(LdapInfo info) {
         ldapInfo = info;
-        LOG.debug("finish replaying ldap admin password.");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("finish replaying ldap admin password.");
+        }
     }
 
     public void refreshLdap(RefreshLdapStmt refreshLdapStmt) {
@@ -954,12 +969,18 @@ public class Auth implements Writable {
             throws UserException {
         writeLock();
         try {
-            propertyMgr.updateUserProperty(user, properties);
+            propertyMgr.updateUserProperty(user, properties, isReplay);
             if (!isReplay) {
                 UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
                 Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
             }
             LOG.info("finished to set properties for user: {}", user);
+        } catch (DdlException e) {
+            if (isReplay && e.getMessage().contains("Unknown user property")) {
+                LOG.warn("ReplayUpdateUserProperty failed, maybe FE rolled back version, " + e.getMessage());
+            } else {
+                throw e;
+            }
         } finally {
             writeUnlock();
         }
@@ -996,6 +1017,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getMaxQueryInstances(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public int getParallelFragmentExecInstanceNum(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getParallelFragmentExecInstanceNum(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -1114,7 +1144,7 @@ public class Auth implements Writable {
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
             // ============== Roles ==============
-            userAuthInfo.add(ldapUserInfo.getPaloRoles().stream().map(role -> role.getRoleName())
+            userAuthInfo.add(ldapUserInfo.getRoles().stream().map(role -> role.getRoleName())
                     .collect(Collectors.joining(",")));
         } else {
             User user = userManager.getUserByUserIdentity(userIdent);
@@ -1695,8 +1725,7 @@ public class Auth implements Writable {
             CatalogPrivEntry catalogPrivEntry = (CatalogPrivEntry) privEntry;
             TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(catalogPrivEntry.origCtl),
                     "*", "*");
-            String clusterName = ClusterNamespace.getClusterNameFromFullName(catalogPrivEntry.origCtl);
-            tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
+            tablePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(catalogPrivEntry.userIdentity),
                     tablePattern, catalogPrivEntry.privSet);
             roleManager.addOrMergeRole(newRole, false);
@@ -1707,8 +1736,7 @@ public class Auth implements Writable {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) privEntry;
             TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(dbPrivEntry.origCtl),
                     ClusterNamespace.getNameFromFullName(dbPrivEntry.origDb), "*");
-            String clusterName = ClusterNamespace.getClusterNameFromFullName(dbPrivEntry.origCtl);
-            tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
+            tablePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(dbPrivEntry.userIdentity),
                     tablePattern, dbPrivEntry.privSet);
             roleManager.addOrMergeRole(newRole, false);
@@ -1720,8 +1748,7 @@ public class Auth implements Writable {
             TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(tblPrivEntry.origCtl),
                     ClusterNamespace.getNameFromFullName(tblPrivEntry.origDb),
                     ClusterNamespace.getNameFromFullName(tblPrivEntry.getOrigTbl()));
-            String clusterName = ClusterNamespace.getClusterNameFromFullName(tblPrivEntry.origCtl);
-            tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
+            tablePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(tblPrivEntry.userIdentity),
                     tablePattern, tblPrivEntry.privSet);
             roleManager.addOrMergeRole(newRole, false);

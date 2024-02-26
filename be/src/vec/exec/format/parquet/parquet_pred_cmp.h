@@ -163,7 +163,7 @@ private:
             break;
         case TYPE_DECIMALV2:
             if constexpr (std::is_same_v<CppType, DecimalV2Value>) {
-                size_t max_precision = max_decimal_precision<Decimal128>();
+                size_t max_precision = max_decimal_precision<Decimal128V2>();
                 if (col_schema->parquet_schema.precision < 1 ||
                     col_schema->parquet_schema.precision > max_precision ||
                     col_schema->parquet_schema.scale > max_precision) {
@@ -171,19 +171,19 @@ private:
                 }
                 int v2_scale = DecimalV2Value::SCALE;
                 if (physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-                    min_value = DecimalV2Value(
-                            _decode_binary_decimal<Decimal128>(col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(
-                            _decode_binary_decimal<Decimal128>(col_schema, encoded_max, v2_scale));
-                } else if (physical_type == tparquet::Type::INT32) {
-                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128, Int32>(
+                    min_value = DecimalV2Value(_decode_binary_decimal<Decimal128V2>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128, Int32>(
+                    max_value = DecimalV2Value(_decode_binary_decimal<Decimal128V2>(
+                            col_schema, encoded_max, v2_scale));
+                } else if (physical_type == tparquet::Type::INT32) {
+                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int32>(
+                            col_schema, encoded_min, v2_scale));
+                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int32>(
                             col_schema, encoded_max, v2_scale));
                 } else if (physical_type == tparquet::Type::INT64) {
-                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128, Int64>(
+                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int64>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128, Int64>(
+                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int64>(
                             col_schema, encoded_max, v2_scale));
                 } else {
                     return false;
@@ -199,7 +199,7 @@ private:
         case TYPE_DECIMAL128I:
             if constexpr (std::is_same_v<CppType, Decimal32> ||
                           std::is_same_v<CppType, Decimal64> ||
-                          std::is_same_v<CppType, Decimal128I>) {
+                          std::is_same_v<CppType, Decimal128V3>) {
                 size_t max_precision = max_decimal_precision<CppType>();
                 if (col_schema->parquet_schema.precision < 1 ||
                     col_schema->parquet_schema.precision > max_precision ||

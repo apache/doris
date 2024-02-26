@@ -17,8 +17,6 @@
 
 package org.apache.doris.avro;
 
-import org.apache.doris.avro.AvroFileCache.AvroFileMeta;
-
 import org.apache.avro.Schema;
 import org.apache.avro.mapred.AvroWrapper;
 import org.apache.avro.mapred.Pair;
@@ -44,12 +42,12 @@ public class HDFSFileReader extends AvroReader {
     }
 
     @Override
-    public void open(AvroFileMeta avroFileMeta, boolean tableSchema) throws IOException {
+    public void open(AvroFileContext avroFileContext, boolean tableSchema) throws IOException {
         fileSystem = FileSystem.get(URI.create(url), new Configuration());
-        if (tableSchema) {
-            openSchemaReader();
-        } else {
-            openDataReader(avroFileMeta);
+        openSchemaReader();
+        if (!tableSchema) {
+            avroFileContext.setSchema(schemaReader.getSchema());
+            openDataReader(avroFileContext);
         }
     }
 

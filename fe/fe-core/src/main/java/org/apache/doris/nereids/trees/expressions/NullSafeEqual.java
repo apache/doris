@@ -31,11 +31,19 @@ import java.util.List;
  */
 public class NullSafeEqual extends EqualPredicate implements AlwaysNotNullable {
     public NullSafeEqual(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "<=>");
+        this(left, right, false);
+    }
+
+    public NullSafeEqual(Expression left, Expression right, boolean inferred) {
+        super(ImmutableList.of(left, right), "<=>", inferred);
     }
 
     private NullSafeEqual(List<Expression> children) {
-        super(children, "<=>");
+        this(children, false);
+    }
+
+    private NullSafeEqual(List<Expression> children, boolean inferred) {
+        super(children, "<=>", inferred);
     }
 
     @Override
@@ -51,7 +59,12 @@ public class NullSafeEqual extends EqualPredicate implements AlwaysNotNullable {
     @Override
     public NullSafeEqual withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new NullSafeEqual(children);
+        return new NullSafeEqual(children, this.isInferred());
+    }
+
+    @Override
+    public Expression withInferred(boolean inferred) {
+        return new NullSafeEqual(this.children, inferred);
     }
 
     @Override

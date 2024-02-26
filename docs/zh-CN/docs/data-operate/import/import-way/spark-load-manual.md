@@ -748,7 +748,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
   如果 `JAVA_HOME` 环境变量没有设置，会报 `yarn application kill failed. app id: xxx, load job id: xxx, msg: which: no xxx/lib/yarn-client/hadoop/bin/yarn in ((null))  Error: JAVA_HOME is not set and could not be found` 错误
 
-- 使用 Spark Load 时没有打印 SparkLauncher 的启动日志。
+- 使用 Spark Load 时没有打印 SparkLauncher 的启动日志或者报错`start spark app failed. error: Waiting too much time to get appId from handle. spark app state: UNKNOWN, loadJobId:xxx`
 
   在`<`SPARK_HOME`>`/conf下，添加log4j.properties配置文件，并配置日志级别为INFO。
 

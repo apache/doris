@@ -23,7 +23,7 @@ suite("array_agg") {
        CREATE TABLE `test_array_agg` (
         `id` int(11) NOT NULL,
         `label_name` varchar(32) default null,
-        `value_field` string default null,
+        `value_field` string default null
     ) ENGINE=OLAP
     DUPLICATE KEY(`id`)
     COMMENT 'OLAP'

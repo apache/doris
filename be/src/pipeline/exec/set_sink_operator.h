@@ -49,7 +49,7 @@ public:
 };
 
 template <bool is_intersect>
-class SetSinkOperator : public StreamingOperator<SetSinkOperatorBuilder<is_intersect>> {
+class SetSinkOperator : public StreamingOperator<vectorized::VSetOperationNode<is_intersect>> {
 public:
     SetSinkOperator(OperatorBuilderBase* operator_builder,
                     vectorized::VSetOperationNode<is_intersect>* set_node);
@@ -60,33 +60,19 @@ private:
     vectorized::VSetOperationNode<is_intersect>* _set_node = nullptr;
 };
 
-class SetSinkDependency final : public Dependency {
-public:
-    using SharedState = SetSharedState;
-    SetSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SetSinkDependency", true, query_ctx) {}
-    ~SetSinkDependency() override = default;
-
-    void set_cur_child_id(int id) {
-        ((SetSharedState*)_shared_state.get())->probe_finished_children_dependency[id] = this;
-    }
-};
-
 template <bool is_intersect>
 class SetSinkOperatorX;
 
 template <bool is_intersect>
-class SetSinkLocalState final : public PipelineXSinkLocalState<SetSinkDependency> {
+class SetSinkLocalState final : public PipelineXSinkLocalState<SetSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(SetSinkLocalState);
-    using Base = PipelineXSinkLocalState<SetSinkDependency>;
+    using Base = PipelineXSinkLocalState<SetSharedState>;
     using Parent = SetSinkOperatorX<is_intersect>;
 
     SetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-
-    int64_t* mem_used() { return &_shared_state->mem_used; };
 
 private:
     friend class SetSinkOperatorX<is_intersect>;
@@ -111,7 +97,12 @@ public:
     friend class SetSinkLocalState<is_intersect>;
     SetSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
                      const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, tnode.node_id), _cur_child_id(child_id) {}
+            : Base(sink_id, tnode.node_id, tnode.node_id),
+              _cur_child_id(child_id),
+              _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
+                                        : tnode.except_node.is_colocate),
+              _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
+                                            : tnode.except_node.result_expr_lists[child_id]) {}
     ~SetSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -126,6 +117,10 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    DataDistribution required_data_distribution() const override {
+        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+    }
 
 private:
     template <class HashTableContext, bool is_intersected>
@@ -140,6 +135,8 @@ private:
     int _child_quantity;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
+    const bool _is_colocate;
+    const std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child_x;
 };
 

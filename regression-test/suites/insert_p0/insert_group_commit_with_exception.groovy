@@ -70,7 +70,7 @@ suite("insert_group_commit_with_exception") {
             );
             """
 
-            sql """ set enable_insert_group_commit = true; """
+            sql """ set group_commit = async_mode; """
             if (item == "nereids") {
                 sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
@@ -157,7 +157,7 @@ suite("insert_group_commit_with_exception") {
             try (Connection connection = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword)) {
                 Statement statement = connection.createStatement();
                 statement.execute("use ${db}");
-                statement.execute("set enable_insert_group_commit = true;");
+                statement.execute("set group_commit = eventual_consistency;");
                 if (item == "nereids") {
                     statement.execute("set enable_nereids_dml = true;");
                     statement.execute("set enable_nereids_planner=true;");

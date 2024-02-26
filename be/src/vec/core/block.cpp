@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
 #include <snappy.h>
+#include <streamvbyte.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -190,18 +191,6 @@ void Block::insert(const ColumnWithTypeAndName& elem) {
 void Block::insert(ColumnWithTypeAndName&& elem) {
     index_by_name.emplace(elem.name, data.size());
     data.emplace_back(std::move(elem));
-}
-
-void Block::insert_unique(const ColumnWithTypeAndName& elem) {
-    if (index_by_name.end() == index_by_name.find(elem.name)) {
-        insert(elem);
-    }
-}
-
-void Block::insert_unique(ColumnWithTypeAndName&& elem) {
-    if (index_by_name.end() == index_by_name.find(elem.name)) {
-        insert(std::move(elem));
-    }
 }
 
 void Block::erase(const std::set<size_t>& positions) {
@@ -415,9 +404,9 @@ size_t Block::bytes() const {
             for (const auto& e : data) {
                 ss << e.name + " ";
             }
-            LOG(FATAL) << fmt::format(
-                    "Column {} in block is nullptr, in method bytes. All Columns are {}", elem.name,
-                    ss.str());
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
+                            elem.name, ss.str());
         }
         res += elem.column->byte_size();
     }
@@ -433,9 +422,9 @@ size_t Block::allocated_bytes() const {
             for (const auto& e : data) {
                 ss << e.name + " ";
             }
-            LOG(FATAL) << fmt::format(
-                    "Column {} in block is nullptr, in method allocated_bytes. All Columns are {}",
-                    elem.name, ss.str());
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
+                            elem.name, ss.str());
         }
         res += elem.column->allocated_bytes();
     }
@@ -497,7 +486,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
     // content
     for (size_t row_num = begin; row_num < rows() && row_num < row_limit + begin; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
-            if (data[i].column->empty()) {
+            if (!data[i].column || data[i].column->empty()) {
                 out << std::setfill(' ') << std::setw(1) << "|" << std::setw(headers_size[i])
                     << std::right;
                 continue;
@@ -568,6 +557,16 @@ Columns Block::get_columns() const {
     size_t num_columns = data.size();
     Columns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
+        columns[i] = data[i].column->convert_to_full_column_if_const();
+    }
+    return columns;
+}
+
+Columns Block::get_columns_and_convert() {
+    size_t num_columns = data.size();
+    Columns columns(num_columns);
+    for (size_t i = 0; i < num_columns; ++i) {
+        data[i].column = data[i].column->convert_to_full_column_if_const();
         columns[i] = data[i].column;
     }
     return columns;
@@ -577,14 +576,16 @@ MutableColumns Block::mutate_columns() {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
-        columns[i] = data[i].column ? (*std::move(data[i].column)).assume_mutable()
+        columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
                                     : data[i].type->create_column();
     }
     return columns;
 }
 
 void Block::set_columns(MutableColumns&& columns) {
-    /// TODO: assert if |columns| doesn't match |data|!
+    DCHECK_GE(columns.size(), data.size())
+            << fmt::format("Invalid size of columns, columns size: {}, data size: {}",
+                           columns.size(), data.size());
     size_t num_columns = data.size();
     for (size_t i = 0; i < num_columns; ++i) {
         data[i].column = std::move(columns[i]);
@@ -592,7 +593,9 @@ void Block::set_columns(MutableColumns&& columns) {
 }
 
 void Block::set_columns(const Columns& columns) {
-    /// TODO: assert if |columns| doesn't match |data|!
+    DCHECK_GE(columns.size(), data.size())
+            << fmt::format("Invalid size of columns, columns size: {}, data size: {}",
+                           columns.size(), data.size());
     size_t num_columns = data.size();
     for (size_t i = 0; i < num_columns; ++i) {
         data[i].column = columns[i];
@@ -712,7 +715,7 @@ void Block::swap(Block& other) noexcept {
 void Block::swap(Block&& other) noexcept {
     clear();
     data = std::move(other.data);
-    initialize_index_by_name();
+    index_by_name = std::move(other.index_by_name);
     row_same_bit = std::move(other.row_same_bit);
 }
 
@@ -739,7 +742,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
                     const auto result_size = column->assume_mutable()->filter(filter);
                     if (result_size != count) {
                         throw Exception(ErrorCode::INTERNAL_ERROR,
-                                        "result_size not euqal with filter_size, result_size={}, "
+                                        "result_size not equal with filter_size, result_size={}, "
                                         "filter_size={}",
                                         result_size, count);
                     }
@@ -851,6 +854,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
     std::string column_values;
     try {
+        // TODO: After support c++23, we should use resize_and_overwrite to replace resize
         column_values.resize(content_uncompressed_size);
     } catch (...) {
         std::string msg = fmt::format("Try to alloc {} bytes for pblock column values failed.",
@@ -864,34 +868,36 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
         buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
     }
     *uncompressed_bytes = content_uncompressed_size;
+    const size_t serialize_bytes = buf - column_values.data();
+    *compressed_bytes = serialize_bytes;
+    column_values.resize(serialize_bytes + STREAMVBYTE_PADDING);
 
     // compress
-    if (config::compress_rowbatches && content_uncompressed_size > 0) {
+    if (compression_type != segment_v2::NO_COMPRESSION && content_uncompressed_size > 0) {
         SCOPED_RAW_TIMER(&_compress_time_ns);
         pblock->set_compression_type(compression_type);
-        pblock->set_uncompressed_size(content_uncompressed_size);
+        pblock->set_uncompressed_size(serialize_bytes);
 
         BlockCompressionCodec* codec;
         RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
 
         faststring buf_compressed;
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(codec->compress(
-                Slice(column_values.data(), content_uncompressed_size), &buf_compressed));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                codec->compress(Slice(column_values.data(), serialize_bytes), &buf_compressed));
         size_t compressed_size = buf_compressed.size();
-        if (LIKELY(compressed_size < content_uncompressed_size)) {
+        if (LIKELY(compressed_size < serialize_bytes)) {
+            // TODO: rethink the logic here may copy again ?
             pblock->set_column_values(buf_compressed.data(), buf_compressed.size());
             pblock->set_compressed(true);
             *compressed_bytes = compressed_size;
         } else {
             pblock->set_column_values(std::move(column_values));
-            *compressed_bytes = content_uncompressed_size;
         }
 
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
     } else {
         pblock->set_column_values(std::move(column_values));
-        *compressed_bytes = content_uncompressed_size;
     }
     if (!allow_transfer_large_data && *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
         return Status::InternalError("The block is large than 2GB({}), can not send by Protobuf.",
@@ -932,7 +938,7 @@ void MutableBlock::swap(MutableBlock& another) noexcept {
     _columns.swap(another._columns);
     _data_types.swap(another._data_types);
     _names.swap(another._names);
-    initialize_index_by_name();
+    index_by_name.swap(another.index_by_name);
 }
 
 void MutableBlock::swap(MutableBlock&& another) noexcept {
@@ -940,7 +946,7 @@ void MutableBlock::swap(MutableBlock&& another) noexcept {
     _columns = std::move(another._columns);
     _data_types = std::move(another._data_types);
     _names = std::move(another._names);
-    initialize_index_by_name();
+    index_by_name = std::move(another.index_by_name);
 }
 
 void MutableBlock::add_row(const Block* block, int row) {
@@ -1023,6 +1029,7 @@ Block MutableBlock::to_block(int start_column) {
 
 Block MutableBlock::to_block(int start_column, int end_column) {
     ColumnsWithTypeAndName columns_with_schema;
+    columns_with_schema.reserve(end_column - start_column);
     for (size_t i = start_column; i < end_column; ++i) {
         columns_with_schema.emplace_back(std::move(_columns[i]), _data_types[i], _names[i]);
     }
@@ -1109,7 +1116,9 @@ void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_
 size_t MutableBlock::allocated_bytes() const {
     size_t res = 0;
     for (const auto& col : _columns) {
-        res += col->allocated_bytes();
+        if (col) {
+            res += col->allocated_bytes();
+        }
     }
 
     return res;

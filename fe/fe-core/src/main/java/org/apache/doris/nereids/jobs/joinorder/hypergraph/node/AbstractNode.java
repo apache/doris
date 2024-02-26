@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.FilterEdge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -30,17 +35,34 @@ import java.util.Set;
  */
 public class AbstractNode {
     protected final int index;
-    protected final List<Edge> edges;
+    protected final List<JoinEdge> joinEdges;
+    protected final List<FilterEdge> filterEdges;
     protected final Plan plan;
 
     protected AbstractNode(Plan plan, int index, List<Edge> edges) {
         this.index = index;
-        this.edges = edges;
+        this.joinEdges = new ArrayList<>();
+        this.filterEdges = new ArrayList<>();
         this.plan = plan;
+        edges.forEach(e -> {
+            if (e instanceof JoinEdge) {
+                joinEdges.add((JoinEdge) e);
+            } else if (e instanceof FilterEdge) {
+                filterEdges.add((FilterEdge) e);
+            }
+        });
+    }
+
+    public List<JoinEdge> getJoinEdges() {
+        return ImmutableList.copyOf(joinEdges);
     }
 
     public List<Edge> getEdges() {
-        return edges;
+        return ImmutableList
+                .<Edge>builder()
+                .addAll(joinEdges)
+                .addAll(filterEdges)
+                .build();
     }
 
     public int getIndex() {
@@ -61,7 +83,11 @@ public class AbstractNode {
      * @param edge the edge that references this node
      */
     public void attachEdge(Edge edge) {
-        edges.add(edge);
+        if (edge instanceof JoinEdge) {
+            joinEdges.add((JoinEdge) edge);
+        } else if (edge instanceof FilterEdge) {
+            filterEdges.add((FilterEdge) edge);
+        }
     }
 
     /**
@@ -70,7 +96,11 @@ public class AbstractNode {
      * @param edge The edge should be removed
      */
     public void removeEdge(Edge edge) {
-        edges.remove(edge);
+        if (edge instanceof JoinEdge) {
+            joinEdges.remove(edge);
+        } else if (edge instanceof FilterEdge) {
+            filterEdges.remove(edge);
+        }
     }
 
     public String getName() {

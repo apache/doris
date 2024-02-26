@@ -23,7 +23,6 @@ import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 
 import lombok.Setter;
 
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class TransientTaskManager {
@@ -51,8 +50,8 @@ public class TransientTaskManager {
         return taskExecutorMap.get(taskId);
     }
 
-    public Long registerMemoryTask(TransientTaskExecutor executor) {
-        Long taskId = UUID.randomUUID().getMostSignificantBits();
+    public Long addMemoryTask(TransientTaskExecutor executor) {
+        Long taskId = executor.getId();
         taskExecutorMap.put(taskId, executor);
         disruptor.tryPublishTask(taskId);
         return taskId;

@@ -48,7 +48,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class UnionSinkOperator final : public StreamingOperator<UnionSinkOperatorBuilder> {
+class UnionSinkOperator final : public StreamingOperator<vectorized::VUnionNode> {
 public:
     UnionSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* node,
                       std::shared_ptr<DataQueue> queue);
@@ -66,24 +66,15 @@ private:
     std::unique_ptr<vectorized::Block> _output_block;
 };
 
-class UnionSinkDependency final : public Dependency {
-public:
-    using SharedState = UnionSharedState;
-    UnionSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "UnionSinkDependency", true, query_ctx) {}
-    ~UnionSinkDependency() override = default;
-    void block() override {}
-};
-
 class UnionSinkOperatorX;
-class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionSinkDependency> {
+class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(UnionSinkLocalState);
     UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _child_row_idx(0) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     friend class UnionSinkOperatorX;
-    using Base = PipelineXSinkLocalState<UnionSinkDependency>;
+    using Base = PipelineXSinkLocalState<UnionSharedState>;
     using Parent = UnionSinkOperatorX;
 
 private:

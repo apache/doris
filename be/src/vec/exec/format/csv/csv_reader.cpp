@@ -462,13 +462,24 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     size_t rows = 0;
 
     bool success = false;
+    bool is_remove_bom = false;
     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
         while (rows < batch_size && !_line_reader_eof) {
             const uint8_t* ptr = nullptr;
             size_t size = 0;
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+
+            // _skip_lines == 0 means this line is the actual data beginning line for the entire file
+            // is_remove_bom means _remove_bom should only execute once
+            if (_skip_lines == 0 && !is_remove_bom) {
+                ptr = _remove_bom(ptr, size);
+                is_remove_bom = true;
+            }
+
+            // _skip_lines > 0 means we do not need to remove bom
             if (_skip_lines > 0) {
                 _skip_lines--;
+                is_remove_bom = true;
                 continue;
             }
             if (size == 0) {
@@ -479,18 +490,29 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             ++rows;
         }
-        for (auto& col : block->mutate_columns()) {
+        auto mutate_columns = block->mutate_columns();
+        for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-
+        block->set_columns(std::move(mutate_columns));
     } else {
         auto columns = block->mutate_columns();
         while (rows < batch_size && !_line_reader_eof) {
             const uint8_t* ptr = nullptr;
             size_t size = 0;
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+
+            // _skip_lines == 0 means this line is the actual data beginning line for the entire file
+            // is_remove_bom means _remove_bom should only execute once
+            if (!is_remove_bom && _skip_lines == 0) {
+                ptr = _remove_bom(ptr, size);
+                is_remove_bom = true;
+            }
+
+            // _skip_lines > 0 means we do not remove bom
             if (_skip_lines > 0) {
                 _skip_lines--;
+                is_remove_bom = true;
                 continue;
             }
             if (size == 0) {
@@ -504,6 +526,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             }
             RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
         }
+        block->set_columns(std::move(columns));
     }
 
     *eof = (rows == 0);
@@ -536,10 +559,11 @@ Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
         } else { // parse csv file with names
             RETURN_IF_ERROR(_parse_col_names(col_names));
         }
+
         for (size_t j = 0; j < col_names->size(); ++j) {
             col_types->emplace_back(TypeDescriptor::create_string_type());
         }
-    } else { // parse csv file without names and types
+    } else { // parse csv file with names and types
         RETURN_IF_ERROR(_parse_col_names(col_names));
         RETURN_IF_ERROR(_parse_col_types(col_names->size(), col_types));
     }
@@ -557,6 +581,7 @@ Status CsvReader::_create_decompressor() {
             compress_type = CompressType::GZIP;
             break;
         case TFileCompressType::LZO:
+        case TFileCompressType::LZOP:
             compress_type = CompressType::LZOP;
             break;
         case TFileCompressType::BZ2:
@@ -927,6 +952,7 @@ Status CsvReader::_parse_col_nums(size_t* col_nums) {
     if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
         return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
+    ptr = _remove_bom(ptr, size);
     _split_line(Slice(ptr, size));
     *col_nums = _split_values.size();
     return Status::OK();
@@ -943,6 +969,7 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
     if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
         return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
+    ptr = _remove_bom(ptr, size);
     _split_line(Slice(ptr, size));
     for (size_t idx = 0; idx < _split_values.size(); ++idx) {
         col_names->emplace_back(_split_values[idx].to_string());
@@ -964,6 +991,15 @@ Status CsvReader::_parse_col_types(size_t col_nums, std::vector<TypeDescriptor>*
     // 5. check _split_values.size must equal to col_nums.
     // 6. fill col_types
     return Status::OK();
+}
+
+const uint8_t* CsvReader::_remove_bom(const uint8_t* ptr, size_t& size) {
+    if (size >= 3 && ptr[0] == 0xEF && ptr[1] == 0xBB && ptr[2] == 0xBF) {
+        LOG(INFO) << "remove bom";
+        size -= 3;
+        return ptr + 3;
+    }
+    return ptr;
 }
 
 Status CsvReader::close() {

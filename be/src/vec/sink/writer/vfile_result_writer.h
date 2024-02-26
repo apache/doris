@@ -58,7 +58,7 @@ public:
 
     VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    Status append_block(Block& block) override;
+    Status write(Block& block) override;
 
     Status close(Status s = Status::OK()) override;
 

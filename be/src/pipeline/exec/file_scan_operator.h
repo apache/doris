@@ -70,8 +70,8 @@ private:
 class FileScanOperatorX final : public ScanOperatorX<FileScanLocalState> {
 public:
     FileScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                      const DescriptorTbl& descs)
-            : ScanOperatorX<FileScanLocalState>(pool, tnode, operator_id, descs),
+                      const DescriptorTbl& descs, int parallel_tasks)
+            : ScanOperatorX<FileScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
               _table_name(tnode.file_scan_node.__isset.table_name ? tnode.file_scan_node.table_name
                                                                   : "") {
         _output_tuple_id = tnode.file_scan_node.tuple_id;

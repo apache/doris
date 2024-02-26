@@ -72,7 +72,7 @@ private:
     std::string _json_rowset_meta;
 };
 
-void do_check(RowsetMeta rowset_meta) {
+void do_check(const RowsetMeta& rowset_meta) {
     RowsetId rowset_id;
     rowset_id.init(540081);
     EXPECT_EQ(rowset_id, rowset_meta.rowset_id());

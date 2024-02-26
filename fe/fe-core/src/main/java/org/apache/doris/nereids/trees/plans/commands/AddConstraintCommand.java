@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -46,6 +45,7 @@ import java.util.Set;
 public class AddConstraintCommand extends Command implements ForwardWithSync {
 
     public static final Logger LOG = LogManager.getLogger(AddConstraintCommand.class);
+
     private final String name;
     private final Constraint constraint;
 
@@ -65,11 +65,11 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             Pair<ImmutableList<String>, TableIf> referencedColumnsAndTable
                     = extractColumnsAndTable(ctx, constraint.toReferenceProject());
             columnsAndTable.second.addForeignConstraint(name, columnsAndTable.first,
-                    referencedColumnsAndTable.second, referencedColumnsAndTable.first);
+                    referencedColumnsAndTable.second, referencedColumnsAndTable.first, false);
         } else if (constraint.isPrimaryKey()) {
-            columnsAndTable.second.addPrimaryKeyConstraint(name, columnsAndTable.first);
+            columnsAndTable.second.addPrimaryKeyConstraint(name, columnsAndTable.first, false);
         } else if (constraint.isUnique()) {
-            columnsAndTable.second.addUniqueConstraint(name, columnsAndTable.first);
+            columnsAndTable.second.addUniqueConstraint(name, columnsAndTable.first, false);
         }
     }
 
@@ -82,8 +82,6 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("Can not found table in constraint " + constraint.toString());
         }
         LogicalCatalogRelation catalogRelation = logicalCatalogRelationSet.iterator().next();
-        Preconditions.checkArgument(catalogRelation.getTable() instanceof Table,
-                "We only support table now but we meet ", catalogRelation.getTable());
         ImmutableList<String> columns = analyzedPlan.getOutput().stream()
                 .map(s -> {
                     Preconditions.checkArgument(s instanceof SlotReference

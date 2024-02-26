@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
+#include <string_view>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "exec/operator.h"
 #include "pipeline.h"
@@ -131,9 +131,6 @@ public:
 
     virtual Status execute(bool* eos);
 
-    // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
-    // this task will enter the `PENDING_FINISH` state.
-    virtual Status try_close(Status exec_status);
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
     virtual Status close(Status exec_status);
@@ -197,8 +194,6 @@ public:
     OperatorPtr get_root() { return _root; }
 
     virtual std::string debug_string();
-
-    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
     void set_task_queue(TaskQueue* task_queue);
     TaskQueue* get_task_queue() { return _task_queue; }
@@ -264,6 +259,36 @@ public:
     bool is_running() { return _running.load(); }
     void set_running(bool running) { _running = running; }
 
+    bool is_exceed_debug_timeout() {
+        if (_has_exceed_timeout) {
+            return true;
+        }
+        // If enable_debug_log_timeout_secs <= 0, then disable the log
+        if (_pipeline_task_watcher.elapsed_time() >
+            config::enable_debug_log_timeout_secs * 1000L * 1000L * 1000L) {
+            _has_exceed_timeout = true;
+            return true;
+        }
+        return false;
+    }
+
+    void log_detail_if_need() {
+        if (config::enable_debug_log_timeout_secs < 1) {
+            return;
+        }
+        if (is_exceed_debug_timeout()) {
+            LOG(INFO) << "query id|instanceid " << print_id(_state->query_id()) << "|"
+                      << print_id(_state->fragment_instance_id())
+                      << " current pipeline exceed run time "
+                      << config::enable_debug_log_timeout_secs << " seconds. Task state "
+                      << get_state_name(get_state()) << "/n task detail:" << debug_string();
+        }
+    }
+
+    RuntimeState* runtime_state() const { return _state; }
+
+    std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
@@ -278,7 +303,7 @@ protected:
     uint32_t _index;
     PipelinePtr _pipeline;
     bool _dependency_finish = false;
-
+    bool _has_exceed_timeout = false;
     bool _prepared;
     bool _opened;
     RuntimeState* _state = nullptr;
@@ -300,8 +325,7 @@ protected:
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
     int _core_id = 0;
-
-    bool _try_close_flag = false;
+    Status _open_status = Status::OK();
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;
@@ -362,9 +386,6 @@ protected:
     int64_t _close_pipeline_time = 0;
 
     RuntimeProfile::Counter* _pip_task_total_timer = nullptr;
-    std::shared_ptr<QueryStatistics> _query_statistics;
-    Status _collect_query_statistics();
-    bool _collect_query_statistics_with_every_batch = false;
 
 private:
     Operators _operators; // left is _source, right is _root

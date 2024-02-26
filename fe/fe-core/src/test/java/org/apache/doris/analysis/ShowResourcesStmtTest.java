@@ -51,28 +51,32 @@ public class ShowResourcesStmtTest {
 
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        ShowResourcesStmt stmt = new ShowResourcesStmt(null, null, null);
+        ShowResourcesStmt stmt = new ShowResourcesStmt(null, null, null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW RESOURCES", stmt.toString());
     }
 
     @Test
     public void testWhere() throws UserException, AnalysisException {
-        ShowResourcesStmt stmt = new ShowResourcesStmt(null, null, null);
+        ShowResourcesStmt stmt = new ShowResourcesStmt(null, null, null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW RESOURCES", stmt.toString());
 
         SlotRef slotRef = new SlotRef(null, "name");
         StringLiteral stringLiteral = new StringLiteral("abc");
         BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, slotRef, stringLiteral);
-        stmt = new ShowResourcesStmt(binaryPredicate, null, new LimitElement(10));
+        stmt = new ShowResourcesStmt(null, binaryPredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW RESOURCES WHERE `name` = \'abc\' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW RESOURCES WHERE (`name` = \'abc\') LIMIT 10", stmt.toString());
 
         LikePredicate likePredicate = new LikePredicate(org.apache.doris.analysis.LikePredicate.Operator.LIKE,
                 slotRef, stringLiteral);
-        stmt = new ShowResourcesStmt(likePredicate, null, new LimitElement(10));
+        stmt = new ShowResourcesStmt(null, likePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW RESOURCES WHERE `name` LIKE \'abc\' LIMIT 10", stmt.toString());
+
+        stmt = new ShowResourcesStmt("m%", likePredicate, null, new LimitElement(10));
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW RESOURCES LIKE \'m%\' LIMIT 10", stmt.toString());
     }
 }

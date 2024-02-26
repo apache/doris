@@ -27,7 +27,6 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Preconditions;
@@ -55,6 +54,7 @@ public class RestBaseController extends BaseController {
     protected static final String LABEL_KEY = "label";
     protected static final String TXN_ID_KEY = "txn_id";
     protected static final String TXN_OPERATION_KEY = "txn_operation";
+    protected static final String SINGLE_REPLICA_KEY = "single_replica";
     private static final Logger LOG = LogManager.getLogger(RestBaseController.class);
 
     public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request,
@@ -67,7 +67,6 @@ public class RestBaseController extends BaseController {
         ctx.setQualifiedUser(authInfo.fullUserName);
         ctx.setRemoteIP(authInfo.remoteIp);
         ctx.setCurrentUserIdentity(currentUser);
-        ctx.setCluster(authInfo.cluster);
         ctx.setThreadLocalInfo();
         return authInfo;
     }
@@ -79,20 +78,8 @@ public class RestBaseController extends BaseController {
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            //username@cluster:password
-            //This is a Doris-specific parsing format in the parseAuthInfo of BaseController.
-            //This is to go directly to BE, but in fact,
-            //BE still needs to take this authentication information and send RPC
-            // to FE to parse the authentication information,
-            //so in the end, the format of this authentication information is parsed on the FE side.
-            //The normal format for fullUserName is actually default_cluster:username
-            //I don't know why the format username@default_cluster is used in parseAuthInfo.
-            //It is estimated that it is compatible with the standard format of username:password.
-            //So here we feel that we can assemble it completely by hand.
-            String clusterName = ConnectContext.get() == null
-                    ? SystemInfoService.DEFAULT_CLUSTER : ConnectContext.get().getClusterName();
             userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName)
-                    + "@" + clusterName  + ":" + authInfo.password;
+                    + ":" + authInfo.password;
         }
         try {
             urlObj = new URI(urlStr);
@@ -183,12 +170,7 @@ public class RestBaseController extends BaseController {
     }
 
     public String getFullDbName(String dbName) {
-        String fullDbName = dbName;
-        String clusterName = ClusterNamespace.getClusterNameFromFullName(fullDbName);
-        if (clusterName == null) {
-            fullDbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName);
-        }
-        return fullDbName;
+        return ClusterNamespace.getNameFromFullName(dbName);
     }
 
     public boolean needRedirect(String scheme) {

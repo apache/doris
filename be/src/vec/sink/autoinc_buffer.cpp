@@ -67,7 +67,7 @@ Status AutoIncIDBuffer::sync_request_ids(size_t length,
             std::swap(_front_buffer, _backend_buffer);
         }
 
-        DCHECK(length <= _front_buffer.second);
+        DCHECK_LE(length, _front_buffer.second);
         result->emplace_back(_front_buffer.first, length);
         _front_buffer.first += length;
         _front_buffer.second -= length;

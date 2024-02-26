@@ -39,8 +39,6 @@ suite("test_group_commit_http_stream_lineitem_normal") {
         log.info("Stream load result: ${result}".toString())
         def json = parseJson(result)
         assertEquals("success", json.Status.toLowerCase())
-        assertTrue(json.GroupCommit)
-        assertTrue(json.Label.startsWith("group_commit_"))
         assertEquals(total_rows, json.NumberTotalRows)
         assertEquals(loaded_rows, json.NumberLoadedRows)
         assertEquals(filtered_rows, json.NumberFilteredRows)
@@ -52,7 +50,7 @@ suite("test_group_commit_http_stream_lineitem_normal") {
         }
     }
     def db = "regression_test_insert_p2"
-    def stream_load_table = "test_stream_load_lineitem_normal_sf1"
+    def stream_load_table = "test_http_stream_lineitem_normal_sf1"
     def create_stream_load_table = {
         sql """ drop table if exists ${stream_load_table}; """
 
@@ -87,6 +85,7 @@ PROPERTIES (
     def process = {
         int total = 0;
         for (int k = 0; k < 3; k++) {
+            logger.info("round:" + k)
             for (int i = 1; i <= 10; i++) {
                 streamLoad {
                     set 'version', '1'
@@ -97,7 +96,7 @@ l_shipmode,l_comment) select c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, 
                     ("format"="csv", "column_separator"="|")
             """
 
-                    set 'group_commit', 'true'
+                    set 'group_commit', 'async_mode'
                     file """${getS3Url()}/regression/tpch/sf1/lineitem.tbl.""" + i
                     unset 'label'
 

@@ -30,7 +30,6 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
@@ -69,10 +68,6 @@ public:
                                   .build(&_s3_file_upload_thread_pool));
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool =
                 std::move(_s3_file_upload_thread_pool);
-        ExecEnv::GetInstance()->_s3_buffer_pool = new io::S3FileBufferPool();
-        io::S3FileBufferPool::GetInstance()->init(
-                config::s3_write_buffer_whole_size, config::s3_write_buffer_size,
-                ExecEnv::GetInstance()->_s3_file_upload_thread_pool.get());
     }
 
     static void TearDownTestSuite() {
@@ -81,8 +76,6 @@ public:
         }
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool->shutdown();
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool = nullptr;
-        delete ExecEnv::GetInstance()->_s3_buffer_pool;
-        ExecEnv::GetInstance()->_s3_buffer_pool = nullptr;
     }
 
     void SetUp() override {

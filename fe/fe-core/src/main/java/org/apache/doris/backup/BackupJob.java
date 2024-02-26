@@ -190,8 +190,10 @@ public class BackupJob extends AbstractJob {
         taskProgress.remove(task.getTabletId());
         Long oldValue = unfinishedTaskIds.remove(task.getTabletId());
         taskErrMsg.remove(task.getTabletId());
-        LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
-                info, unfinishedTaskIds.size(), (oldValue != null), this);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
+                    info, unfinishedTaskIds.size(), (oldValue != null), this);
+        }
 
         return oldValue != null;
     }
@@ -247,8 +249,10 @@ public class BackupJob extends AbstractJob {
         taskProgress.remove(task.getSignature());
         Long oldValue = unfinishedTaskIds.remove(task.getSignature());
         taskErrMsg.remove(task.getSignature());
-        LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
-                unfinishedTaskIds.size(), (oldValue != null), this);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
+                    unfinishedTaskIds.size(), (oldValue != null), this);
+        }
         return oldValue != null;
     }
 
@@ -271,6 +275,28 @@ public class BackupJob extends AbstractJob {
     @Override
     public boolean isCancelled() {
         return state == BackupJobState.CANCELLED;
+    }
+
+    @Override
+    public synchronized Status updateRepo(Repository repo) {
+        this.repo = repo;
+
+        if (this.state == BackupJobState.UPLOADING) {
+            for (Map.Entry<Long, Long> entry : unfinishedTaskIds.entrySet()) {
+                long signature = entry.getKey();
+                long beId = entry.getValue();
+                AgentTask task = AgentTaskQueue.getTask(beId, TTaskType.UPLOAD, signature);
+                if (task == null || task.getTaskType() != TTaskType.UPLOAD) {
+                    continue;
+                }
+                ((UploadTask) task).updateBrokerProperties(
+                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
+            }
+            LOG.info("finished to update upload job properties. {}", this);
+        }
+        LOG.info("finished to update repo of job. {}", this);
+        return Status.OK;
     }
 
     // Polling the job state and do the right things.
@@ -297,7 +323,9 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-        LOG.debug("run backup job: {}", this);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("run backup job: {}", this);
+        }
 
         // run job base on current state
         switch (state) {
@@ -676,7 +704,9 @@ public class BackupJob extends AbstractJob {
             return;
         }
 
-        LOG.debug("waiting {} tablets to upload snapshot. {}", unfinishedTaskIds.size(), this);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("waiting {} tablets to upload snapshot. {}", unfinishedTaskIds.size(), this);
+        }
     }
 
     private void saveMetaInfo() {
@@ -726,7 +756,9 @@ public class BackupJob extends AbstractJob {
             }
             jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId,
                     getContent(), backupMeta, snapshotInfos, tableCommitSeqMap);
-            LOG.debug("job info: {}. {}", jobInfo, this);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("job info: {}. {}", jobInfo, this);
+            }
             File jobInfoFile = new File(jobDir, Repository.PREFIX_JOB_INFO + createTimeStr);
             if (!jobInfoFile.createNewFile()) {
                 status = new Status(ErrCode.COMMON_ERROR, "Failed to create job info file: " + jobInfoFile.toString());
@@ -1032,4 +1064,3 @@ public class BackupJob extends AbstractJob {
         return sb.toString();
     }
 }
-

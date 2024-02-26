@@ -73,6 +73,8 @@ suite("test_string_function") {
     qt_sql "select unhex('68656C6C6F2C646F726973');"
     qt_sql "select unhex('41');"
     qt_sql "select unhex('4142');"
+    qt_sql "select unhex('');"
+    qt_sql "select unhex(NULL);"
 
     qt_sql "select instr(\"abc\", \"b\");"
     qt_sql "select instr(\"abc\", \"d\");"
