@@ -77,31 +77,31 @@ private:
     void install_cpu_metrics();
     // On Intel(R) Xeon(R) CPU E5-2450 0 @ 2.10GHz;
     // read /proc/stat would cost about 170us
-    void update_cpu_metrics();
+    static void update_cpu_metrics();
 
     void install_memory_metrics(BvarMetricEntity* entity);
     void update_memory_metrics();
 
     void install_disk_metrics(const std::set<std::string>& disk_devices);
-    void update_disk_metrics();
+    static void update_disk_metrics();
 
     void install_net_metrics(const std::vector<std::string>& interfaces);
     void update_net_metrics();
 
     void install_fd_metrics(BvarMetricEntity* entity);
-    void update_fd_metrics();
+    static void update_fd_metrics();
 
     void install_snmp_metrics(BvarMetricEntity* entity);
-    void update_snmp_metrics();
+    static void update_snmp_metrics();
 
     void install_load_avg_metrics(BvarMetricEntity* entity);
-    void update_load_avg_metrics();
+    static void update_load_avg_metrics();
 
     void install_proc_metrics(BvarMetricEntity* entity);
-    void update_proc_metrics();
+    static void update_proc_metrics();
 
-    void get_metrics_from_proc_vmstat();
-    void get_cpu_name();
+    static void get_metrics_from_proc_vmstat();
+    static void get_cpu_name();
 
     void install_max_metrics(BvarMetricEntity* entity);
 
