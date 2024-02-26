@@ -193,23 +193,20 @@ message ObjectStoreInfoPB {
 message StorageVaultPB {
     optional string id = 1;
     optional string name = 2;
-    optional HdfsInfoPB hdfs_infos = 3; // HdfsResource
+    optional HdfsParams hdfs_infos = 3; // HdfsResource
 }
 
-message HdfsInfoPB {
-    enum Provider {
-        OSS = 0;
-        S3 =  1;
-        COS = 2;
-        OBS = 3;
-        BOS = 4;
-    }
-    optional int64 ctime = 1;
-    optional int64 mtime = 2;
-    optional Provider provider = 3;
-    optional string external_endpoint = 4;
-    optional string user_id = 5;
-    optional EncryptionInfoPB encryption_info = 6;
+message HdfsParams {
+    optional string fs_name = 1;
+    optional string user = 2;
+    optional string hdfs_kerberos_principal = 3;
+    optional string hdfs_kerberos_keytab = 4;
+    repeated HdfsConf hdfs_confs = 5;
+}
+
+message HdfsConf {
+    optional string key = 1;
+    optional string value = 2;
 }
 
 //==============================================================================
@@ -716,6 +713,11 @@ message GetObjStoreInfoRequest {
     optional string cloud_unique_id = 1; // For auth
 };
 
+message AlterHdfsParams {
+        optional string vault_name = 1;
+        optional HdfsParams hdfs = 2;
+    }
+
 message AlterObjStoreInfoRequest {
     enum Operation {
         UNKNOWN         = 0;
@@ -728,7 +730,7 @@ message AlterObjStoreInfoRequest {
     optional string cloud_unique_id = 1; // For auth
     optional ObjectStoreInfoPB obj = 2;
     optional Operation op = 3;
-    optional HdfsInfoPB hdfs = 4;
+    optional AlterHdfsParams hdfs = 4;
 }
 
 message AlterObjStoreInfoResponse {
@@ -748,6 +750,7 @@ message UpdateAkSkResponse {
 message GetObjStoreInfoResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated ObjectStoreInfoPB obj_info = 2;
+    repeated HdfsParams hdfs_info = 3;
 };
 
 message CreateTabletsRequest {
@@ -865,7 +868,7 @@ message CreateInstanceRequest {
     optional ObjectStoreInfoPB obj_info = 4;
     optional RamUserPB ram_user = 5;
     optional bool sse_enabled = 6;
-    optional HdfsInfoPB hdfs_info = 7;
+    optional HdfsParams hdfs_info = 7;
 }
 
 message CreateInstanceResponse {

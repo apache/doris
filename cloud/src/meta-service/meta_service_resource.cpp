@@ -20,11 +20,14 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <chrono>
+#include <numeric>
+#include <string>
 
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/string_util.h"
 #include "common/sync_point.h"
+#include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/txn_kv.h"
@@ -183,7 +186,8 @@ static int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode
 };
 
 static int process_storage_valut(std::string storage_valut_key, std::string_view instance_id,
-                                 TxnKv* txn_kv, MetaServiceCode& code, std::string& msg) {
+                                 GetObjStoreInfoResponse* response, TxnKv* txn_kv,
+                                 MetaServiceCode& code, std::string& msg) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -209,7 +213,8 @@ static int process_storage_valut(std::string storage_valut_key, std::string_view
         return -1;
     }
     if (storage_valut.has_hdfs_infos()) {
-        // TODO(ByeYue)
+        auto* hdfs_info = response->add_hdfs_info();
+        *hdfs_info = storage_valut.hdfs_infos();
         return 0;
     }
     return 0;
@@ -274,13 +279,66 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     for (const auto& resource_id : instance.resource_ids()) {
         std::string storage_vault_k;
         storage_vault_key({instance_id, resource_id}, &storage_vault_k);
-        if (auto ret =
-                    process_storage_valut(storage_vault_k, instance_id, txn_kv_.get(), code, msg);
+        if (auto ret = process_storage_valut(storage_vault_k, instance_id, response, txn_kv_.get(),
+                                             code, msg);
             ret != 0) {
             return;
         }
     }
     response->mutable_obj_info()->CopyFrom(instance.obj_info());
+}
+
+static std::string next_avaiable_vault_id(const InstanceInfoPB& instance) {
+    std::string vault_id = "1";
+    auto cmp = [](const std::string& prev, const auto& last) {
+        size_t prev_value = std::stoi(prev);
+        size_t last_id = 0;
+        if constexpr (std::is_same_v<decltype(last), ObjectStoreInfoPB>) {
+            last_id = std::stoi(last.id());
+        } else if constexpr (std::is_same_v<decltype(last), std::string>) {
+            last_id = std::stoi(last);
+        } else {
+            static_assert("Should never come here");
+        }
+
+        return prev_value > last_id ? prev : std::to_string(last_id);
+    };
+    ;
+    return std::accumulate(
+            instance.resource_ids().begin(), instance.resource_ids().end(),
+            std::accumulate(instance.obj_info().begin(), instance.obj_info().end(), vault_id, cmp),
+            cmp);
+}
+
+static int add_hdfs_storage_valut(const InstanceInfoPB& instance, TxnKv* txn_kv,
+                                  const AlterHdfsParams& hdfs_param, MetaServiceCode& code,
+                                  std::string& msg) {
+    std::string key;
+    std::string vault_id = next_avaiable_vault_id(instance);
+    storage_vault_key({instance.instance_id(), vault_id}, &key);
+    StorageVaultPB vault;
+    vault.set_id(vault_id);
+    vault.set_name(hdfs_param.vault_name());
+    *vault.mutable_hdfs_infos() = hdfs_param.hdfs();
+    std::string val = vault.SerializeAsString();
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create txn";
+        LOG(WARNING) << msg << " err=" << err;
+        return -1;
+    }
+    err = txn->get(key, &val);
+    LOG(INFO) << "get instance_key=" << hex(key);
+
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get instance, instance_id={}, err={}", instance.instance_id(),
+                          err);
+        return -1;
+    }
+    return 0;
 }
 
 void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* controller,
@@ -452,9 +510,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         ObjectStoreInfoPB last_item;
         last_item.set_ctime(time);
         last_item.set_mtime(time);
-        // Use thr max(max(obj_info), max(resource_ids))
-        size_t vault_id = instance.obj_info().size() + instance.resource_ids().size() + 1;
-        last_item.set_id(std::to_string(vault_id));
+        last_item.set_id(next_avaiable_vault_id(instance));
         if (request->obj().has_user_id()) {
             last_item.set_user_id(request->obj().user_id());
         }
@@ -473,6 +529,10 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         instance.add_obj_info()->CopyFrom(last_item);
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
+        if (auto ret = add_hdfs_storage_valut(instance, txn_kv_.get(), request->hdfs(), code, msg);
+            ret != 0) {
+            return;
+        }
         break;
     }
     default: {
@@ -699,7 +759,7 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
     LOG(INFO) << update_record.str();
 }
 
-static int create_instance_with_object_info(std::string_view instance_id,
+static int create_instance_with_object_info(const InstanceInfoPB& instance,
                                             ObjectStoreInfoPB* obj_info,
                                             const ObjectStoreInfoPB& obj, TxnKv* txn_kv,
                                             bool sse_enabled, MetaServiceCode& code,
@@ -742,7 +802,7 @@ static int create_instance_with_object_info(std::string_view instance_id,
     obj_info->set_provider(obj.provider());
     std::ostringstream oss;
     // create instance's s3 conf, id = 1
-    obj_info->set_id(std::to_string(1));
+    obj_info->set_id(next_avaiable_vault_id(instance));
     auto now_time = std::chrono::system_clock::now();
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
@@ -776,11 +836,20 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     instance.set_name(request->has_name() ? request->name() : "");
     instance.set_status(InstanceInfoPB::NORMAL);
     instance.set_sse_enabled(request->sse_enabled());
-    // TODO(ByteYue): Add hdfs support
-    if (0 != create_instance_with_object_info(instance_id, instance.add_obj_info(),
+    if (request->has_obj_info() &&
+        0 != create_instance_with_object_info(instance, instance.add_obj_info(),
                                               request->obj_info(), txn_kv_.get(),
                                               request->sse_enabled(), code, msg)) {
         return;
+    }
+    // TODO(ByteYue): Reclaim the vault if the following procedure failed
+    if (request->has_hdfs_info()) {
+        AlterHdfsParams hdfs_param;
+        hdfs_param.set_vault_name("Default");
+        *hdfs_param.mutable_hdfs() = request->hdfs_info();
+        if (0 != add_hdfs_storage_valut(instance, txn_kv_.get(), hdfs_param, code, msg)) {
+            return;
+        }
     }
     if (request->has_ram_user()) {
         auto& ram_user = request->ram_user();
