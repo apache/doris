@@ -849,7 +849,7 @@ void SystemBvarMetrics::install_proc_metrics(BvarMetricEntity* entity) {
     proc_metrics_.reset(new ProcBvarMetrics(entity));
 }
 
-void SystemBvarMetrics::update_proc_metrics() {
+static void SystemBvarMetrics::update_proc_metrics() {
 #ifdef BE_TEST
     FILE* fp = fopen(k_ut_stat_path, "r");
 #else
@@ -900,7 +900,7 @@ void SystemBvarMetrics::update_proc_metrics() {
     fclose(fp);
 }
 
-void SystemBvarMetrics::get_metrics_from_proc_vmstat() {
+static void SystemBvarMetrics::get_metrics_from_proc_vmstat() {
 #ifdef BE_TEST
     FILE* fp = fopen(k_ut_vmstat_path, "r");
 #else
@@ -942,7 +942,7 @@ void SystemBvarMetrics::get_metrics_from_proc_vmstat() {
     fclose(fp);
 }
 
-void SystemBvarMetrics::get_cpu_name() {
+static void SystemBvarMetrics::get_cpu_name() {
 #ifdef BE_TEST
     FILE* fp = fopen(k_ut_stat_path, "r");
 #else
@@ -976,14 +976,14 @@ void SystemBvarMetrics::get_cpu_name() {
     fclose(fp);
 }
 
-void SystemBvarMetrics::get_disks_io_time(std::map<std::string, int64_t>* map) {
+static void SystemBvarMetrics::get_disks_io_time(std::map<std::string, int64_t>* map) {
     map->clear();
     for (auto& it : disk_metrics_) {
         map->emplace(it.first, it.second->disk_io_time_ms->get_value());
     }
 }
 
-int64_t SystemBvarMetrics::get_max_io_util(const std::map<std::string, int64_t>& lst_value,
+static int64_t SystemBvarMetrics::get_max_io_util(const std::map<std::string, int64_t>& lst_value,
                                            int64_t interval_sec) {
     int64_t max = 0;
     for (auto& it : disk_metrics_) {
@@ -998,7 +998,7 @@ int64_t SystemBvarMetrics::get_max_io_util(const std::map<std::string, int64_t>&
     return max / interval_sec / 10;
 }
 
-void SystemBvarMetrics::get_network_traffic(std::map<std::string, int64_t>* send_map,
+static void SystemBvarMetrics::get_network_traffic(std::map<std::string, int64_t>* send_map,
                                             std::map<std::string, int64_t>* rcv_map) {
     send_map->clear();
     rcv_map->clear();
@@ -1011,7 +1011,7 @@ void SystemBvarMetrics::get_network_traffic(std::map<std::string, int64_t>* send
     }
 }
 
-void SystemBvarMetrics::get_max_net_traffic(const std::map<std::string, int64_t>& lst_send_map,
+static void SystemBvarMetrics::get_max_net_traffic(const std::map<std::string, int64_t>& lst_send_map,
                                             const std::map<std::string, int64_t>& lst_rcv_map,
                                             int64_t interval_sec, int64_t* send_rate,
                                             int64_t* rcv_rate) {

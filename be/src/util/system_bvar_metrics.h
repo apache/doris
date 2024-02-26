@@ -17,9 +17,13 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "util/bvar_metrics.h"
@@ -102,7 +106,6 @@ private:
 
     void install_max_metrics(BvarMetricEntity* entity);
 
-private:
     static const char* s_hook_name_;
 
     std::map<std::string, CpuBvarMetrics*> cpu_metrics_;
