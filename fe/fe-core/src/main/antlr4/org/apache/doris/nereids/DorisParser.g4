@@ -71,7 +71,7 @@ statementBase
         whereClause                                                    #update
     | explain? cte? DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
-        (USING relation (COMMA relation)*)?
+        (USING relations)?
         whereClause?                                                   #delete
     | LOAD LABEL lableName=identifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
@@ -333,7 +333,11 @@ whereClause
     ;
 
 fromClause
-    : FROM relation (COMMA relation)*
+    : FROM relations
+    ;
+
+relations
+    : relation (COMMA relation)*
     ;
 
 relation
@@ -451,6 +455,7 @@ relationPrimary
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                               #tableValuedFunction
+    | LEFT_PAREN relations RIGHT_PAREN                                     #relationList
     ;
 
 materializedViewName
