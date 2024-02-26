@@ -23,7 +23,7 @@ import java.io.File
 
 suite("stress_test_high_concurrency_load") {
 
-    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '5000')"""
+    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '10000000')"""
 
     // get doris-db from s3
     def dirPath = context.file.parent
