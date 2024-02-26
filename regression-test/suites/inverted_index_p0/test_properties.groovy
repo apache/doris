@@ -132,7 +132,7 @@ suite("test_properties", "p0"){
             "replication_allocation" = "tag.location.default: 1"
         );
     """
-    create_table_with_inverted_index_properties(invalid_property_key, "Invalid index properties, parser must not be none")
+    create_table_with_inverted_index_properties(invalid_property_key, "Invalid inverted index property key:")
     assertEquals(success, false)
 
     def invalid_property_key2 = """
@@ -171,7 +171,7 @@ suite("test_properties", "p0"){
         CREATE TABLE IF NOT EXISTS ${indexTblName}(
             `id` int(11) NULL,
             `c` text NULL,
-            INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="english", "ignore_above"="non_numeric") COMMENT ''
+            INDEX c_idx(`c`) USING INVERTED PROPERTIES("ignore_above"="non_numeric") COMMENT ''
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
         COMMENT 'OLAP'
