@@ -300,6 +300,12 @@ class UpCommand(Command):
                                 action=self._get_parser_bool_action(False),
                                 help="Run containers in frontend. ")
 
+        parser.add_argument(
+            "--fdb-version",
+            type=str,
+            default="7.1.26",
+            help="fdb image version. Only use in cloud cluster.")
+
     def run(self, args):
         if not args.NAME:
             raise Exception("Need specific not empty cluster name")

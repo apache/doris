@@ -216,7 +216,7 @@ class Suite implements GroovyInterceptable {
             return
         }
 
-        boolean pipelineIsCloud = isCloudMode()
+        boolean pipelineIsCloud = isCloudCluster()
         boolean dockerIsCloud = false
         if (options.cloudMode == null) {
             dockerIsCloud = pipelineIsCloud
@@ -991,7 +991,7 @@ class Suite implements GroovyInterceptable {
         return result.last().get(0);
     }
 
-    boolean isCloudMode() {
+    boolean isCloudCluster() {
         return !getFeConfig("cloud_unique_id").isEmpty()
     }
 
