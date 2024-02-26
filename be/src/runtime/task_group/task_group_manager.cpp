@@ -90,10 +90,8 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
     }
 
     // 2 stop active thread
-    for (auto& tg : deleted_task_groups) {
-        // There is not lock here, but the tg may be released by another
-        // thread, so that we should use shared ptr here, not use tg_id
-        tg->try_stop_schedulers();
+    for (uint64_t tg_id : deleted_tg_ids) {
+        _task_groups.at(tg_id)->try_stop_schedulers();
     }
 
     // 3 release resource in memory

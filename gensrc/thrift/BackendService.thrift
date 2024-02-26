@@ -258,6 +258,8 @@ struct TWorkloadGroupInfo {
   7: optional bool enable_memory_overcommit
   8: optional bool enable_cpu_hard_limit
   9: optional i32 scan_thread_num
+  10: optional i32 max_remote_scan_thread_num
+  11: optional i32 min_remote_scan_thread_num
 }
 
 enum TWorkloadMetricType {
