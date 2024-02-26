@@ -674,6 +674,13 @@ primaryExpression
                 (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
                 | unitsAmount=valueExpression)
             RIGHT_PAREN                                                                        #dateCeil
+    | name =(ARRAY_RANGE | SEQUENCE)
+            LEFT_PAREN
+                start=valueExpression COMMA
+                end=valueExpression COMMA
+                (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
+                | unitsAmount=valueExpression)
+            RIGHT_PAREN                                                                        #arrayRange
     | name=CURRENT_DATE                                                                        #currentDate
     | name=CURRENT_TIME                                                                        #currentTime
     | name=CURRENT_TIMESTAMP                                                                   #currentTimestamp
@@ -918,6 +925,7 @@ nonReserved
     | ALIAS
     | ANALYZED
     | ARRAY
+    | ARRAY_RANGE
     | AT
     | AUTHORS
     | AUTO_INCREMENT
@@ -1144,6 +1152,7 @@ nonReserved
     | SCHEMA
     | SECOND
     | SERIALIZABLE
+    | SEQUENCE
     | SESSION
     | SHAPE
     | SKEW
