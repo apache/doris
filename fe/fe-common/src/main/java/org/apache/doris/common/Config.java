@@ -780,7 +780,7 @@ public class Config extends ConfigBase {
      * Do not set this if you know what you are doing.
      */
     @ConfField(mutable = true)
-    public static int expr_depth_limit = 3000;
+    public static int expr_depth_limit = 600;
 
     // Configurations for backup and restore
     /**
