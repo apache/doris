@@ -51,6 +51,7 @@ This function is used in the FROM clause.
 
 the **type** supported types
 - insert: insert into type job
+- mv: materilized view type job
 
 ##### Insert tasks
 
@@ -76,9 +77,54 @@ mysql> desc function tasks("type"="insert");
 +---------------+------+------+-------+---------+-------+
 12 rows in set (0.01 sec)
 ```
+##### MV Tasks
+```sql
+mysql> desc function tasks("type"="mv");
++-----------------------+------+------+-------+---------+-------+
+| Field                 | Type | Null | Key   | Default | Extra |
++-----------------------+------+------+-------+---------+-------+
+| TaskId                | TEXT | No   | false | NULL    | NONE  |
+| JobId                 | TEXT | No   | false | NULL    | NONE  |
+| JobName               | TEXT | No   | false | NULL    | NONE  |
+| MvId                  | TEXT | No   | false | NULL    | NONE  |
+| MvName                | TEXT | No   | false | NULL    | NONE  |
+| MvDatabaseId          | TEXT | No   | false | NULL    | NONE  |
+| MvDatabaseName        | TEXT | No   | false | NULL    | NONE  |
+| Status                | TEXT | No   | false | NULL    | NONE  |
+| ErrorMsg              | TEXT | No   | false | NULL    | NONE  |
+| CreateTime            | TEXT | No   | false | NULL    | NONE  |
+| StartTime             | TEXT | No   | false | NULL    | NONE  |
+| FinishTime            | TEXT | No   | false | NULL    | NONE  |
+| DurationMs            | TEXT | No   | false | NULL    | NONE  |
+| TaskContext           | TEXT | No   | false | NULL    | NONE  |
+| RefreshMode           | TEXT | No   | false | NULL    | NONE  |
+| NeedRefreshPartitions | TEXT | No   | false | NULL    | NONE  |
+| CompletedPartitions   | TEXT | No   | false | NULL    | NONE  |
+| Progress              | TEXT | No   | false | NULL    | NONE  |
++-----------------------+------+------+-------+---------+-------+
+18 rows in set (0.00 sec)
+```
 
+* TaskId: task id
+* JobId: job id
+* JobName: job Name
+* MvId: Materialized View ID
+* MvName: Materialized View Name
+* MvDatabaseId: DB ID of the materialized view
+* MvDatabaseName: Name of the database to which the materialized view belongs
+* Status: task status
+* ErrorMsg: Task failure information
+* CreateTime: Task creation time
+* StartTime: Task start running time
+* FinishTime: Task End Run Time
+* DurationMs: Task runtime
+* TaskContext: Task running parameters
+* RefreshMode: refresh mode
+* NeedRefreshPartitions: The partition information that needs to be refreshed for this task
+* CompletedPartitions: The partition information that has been refreshed for this task
+* Progress: Task running progress
 ### example
-
+#### Insert Tasls
 ```
 mysql>  select * from tasks("type"="insert") limit 1 \G
 *************************** 1. row ***************************
@@ -97,7 +143,21 @@ LoadStatistic: {"Unfinished backends":{},"ScannedRows":0,"TaskNumber":0,"LoadByt
 1 row in set (0.05 sec)
 
 ```
+#### MV Tasks
+
+1. View tasks for all materialized views
+
+```sql
+mysql> select * from tasks("type"="mv");
+```
+
+2. View all tasks with jobName `inner_mtmv_75043`
+
+```sql
+mysql> select * from tasks("type"="mv") where JobName="inner_mtmv_75043";
+```
+
 
 ### keywords
 
- tasks, job, insert
+    tasks, job, insert, mv, materilized view

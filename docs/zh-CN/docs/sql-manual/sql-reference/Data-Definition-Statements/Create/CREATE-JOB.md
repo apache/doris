@@ -59,7 +59,7 @@ CANCELED 即取消状态 ，TASK持久化最终状态，即SUCCESS/FAILED,其他
 
 #### 相关文档   [PAUSE-JOB](../Alter/PAUSE-JOB.md),[RESUME-JOB](../Alter/RESUME-JOB.md),[DROP-JOB](../Drop/DROP-JOB.md), [TVF-JOB](../../../sql-functions/table-functions/job.md),
 
-[TVF-TASKS](../../../sql-functions/table-functions/job-task.md)
+[TVF-TASKS](../../../sql-functions/table-functions/tasks)
 
 ### 语法：
 

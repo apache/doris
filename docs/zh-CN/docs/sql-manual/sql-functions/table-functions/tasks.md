@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Tasks",
+    "title": "TASKS",
     "language": "zh-CN"
 }
 ---
@@ -52,6 +52,7 @@ tasks
 type 支持的类型：
 
 - insert：insert into 类型的任务。
+- mv: mv 类型的任务
 
 ##### Insert tasks
 `tasks("type"="insert");`表结构：
@@ -76,7 +77,54 @@ mysql> desc  function tasks("type"="insert");
 12 rows in set (0.01 sec)
 ```
 
+##### MV tasks
+```sql
+mysql> desc function tasks("type"="mv");
++-----------------------+------+------+-------+---------+-------+
+| Field                 | Type | Null | Key   | Default | Extra |
++-----------------------+------+------+-------+---------+-------+
+| TaskId                | TEXT | No   | false | NULL    | NONE  |
+| JobId                 | TEXT | No   | false | NULL    | NONE  |
+| JobName               | TEXT | No   | false | NULL    | NONE  |
+| MvId                  | TEXT | No   | false | NULL    | NONE  |
+| MvName                | TEXT | No   | false | NULL    | NONE  |
+| MvDatabaseId          | TEXT | No   | false | NULL    | NONE  |
+| MvDatabaseName        | TEXT | No   | false | NULL    | NONE  |
+| Status                | TEXT | No   | false | NULL    | NONE  |
+| ErrorMsg              | TEXT | No   | false | NULL    | NONE  |
+| CreateTime            | TEXT | No   | false | NULL    | NONE  |
+| StartTime             | TEXT | No   | false | NULL    | NONE  |
+| FinishTime            | TEXT | No   | false | NULL    | NONE  |
+| DurationMs            | TEXT | No   | false | NULL    | NONE  |
+| TaskContext           | TEXT | No   | false | NULL    | NONE  |
+| RefreshMode           | TEXT | No   | false | NULL    | NONE  |
+| NeedRefreshPartitions | TEXT | No   | false | NULL    | NONE  |
+| CompletedPartitions   | TEXT | No   | false | NULL    | NONE  |
+| Progress              | TEXT | No   | false | NULL    | NONE  |
++-----------------------+------+------+-------+---------+-------+
+18 rows in set (0.00 sec)
+```
+* TaskId：task id
+* JobId：job id
+* JobName：job名称
+* MvId：物化视图id
+* MvName：物化视图名称
+* MvDatabaseId：物化视图所属db id
+* MvDatabaseName：物化视图所属db名称
+* Status：task状态
+* ErrorMsg：task失败信息
+* CreateTime：task创建时间
+* StartTime：task开始运行时间
+* FinishTime：task结束运行时间
+* DurationMs：task运行时间
+* TaskContext：task运行参数
+* RefreshMode：刷新模式
+* NeedRefreshPartitions：本次task需要刷新的分区信息
+* CompletedPartitions：本次task刷新完成的分区信息
+* Progress：task运行进度
+
 ### example
+#### Insert Tasks
 ```
 mysql>  select * from tasks("type"="insert") limit 1 \G
 *************************** 1. row ***************************
@@ -95,7 +143,19 @@ LoadStatistic: {"Unfinished backends":{},"ScannedRows":0,"TaskNumber":0,"LoadByt
 1 row in set (0.05 sec)
 
 ```
+#### MV Tasks
+1. 查看所有物化视图的task
+
+```sql
+mysql> select * from tasks("type"="mv");
+```
+
+2. 查看jobName为`inner_mtmv_75043`的所有task
+
+```sql
+mysql> select * from tasks("type"="mv") where JobName="inner_mtmv_75043";
+```
 
 ### keywords
 
-    tasks, insert
+     tasks, job, insert, mv, materilized view
