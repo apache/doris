@@ -50,11 +50,18 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 
+import java.io.IOException;
 import java.lang.reflect.Method;
+import java.net.DatagramSocket;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 
 // for unit test
 public class UnitTestUtil {
@@ -181,4 +188,40 @@ public class UnitTestUtil {
         }
     }
 
+    public static int findValidPort() {
+        int port = 0;
+        for (int i = 0; i < 65535; i++) {
+            try (ServerSocket socket = new ServerSocket(0)) {
+                socket.setReuseAddress(true);
+                port = socket.getLocalPort();
+                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
+                    datagramSocket.setReuseAddress(true);
+                    break;
+                } catch (SocketException e) {
+                    e.printStackTrace();
+                }
+
+                CountDownLatch latch = new CountDownLatch(1);
+                final int serverPort = port;
+                new Thread(() -> {
+                    try (Socket clientSocket = new Socket()) {
+                        clientSocket.connect(new InetSocketAddress("localhost", serverPort));
+                        latch.await();  // Wait until the server closes the connection
+                    } catch (IOException | InterruptedException e) {
+                        // CHECKSTYLE IGNORE THIS LINE
+                    }
+                }).start();
+                // Accept a connection from the client
+                try (Socket serverConn = socket.accept()) {
+                    // CHECKSTYLE IGNORE THIS LINE
+                } catch (IOException e) {
+                    // CHECKSTYLE IGNORE THIS LINE
+                }
+                latch.countDown();  // Signal that the server has closed the connection
+            } catch (IOException e) {
+                throw new IllegalStateException("Could not find a free TCP/IP port");
+            }
+        }
+        return port;
+    }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.journal.JournalBatch;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -42,17 +43,11 @@ import org.junit.jupiter.api.RepeatedTest;
 import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
-import java.net.DatagramSocket;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 
 public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use uppercase
     private static final Logger LOG = LogManager.getLogger(BDBJEJournalTest.class);
@@ -86,46 +81,9 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         }
     }
 
-    private int findValidPort() {
-        int port = 0;
-        for (int i = 0; i < 65535; i++) {
-            try (ServerSocket socket = new ServerSocket(0)) {
-                socket.setReuseAddress(true);
-                port = socket.getLocalPort();
-                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
-                    datagramSocket.setReuseAddress(true);
-                    break;
-                } catch (SocketException e) {
-                    LOG.info("The port {} is invalid and try another port", port);
-                }
-
-                CountDownLatch latch = new CountDownLatch(1);
-                final int serverPort = port;
-                new Thread(() -> {
-                    try (Socket clientSocket = new Socket()) {
-                        clientSocket.connect(new InetSocketAddress("localhost", serverPort));
-                        latch.await();  // Wait until the server closes the connection
-                    } catch (IOException | InterruptedException e) {
-                        // CHECKSTYLE IGNORE THIS LINE
-                    }
-                }).start();
-                // Accept a connection from the client
-                try (Socket serverConn = socket.accept()) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                } catch (IOException e) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                }
-                latch.countDown();  // Signal that the server has closed the connection
-            } catch (IOException e) {
-                throw new IllegalStateException("Could not find a free TCP/IP port");
-            }
-        }
-        return port;
-    }
-
     @RepeatedTest(1)
     public void testNormal() throws Exception {
-        int port = findValidPort();
+        int port = UnitTestUtil.findValidPort();
         Preconditions.checkArgument(((port > 0) && (port < 65535)));
         String nodeName = Env.genFeNodeName("127.0.0.1", port, false);
         long replayedJournalId = 0;
@@ -263,7 +221,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
 
     @RepeatedTest(1)
     public void testJournalBatch() throws Exception {
-        int port = findValidPort();
+        int port = UnitTestUtil.findValidPort();
         Preconditions.checkArgument(((port > 0) && (port < 65535)));
         String nodeName = Env.genFeNodeName("127.0.0.1", port, false);
         long replayedJournalId = 0;

@@ -17,20 +17,13 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.plugin.dialect.HttpDialectUtils;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import java.io.IOException;
-import java.net.DatagramSocket;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketException;
-import java.util.concurrent.CountDownLatch;
 
 public class HttpDialectUtilsTest {
 
@@ -39,7 +32,7 @@ public class HttpDialectUtilsTest {
 
     @Before
     public void setUp() throws Exception {
-        port = findValidPort();
+        port = UnitTestUtil.findValidPort();
         server = new SimpleHttpServer(port);
         server.start("/api/v1/convert");
     }
@@ -74,40 +67,4 @@ public class HttpDialectUtilsTest {
         Assert.assertEquals(originSql, res);
     }
 
-    private static int findValidPort() {
-        int port;
-        while (true) {
-            try (ServerSocket socket = new ServerSocket(0)) {
-                socket.setReuseAddress(true);
-                port = socket.getLocalPort();
-                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
-                    datagramSocket.setReuseAddress(true);
-                    break;
-                } catch (SocketException e) {
-                    System.out.println("The port " + port + " is invalid and try another port.");
-                }
-
-                CountDownLatch latch = new CountDownLatch(1);
-                final int serverPort = port;
-                new Thread(() -> {
-                    try (Socket clientSocket = new Socket()) {
-                        clientSocket.connect(new InetSocketAddress("localhost", serverPort));
-                        latch.await();  // Wait until the server closes the connection
-                    } catch (IOException | InterruptedException e) {
-                        // CHECKSTYLE IGNORE THIS LINE
-                    }
-                }).start();
-                // Accept a connection from the client
-                try (Socket serverConn = socket.accept()) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                } catch (IOException e) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                }
-                latch.countDown();  // Signal that the server has closed the connection
-            } catch (IOException e) {
-                throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
-            }
-        }
-        return port;
-    }
 }

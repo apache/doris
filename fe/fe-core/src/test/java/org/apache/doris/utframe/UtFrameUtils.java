@@ -37,6 +37,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -64,17 +65,11 @@ import org.apache.commons.io.FileUtils;
 import java.io.File;
 import java.io.IOException;
 import java.io.StringReader;
-import java.net.DatagramSocket;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketException;
 import java.nio.file.Files;
 import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 
 /**
  * @deprecated If you want to start a FE server in unit test, please let your test
@@ -191,11 +186,11 @@ public class UtFrameUtils {
             }
         }
 
-        int feHttpPort = findValidPort();
-        int feRpcPort = findValidPort();
-        int feQueryPort = findValidPort();
-        int arrowFlightSqlPort = findValidPort();
-        int feEditLogPort = findValidPort();
+        int feHttpPort = UnitTestUtil.findValidPort();
+        int feRpcPort = UnitTestUtil.findValidPort();
+        int feQueryPort = UnitTestUtil.findValidPort();
+        int arrowFlightSqlPort = UnitTestUtil.findValidPort();
+        int feEditLogPort = UnitTestUtil.findValidPort();
 
         // start fe in "DORIS_HOME/fe/mocked/"
         MockedFrontend frontend = new MockedFrontend();
@@ -281,11 +276,11 @@ public class UtFrameUtils {
     }
 
     private static Backend createBackendWithoutRetry(String beHost, int feRpcPort) throws IOException {
-        int beHeartbeatPort = findValidPort();
-        int beThriftPort = findValidPort();
-        int beBrpcPort = findValidPort();
-        int beHttpPort = findValidPort();
-        int beArrowFlightSqlPort = findValidPort();
+        int beHeartbeatPort = UnitTestUtil.findValidPort();
+        int beThriftPort = UnitTestUtil.findValidPort();
+        int beBrpcPort = UnitTestUtil.findValidPort();
+        int beHttpPort = UnitTestUtil.findValidPort();
+        int beArrowFlightSqlPort = UnitTestUtil.findValidPort();
 
         // start be
         MockedBackendFactory.BeThriftService beThriftService = new DefaultBeThriftServiceImpl();
@@ -322,43 +317,6 @@ public class UtFrameUtils {
         } catch (IOException e) {
             // ignore
         }
-    }
-
-    public static int findValidPort() {
-        int port = 0;
-        while (true) {
-            try (ServerSocket socket = new ServerSocket(0)) {
-                socket.setReuseAddress(true);
-                port = socket.getLocalPort();
-                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
-                    datagramSocket.setReuseAddress(true);
-                    break;
-                } catch (SocketException e) {
-                    System.out.println("The port " + port + " is invalid and try another port.");
-                }
-
-                CountDownLatch latch = new CountDownLatch(1);
-                final int serverPort = port;
-                new Thread(() -> {
-                    try (Socket clientSocket = new Socket()) {
-                        clientSocket.connect(new InetSocketAddress("localhost", serverPort));
-                        latch.await();  // Wait until the server closes the connection
-                    } catch (IOException | InterruptedException e) {
-                        // CHECKSTYLE IGNORE THIS LINE
-                    }
-                }).start();
-                // Accept a connection from the client
-                try (Socket serverConn = socket.accept()) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                } catch (IOException e) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                }
-                latch.countDown();  // Signal that the server has closed the connection
-            } catch (IOException e) {
-                throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
-            }
-        }
-        return port;
     }
 
     public static String getSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr) throws Exception {
