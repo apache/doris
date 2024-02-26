@@ -205,7 +205,7 @@ Status BrokerFileSystem::exists_impl(const Path& path) const {
             return Status::IOError("failed to check exist of path {}: {}", path.native(),
                                    error_msg(check_rep.opStatus.message));
         } else if (!check_rep.isPathExist) {
-            return Status::Error<ErrorCode::NOT_FOUND>("Path {} does not exist", path);
+            return Status::Error<ErrorCode::NOT_FOUND, false>("Path {} does not exist", path);
         } else {
             return Status::OK();
         }
@@ -309,7 +309,7 @@ Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, FileListIter
 
         if (list_rep.opStatus.statusCode == TBrokerOperationStatusCode::FILE_NOT_FOUND) {
             LOG(INFO) << "path does not exist: " << dir;
-            return Status::Error<ErrorCode::NOT_FOUND>("Path {} does not exist", dir);
+            return Status::Error<ErrorCode::NOT_FOUND, false>("Path {} does not exist", dir);
         } else if (list_rep.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
             return Status::IOError("failed to list dir {}: {}", dir.native(),
                                    error_msg(list_rep.opStatus.message));

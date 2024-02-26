@@ -249,8 +249,9 @@ Status HdfsFileSystem::exists_impl(const Path& path) const {
                                (root_cause ? root_cause : "unknown"));
     }
 #endif
-    return (is_exists == 0) ? Status::OK()
-                            : Status::Error<ErrorCode::NOT_FOUND>("Path {} does not exist", path);
+    return (is_exists == 0)
+                   ? Status::OK()
+                   : Status::Error<ErrorCode::NOT_FOUND, false>("Path {} does not exist", path);
 }
 
 Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) const {

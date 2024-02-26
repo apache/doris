@@ -175,7 +175,7 @@ Status LocalFileSystem::exists_impl(const Path& path) const {
         return localfs_error(ec, fmt::format("failed to check exists {}", path.native()));
     }
     if (!res) {
-        return Status::Error<ErrorCode::NOT_FOUND>("Path {} dost not exist", path);
+        return Status::Error<ErrorCode::NOT_FOUND, false>("Path {} dost not exist", path);
     }
     return Status::OK();
 }
