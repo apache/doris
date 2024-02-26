@@ -18,12 +18,14 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminCopyTabletStmt;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
@@ -34,6 +36,7 @@ import org.apache.doris.analysis.ShowBrokerStmt;
 import org.apache.doris.analysis.ShowBuildIndexStmt;
 import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
+import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnHistStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
@@ -140,6 +143,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -193,7 +197,10 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -220,6 +227,7 @@ import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -443,6 +451,8 @@ public class ShowExecutor {
             handleShowAnalyzeTaskStatus();
         } else if (stmt instanceof ShowConvertLSCStmt) {
             handleShowConvertLSC();
+        } else if (stmt instanceof ShowClusterStmt) {
+            handleShowCluster();
         } else {
             handleEmtpy();
         }
@@ -729,6 +739,44 @@ public class ShowExecutor {
         List<List<String>> finalRows = procNode.fetchResult().getRows();
         resultSet = new ShowResultSet(metaData, finalRows);
     }
+
+    // Show clusters
+    private void handleShowCluster() {
+        final ShowClusterStmt showStmt = (ShowClusterStmt) stmt;
+        final List<List<String>> rows = Lists.newArrayList();
+        List<String> clusterNames = null;
+        clusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+
+        final Set<String> clusterNameSet = Sets.newTreeSet();
+        clusterNameSet.addAll(clusterNames);
+
+        for (String clusterName : clusterNameSet) {
+            ArrayList<String> row = Lists.newArrayList(clusterName);
+            // current_used, users
+            if (!Env.getCurrentEnv().getAuth()
+                    .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), clusterName,
+                    PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                continue;
+            }
+            row.add(clusterName.equals(ctx.getCloudCluster()) ? "TRUE" : "FALSE");
+            List<String> users = Env.getCurrentEnv().getAuth().getCloudClusterUsers(clusterName);
+            // non-root do not display root information
+            if (!Auth.ROOT_USER.equals(ctx.getQualifiedUser())) {
+                users.remove(Auth.ROOT_USER);
+            }
+            // common user, not admin
+            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get().currentUserIdentity,
+                    PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV), Operator.OR))) {
+                users.removeIf(user -> !user.equals(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser())));
+            }
+            String result = Joiner.on(", ").join(users);
+            row.add(result);
+            rows.add(row);
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
 
     private void handleShowDbId() {
         ShowDbIdStmt showStmt = (ShowDbIdStmt) stmt;
