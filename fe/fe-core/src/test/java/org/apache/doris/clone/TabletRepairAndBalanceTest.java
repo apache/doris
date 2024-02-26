@@ -322,7 +322,6 @@ public class TabletRepairAndBalanceTest {
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         Assert.assertEquals(tag2, be.getLocationTag());
-        Thread.sleep(5000);
         ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
         checkTableReplicaAllocation(tbl);
         Assert.assertEquals(90, replicaMetaTable.cellSet().size());
@@ -385,7 +384,6 @@ public class TabletRepairAndBalanceTest {
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         Assert.assertEquals(tag1, be.getLocationTag());
-        Thread.sleep(5000);
         ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
 
         checkTableReplicaAllocation(colTbl1);
