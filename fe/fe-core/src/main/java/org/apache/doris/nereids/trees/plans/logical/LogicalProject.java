@@ -188,7 +188,8 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     public LogicalProject<Plan> withEliminate(boolean isEliminate) {
-        return new LogicalProject<>(projects, excepts, isDistinct, isEliminate, children);
+        return new LogicalProject<>(projects, excepts, isDistinct, isEliminate,
+                Optional.empty(), Optional.of(getLogicalProperties()), children);
     }
 
     public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {

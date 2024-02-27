@@ -23,7 +23,7 @@ import java.io.File
 
 suite("stress_test_diff_date_list") {
 
-    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '5000')"""
+    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '10000000')"""
 
     // get doris-db from s3
     def dirPath = context.file.parent
@@ -221,6 +221,4 @@ suite("stress_test_diff_date_list") {
     // check data count
     assertTrue(count_rows == cur_rows * data_count + 1)
     assertTrue(origin_part.size() == 2)
-
-    sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '2000')"""
 }

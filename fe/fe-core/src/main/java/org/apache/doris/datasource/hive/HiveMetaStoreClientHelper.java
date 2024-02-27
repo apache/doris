@@ -150,7 +150,7 @@ public class HiveMetaStoreClientHelper {
         }
     }
 
-    public static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
+    private static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, metaStoreUris);
         hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
@@ -582,6 +582,34 @@ public class HiveMetaStoreClientHelper {
             }
         }
         return commaSplitFields.length();
+    }
+
+    /**
+     * Convert doris type to hive type.
+     */
+    public static String dorisTypeToHiveType(Type dorisType) {
+        if (dorisType.equals(Type.BOOLEAN)) {
+            return "boolean";
+        } else if (dorisType.equals(Type.TINYINT)) {
+            return "tinyint";
+        } else if (dorisType.equals(Type.SMALLINT)) {
+            return "smallint";
+        } else if (dorisType.equals(Type.INT)) {
+            return "int";
+        } else if (dorisType.equals(Type.BIGINT)) {
+            return "bigint";
+        } else if (dorisType.equals(Type.DATE) || dorisType.equals(Type.DATEV2)) {
+            return "date";
+        } else if (dorisType.equals(Type.DATETIME) || dorisType.equals(Type.DATETIMEV2)) {
+            return "timestamp";
+        } else if (dorisType.equals(Type.FLOAT)) {
+            return "float";
+        } else if (dorisType.equals(Type.DOUBLE)) {
+            return "double";
+        } else if (dorisType.equals(Type.STRING)) {
+            return "string";
+        }
+        throw new HMSClientException("Unsupported type conversion of " + dorisType.toSql());
     }
 
     /**

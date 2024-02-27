@@ -25,11 +25,9 @@ import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
-import org.apache.iceberg.catalog.Namespace;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
 
@@ -44,7 +42,7 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
+    protected void initCatalog() {
         icebergCatalogType = ICEBERG_GLUE;
         GlueCatalog glueCatalog = new GlueCatalog();
         glueCatalog.setConf(getConfiguration());
@@ -63,8 +61,6 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
 
     @Override
     protected List<String> listDatabaseNames() {
-        return nsCatalog.listNamespaces().stream()
-            .map(Namespace::toString)
-            .collect(Collectors.toList());
+        return metadataOps.listDatabaseNames();
     }
 }

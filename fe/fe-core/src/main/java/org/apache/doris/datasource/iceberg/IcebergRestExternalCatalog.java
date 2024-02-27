@@ -42,7 +42,7 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
+    protected void initCatalog() {
         icebergCatalogType = ICEBERG_REST;
 
         Configuration conf = replaceS3Properties(getConfiguration());

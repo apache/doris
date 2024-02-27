@@ -122,8 +122,7 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
 
     public Plan withTwoMaps(Map<Slot, Slot> consumerToProducerOutputMap, Map<Slot, Slot> producerToConsumerOutputMap) {
         return new LogicalCTEConsumer(relationId, cteId, name,
-                consumerToProducerOutputMap, producerToConsumerOutputMap,
-                Optional.empty(), Optional.empty());
+                consumerToProducerOutputMap, producerToConsumerOutputMap);
     }
 
     @Override

@@ -80,11 +80,6 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         return expandColumnAlias;
     }
 
-    public LogicalGenerate<Plan> withExpandColumnAlias(List<List<String>> expandColumnAlias) {
-        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias,
-                Optional.empty(), Optional.of(getLogicalProperties()), child());
-    }
-
     @Override
     public LogicalGenerate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
@@ -110,8 +105,7 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         for (int i = 0; i < generators.size(); i++) {
             newGeneratorOutput.add(generatorOutput.get(i).withNullable(generators.get(i).nullable()));
         }
-        return new LogicalGenerate<>(generators, newGeneratorOutput, expandColumnAlias,
-                Optional.empty(), Optional.of(getLogicalProperties()), child());
+        return new LogicalGenerate<>(generators, newGeneratorOutput, expandColumnAlias, child());
     }
 
     @Override
