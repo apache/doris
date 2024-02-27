@@ -114,10 +114,8 @@ public class FuncNameInfo {
                     db = FeConstants.INTERNAL_DB_NAME;
                 }
             }
-            if (Strings.isNullOrEmpty(db)) {
-                Optional<DatabaseIf> dbInstance = ctx.getCatalog(ctl).getDb(db);
-                dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
-            }
+            Optional<DatabaseIf> dbInstance = ctx.getCatalog(ctl).getDb(db);
+            dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("procedure/function/package name is null");
             }
