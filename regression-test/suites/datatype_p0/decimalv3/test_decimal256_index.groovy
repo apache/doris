@@ -117,6 +117,7 @@ suite("test_decimal256_index") {
     sql "sync"
 
     sql """CREATE INDEX k2_bitmap_index ON test_decimal256_bitmap_index(k2) USING BITMAP;"""
+    wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 3000);
     sql """BUILD INDEX k2_bitmap_index ON test_decimal256_bitmap_index;"""
     wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 3000);
 
