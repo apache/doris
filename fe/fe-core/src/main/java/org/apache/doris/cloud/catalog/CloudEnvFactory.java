@@ -104,6 +104,11 @@ public class CloudEnvFactory extends EnvFactory {
     }
 
     @Override
+    public Replica createReplica(Replica.ReplicaContext context) {
+        return new CloudReplica(context);
+    }
+
+    @Override
     public ReplicaAllocation createDefReplicaAllocation() {
         return new ReplicaAllocation((short) 1);
     }
