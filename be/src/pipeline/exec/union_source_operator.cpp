@@ -153,8 +153,7 @@ std::string UnionSourceLocalState::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                       SourceState& source_state) {
+Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._need_read_for_const_expr) {
@@ -174,19 +173,11 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         output_block->clear_column_data(_row_descriptor.num_materialized_slots());
         local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
     }
-    local_state.reached_limit(block, source_state);
+    local_state.reached_limit(block, eos);
     //have executing const expr, queue have no data anymore, and child could be closed
-    if (_child_size == 0 && !local_state._need_read_for_const_expr) {
-        source_state = SourceState::FINISHED;
-    } else if (_has_data(state)) {
-        source_state = SourceState::MORE_DATA;
-    } else if (local_state._shared_state->data_queue.is_all_finish()) {
-        // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
-        // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
-        source_state = _has_data(state) ? SourceState::MORE_DATA : SourceState::FINISHED;
-    } else {
-        source_state = SourceState::DEPEND_ON_SOURCE;
-    }
+    *eos = (_child_size == 0 && !local_state._need_read_for_const_expr) ||
+           (local_state._shared_state->data_queue.is_all_finish() && !_has_data(state));
+
     return Status::OK();
 }
 

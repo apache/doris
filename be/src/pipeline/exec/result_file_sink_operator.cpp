@@ -262,12 +262,11 @@ void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelP
     static_cast<void>(channel->close(state, Status::OK()));
 }
 
-Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                     SourceState source_state) {
+Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    return local_state.sink(state, in_block, source_state);
+    return local_state.sink(state, in_block, eos);
 }
 
 } // namespace doris::pipeline
