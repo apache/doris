@@ -119,7 +119,6 @@ public class TestCheckPrivileges extends TestWithFeService {
                         .allowSelectColumns(user, ImmutableSet.of("id"))
         );
 
-
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
         CatalogAccessController catalogAccessController = accessManager.getAccessControllerOrDefault(catalog);
         new Expectations(accessManager) {
