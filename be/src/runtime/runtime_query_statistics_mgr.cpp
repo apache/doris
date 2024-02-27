@@ -95,7 +95,7 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
         report_runtime_params.__set_query_statistics_map(qs_map);
 
         TReportExecStatusParams params;
-        params.report_workload_runtime_status = report_runtime_params;
+        params.__set_report_workload_runtime_status(report_runtime_params);
 
         TReportExecStatusResult res;
         Status rpc_status;
