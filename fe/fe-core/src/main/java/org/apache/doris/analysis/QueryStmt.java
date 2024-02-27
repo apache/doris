@@ -285,9 +285,9 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
                     Lists.newArrayList());
         } else {
             rewriter = analyzer.getMVExprRewriter();
+            rewriter.reset();
+            rewriter.setInfoMVRewriter(disableTuplesMVRewriter, mvSMap, aliasSMap);
         }
-        rewriter.reset();
-        rewriter.setInfoMVRewriter(disableTuplesMVRewriter, mvSMap, aliasSMap);
         rewriter.setUpBottom();
 
         Expr result = rewriter.rewrite(expr, analyzer);
