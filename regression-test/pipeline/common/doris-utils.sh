@@ -496,34 +496,61 @@ archive_doris_logs() {
     fi
 }
 
+wait_coredump_file_ready() {
+    # if the size of coredump file does not changed in 5 seconds, we think it has generated done
+    local coredump_file="$1"
+    if [[ -z "${coredump_file}" ]]; then echo "ERROR: coredump_file is required" && return 1; fi
+    initial_size=$(stat -c %s "${coredump_file}")
+    while true; do
+        sleep 5
+        current_size=$(stat -c %s "${coredump_file}")
+        if [[ ${initial_size} -eq ${current_size} ]]; then
+            break
+        else
+            initial_size=${current_size}
+        fi
+    done
+}
+
 archive_doris_coredump() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"
+    COREDUMP_SIZE_THRESHOLD="${COREDUMP_SIZE_THRESHOLD:-85899345920}" # if coredump size over 80G, do not archive"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
-    be_pid="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
-    if [[ -z "${be_pid}" ]]; then echo "ERROR: can not find be id from ${DORIS_HOME}/be/bin/be.pid" && return 1; fi
-    if corename=$(find /var/lib/apport/coredump/ -type f -name "core.*${be_pid}.*"); then
-        initial_size=$(stat -c %s "${corename}")
-        while true; do
-            sleep 2
-            current_size=$(stat -c %s "${corename}")
-            if [[ ${initial_size} -eq ${current_size} ]]; then
-                break
-            else
-                initial_size=${current_size}
+    local archive_dir="${archive_name%.tar.gz}"
+    rm -rf "${DORIS_HOME:?}/${archive_dir}"
+    mkdir -p "${DORIS_HOME}/${archive_dir}"
+    declare -A pids
+    pids['be']="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
+    pids['ms']="$(cat "${DORIS_HOME}"/ms/bin/doris_cloud.pid)"
+    pids['recycler']="$(cat "${DORIS_HOME}"/recycler/bin/doris_cloud.pid)"
+    for p in "${!pids[@]}"; do
+        pid="${pids[${p}]}"
+        if [[ -z "${pid}" ]]; then continue; fi
+        if coredump_file=$(find /var/lib/apport/coredump/ -type f -name "core.*${pid}.*") &&
+            wait_coredump_file_ready "${coredump_file}"; then
+            file_size=$(stat -c %s "${coredump_file}")
+            if ((file_size <= COREDUMP_SIZE_THRESHOLD)); then
+                mkdir -p "${DORIS_HOME}/${archive_dir}/${p}"
+                if [[ "${p}" == "be" ]]; then
+                    mv "${DORIS_HOME}"/be/lib/doris_be "${DORIS_HOME}/${archive_dir}/${p}"
+                elif [[ "${p}" == "ms" ]]; then
+                    mv "${DORIS_HOME}"/ms/lib/doris_cloud "${DORIS_HOME}/${archive_dir}/${p}"
+                elif [[ "${p}" == "recycler" ]]; then
+                    mv "${DORIS_HOME}"/recycler/lib/doris_cloud "${DORIS_HOME}/${archive_dir}/${p}"
+                fi
+                mv "${coredump_file}" "${DORIS_HOME}/${archive_dir}/${p}"
             fi
-        done
-        file_size=$(stat -c %s "${corename}")
-        if ((file_size > 85899345920)); then
-            echo "coredump size ${file_size} over 80G, not upload"
-            return 1
-        else
-            #压缩core文件
-            mv "${corename}" "${DORIS_HOME}"/be/lib/
-            cd "${DORIS_HOME}"/be/lib/ || return 1
-            tar -I pigz -cf core.tar.gz be/lib/doris_be "be/lib/$(basename "${corename}")" >/dev/null
-            echo "$(pwd)/core.tar.gz"
         fi
+    done
+
+    if tar -I pigz \
+        --directory "${DORIS_HOME}" \
+        -cf "${DORIS_HOME}/${archive_name}" \
+        "${archive_dir}"; then
+        echo "${DORIS_HOME}/${archive_name}"
+    else
+        return 1
     fi
 }
 
