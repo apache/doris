@@ -1252,7 +1252,8 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
             Status st;
             std::shared_ptr<io::HdfsFileSystem> fs;
             if (existed_resource.fs == nullptr) {
-                st = io::HdfsFileSystem::create(resource.hdfs_storage_param, "", nullptr, &fs);
+                st = io::HdfsFileSystem::create(resource.hdfs_storage_param,
+                                                std::to_string(resource.id), "", nullptr, &fs);
             } else {
                 fs = std::static_pointer_cast<io::HdfsFileSystem>(existed_resource.fs);
             }
