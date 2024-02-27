@@ -480,7 +480,7 @@ struct TReportExecStatusParams {
 
   24: optional TQueryStatistics query_statistics // deprecated
 
-  25: TReportWorkloadRuntimeStatusParams report_workload_runtime_status
+  25: optional TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 }
 
 struct TFeResult {
