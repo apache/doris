@@ -466,7 +466,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             setSelectivity();
         }
         analysisDone();
-        if (type.isAggStateType() && !(this instanceof SlotRef)) {
+        if (type.isAggStateType() && !(this instanceof SlotRef) && !children.get(0).getType().isAggStateType()) {
             type = createAggStateType(((AggStateType) type), Arrays.asList(collectChildReturnTypes()),
                     Arrays.asList(collectChildReturnNullables()));
         }
