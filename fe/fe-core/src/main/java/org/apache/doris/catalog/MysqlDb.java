@@ -52,7 +52,7 @@ public class MysqlDb extends MysqlCompatibleDatabase {
     public void initTables() {}
 
     @Override
-    public boolean createTable(Table table) {
+    public boolean registerTable(TableIf table) {
         return false;
     }
 }

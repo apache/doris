@@ -333,6 +333,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return this.schemaUpdateTime;
     }
 
+    public void setUpdateTime(long schemaUpdateTime) {
+        this.schemaUpdateTime = schemaUpdateTime;
+    }
+
     @Override
     public long getLastCheckTime() {
         return 0;

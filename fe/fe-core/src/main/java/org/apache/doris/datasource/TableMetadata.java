@@ -15,26 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.datasource;
 
-// Information schema used for MySQL compatible.
-public class InfoSchemaDb extends MysqlCompatibleDatabase {
-    public static final String DATABASE_NAME = "information_schema";
-    public static final long DATABASE_ID = 0L;
+import java.util.Map;
 
-    public InfoSchemaDb() {
-        super(DATABASE_ID, DATABASE_NAME);
-    }
+public interface TableMetadata {
+    String getDbName();
 
-    @Override
-    protected void initTables() {
-        for (Table table : SchemaTable.TABLE_MAP.values()) {
-            super.registerTable(table);
-        }
-    }
+    String getTableName();
 
-    @Override
-    public boolean registerTable(TableIf table) {
-        return false;
-    }
+    Map<String, String> getProperties();
 }

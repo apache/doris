@@ -17,19 +17,15 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * Hive metastore external database.
  */
 public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
-    private static final Logger LOG = LogManager.getLogger(HMSExternalDatabase.class);
-
     /**
      * Create HMS external database.
      *
@@ -42,7 +38,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     }
 
     @Override
-    protected HMSExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected HMSExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new HMSExternalTable(tblId, tableName, name, (HMSExternalCatalog) extCatalog);
     }
 
@@ -52,25 +48,12 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     }
 
     @Override
-    public void dropTable(String tableName) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("replayDropTableFromEvent [{}]", tableName);
+    public boolean registerTable(TableIf tableIf) {
+        super.registerTable(tableIf);
+        HMSExternalTable table = getTableNullable(tableIf.getName());
+        if (table != null) {
+            table.setEventUpdateTime(tableIf.getUpdateTime());
         }
-        Long tableId = tableNameToId.remove(tableName);
-        if (tableId == null) {
-            LOG.warn("replayDropTableFromEvent [{}] failed", tableName);
-            return;
-        }
-        idToTbl.remove(tableId);
-    }
-
-    @Override
-    public void createTable(String tableName, long tableId) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("create table [{}]", tableName);
-        }
-        tableNameToId.put(tableName, tableId);
-        HMSExternalTable table = getExternalTable(tableName, tableId, extCatalog);
-        idToTbl.put(tableId, table);
+        return true;
     }
 }
