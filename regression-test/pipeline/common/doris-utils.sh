@@ -453,7 +453,7 @@ archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local archive_name="$1"
     local archive_dir="${archive_name%.tar.gz}"
-    mkdir -p "${archive_dir}"
+    mkdir -p "${DORIS_HOME:-}/${archive_dir}"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
     cp -rf "${DORIS_HOME:-}/fe/conf" "${archive_dir}"/
     cp -rf "${DORIS_HOME:-}/fe/log" "${archive_dir}"/
