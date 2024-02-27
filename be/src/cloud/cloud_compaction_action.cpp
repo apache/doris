@@ -28,12 +28,12 @@
 #include <thread>
 #include <utility>
 
-#include "cloud/cloud_tablet.h"
-#include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_compaction_action.h"
 #include "cloud/cloud_cumulative_compaction.h"
 #include "cloud/cloud_full_compaction.h"
+#include "cloud/cloud_tablet.h"
+#include "cloud/cloud_tablet_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
@@ -60,8 +60,8 @@ namespace {}
 const static std::string HEADER_JSON = "application/json";
 
 CloudCompactionAction::CloudCompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
-                                   CloudStorageEngine& engine, TPrivilegeHier::type hier,
-                                   TPrivilegeType::type ptype)
+                                             CloudStorageEngine& engine, TPrivilegeHier::type hier,
+                                             TPrivilegeType::type ptype)
         : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine), _type(ctype) {}
 
 /// check param and fetch tablet_id from req
@@ -141,7 +141,6 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
                 }
                 RETURN_IF_ERROR(
                         _engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION));
-
             }
         }
     } else {
@@ -178,7 +177,8 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
     return Status::OK();
 }
 
-Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req, std::string* json_result) {
+Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
+                                                            std::string* json_result) {
     uint64_t tablet_id = 0;
     uint64_t table_id = 0;
 
@@ -245,7 +245,7 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req, st
 }
 
 Status CloudCompactionAction::_execute_compaction_callback(CloudTabletSPtr tablet,
-                                                      const std::string& compaction_type) {
+                                                           const std::string& compaction_type) {
     MonotonicStopWatch timer;
     timer.start();
 

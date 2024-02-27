@@ -23,11 +23,11 @@
 #include <memory>
 #include <vector>
 
-#include "olap/rowset/vertical_beta_rowset_writer.h"
-#include "common/status.h"
 #include "cloud/cloud_rowset_writer.h"
 #include "cloud/cloud_storage_engine.h"
+#include "common/status.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
+#include "olap/rowset/vertical_beta_rowset_writer.h"
 #include "olap/rowset/vertical_beta_rowset_writer_helper.h"
 
 namespace doris {

@@ -43,10 +43,10 @@ using namespace ErrorCode;
 
 VerticalBetaRowsetWriter::VerticalBetaRowsetWriter(StorageEngine& engine)
         : BetaRowsetWriter(engine) {
-    _helper = std::make_shared<VerticalBetaRowsetWriterHelper>(&_segment_writers, _already_built,
-            _rowset_meta, &_num_segment, _context, &_num_rows_written,
-            &_segments_encoded_key_bounds, &_segment_num_rows, &_total_index_size,
-            &_file_writers, &_total_data_size, &_lock);
+    _helper = std::make_shared<VerticalBetaRowsetWriterHelper>(
+            &_segment_writers, _already_built, _rowset_meta, &_num_segment, _context,
+            &_num_rows_written, &_segments_encoded_key_bounds, &_segment_num_rows,
+            &_total_index_size, &_file_writers, &_total_data_size, &_lock);
 }
 
 VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {

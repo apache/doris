@@ -41,24 +41,26 @@
 namespace doris {
 using namespace ErrorCode;
 
-VerticalBetaRowsetWriterHelper::VerticalBetaRowsetWriterHelper(std::vector<std::unique_ptr<segment_v2::SegmentWriter>>* segment_writers,
-            bool already_built, RowsetMetaSharedPtr& rowset_meta, std::atomic<int32_t>* num_segment,
-            RowsetWriterContext& context, std::atomic<int64_t>* num_rows_written,
-            std::vector<KeyBoundsPB>* segments_encoded_key_bounds, std::vector<uint32_t>* segment_num_rows,
-            std::atomic<int64_t>* total_index_size, std::vector<io::FileWriterPtr>* file_writers,
-            std::atomic<int64_t>* total_data_size, SpinLock* lock) : 
-        _segment_writers(segment_writers), 
-        _already_built(already_built),
-        _rowset_meta(rowset_meta),
-        _num_segment(num_segment),
-        _context(context),
-        _num_rows_written(num_rows_written),
-        _segments_encoded_key_bounds(segments_encoded_key_bounds),
-        _segment_num_rows(segment_num_rows),
-        _total_index_size(total_index_size),
-        _file_writers(file_writers),
-        _total_data_size(total_data_size),
-        _lock(lock) {}
+VerticalBetaRowsetWriterHelper::VerticalBetaRowsetWriterHelper(
+        std::vector<std::unique_ptr<segment_v2::SegmentWriter>>* segment_writers,
+        bool already_built, RowsetMetaSharedPtr& rowset_meta, std::atomic<int32_t>* num_segment,
+        RowsetWriterContext& context, std::atomic<int64_t>* num_rows_written,
+        std::vector<KeyBoundsPB>* segments_encoded_key_bounds,
+        std::vector<uint32_t>* segment_num_rows, std::atomic<int64_t>* total_index_size,
+        std::vector<io::FileWriterPtr>* file_writers, std::atomic<int64_t>* total_data_size,
+        SpinLock* lock)
+        : _segment_writers(segment_writers),
+          _already_built(already_built),
+          _rowset_meta(rowset_meta),
+          _num_segment(num_segment),
+          _context(context),
+          _num_rows_written(num_rows_written),
+          _segments_encoded_key_bounds(segments_encoded_key_bounds),
+          _segment_num_rows(segment_num_rows),
+          _total_index_size(total_index_size),
+          _file_writers(file_writers),
+          _total_data_size(total_data_size),
+          _lock(lock) {}
 
 void VerticalBetaRowsetWriterHelper::destruct_writer() {
     if (!_already_built) {
@@ -80,8 +82,8 @@ void VerticalBetaRowsetWriterHelper::destruct_writer() {
 }
 
 Status VerticalBetaRowsetWriterHelper::add_columns(const vectorized::Block* block,
-                                             const std::vector<uint32_t>& col_ids, bool is_key,
-                                             uint32_t max_rows_per_segment) {
+                                                   const std::vector<uint32_t>& col_ids,
+                                                   bool is_key, uint32_t max_rows_per_segment) {
     VLOG_NOTICE << "VerticalBetaRowsetWriter::add_columns, columns: " << block->columns();
     size_t num_rows = block->rows();
     if (num_rows == 0) {
@@ -188,8 +190,8 @@ Status VerticalBetaRowsetWriterHelper::flush_columns(bool is_key) {
 Status VerticalBetaRowsetWriterHelper::_create_segment_writer(
         const std::vector<uint32_t>& column_ids, bool is_key,
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
-    auto path =
-            BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, (*_num_segment)++);
+    auto path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id,
+                                              (*_num_segment)++);
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");

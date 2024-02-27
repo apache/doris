@@ -34,12 +34,14 @@ class Block;
 
 class VerticalBetaRowsetWriterHelper {
 public:
-    VerticalBetaRowsetWriterHelper(std::vector<std::unique_ptr<segment_v2::SegmentWriter>>* segment_writers,
+    VerticalBetaRowsetWriterHelper(
+            std::vector<std::unique_ptr<segment_v2::SegmentWriter>>* segment_writers,
             bool already_built, RowsetMetaSharedPtr& rowset_meta, std::atomic<int32_t>* num_segment,
             RowsetWriterContext& context, std::atomic<int64_t>* _num_rows_written,
-            std::vector<KeyBoundsPB>* _segments_encoded_key_bounds, std::vector<uint32_t>* _segment_num_rows,
-            std::atomic<int64_t>* _total_index_size, std::vector<io::FileWriterPtr>* _file_writers,
-            std::atomic<int64_t>* _total_data_size, SpinLock* _lock);
+            std::vector<KeyBoundsPB>* _segments_encoded_key_bounds,
+            std::vector<uint32_t>* _segment_num_rows, std::atomic<int64_t>* _total_index_size,
+            std::vector<io::FileWriterPtr>* _file_writers, std::atomic<int64_t>* _total_data_size,
+            SpinLock* _lock);
     ~VerticalBetaRowsetWriterHelper() = default;
 
     Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
@@ -55,7 +57,7 @@ public:
 
 private:
     Status _flush_columns(std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
-                        bool is_key = false);
+                          bool is_key = false);
     Status _create_segment_writer(const std::vector<uint32_t>& column_ids, bool is_key,
                                   std::unique_ptr<segment_v2::SegmentWriter>* writer);
 

@@ -43,12 +43,11 @@
 namespace doris {
 using namespace ErrorCode;
 
-CloudVerticalRowsetWriter::CloudVerticalRowsetWriter()
-        : CloudRowsetWriter() {
-    _helper = std::make_shared<VerticalBetaRowsetWriterHelper>(&_segment_writers, _already_built,
-            _rowset_meta, &_num_segment, _context, &_num_rows_written,
-            &_segments_encoded_key_bounds, &_segment_num_rows, &_total_index_size,
-            &_file_writers, &_total_data_size, &_lock);
+CloudVerticalRowsetWriter::CloudVerticalRowsetWriter() : CloudRowsetWriter() {
+    _helper = std::make_shared<VerticalBetaRowsetWriterHelper>(
+            &_segment_writers, _already_built, _rowset_meta, &_num_segment, _context,
+            &_num_rows_written, &_segments_encoded_key_bounds, &_segment_num_rows,
+            &_total_index_size, &_file_writers, &_total_data_size, &_lock);
 }
 
 CloudVerticalRowsetWriter::~CloudVerticalRowsetWriter() {
@@ -56,8 +55,8 @@ CloudVerticalRowsetWriter::~CloudVerticalRowsetWriter() {
 }
 
 Status CloudVerticalRowsetWriter::add_columns(const vectorized::Block* block,
-                                             const std::vector<uint32_t>& col_ids, bool is_key,
-                                             uint32_t max_rows_per_segment) {
+                                              const std::vector<uint32_t>& col_ids, bool is_key,
+                                              uint32_t max_rows_per_segment) {
     return _helper->add_columns(block, col_ids, is_key, max_rows_per_segment);
 }
 

@@ -52,7 +52,7 @@ const std::string PARAM_COMPACTION_FULL = "full";
 class CloudCompactionAction : public HttpHandlerWithAuth {
 public:
     CloudCompactionAction(CompactionActionType ctype, ExecEnv* exec_env, CloudStorageEngine& engine,
-                     TPrivilegeHier::type hier, TPrivilegeType::type ptype);
+                          TPrivilegeHier::type hier, TPrivilegeType::type ptype);
 
     ~CloudCompactionAction() override = default;
 
