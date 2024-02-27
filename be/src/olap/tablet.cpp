@@ -3220,9 +3220,9 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RowsetIdUnorderedSet rowsetids;
         for (const auto& rowset : specified_rowsets) {
             rowsetids.emplace(rowset->rowset_id());
-            LOG(INFO) << "[tabletID:" << tablet_id() << "]"
-                      << "[add_sentinel_mark_to_delete_bitmap][end_version:" << end_version << "]"
-                      << "add:" << rowset->rowset_id();
+            VLOG_NOTICE << "[tabletID:" << tablet_id() << "]"
+                        << "[add_sentinel_mark_to_delete_bitmap][end_version:" << end_version << "]"
+                        << "add:" << rowset->rowset_id();
         }
         add_sentinel_mark_to_delete_bitmap(delete_bitmap.get(), rowsetids);
     }
