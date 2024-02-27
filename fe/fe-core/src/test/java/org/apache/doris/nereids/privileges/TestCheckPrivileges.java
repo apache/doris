@@ -122,11 +122,13 @@ public class TestCheckPrivileges extends TestWithFeService {
 
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
         CatalogAccessController catalogAccessController = accessManager.getAccessControllerOrDefault(catalog);
-        new Expectations(accessManager) {{
-            accessManager.getAccessControllerOrDefault("internal");
-            minTimes = 0;
-            result = catalogAccessController;
-        }};
+        new Expectations(accessManager) {
+            {
+                accessManager.getAccessControllerOrDefault("internal");
+                minTimes = 0;
+                result = catalogAccessController;
+            }
+        };
 
         withPrivileges(privileges, () -> {
                 // test base table
