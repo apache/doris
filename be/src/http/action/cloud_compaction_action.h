@@ -17,29 +17,28 @@
 
 #pragma once
 
-#include <memory>
-
+#include "cloud/cloud_storage_engine.h"
 #include "common/status.h"
-#include "olap/task/engine_task.h"
+#include "http/action/compaction_action.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
-class MemTrackerLimiter;
-class TAlterInvertedIndexReq;
-class TAlterTabletReqV2;
+class HttpRequest;
 
-// base class for storage engine
-// add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineAlterTabletTask final : public EngineTask {
+/// This action is used for viewing the compaction status.
+/// See compaction-action.md for details.
+class CloudCompactionAction : public HttpHandlerWithAuth {
 public:
-    Status execute() override;
+    CloudCompactionAction(CompactionActionType ctype, ExecEnv* exec_env, CloudStorageEngine& engine,
+                          TPrivilegeHier::type hier, TPrivilegeType::type ptype);
 
-    EngineAlterTabletTask(const TAlterTabletReqV2& alter_tablet_request);
-    ~EngineAlterTabletTask() override = default;
+    ~CloudCompactionAction() override = default;
+
+    void handle(HttpRequest* req) override;
 
 private:
-    const TAlterTabletReqV2& _alter_tablet_req;
-
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
-}; // EngineTask
+    [[maybe_unused]] CloudStorageEngine& _engine;
+    [[maybe_unused]] CompactionActionType _type;
+};
 
 } // namespace doris
