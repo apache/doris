@@ -81,6 +81,9 @@ public class FunctionCallExpr extends Expr {
             String.CASE_INSENSITIVE_ORDER)
             .add("round").add("round_bankers").add("ceil").add("floor")
             .add("truncate").add("dround").add("dceil").add("dfloor").build();
+    public static final ImmutableSet<String> STRING_SEARCH_FUNCTION_SET = new ImmutableSortedSet.Builder(
+            String.CASE_INSENSITIVE_ORDER)
+            .add("multi_search_all_positions").add("multi_match_any").build();
 
     private final AtomicBoolean addOnce = new AtomicBoolean(false);
 
