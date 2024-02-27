@@ -74,6 +74,10 @@ std::string cast_to_string(T value, int scale) {
         return IPv4Value::to_string(value);
     } else if constexpr (primitive_type == TYPE_IPV6) {
         return IPv6Value::to_string(value);
+    } else if constexpr (primitive_type == TYPE_FLOAT) {
+        return fmt::to_string(value);
+    } else if constexpr (primitive_type == TYPE_DOUBLE) {
+        return fmt::to_string(value);
     } else {
         return boost::lexical_cast<std::string>(value);
     }
