@@ -103,15 +103,20 @@ void RowsetMeta::set_fs(io::FileSystemSPtr fs) {
     _fs = std::move(fs);
 }
 
+bool RowsetMeta::has_variant_type_in_schema() const {
+    return _schema->num_variant_columns() > 0;
+}
+
 void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema) const {
     *rs_meta_pb = _rowset_meta_pb;
     if (_schema) [[likely]] {
         rs_meta_pb->set_schema_version(_schema->schema_version());
-        if (!skip_schema) {
+        if (!skip_schema || has_variant_type_in_schema()) {
             // For cloud, separate tablet schema from rowset meta to reduce persistent size.
             _schema->to_schema_pb(rs_meta_pb->mutable_tablet_schema());
         }
     }
+    rs_meta_pb->set_has_variant_type_in_schema(has_variant_type_in_schema());
 }
 
 RowsetMetaPB RowsetMeta::get_rowset_pb(bool skip_schema) const {

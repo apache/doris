@@ -58,6 +58,8 @@ public:
 
     bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
+    bool has_variant_type_in_schema() const;
+
     RowsetId rowset_id() const { return _rowset_id; }
 
     void set_rowset_id(const RowsetId& rowset_id) {
