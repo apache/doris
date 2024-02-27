@@ -32,6 +32,7 @@ public abstract class AuthenticationConfig {
      * @return true if the config is valid, otherwise false.
      */
     public abstract boolean isValid();
+
     /**
      * get kerberos config from hadoop conf
      * @param conf config
