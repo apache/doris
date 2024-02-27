@@ -181,7 +181,7 @@ Status Compaction::merge_input_rowsets() {
                                    fmt::format("rowset writer build failed. output_version: {}",
                                                _output_version.to_string()));
 
-    //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), true));
+    //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // Now we support delete in cumu compaction, to make all data in rowsets whose version
     // is below output_version to be delete in the future base compaction, we should carry
@@ -885,7 +885,7 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 
     RETURN_IF_ERROR(merge_input_rowsets());
 
-    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), true));
+    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // 4. modify rowsets in memory
     RETURN_IF_ERROR(modify_rowsets());
@@ -922,8 +922,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
-    RETURN_IF_ERROR(
-            _engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get(), true));
+    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));
     return Status::OK();
 }
 

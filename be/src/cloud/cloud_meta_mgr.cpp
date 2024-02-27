@@ -617,15 +617,14 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(
     return Status::OK();
 }
 
-Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id() << ", is_tmp: " << is_tmp;
+               << ", rowset_id: " << rs_meta.rowset_id();
 
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_temporary(is_tmp);
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
@@ -643,14 +642,13 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, bool is_tmp,
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id() << ", is_tmp: " << is_tmp;
+               << ", rowset_id: " << rs_meta.rowset_id();
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_temporary(is_tmp);
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
