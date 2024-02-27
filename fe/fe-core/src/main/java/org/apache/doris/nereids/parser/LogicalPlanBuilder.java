@@ -3339,7 +3339,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<Expression> arguments = ctx.expression().stream()
                 .<Expression>map(this::typedVisit)
                 .collect(ImmutableList.toImmutableList());
-        UnboundFunction unboundFunction = new UnboundFunction(procedureName.getDb(), procedureName.getName(),
+        UnboundFunction unboundFunction = new UnboundFunction(procedureName.getDbName(), procedureName.getName(),
                 true, arguments);
         return new CallCommand(unboundFunction, getOriginSql(ctx));
     }

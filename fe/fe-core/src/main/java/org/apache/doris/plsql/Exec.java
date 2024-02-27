@@ -1625,7 +1625,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         FuncNameInfo procedureName = new FuncNameInfo(nameParts);
         Package packCallContext = exec.getPackageCallContext();
         boolean executed = false;
-        Package pack = findPackage(procedureName.getDb());
+        Package pack = findPackage(procedureName.getDbName());
         if (pack != null) {
             executed = pack.execFunc(procedureName.getName(), params);
         }
