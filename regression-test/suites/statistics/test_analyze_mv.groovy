@@ -74,6 +74,25 @@ suite("test_analyze_mv") {
         }
     }
 
+    def verify_column_stats = { all_column_result, one_column_result ->
+        logger.info("all column result: " + all_column_result)
+        logger.info("one column result: " + one_column_result)
+        boolean found = false;
+        for (int i = 0; i < all_column_result.size(); i++) {
+            if (all_column_result[i][0] == one_column_result[0] && all_column_result[i][1] == one_column_result[1]) {
+                assertEquals(all_column_result[i][2], one_column_result[2])
+                assertEquals(all_column_result[i][3], one_column_result[3])
+                assertEquals(all_column_result[i][4], one_column_result[4])
+                assertEquals(all_column_result[i][5], one_column_result[5])
+                assertEquals(all_column_result[i][6], one_column_result[6])
+                assertEquals(all_column_result[i][7], one_column_result[7])
+                assertEquals(all_column_result[i][8], one_column_result[8])
+                found = true;
+            }
+        }
+        assertTrue(found)
+    }
+
     sql """drop database if exists test_analyze_mv"""
     sql """create database test_analyze_mv"""
     sql """use test_analyze_mv"""
@@ -102,10 +121,13 @@ suite("test_analyze_mv") {
 
     sql """analyze table mvTestDup with sync;"""
 
-    def result_sample = sql """show column stats mvTestDup"""
-    assertEquals(12, result_sample.size())
+    // Compare show whole table column stats result with show single column.
+    def result_all = sql """show column stats mvTestDup"""
+    assertEquals(12, result_all.size())
+    def result_all_cached = sql """show column cached stats mvTestDup"""
+    assertEquals(12, result_all_cached.size())
 
-    result_sample = sql """show column stats mvTestDup(key1)"""
+    def result_sample = sql """show column stats mvTestDup(key1)"""
     assertEquals(1, result_sample.size())
     assertEquals("key1", result_sample[0][0])
     assertEquals("N/A", result_sample[0][1])
@@ -114,6 +136,8 @@ suite("test_analyze_mv") {
     assertEquals("1", result_sample[0][7])
     assertEquals("1001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
 
     result_sample = sql """show column stats mvTestDup(value1)"""
     assertEquals(1, result_sample.size())
@@ -124,6 +148,8 @@ suite("test_analyze_mv") {
     assertEquals("3", result_sample[0][7])
     assertEquals("3001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
 
     result_sample = sql """show column stats mvTestDup(mv_key1)"""
     assertEquals(2, result_sample.size())
@@ -138,6 +164,10 @@ suite("test_analyze_mv") {
     assertEquals("1", result_sample[0][7])
     assertEquals("1001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
+    verify_column_stats(result_all, result_sample[1])
+    verify_column_stats(result_all_cached, result_sample[1])
 
     result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS BIGINT)`)"""
     assertEquals(1, result_sample.size())
@@ -148,6 +178,8 @@ suite("test_analyze_mv") {
     assertEquals("6", result_sample[0][7])
     assertEquals("3001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
 
     result_sample = sql """show column stats mvTestDup(`mva_MAX__``value2```)"""
     assertEquals(1, result_sample.size())
@@ -158,6 +190,8 @@ suite("test_analyze_mv") {
     assertEquals("4", result_sample[0][7])
     assertEquals("4001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
 
     result_sample = sql """show column stats mvTestDup(`mva_MIN__``value3```)"""
     assertEquals(1, result_sample.size())
@@ -168,6 +202,8 @@ suite("test_analyze_mv") {
     assertEquals("5", result_sample[0][7])
     assertEquals("5001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+    verify_column_stats(result_all, result_sample[0])
+    verify_column_stats(result_all_cached, result_sample[0])
 
 
     sql """CREATE TABLE mvTestAgg (
