@@ -276,6 +276,9 @@ Status GroupCommitTable::_create_group_commit_load(
                 client->streamLoadPut(result, request);
             },
             10000L);
+    if (!st.ok()) {
+        LOG(WARNING) << "create group commit load rpc error, st=" << st.to_string();
+    }
     RETURN_IF_ERROR(st);
     st = Status::create<false>(result.status);
     if (!st.ok()) {
