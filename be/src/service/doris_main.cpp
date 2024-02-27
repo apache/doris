@@ -166,8 +166,7 @@ auto instruction_fail_to_string(InstructionFail fail) {
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
     }
-    WRITE_ERROR("__builtin_unreachable");
-    _Exit(1);
+    ret("UNKNOWN INSTRUCTION FAIL");
 }
 
 sigjmp_buf jmpbuf;
