@@ -373,7 +373,6 @@
                                 "sql-manual/sql-functions/date-time-functions/curdate",
                                 "sql-manual/sql-functions/date-time-functions/curtime",
                                 "sql-manual/sql-functions/date-time-functions/current-timestamp",
-                                "sql-manual/sql-functions/date-time-functions/second-timestamp",
                                 "sql-manual/sql-functions/date-time-functions/localtime",
                                 "sql-manual/sql-functions/date-time-functions/now",
                                 "sql-manual/sql-functions/date-time-functions/year",
@@ -1039,8 +1038,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/PAUSE-JOB",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/RESUME-JOB",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/STOP-JOB"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/RESUME-JOB"
                                     ]
                                 },
                                 {
@@ -1200,8 +1198,6 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TRASH",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-VIEW",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TRANSACTION",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-JOB",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-JOB-TASK",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-STREAM-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-STATUS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-ID",
