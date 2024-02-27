@@ -70,7 +70,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                        OriginStatement origStmt) throws AnalysisException {
         super(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                 rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
-                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt, true);
+                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             LOG.debug("rollup job add cloud cluster, context not null, cluster: {}", context.getCloudCluster());

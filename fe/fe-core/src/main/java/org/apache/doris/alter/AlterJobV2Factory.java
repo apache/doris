@@ -36,7 +36,7 @@ public class AlterJobV2Factory {
         if (Config.isCloudMode()) {
             return new CloudSchemaChangeJobV2(rawSql, jobId, dbId, tableId, tableName, timeoutMs);
         } else {
-            return new SchemaChangeJobV2(rawSql, jobId, dbId, tableId, tableName, timeoutMs, false);
+            return new SchemaChangeJobV2(rawSql, jobId, dbId, tableId, tableName, timeoutMs);
         }
     }
 
@@ -54,7 +54,7 @@ public class AlterJobV2Factory {
         } else {
             return new RollupJobV2(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                     rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
-                    baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt, false);
+                    baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
         }
     }
 

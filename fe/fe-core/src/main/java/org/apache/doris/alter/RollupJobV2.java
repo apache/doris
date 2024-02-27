@@ -151,7 +151,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                        Column whereColumn,
                        int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
                        short rollupShortKeyColumnCount,
-                       OriginStatement origStmt, boolean isCloudRollup) throws AnalysisException {
+                       OriginStatement origStmt) throws AnalysisException {
         super(rawSql, jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
@@ -168,7 +168,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.rollupShortKeyColumnCount = rollupShortKeyColumnCount;
 
         this.origStmt = origStmt;
-        this.isCloudRollup = isCloudRollup;
         initAnalyzer();
     }
 
@@ -898,6 +897,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     protected void onCreateRollupReplicaDone() throws AlterCancelException {}
 
+    // try best to drop roll index, when job is cancelled
     protected void onCancel() {}
 
     @Override

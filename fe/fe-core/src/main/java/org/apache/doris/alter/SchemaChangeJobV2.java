@@ -139,10 +139,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     }
 
     // Don't call it directly, use AlterJobV2Factory to replace
-    public SchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId, String tableName, long timeoutMs,
-            boolean isCloudSchemaChange) {
+    public SchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId, String tableName,
+            long timeoutMs) {
         super(rawSql, jobId, JobType.SCHEMA_CHANGE, dbId, tableId, tableName, timeoutMs);
-        this.isCloudSchemaChange = isCloudSchemaChange;
     }
 
     public void addTabletIdMap(long partitionId, long shadowIdxId, long shadowTabletId, long originTabletId) {
@@ -615,7 +614,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
-        // try best to drop origin index
         postProcessOriginIndex();
     }
 
@@ -723,7 +721,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when cancel, table id: {}, job id: {}", tableId, jobId);
-        // try best to drop shadow index, when job is cancelled
         postProcessShadowIndex();
 
         return true;
@@ -961,10 +958,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
     }
 
+    // commit shadowIndex after the job is done in cloud mode
     protected void commitShadowIndex() throws AlterCancelException {}
 
+    // try best to drop shadow index, when job is cancelled in cloud mode
     protected void postProcessShadowIndex() {}
 
+    // try best to drop origin index in cloud mode
     protected void postProcessOriginIndex() {}
 
     @Override

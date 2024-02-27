@@ -54,7 +54,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
 
     public CloudSchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId,
             String tableName, long timeoutMs) {
-        super(rawSql, jobId, dbId, tableId, tableName, timeoutMs, true);
+        super(rawSql, jobId, dbId, tableId, tableName, timeoutMs);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             LOG.debug("schema change job add cloud cluster, context not null, cluster: {}",

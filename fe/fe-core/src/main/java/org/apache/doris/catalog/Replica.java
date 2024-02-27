@@ -528,7 +528,6 @@ public class Replica implements Writable {
      *      is already updated by load process, so we need to consider its version.
      */
     public boolean checkVersionCatchUp(long expectedVersion, boolean ignoreAlter) {
-        LOG.info("????");
         if (ignoreAlter && state == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION) {
             return true;
         }

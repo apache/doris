@@ -48,6 +48,7 @@ private:
     std::string _job_id;
     std::vector<RowsetSharedPtr> _output_rowsets;
     int64_t _output_cumulative_point = 0;
+    // absolute expiration time in second
     int64_t _expiration;
 };
 
