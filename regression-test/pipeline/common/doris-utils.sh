@@ -455,30 +455,30 @@ archive_doris_logs() {
     local archive_dir="${archive_name%.tar.gz}"
     mkdir -p "${archive_dir}"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
-    cp -rf "fe/conf" "${archive_dir}"/
-    cp -rf "fe/log" "${archive_dir}"/
-    cp -rf "be/conf" "${archive_dir}"/
-    cp -rf "be/log" "${archive_dir}"/
+    cp -rf "${DORIS_HOME:-}/fe/conf" "${archive_dir}"/
+    cp -rf "${DORIS_HOME:-}/fe/log" "${archive_dir}"/
+    cp -rf "${DORIS_HOME:-}/be/conf" "${archive_dir}"/
+    cp -rf "${DORIS_HOME:-}/be/log" "${archive_dir}"/
     if [[ -d "${DORIS_HOME}"/regression-test/log ]]; then
         # try to hide ak and sk
         if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" regression-test/log/* &>/dev/null; then :; fi
-        cp -rf "regression-test/log" "${archive_dir}"/
+        cp -rf "${DORIS_HOME:-}/regression-test/log" "${archive_dir}"/
     fi
     if [[ -f "${DORIS_HOME:-}"/session_variables ]]; then
-        cp -rf "session_variables" "${archive_dir}"/
+        cp -rf "${DORIS_HOME:-}/session_variables" "${archive_dir}"/
     fi
     if [[ -d "${DORIS_HOME}"/ms ]]; then
         mkdir -p "${archive_dir}"/foundationdb/log
         cp -rf /var/log/foundationdb/* "${archive_dir}"/foundationdb/log/
-        cp -rf "ms/conf" "${archive_dir}"/
-        cp -rf "ms/log" "${archive_dir}"/
+        cp -rf "${DORIS_HOME:-}/ms/conf" "${archive_dir}"/
+        cp -rf "${DORIS_HOME:-}/ms/log" "${archive_dir}"/
     fi
     if [[ -d "${DORIS_HOME}"/recycler ]]; then
-        cp -rf "recycler/conf" "${archive_dir}"/
-        cp -rf "recycler/log" "${archive_dir}"/
+        cp -rf "${DORIS_HOME:-}/recycler/conf" "${archive_dir}"/
+        cp -rf "${DORIS_HOME:-}/recycler/log" "${archive_dir}"/
     fi
     if [[ -d "${DORIS_HOME}"/be/storage/error_log ]]; then
-        cp -rf "be/storage/error_log" "${archive_dir}"/
+        cp -rf "${DORIS_HOME:-}/be/storage/error_log" "${archive_dir}"/
     fi
 
     if tar -I pigz \
