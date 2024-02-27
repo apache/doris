@@ -2224,7 +2224,6 @@ public class Config extends ConfigBase {
             "Enable external table DDL"})
     public static boolean enable_external_ddl = false;
 
-
     @ConfField(mutable = true, masterOnly = true, description = {
             "Hive创建外部表默认指定的input format",
             "Default hive input format for creating table."})
