@@ -31,7 +31,7 @@
 #include "common/config.h"
 #include "common/logging.h" // LOG
 #include "gutil/port.h"
-#include "inverted_index_compound_directory.h"
+#include "inverted_index_fs_directory.h"
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"

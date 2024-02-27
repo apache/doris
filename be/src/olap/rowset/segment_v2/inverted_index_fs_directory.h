@@ -43,7 +43,7 @@ class TabletIndex;
 
 namespace segment_v2 {
 
-class CLUCENE_EXPORT DorisCompoundDirectory : public lucene::store::Directory {
+class CLUCENE_EXPORT DorisFSDirectory : public lucene::store::Directory {
 public:
     static const char* const WRITE_LOCK_FILE;
     static const char* const COMPOUND_FILE_EXTENSION;
@@ -68,13 +68,13 @@ public:
     class FSIndexOutput;
     class FSIndexInput;
 
-    friend class DorisCompoundDirectory::FSIndexOutput;
-    friend class DorisCompoundDirectory::FSIndexInput;
+    friend class DorisFSDirectory::FSIndexOutput;
+    friend class DorisFSDirectory::FSIndexInput;
 
     const io::FileSystemSPtr& getFileSystem() { return fs; }
     const io::FileSystemSPtr& getCompoundFileSystem() { return compound_fs; }
     size_t getCompoundFileSize() const { return compound_file_size; }
-    ~DorisCompoundDirectory() override;
+    ~DorisFSDirectory() override;
 
     bool list(std::vector<std::string>* names) const override;
     bool fileExists(const char* name) const override;
@@ -93,7 +93,7 @@ public:
     const char* getObjectName() const override;
     virtual bool deleteDirectory();
 
-    DorisCompoundDirectory();
+    DorisFSDirectory();
 
     virtual void init(const io::FileSystemSPtr& fs, const char* path, bool use_compound_file_writer,
                       lucene::store::LockFactory* lock_factory = nullptr,
@@ -101,7 +101,7 @@ public:
                       const char* cfs_path = nullptr);
 };
 
-class CLUCENE_EXPORT DorisRAMCompoundDirectory : public DorisCompoundDirectory {
+class CLUCENE_EXPORT DorisRAMCompoundDirectory : public DorisFSDirectory {
 protected:
     using FileMap =
             lucene::util::CLHashMap<char*, lucene::store::RAMFile*, lucene::util::Compare::Char,
@@ -164,7 +164,7 @@ public:
     const char* getObjectName() const override;
 };
 
-class DorisCompoundDirectory::FSIndexInput : public lucene::store::BufferedIndexInput {
+class DorisFSDirectory::FSIndexInput : public lucene::store::BufferedIndexInput {
     class SharedHandle : LUCENE_REFBASE {
     public:
         io::FileReaderSPtr _reader;
@@ -201,7 +201,7 @@ public:
     void close() override;
     int64_t length() const override { return _handle->_length; }
 
-    const char* getDirectoryType() const override { return DorisCompoundDirectory::getClassName(); }
+    const char* getDirectoryType() const override { return DorisFSDirectory::getClassName(); }
     const char* getObjectName() const override { return getClassName(); }
     static const char* getClassName() { return "FSIndexInput"; }
 
@@ -217,16 +217,16 @@ protected:
 };
 
 /**
- * Factory function to create DorisCompoundDirectory
+ * Factory function to create DorisFSDirectory
  */
 class DorisCompoundDirectoryFactory {
 public:
-    static DorisCompoundDirectory* getDirectory(const io::FileSystemSPtr& fs, const char* file,
-                                                bool use_compound_file_writer = false,
-                                                bool can_use_ram_dir = false,
-                                                lucene::store::LockFactory* lock_factory = nullptr,
-                                                const io::FileSystemSPtr& cfs_fs = nullptr,
-                                                const char* cfs_file = nullptr);
+    static DorisFSDirectory* getDirectory(const io::FileSystemSPtr& fs, const char* file,
+                                          bool use_compound_file_writer = false,
+                                          bool can_use_ram_dir = false,
+                                          lucene::store::LockFactory* lock_factory = nullptr,
+                                          const io::FileSystemSPtr& cfs_fs = nullptr,
+                                          const char* cfs_file = nullptr);
 };
 } // namespace segment_v2
 } // namespace doris

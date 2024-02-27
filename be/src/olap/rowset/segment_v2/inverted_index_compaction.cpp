@@ -17,8 +17,8 @@
 
 #include "inverted_index_compaction.h"
 
-#include "inverted_index_compound_directory.h"
 #include "inverted_index_file_writer.h"
+#include "inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 #include "util/debug_points.h"
 

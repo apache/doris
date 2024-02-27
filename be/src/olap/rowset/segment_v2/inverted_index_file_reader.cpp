@@ -20,8 +20,8 @@
 #include <memory>
 #include <utility>
 
-#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 
 namespace doris::segment_v2 {
@@ -56,8 +56,8 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
 
         CLuceneError err;
         CL_NS(store)::IndexInput* index_input = nullptr;
-        auto ok = DorisCompoundDirectory::FSIndexInput::open(_fs, index_file_full_path.c_str(),
-                                                             index_input, err, read_buffer_size);
+        auto ok = DorisFSDirectory::FSIndexInput::open(_fs, index_file_full_path.c_str(),
+                                                       index_input, err, read_buffer_size);
         if (!ok) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occur when open idx file {}, error msg: {}",
@@ -144,7 +144,7 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
     std::unique_ptr<DorisCompoundReader> compound_reader;
 
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
-        DorisCompoundDirectory* dir = nullptr;
+        DorisFSDirectory* dir = nullptr;
         auto file_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name, index_id,
                                                                       index_suffix);
         try {

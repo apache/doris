@@ -21,9 +21,9 @@
 #include <CLucene/util/bkd/bkd_reader.h>
 
 #include "common/config.h"
-#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 
 namespace doris::segment_v2 {
 Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,

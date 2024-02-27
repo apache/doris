@@ -32,7 +32,7 @@ namespace doris {
 class TabletIndex;
 
 namespace segment_v2 {
-class DorisCompoundDirectory;
+class DorisFSDirectory;
 using InvertedIndexDirectoryMap =
         std::map<std::pair<int64_t, std::string>, std::unique_ptr<lucene::store::Directory>>;
 
@@ -69,7 +69,7 @@ public:
               _segment_file_name(std::move(segment_file_name)),
               _storage_format(storage_format) {}
 
-    Result<DorisCompoundDirectory*> open(const TabletIndex* index_meta);
+    Result<DorisFSDirectory*> open(const TabletIndex* index_meta);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     ~InvertedIndexFileWriter() = default;

@@ -30,7 +30,7 @@
 #include <utility>
 
 #include "CLucene/SharedHeader.h"
-#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
+#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 
 namespace doris {
@@ -85,7 +85,7 @@ CSIndexInput::CSIndexInput(CL_NS(store)::IndexInput* base, const int64_t fileOff
 }
 
 void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
-    std::lock_guard wlock(((DorisCompoundDirectory::FSIndexInput*)base)->_this_lock);
+    std::lock_guard wlock(((DorisFSDirectory::FSIndexInput*)base)->_this_lock);
 
     int64_t start = getFilePointer();
     if (start + len > _length) {
@@ -225,7 +225,7 @@ lucene::store::Directory* DorisCompoundReader::getDirectory() {
 }
 
 std::string DorisCompoundReader::getPath() const {
-    return ((DorisCompoundDirectory*)dir)->getCfsDirName();
+    return ((DorisFSDirectory*)dir)->getCfsDirName();
 }
 
 int64_t DorisCompoundReader::fileModified(const char* name) const {

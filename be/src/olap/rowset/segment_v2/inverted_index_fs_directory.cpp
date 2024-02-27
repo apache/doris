@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
+#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 
 #include "CLucene/SharedHeader.h"
 #include "CLucene/_SharedHeader.h"
@@ -77,10 +77,10 @@
     }
 namespace doris::segment_v2 {
 
-const char* const DorisCompoundDirectory::WRITE_LOCK_FILE = "write.lock";
-const char* const DorisCompoundDirectory::COMPOUND_FILE_EXTENSION = ".idx";
+const char* const DorisFSDirectory::WRITE_LOCK_FILE = "write.lock";
+const char* const DorisFSDirectory::COMPOUND_FILE_EXTENSION = ".idx";
 
-class DorisCompoundDirectory::FSIndexOutput : public lucene::store::BufferedIndexOutput {
+class DorisFSDirectory::FSIndexOutput : public lucene::store::BufferedIndexOutput {
 private:
     io::FileWriterPtr _writer;
 
@@ -95,9 +95,9 @@ public:
     int64_t length() const override;
 };
 
-bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const char* path,
-                                                IndexInput*& ret, CLuceneError& error,
-                                                int32_t buffer_size) {
+bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const char* path,
+                                          IndexInput*& ret, CLuceneError& error,
+                                          int32_t buffer_size) {
     CND_PRECONDITION(path != nullptr, "path is NULL");
 
     if (buffer_size == -1) {
@@ -138,7 +138,7 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
     return false;
 }
 
-DorisCompoundDirectory::FSIndexInput::FSIndexInput(const FSIndexInput& other)
+DorisFSDirectory::FSIndexInput::FSIndexInput(const FSIndexInput& other)
         : BufferedIndexInput(other) {
     if (other._handle == nullptr) {
         _CLTHROWA(CL_ERR_NullPointer, "other handle is null");
@@ -150,14 +150,14 @@ DorisCompoundDirectory::FSIndexInput::FSIndexInput(const FSIndexInput& other)
     _io_ctx = other._io_ctx;
 }
 
-DorisCompoundDirectory::FSIndexInput::SharedHandle::SharedHandle(const char* path) {
+DorisFSDirectory::FSIndexInput::SharedHandle::SharedHandle(const char* path) {
     _length = 0;
     _fpos = 0;
     strcpy(this->path, path);
     //_shared_lock = new std::mutex();
 }
 
-DorisCompoundDirectory::FSIndexInput::SharedHandle::~SharedHandle() {
+DorisFSDirectory::FSIndexInput::SharedHandle::~SharedHandle() {
     if (_reader) {
         if (_reader->close().ok()) {
             _reader = nullptr;
@@ -165,14 +165,14 @@ DorisCompoundDirectory::FSIndexInput::SharedHandle::~SharedHandle() {
     }
 }
 
-DorisCompoundDirectory::FSIndexInput::~FSIndexInput() {
+DorisFSDirectory::FSIndexInput::~FSIndexInput() {
     FSIndexInput::close();
 }
 
-lucene::store::IndexInput* DorisCompoundDirectory::FSIndexInput::clone() const {
-    return _CLNEW DorisCompoundDirectory::FSIndexInput(*this);
+lucene::store::IndexInput* DorisFSDirectory::FSIndexInput::clone() const {
+    return _CLNEW DorisFSDirectory::FSIndexInput(*this);
 }
-void DorisCompoundDirectory::FSIndexInput::close() {
+void DorisFSDirectory::FSIndexInput::close() {
     BufferedIndexInput::close();
     /*if (_handle != nullptr) {
         std::mutex* lock = _handle->_shared_lock;
@@ -192,13 +192,13 @@ void DorisCompoundDirectory::FSIndexInput::close() {
     }*/
 }
 
-void DorisCompoundDirectory::FSIndexInput::seekInternal(const int64_t position) {
+void DorisFSDirectory::FSIndexInput::seekInternal(const int64_t position) {
     CND_PRECONDITION(position >= 0 && position < _handle->_length, "Seeking out of range");
     _pos = position;
 }
 
 /** IndexInput methods */
-void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len) {
+void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     CND_PRECONDITION(_handle != nullptr, "shared file handle has closed");
     CND_PRECONDITION(_handle->_reader != nullptr, "file is not open");
     std::lock_guard<std::mutex> wlock(_handle->_shared_lock);
@@ -225,12 +225,12 @@ void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_
     _handle->_fpos = _pos;
 }
 
-void DorisCompoundDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileSystem,
+void DorisFSDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileSystem,
                                                  const char* path) {
     io::FileWriterOptions opts {.create_empty_file = false};
     Status status = fileSystem->create_file(path, &_writer, &opts);
     DBUG_EXECUTE_IF(
-            "DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
+            "DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
             "init",
             {
                 status = Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -244,12 +244,12 @@ void DorisCompoundDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileS
     }
 }
 
-DorisCompoundDirectory::FSIndexOutput::~FSIndexOutput() {
+DorisFSDirectory::FSIndexOutput::~FSIndexOutput() {
     if (_writer) {
         try {
             FSIndexOutput::close();
             DBUG_EXECUTE_IF(
-                    "DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
+                    "DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
                     "destructor",
                     {
                         _CLTHROWA(CL_ERR_IO,
@@ -262,11 +262,11 @@ DorisCompoundDirectory::FSIndexOutput::~FSIndexOutput() {
     }
 }
 
-void DorisCompoundDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const int32_t size) {
+void DorisFSDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const int32_t size) {
     if (_writer != nullptr && b != nullptr && size > 0) {
         Slice data {b, (size_t)size};
         DBUG_EXECUTE_IF(
-                "DorisCompoundDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_"
+                "DorisFSDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_"
                 "flushBuffer",
                 {
                     if (_writer->path().filename() == "_0.tii" ||
@@ -276,8 +276,7 @@ void DorisCompoundDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const 
                 })
         Status st = _writer->append(data);
         DBUG_EXECUTE_IF(
-                "DorisCompoundDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer",
-                {
+                "DorisFSDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer", {
                     st = Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                             "flush buffer mock error");
                 })
@@ -287,20 +286,20 @@ void DorisCompoundDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const 
         }
     } else {
         if (_writer == nullptr) {
-            LOG(WARNING) << "File writer is nullptr in DorisCompoundDirectory::FSIndexOutput, "
+            LOG(WARNING) << "File writer is nullptr in DorisFSDirectory::FSIndexOutput, "
                             "ignore flush.";
         } else if (b == nullptr) {
             LOG(WARNING) << "buffer is nullptr when flushBuffer in "
-                            "DorisCompoundDirectory::FSIndexOutput";
+                            "DorisFSDirectory::FSIndexOutput";
         }
     }
 }
 
-void DorisCompoundDirectory::FSIndexOutput::close() {
+void DorisFSDirectory::FSIndexOutput::close() {
     try {
         BufferedIndexOutput::close();
         DBUG_EXECUTE_IF(
-                "DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_"
+                "DorisFSDirectory::FSIndexOutput._throw_clucene_error_in_bufferedindexoutput_"
                 "close",
                 {
                     _CLTHROWA(CL_ERR_IO,
@@ -317,7 +316,7 @@ void DorisCompoundDirectory::FSIndexOutput::close() {
     }
     if (_writer) {
         Status ret = _writer->finalize();
-        DBUG_EXECUTE_IF("DorisCompoundDirectory::FSIndexOutput._set_writer_finalize_status_error",
+        DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput._set_writer_finalize_status_error",
                         { ret = Status::Error<INTERNAL_ERROR>("writer finalize status error"); })
         if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer finalize error: " << ret.to_string();
@@ -325,7 +324,7 @@ void DorisCompoundDirectory::FSIndexOutput::close() {
             _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
         }
         ret = _writer->close();
-        DBUG_EXECUTE_IF("DorisCompoundDirectory::FSIndexOutput._set_writer_close_status_error",
+        DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error",
                         { ret = Status::Error<INTERNAL_ERROR>("writer close status error"); })
         if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer close error: " << ret.to_string();
@@ -338,7 +337,7 @@ void DorisCompoundDirectory::FSIndexOutput::close() {
     _writer.reset(nullptr);
 }
 
-int64_t DorisCompoundDirectory::FSIndexOutput::length() const {
+int64_t DorisFSDirectory::FSIndexOutput::length() const {
     CND_PRECONDITION(_writer != nullptr, "file is not open");
     int64_t ret;
     if (!_writer->fs()->file_size(_writer->path(), &ret).ok()) {
@@ -347,15 +346,14 @@ int64_t DorisCompoundDirectory::FSIndexOutput::length() const {
     return ret;
 }
 
-DorisCompoundDirectory::DorisCompoundDirectory() {
+DorisFSDirectory::DorisFSDirectory() {
     filemode = 0644;
     this->lockFactory = nullptr;
 }
 
-void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _path,
-                                  bool use_compound_file_writer,
-                                  lucene::store::LockFactory* lock_factory,
-                                  const io::FileSystemSPtr& cfs, const char* cfs_path) {
+void DorisFSDirectory::init(const io::FileSystemSPtr& _fs, const char* _path,
+                            bool use_compound_file_writer, lucene::store::LockFactory* lock_factory,
+                            const io::FileSystemSPtr& cfs, const char* cfs_path) {
     fs = _fs;
     directory = _path;
     useCompoundFileWriter = use_compound_file_writer;
@@ -390,23 +388,23 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
     }
 }
 
-void DorisCompoundDirectory::priv_getFN(char* buffer, const char* name) const {
+void DorisFSDirectory::priv_getFN(char* buffer, const char* name) const {
     buffer[0] = 0;
     strcpy(buffer, directory.c_str());
     strcat(buffer, PATH_DELIMITERA);
     strcat(buffer, name);
 }
 
-DorisCompoundDirectory::~DorisCompoundDirectory() = default;
+DorisFSDirectory::~DorisFSDirectory() = default;
 
-const char* DorisCompoundDirectory::getClassName() {
-    return "DorisCompoundDirectory";
+const char* DorisFSDirectory::getClassName() {
+    return "DorisFSDirectory";
 }
-const char* DorisCompoundDirectory::getObjectName() const {
+const char* DorisFSDirectory::getObjectName() const {
     return getClassName();
 }
 
-bool DorisCompoundDirectory::list(std::vector<std::string>* names) const {
+bool DorisFSDirectory::list(std::vector<std::string>* names) const {
     CND_PRECONDITION(!directory.empty(), "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, "");
@@ -419,7 +417,7 @@ bool DorisCompoundDirectory::list(std::vector<std::string>* names) const {
     return true;
 }
 
-bool DorisCompoundDirectory::fileExists(const char* name) const {
+bool DorisFSDirectory::fileExists(const char* name) const {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, name);
@@ -428,15 +426,15 @@ bool DorisCompoundDirectory::fileExists(const char* name) const {
     return exists;
 }
 
-const char* DorisCompoundDirectory::getCfsDirName() const {
+const char* DorisFSDirectory::getCfsDirName() const {
     return cfs_directory.c_str();
 }
 
-const std::string& DorisCompoundDirectory::getDirName() const {
+const std::string& DorisFSDirectory::getDirName() const {
     return directory;
 }
 
-int64_t DorisCompoundDirectory::fileModified(const char* name) const {
+int64_t DorisFSDirectory::fileModified(const char* name) const {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     struct stat buf;
     char buffer[CL_MAX_DIR];
@@ -448,7 +446,7 @@ int64_t DorisCompoundDirectory::fileModified(const char* name) const {
     }
 }
 
-void DorisCompoundDirectory::touchFile(const char* name) {
+void DorisFSDirectory::touchFile(const char* name) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char buffer[CL_MAX_DIR];
     snprintf(buffer, CL_MAX_DIR, "%s%s%s", directory.c_str(), PATH_DELIMITERA, name);
@@ -457,7 +455,7 @@ void DorisCompoundDirectory::touchFile(const char* name) {
     LOG_AND_THROW_IF_ERROR(fs->create_file(buffer, &tmp_writer), "Touch file IO error")
 }
 
-int64_t DorisCompoundDirectory::fileLength(const char* name) const {
+int64_t DorisFSDirectory::fileLength(const char* name) const {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char buffer[CL_MAX_DIR];
     priv_getFN(buffer, name);
@@ -466,17 +464,17 @@ int64_t DorisCompoundDirectory::fileLength(const char* name) const {
     return size;
 }
 
-bool DorisCompoundDirectory::openInput(const char* name, lucene::store::IndexInput*& ret,
-                                       CLuceneError& error, int32_t bufferSize) {
+bool DorisFSDirectory::openInput(const char* name, lucene::store::IndexInput*& ret,
+                                 CLuceneError& error, int32_t bufferSize) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, name);
     return FSIndexInput::open(fs, fl, ret, error, bufferSize);
 }
 
-void DorisCompoundDirectory::close() {}
+void DorisFSDirectory::close() {}
 
-bool DorisCompoundDirectory::doDeleteFile(const char* name) {
+bool DorisFSDirectory::doDeleteFile(const char* name) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, name);
@@ -484,7 +482,7 @@ bool DorisCompoundDirectory::doDeleteFile(const char* name) {
     return true;
 }
 
-bool DorisCompoundDirectory::deleteDirectory() {
+bool DorisFSDirectory::deleteDirectory() {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, "");
@@ -493,7 +491,7 @@ bool DorisCompoundDirectory::deleteDirectory() {
     return true;
 }
 
-void DorisCompoundDirectory::renameFile(const char* from, const char* to) {
+void DorisFSDirectory::renameFile(const char* from, const char* to) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     std::lock_guard<std::mutex> wlock(_this_lock);
     char old[CL_MAX_DIR];
@@ -510,7 +508,7 @@ void DorisCompoundDirectory::renameFile(const char* from, const char* to) {
     LOG_AND_THROW_IF_ERROR(fs->rename(old, nu), fmt::format("Rename {} to {} IO error", old, nu))
 }
 
-lucene::store::IndexOutput* DorisCompoundDirectory::createOutput(const char* name) {
+lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, name);
@@ -534,8 +532,8 @@ lucene::store::IndexOutput* DorisCompoundDirectory::createOutput(const char* nam
     return ret;
 }
 
-std::string DorisCompoundDirectory::toString() const {
-    return std::string("DorisCompoundDirectory@") + this->directory;
+std::string DorisFSDirectory::toString() const {
+    return std::string("DorisFSDirectory@") + this->directory;
 }
 
 /**
@@ -633,7 +631,7 @@ bool DorisRAMCompoundDirectory::openInput(const char* name, lucene::store::Index
 
 void DorisRAMCompoundDirectory::close() {
     // write compound file
-    DorisCompoundDirectory::close();
+    DorisFSDirectory::close();
 
     std::lock_guard<std::mutex> wlock(_this_lock);
     filesMap->clear();
@@ -726,7 +724,7 @@ const char* DorisRAMCompoundDirectory::getObjectName() const {
 /**
  * DorisCompoundDirectoryFactory
  */
-DorisCompoundDirectory* DorisCompoundDirectoryFactory::getDirectory(
+DorisFSDirectory* DorisCompoundDirectoryFactory::getDirectory(
         const io::FileSystemSPtr& _fs, const char* _file, bool use_compound_file_writer,
         bool can_use_ram_dir, lucene::store::LockFactory* lock_factory,
         const io::FileSystemSPtr& _cfs, const char* _cfs_file) {
@@ -734,7 +732,7 @@ DorisCompoundDirectory* DorisCompoundDirectoryFactory::getDirectory(
     if (cfs_file == nullptr) {
         cfs_file = _file;
     }
-    DorisCompoundDirectory* dir = nullptr;
+    DorisFSDirectory* dir = nullptr;
     if (!_file || !*_file) {
         _CLTHROWA(CL_ERR_IO, "Invalid directory");
     }
@@ -753,7 +751,7 @@ DorisCompoundDirectory* DorisCompoundDirectoryFactory::getDirectory(
             LOG_AND_THROW_IF_ERROR(_fs->create_directory(file),
                                    "Get directory create directory IO error")
         }
-        dir = _CLNEW DorisCompoundDirectory();
+        dir = _CLNEW DorisFSDirectory();
     }
     dir->init(_fs, file, use_compound_file_writer, lock_factory, _cfs, cfs_file);
 
