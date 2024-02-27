@@ -91,6 +91,9 @@ public:
             needles_nullable = true;
         }
 
+        auto haystack_ptr = remove_nullable(haystack_column);
+        auto needles_ptr = remove_nullable(needles_column);
+
         const ColumnString* col_haystack_vector =
                 check_and_get_column<ColumnString>(&*haystack_ptr);
         const ColumnConst* col_haystack_const =
