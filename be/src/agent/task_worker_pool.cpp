@@ -166,20 +166,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                   const TTaskType::type task_type, TFinishTaskRequest* finish_task_request) {
     Status status;
 
-    std::string_view process_name;
-    switch (task_type) {
-    case TTaskType::ALTER:
-        process_name = "alter tablet";
-        break;
-    default:
-        std::string task_name;
-        EnumToString(TTaskType, task_type, task_name);
-        LOG(WARNING) << "schema change type invalid. type: " << task_name
-                     << ", signature: " << signature;
-        status = Status::NotSupported("Schema change type invalid");
-        break;
-    }
-
+    std::string_view process_name = "alter tablet";
     // Check last schema change status, if failed delete tablet file
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
@@ -249,20 +236,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
                         TFinishTaskRequest* finish_task_request) {
     Status status;
 
-    std::string_view process_name;
-    switch (task_type) {
-    case TTaskType::ALTER:
-        process_name = "alter tablet";
-        break;
-    default:
-        std::string task_name;
-        EnumToString(TTaskType, task_type, task_name);
-        LOG(WARNING) << "schema change type invalid. type: " << task_name
-                     << ", signature: " << signature;
-        status = Status::NotSupported("Schema change type invalid");
-        break;
-    }
-
+    std::string_view process_name = "alter tablet";
     // Check last schema change status, if failed delete tablet file
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
@@ -1771,14 +1745,7 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) 
     if (!is_task_timeout) {
         TFinishTaskRequest finish_task_request;
         TTaskType::type task_type = req.task_type;
-        switch (task_type) {
-        case TTaskType::ALTER:
-            alter_tablet(engine, req, signature, task_type, &finish_task_request);
-            break;
-        default:
-            // pass
-            break;
-        }
+        alter_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
     remove_task_info(req.task_type, req.signature);
@@ -1799,14 +1766,7 @@ void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskReq
     if (!is_task_timeout) {
         TFinishTaskRequest finish_task_request;
         TTaskType::type task_type = req.task_type;
-        switch (task_type) {
-        case TTaskType::ALTER:
-            alter_cloud_tablet(engine, req, signature, task_type, &finish_task_request);
-            break;
-        default:
-            // pass
-            break;
-        }
+        alter_cloud_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
     remove_task_info(req.task_type, req.signature);

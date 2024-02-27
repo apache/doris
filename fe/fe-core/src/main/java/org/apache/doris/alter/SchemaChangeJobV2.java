@@ -129,9 +129,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
-    @SerializedName(value = "isCloudSchemaChange")
-    private boolean isCloudSchemaChange = false;
-
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
     // save failed task after retry three times, tabletId -> agentTask
@@ -146,10 +143,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             boolean isCloudSchemaChange) {
         super(rawSql, jobId, JobType.SCHEMA_CHANGE, dbId, tableId, tableName, timeoutMs);
         this.isCloudSchemaChange = isCloudSchemaChange;
-    }
-
-    public boolean isCloudSchemaChange() {
-        return isCloudSchemaChange;
     }
 
     public void addTabletIdMap(long partitionId, long shadowIdxId, long shadowTabletId, long originTabletId) {

@@ -133,9 +133,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
-    @SerializedName(value = "isCloudRollup")
-    protected boolean isCloudRollup = false;
-
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
     // save failed task after retry three times, tabletId -> agentTask
@@ -173,10 +170,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.origStmt = origStmt;
         this.isCloudRollup = isCloudRollup;
         initAnalyzer();
-    }
-
-    public boolean isCloudRollup() {
-        return isCloudRollup;
     }
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {

@@ -60,9 +60,9 @@ public class AlterJobV2Factory {
 
     public static AlterJobV2 rebuildAlterJobV2(AlterJobV2 job) throws AnalysisException {
         if (Config.isCloudMode()) {
-            if (job.getType() == AlterJobV2.JobType.SCHEMA_CHANGE && !((SchemaChangeJobV2) job).isCloudSchemaChange()) {
+            if (job.getType() == AlterJobV2.JobType.SCHEMA_CHANGE) {
                 job = new CloudSchemaChangeJobV2((SchemaChangeJobV2) job);
-            } else if (job.getType() == AlterJobV2.JobType.ROLLUP && !((RollupJobV2) job).isCloudRollup()) {
+            } else if (job.getType() == AlterJobV2.JobType.ROLLUP) {
                 job = new CloudRollupJobV2((RollupJobV2) job);
             }
         }
