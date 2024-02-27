@@ -40,7 +40,6 @@ class TMasterInfo;
 class TReportRequest;
 class TTabletInfo;
 class TAgentTaskRequest;
-class CloudStorageEngine;
 
 class TaskWorkerPoolIf {
 public:
