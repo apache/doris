@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
@@ -280,7 +281,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         }
         ExprRewriter rewriter;
         if (forbiddenMVRewrite) {
-            rewriter = analyzer.getExprRewriter();
+            rewriter = new ExprRewriter(Lists.newArrayList(CountDistinctToBitmapOrHLLRule.INSTANCE),
+                    Lists.newArrayList());
         } else {
             rewriter = analyzer.getMVExprRewriter();
         }
