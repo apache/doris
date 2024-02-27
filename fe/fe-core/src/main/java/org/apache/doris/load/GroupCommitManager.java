@@ -45,11 +45,39 @@ public class GroupCommitManager {
     }
 
     public void blockTable(long tableId) {
+        LOG.info("block group commit for table={} when schema change", tableId);
         blockedTableIds.add(tableId);
     }
 
     public void unblockTable(long tableId) {
         blockedTableIds.remove(tableId);
+        LOG.info("unblock group commit for table={} when schema change", tableId);
+    }
+
+    /**
+     * Waiting All WAL files to be deleted.
+     */
+    public void waitWalFinished(long tableId) {
+        List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
+        while (true) {
+            LOG.info("wait for wal queue size to be empty");
+            boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
+                    .isPreviousWalFinished(tableId, aliveBeIds);
+            if (walFinished) {
+                LOG.info("all wal is finished for table={}", tableId);
+                break;
+            } else if (System.currentTimeMillis() > expireTime) {
+                LOG.warn("waitWalFinished time out for table={}", tableId);
+                break;
+            } else {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    LOG.warn("failed to wait for wal for table={} when schema change", tableId, ie);
+                }
+            }
+        }
     }
 
     /**

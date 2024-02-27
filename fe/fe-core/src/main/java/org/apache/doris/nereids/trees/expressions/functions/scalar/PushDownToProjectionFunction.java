@@ -17,24 +17,68 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.qe.ConnectContext;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * Function that could be rewritten and pushed down to projection
  */
-public interface PushDownToProjectionFunction {
+public abstract class PushDownToProjectionFunction extends ScalarFunction {
+    public PushDownToProjectionFunction(String name, Expression... arguments) {
+        super(name, arguments);
+    }
+
     /**
      * check if specified function could be pushed down to project
      * @param pushDownExpr expr to check
      * @return if it is valid to push down input expr
      */
-    static boolean validToPushDown(Expression pushDownExpr) {
+    public static boolean validToPushDown(Expression pushDownExpr) {
         // Currently only element at for variant type could be pushed down
-        return !pushDownExpr.collectToList(
+        return pushDownExpr != null && !pushDownExpr.collectToList(
                     PushDownToProjectionFunction.class::isInstance).stream().filter(
                             x -> ((Expression) x).getDataType().isVariantType()).collect(
                     Collectors.toList()).isEmpty();
+    }
+
+    /**
+     * Rewrites an {@link PushDownToProjectionFunction} instance to a {@link SlotReference}.
+     * This method is used to transform an PushDownToProjectionFunction expr into a SlotReference,
+     * based on the provided topColumnSlot and the context of the statement.
+     *
+     * @param pushedFunction The {@link PushDownToProjectionFunction} instance to be rewritten.
+     * @param topColumnSlot The {@link SlotReference} that represents the top column slot.
+     * @return A {@link SlotReference} that represents the rewritten element.
+     *         If a target column slot is found in the context, it is returned to avoid duplicates.
+     *         Otherwise, a new SlotReference is created and added to the context.
+     */
+    public static Expression rewriteToSlot(PushDownToProjectionFunction pushedFunction, SlotReference topColumnSlot) {
+        // rewrite to slotRef
+        StatementContext ctx = ConnectContext.get().getStatementContext();
+        List<String> fullPaths = pushedFunction.collectToList(node -> node instanceof VarcharLiteral).stream()
+                .map(node -> ((VarcharLiteral) node).getValue())
+                .collect(Collectors.toList());
+        SlotReference targetColumnSlot = ctx.getPathSlot(topColumnSlot, fullPaths);
+        if (targetColumnSlot != null) {
+            // avoid duplicated slots
+            return targetColumnSlot;
+        }
+        SlotReference slotRef = new SlotReference(StatementScopeIdGenerator.newExprId(),
+                topColumnSlot.getName(), topColumnSlot.getDataType(),
+                topColumnSlot.nullable(), topColumnSlot.getQualifier(), topColumnSlot.getTable().get(),
+                topColumnSlot.getColumn().get(), Optional.of(topColumnSlot.getInternalName()),
+                fullPaths);
+        ctx.addPathSlotRef(topColumnSlot, fullPaths, slotRef, pushedFunction);
+        ctx.addSlotToRelation(slotRef, ctx.getRelationBySlot(topColumnSlot));
+
+        return slotRef;
     }
 }

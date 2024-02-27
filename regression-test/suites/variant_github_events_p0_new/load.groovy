@@ -15,7 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_github_events_p0", "variant_type"){
+suite("regression_test_variant_github_events_p0", "nonConcurrent"){
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+    def set_be_config = { key, value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+    } 
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -43,6 +52,7 @@ suite("regression_test_variant_github_events_p0", "variant_type"){
             }
         }
     }
+    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
 
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""

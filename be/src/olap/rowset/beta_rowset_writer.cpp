@@ -644,7 +644,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     }
 
     auto segment_num = _num_seg();
-    if (check_segment_num) {
+    if (check_segment_num && config::check_segment_when_build_rowset_meta) {
         auto segments_encoded_key_bounds_size = segments_encoded_key_bounds.size();
         if (segments_encoded_key_bounds_size != segment_num) {
             return Status::InternalError(
@@ -701,7 +701,7 @@ Status BaseBetaRowsetWriter::_create_file_writer(std::string path, io::FileWrite
                     _context.file_cache_ttl_sec > 0 && _context.newest_write_timestamp > 0
                             ? _context.newest_write_timestamp + _context.file_cache_ttl_sec
                             : 0,
-    };
+            .create_empty_file = false};
     Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;

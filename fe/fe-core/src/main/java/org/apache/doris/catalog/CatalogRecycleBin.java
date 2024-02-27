@@ -644,7 +644,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             Table table = tableInfo.getTable();
-            db.createTable(table);
+            db.registerTable(table);
             LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
             iterator.remove();
             idToRecycleTime.remove(table.getId());
@@ -739,7 +739,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 }
             }
 
-            db.createTable(table);
+            db.registerTable(table);
             if (isReplay) {
                 iterator.remove();
             } else {
@@ -799,10 +799,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         PartitionInfo partitionInfo = table.getPartitionInfo();
-        Range<PartitionKey> recoverRange = recoverPartitionInfo.getRange();
         PartitionItem recoverItem = null;
         if (partitionInfo.getType() == PartitionType.RANGE) {
-            recoverItem = new RangePartitionItem(recoverRange);
+            recoverItem = new RangePartitionItem(recoverPartitionInfo.getRange());
         } else if (partitionInfo.getType() == PartitionType.LIST) {
             recoverItem = recoverPartitionInfo.getListPartitionItem();
         }
@@ -811,18 +810,27 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             throw new DdlException("Can not recover partition[" + partitionName + "]. Partition item conflict.");
         }
 
-        // recover partition
+        // check if schema change
         Partition recoverPartition = recoverPartitionInfo.getPartition();
+        Set<Long> tableIndex = table.getIndexIdToMeta().keySet();
+        Set<Long> partitionIndex = recoverPartition.getMaterializedIndices(IndexExtState.ALL).stream()
+                .map(i -> i.getId()).collect(Collectors.toSet());
+        if (!tableIndex.equals(partitionIndex)) {
+            throw new DdlException("table's index not equal with partition's index. table's index=" + tableIndex
+                    + ", partition's index=" + partitionIndex);
+        }
+
+        // check if partition name exists
         Preconditions.checkState(recoverPartition.getName().equalsIgnoreCase(partitionName));
         if (!Strings.isNullOrEmpty(newPartitionName)) {
             if (table.checkPartitionNameExist(newPartitionName)) {
                 throw new DdlException("Partition name[" + newPartitionName + "] is already used");
             }
+            recoverPartition.setName(newPartitionName);
         }
+
+        // recover partition
         table.addPartition(recoverPartition);
-        if (!Strings.isNullOrEmpty(newPartitionName)) {
-            table.renamePartition(partitionName, newPartitionName);
-        }
 
         // recover partition info
         long partitionId = recoverPartition.getId();
@@ -1098,6 +1106,45 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         });
 
         return Stream.of(dbInfos, tableInfos, partitionInfos).flatMap(Collection::stream).collect(Collectors.toList());
+    }
+
+    public synchronized Map<Long, Pair<Long, Long>> getDbToRecycleSize() {
+        Map<Long, Pair<Long, Long>> dbToRecycleSize = new HashMap<>();
+        for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
+            RecycleTableInfo tableInfo = entry.getValue();
+            Table table = tableInfo.getTable();
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            long dataSize = table.getDataSize(false);
+            long remoteDataSize = ((OlapTable) table).getRemoteDataSize();
+            dbToRecycleSize.compute(tableInfo.getDbId(), (k, v) -> {
+                if (v == null) {
+                    return Pair.of(dataSize, remoteDataSize);
+                } else {
+                    v.first += dataSize;
+                    v.second += remoteDataSize;
+                    return v;
+                }
+            });
+        }
+
+        for (Map.Entry<Long, RecyclePartitionInfo> entry : idToPartition.entrySet()) {
+            RecyclePartitionInfo partitionInfo = entry.getValue();
+            Partition partition = partitionInfo.getPartition();
+            long dataSize = partition.getDataSize(false);
+            long remoteDataSize = partition.getRemoteDataSize();
+            dbToRecycleSize.compute(partitionInfo.getDbId(), (k, v) -> {
+                if (v == null) {
+                    return Pair.of(dataSize, remoteDataSize);
+                } else {
+                    v.first += dataSize;
+                    v.second += remoteDataSize;
+                    return v;
+                }
+            });
+        }
+        return dbToRecycleSize;
     }
 
     // Need to add "synchronized", because when calling /dump api to dump image,

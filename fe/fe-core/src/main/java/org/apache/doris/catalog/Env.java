@@ -111,7 +111,6 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
-import org.apache.doris.common.publish.WorkloadActionPublishThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -129,17 +128,17 @@ import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.es.EsExternalCatalog;
+import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
-import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -221,6 +220,7 @@ import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.persist.meta.MetaWriter;
 import org.apache.doris.planner.TabletLoadIndexRecorderMgr;
+import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
@@ -501,6 +501,8 @@ public class Env {
 
     private StatisticsCleaner statisticsCleaner;
 
+    private PlsqlManager plsqlManager;
+
     private BinlogManager binlogManager;
 
     private BinlogGcer binlogGcer;
@@ -517,8 +519,6 @@ public class Env {
     private HiveTransactionMgr hiveTransactionMgr;
 
     private TopicPublisherThread topicPublisherThread;
-
-    private WorkloadActionPublishThread workloadActionPublisherThread;
 
     private MTMVService mtmvService;
 
@@ -750,14 +750,13 @@ public class Env {
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
+        this.plsqlManager = new PlsqlManager();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
-        this.workloadActionPublisherThread = new WorkloadActionPublishThread("WorkloadActionPublisher",
-                Config.workload_action_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
         this.insertOverwriteManager = new InsertOverwriteManager();
     }
@@ -853,6 +852,10 @@ public class Env {
 
     public MetastoreEventsProcessor getMetastoreEventsProcessor() {
         return metastoreEventsProcessor;
+    }
+
+    public PlsqlManager getPlsqlManager() {
+        return plsqlManager;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1033,7 +1036,6 @@ public class Env {
 
         workloadGroupMgr.startUpdateThread();
         workloadSchedPolicyMgr.start();
-        workloadActionPublisherThread.start();
         workloadRuntimeStatusMgr.start();
     }
 
@@ -1525,8 +1527,6 @@ public class Env {
         editLog.logMasterInfo(masterInfo);
         LOG.info("logMasterInfo:{}", masterInfo);
 
-        this.workloadGroupMgr.init();
-
         // for master, the 'isReady' is set behind.
         // but we are sure that all metadata is replayed if we get here.
         // so no need to check 'isReady' flag in this method
@@ -1840,7 +1840,9 @@ public class Env {
     protected boolean isMyself() {
         Preconditions.checkNotNull(selfNode);
         Preconditions.checkNotNull(helperNodes);
-        LOG.debug("self: {}. helpers: {}", selfNode, helperNodes);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("self: {}. helpers: {}", selfNode, helperNodes);
+        }
         // if helper nodes contain itself, remove other helpers
         boolean containSelf = false;
         for (HostInfo helperNode : helperNodes) {
@@ -2134,6 +2136,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadPlsqlProcedure(DataInputStream in, long checksum) throws IOException {
+        plsqlManager = PlsqlManager.read(in);
+        LOG.info("finished replay plsql procedure from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
         LOG.info("finished replay smallFiles from image");
@@ -2418,6 +2426,11 @@ public class Env {
         return checksum;
     }
 
+    public long savePlsqlProcedure(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getPlsqlManager().write(dos);
+        return checksum;
+    }
+
     public long saveSmallFiles(CountingDataOutputStream dos, long checksum) throws IOException {
         smallFileMgr.write(dos);
         return checksum;
@@ -2495,6 +2508,9 @@ public class Env {
 
     public void createReplayer() {
         replayer = new Daemon("replayer", REPLAY_INTERVAL_MS) {
+            // Avoid numerous 'meta out of date' log
+            private long lastLogMetaOutOfDateTime = 0;
+
             @Override
             protected void runOneCycle() {
                 boolean err = false;
@@ -2521,62 +2537,57 @@ public class Env {
                     }
                     err = true;
                 }
-
                 setCanRead(hasLog, err);
+            }
+
+            private void setCanRead(boolean hasLog, boolean err) {
+                if (err) {
+                    canRead.set(false);
+                    isReady.set(false);
+                    return;
+                }
+
+                if (Config.ignore_meta_check) {
+                    // can still offer read, but is not ready
+                    canRead.set(true);
+                    isReady.set(false);
+                    return;
+                }
+
+                long currentTimeMs = System.currentTimeMillis();
+                if (currentTimeMs - synchronizedTimeMs > Config.meta_delay_toleration_second * 1000) {
+                    if (currentTimeMs - lastLogMetaOutOfDateTime > 5000L) {
+                        // we still need this log to observe this situation
+                        // but service may be continued when there is no log being replayed.
+                        LOG.warn("meta out of date. currentTime:{}, syncTime:{}, delta:{}ms, hasLog:{}, feType:{}",
+                                currentTimeMs, synchronizedTimeMs, (currentTimeMs - synchronizedTimeMs),
+                                hasLog, feType);
+                        lastLogMetaOutOfDateTime = currentTimeMs;
+                    }
+                    if (hasLog || feType == FrontendNodeType.UNKNOWN) {
+                        // 1. if we read log from BDB, which means master is still alive.
+                        // So we need to set meta out of date.
+                        // 2. if we didn't read any log from BDB and feType is UNKNOWN,
+                        // which means this non-master node is disconnected with master.
+                        // So we need to set meta out of date either.
+                        metaReplayState.setOutOfDate(currentTimeMs, synchronizedTimeMs);
+                        canRead.set(false);
+                        isReady.set(false);
+
+                        if (editLog != null) {
+                            String reason = editLog.getNotReadyReason();
+                            if (!Strings.isNullOrEmpty(reason)) {
+                                LOG.warn("Not ready reason:{}", reason);
+                            }
+                        }
+                    }
+                } else {
+                    canRead.set(true);
+                    isReady.set(true);
+                }
             }
         };
         replayer.setMetaContext(metaContext);
-    }
-
-    private void setCanRead(boolean hasLog, boolean err) {
-        if (err) {
-            canRead.set(false);
-            isReady.set(false);
-            return;
-        }
-
-        if (Config.ignore_meta_check) {
-            // can still offer read, but is not ready
-            canRead.set(true);
-            isReady.set(false);
-            return;
-        }
-
-        long currentTimeMs = System.currentTimeMillis();
-        if (currentTimeMs - synchronizedTimeMs > Config.meta_delay_toleration_second * 1000) {
-            // we still need this log to observe this situation
-            // but service may be continued when there is no log being replayed.
-            LOG.warn("meta out of date. current time: {}, sync time: {}, delta: {} ms, hasLog: {}, feType: {}",
-                    currentTimeMs, synchronizedTimeMs, (currentTimeMs - synchronizedTimeMs), hasLog, feType);
-            if (hasLog || feType == FrontendNodeType.UNKNOWN) {
-                // 1. if we read log from BDB, which means master is still alive.
-                // So we need to set meta out of date.
-                // 2. if we didn't read any log from BDB and feType is UNKNOWN,
-                // which means this non-master node is disconnected with master.
-                // So we need to set meta out of date either.
-                metaReplayState.setOutOfDate(currentTimeMs, synchronizedTimeMs);
-                canRead.set(false);
-                isReady.set(false);
-
-                if (editLog != null) {
-                    String reason = editLog.getNotReadyReason();
-                    if (!Strings.isNullOrEmpty(reason)) {
-                        LOG.warn("Not ready reason:{}", reason);
-                    }
-                }
-            }
-
-            // sleep 5s to avoid numerous 'meta out of date' log
-            try {
-                Thread.sleep(5000L);
-            } catch (InterruptedException e) {
-                LOG.error("unhandled exception when sleep", e);
-            }
-
-        } else {
-            canRead.set(true);
-            isReady.set(true);
-        }
     }
 
     public void notifyNewFETypeTransfer(FrontendNodeType newType) {
@@ -2734,7 +2745,9 @@ public class Env {
             EditLog.loadJournal(this, logId, entity);
             long loadJournalEndTime = System.currentTimeMillis();
             replayedJournalId.incrementAndGet();
-            LOG.debug("journal {} replayed.", replayedJournalId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("journal {} replayed.", replayedJournalId);
+            }
             if (feType != FrontendNodeType.MASTER) {
                 journalObservable.notifyObservers(replayedJournalId.get());
             }
@@ -2943,7 +2956,7 @@ public class Env {
 
     // The interface which DdlExecutor needs.
     public void createDb(CreateDbStmt stmt) throws DdlException {
-        getInternalCatalog().createDb(stmt);
+        getCurrentCatalog().createDb(stmt);
     }
 
     // For replay edit log, need't lock metadata
@@ -2956,7 +2969,7 @@ public class Env {
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        getInternalCatalog().dropDb(stmt);
+        getCurrentCatalog().dropDb(stmt);
     }
 
     public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
@@ -3028,7 +3041,7 @@ public class Env {
      * 11. add this table to ColocateGroup if necessary
      */
     public void createTable(CreateTableStmt stmt) throws UserException {
-        getInternalCatalog().createTable(stmt);
+        getCurrentCatalog().createTable(stmt);
     }
 
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
@@ -3658,7 +3671,7 @@ public class Env {
 
     // Drop table
     public void dropTable(DropTableStmt stmt) throws DdlException {
-        getInternalCatalog().dropTable(stmt);
+        getCurrentCatalog().dropTable(stmt);
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
@@ -4135,7 +4148,9 @@ public class Env {
                 clusterColumns.put(column.getClusterKeyId(), column);
             }
         }
-        LOG.debug("index column size: {}, cluster column size: {}", indexColumns.size(), clusterColumns.size());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("index column size: {}, cluster column size: {}", indexColumns.size(), clusterColumns.size());
+        }
         if (isKeysRequired && indexColumns.isEmpty()) {
             throw new DdlException("The materialized view need key column");
         }
@@ -4305,8 +4320,8 @@ public class Env {
                     table.setName(newTableName);
                 }
 
-                db.dropTable(oldTableName);
-                db.createTable(table);
+                db.unregisterTable(oldTableName);
+                db.registerTable(table);
 
                 TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
                 editLog.logTableRename(tableInfo);
@@ -4338,9 +4353,9 @@ public class Env {
             table.writeLock();
             try {
                 String tableName = table.getName();
-                db.dropTable(tableName);
+                db.unregisterTable(tableName);
                 table.setName(newTableName);
-                db.createTable(table);
+                db.registerTable(table);
                 LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();
@@ -4709,7 +4724,9 @@ public class Env {
     }
 
     public void replayRenameColumn(TableRenameColumnInfo info) throws MetaNotFoundException {
-        LOG.debug("info:{}", info);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("info:{}", info);
+        }
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         String colName = info.getColName();
@@ -4811,8 +4828,10 @@ public class Env {
                 newDataProperty, replicaAlloc, isInMemory, partitionInfo.getStoragePolicy(partition.getId()),
                 tblProperties);
         editLog.logModifyPartition(info);
-        LOG.debug("modify partition[{}-{}-{}] replica allocation to {}", db.getId(), table.getId(), partition.getName(),
-                replicaAlloc.toCreateStmt());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("modify partition[{}-{}-{}] replica allocation to {}",
+                    db.getId(), table.getId(), partition.getName(), replicaAlloc.toCreateStmt());
+        }
     }
 
     /**
@@ -4833,8 +4852,10 @@ public class Env {
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         properties);
         editLog.logModifyReplicationNum(info);
-        LOG.debug("modify table[{}] replication num to {}", table.getName(),
-                properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("modify table[{}] replication num to {}", table.getName(),
+                    properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        }
     }
 
     // The caller need to hold the table write lock
@@ -5171,12 +5192,11 @@ public class Env {
         return checksum;
     }
 
-
     public String dumpImage() {
         LOG.info("begin to dump meta data");
         String dumpFilePath;
-        List<DatabaseIf> databases = Lists.newArrayList();
-        List<List<TableIf>> tableLists = Lists.newArrayList();
+        List<Database> databases = Lists.newArrayList();
+        List<List<Table>> tableLists = Lists.newArrayList();
         tryLock(true);
         try {
             // sort all dbs to avoid potential dead lock
@@ -5190,8 +5210,8 @@ public class Env {
             MetaLockUtils.readLockDatabases(databases);
             LOG.info("acquired all the dbs' read lock.");
             // lock all tables
-            for (DatabaseIf db : databases) {
-                List<TableIf> tableList = db.getTablesOnIdOrder();
+            for (Database db : databases) {
+                List<Table> tableList = db.getTablesOnIdOrder();
                 MetaLockUtils.readLockTables(tableList);
                 tableLists.add(tableList);
             }
@@ -5372,8 +5392,10 @@ public class Env {
                 Replica replica = tablet.getReplicaById(info.getReplicaId());
                 if (replica != null) {
                     replica.setBad(true);
-                    LOG.debug("get replica {} of tablet {} on backend {} to bad when replaying", info.getReplicaId(),
-                            info.getTabletId(), info.getBackendId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("get replica {} of tablet {} on backend {} to bad when replaying",
+                                info.getReplicaId(), info.getTabletId(), info.getBackendId());
+                    }
                 }
             } finally {
                 olapTable.writeUnlock();
@@ -5794,7 +5816,9 @@ public class Env {
     }
 
     private static void getTableMeta(OlapTable olapTable, TGetMetaDBMeta dbMeta) {
-        LOG.debug("get table meta. table: {}", olapTable.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get table meta. table: {}", olapTable.getName());
+        }
 
         TGetMetaTableMeta tableMeta = new TGetMetaTableMeta();
         olapTable.readLock();

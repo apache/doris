@@ -199,6 +199,7 @@ DEFINE_mInt32(download_low_speed_time, "300");
 // log dir
 DEFINE_String(sys_log_dir, "${DORIS_HOME}/log");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
+DEFINE_String(pipeline_tracing_log_dir, "${DORIS_HOME}/log/tracing");
 // INFO, WARNING, ERROR, FATAL
 DEFINE_mString(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -217,11 +218,6 @@ DEFINE_String(log_buffer_level, "");
 // number of threads available to serve backend execution requests
 DEFINE_Int32(be_service_threads, "64");
 
-// Controls the number of threads to run work per core.  It's common to pick 2x
-// or 3x the number of cores.  This keeps the cores busy without causing excessive
-// thrashing.
-DEFINE_Int32(num_threads_per_core, "3");
-DEFINE_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 DEFINE_mInt32(status_report_interval, "5");
 // The pipeline task has a high concurrency, therefore reducing its report frequency
@@ -275,7 +271,8 @@ DEFINE_mInt64(column_dictionary_key_size_threshold, "0");
 DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 DEFINE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
-DEFINE_mInt32(cache_prune_stale_interval, "10");
+DEFINE_mInt32(cache_prune_interval_sec, "10");
+DEFINE_mInt32(cache_periodic_prune_stale_sweep_sec, "300");
 // the clean interval of tablet lookup cache
 DEFINE_mInt32(tablet_lookup_cache_stale_sweep_time_sec, "30");
 DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
@@ -775,7 +772,7 @@ DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
 // brpc streaming messages_in_batch
 DEFINE_Int32(load_stream_messages_in_batch, "128");
 // brpc streaming StreamWait seconds on EAGAIN
-DEFINE_Int32(load_stream_eagain_wait_seconds, "60");
+DEFINE_Int32(load_stream_eagain_wait_seconds, "600");
 // max tasks per flush token in load stream
 DEFINE_Int32(load_stream_flush_token_max_tasks, "15");
 // max wait flush token time in load stream
@@ -942,7 +939,7 @@ DEFINE_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 DEFINE_Bool(hide_webserver_config_page, "false");
 
-DEFINE_Bool(enable_segcompaction, "false");
+DEFINE_Bool(enable_segcompaction, "true");
 
 // Max number of segments allowed in a single segcompaction task.
 DEFINE_Int32(segcompaction_batch_size, "10");
@@ -1115,6 +1112,7 @@ DEFINE_Int16(bitmap_serialize_version, "1");
 DEFINE_String(group_commit_wal_path, "");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
+DEFINE_Int32(group_commit_replay_wal_retry_interval_max_seconds, "1800");
 DEFINE_Int32(group_commit_relay_wal_threads, "10");
 // This config can be set to limit thread number in group commit request fragment thread pool.
 DEFINE_Int32(group_commit_insert_threads, "10");
@@ -1175,6 +1173,8 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 
 // create tablet in partition random robin idx lru size, default 10000
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
+
+DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 // clang-format off
 #ifdef BE_TEST

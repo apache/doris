@@ -1330,19 +1330,14 @@ void PInternalService::_transmit_block(google::protobuf::RpcController* controll
                                        const PTransmitDataParams* request,
                                        PTransmitDataResult* response,
                                        google::protobuf::Closure* done, const Status& extract_st) {
-    std::string query_id;
-    TUniqueId finst_id;
     if (request->has_query_id()) {
-        query_id = print_id(request->query_id());
-        finst_id.__set_hi(request->finst_id().hi());
-        finst_id.__set_lo(request->finst_id().lo());
+        VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
+                 << " query_id=" << print_id(request->query_id()) << " node=" << request->node_id();
     }
-    VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
-             << " query_id=" << query_id << " node=" << request->node_id();
+
     // The response is accessed when done->Run is called in transmit_block(),
     // give response a default value to avoid null pointers in high concurrency.
     Status st;
-    st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
         st = _exec_env->vstream_mgr()->transmit_block(request, &done);
         if (!st.ok() && !st.is<END_OF_FILE>()) {
@@ -1453,7 +1448,6 @@ void PInternalService::hand_shake(google::protobuf::RpcController* controller,
 constexpr char HttpProtocol[] = "http://";
 constexpr char DownloadApiPath[] = "/api/_tablet/_download?token=";
 constexpr char FileParam[] = "&file=";
-constexpr auto Permissions = S_IRUSR | S_IWUSR;
 
 static std::string construct_url(const std::string& host_port, const std::string& token,
                                  const std::string& path) {
@@ -1485,8 +1479,9 @@ static Status download_file_action(std::string& remote_file_url, std::string& lo
                 return Status::InternalError("downloaded file size is not equal");
             }
         }
-        chmod(local_file_path.c_str(), Permissions);
-        return Status::OK();
+
+        return io::global_local_filesystem()->permission(local_file_path,
+                                                         io::LocalFileSystem::PERMS_OWNER_RW);
     };
     return HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb);
 }

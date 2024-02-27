@@ -33,8 +33,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -46,6 +44,8 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -282,7 +282,7 @@ public class AnalysisManager implements Writable {
             if (!proxy) {
                 ConnectContext.get().getExecutor().sendResultSet(commonResultSet);
             } else {
-                ConnectContext.get().getExecutor().setProxyResultSet(commonResultSet);
+                ConnectContext.get().getExecutor().setProxyShowResultSet(commonResultSet);
             }
         } catch (Throwable t) {
             LOG.warn("Failed to send job id to user", t);
@@ -550,8 +550,7 @@ public class AnalysisManager implements Writable {
 
     @VisibleForTesting
     public void updateTableStats(AnalysisInfo jobInfo) {
-        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId,
-                jobInfo.dbId, jobInfo.tblId);
+        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
         // External Table only update table stats when all tasks finished.
         // Because it needs to get the row count from the result of row count task.
         if (tbl instanceof ExternalTable && !jobInfo.state.equals(AnalysisState.FINISHED)) {
@@ -559,7 +558,7 @@ public class AnalysisManager implements Writable {
         }
         TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
         if (tableStats == null) {
-            updateTableStatsStatus(new TableStatsMeta(jobInfo.emptyJob ? 0 : tbl.estimatedRowCount(), jobInfo, tbl));
+            updateTableStatsStatus(new TableStatsMeta(jobInfo.emptyJob ? 0 : tbl.getRowCount(), jobInfo, tbl));
         } else {
             tableStats.update(jobInfo, tbl);
             logCreateTableStats(tableStats);

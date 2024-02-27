@@ -30,12 +30,12 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
@@ -275,8 +275,10 @@ public class MetadataGenerator {
         }
 
         // backends proc node get result too slow, add log to observer.
-        LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
-                watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
+                    watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+        }
 
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
@@ -376,13 +378,18 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1)));             // name
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(2)))); // cpu_share
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(3)));             // mem_limit
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(4)));             //mem overcommit
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(4)));             // mem overcommit
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(5)))); // max concurrent
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(6)))); // max queue size
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(7)))); // queue timeout
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(8)));             // cpu hard limit
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(9)))); // running query num
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(10)))); // waiting query num
+            trow.addToColumnValue(new TCell().setIntVal(Integer.parseInt(rGroupsInfo.get(9)))); // scan thread num
+            // max remote scan thread num
+            trow.addToColumnValue(new TCell().setIntVal(Integer.parseInt(rGroupsInfo.get(10))));
+            // min remote scan thread num
+            trow.addToColumnValue(new TCell().setIntVal(Integer.parseInt(rGroupsInfo.get(11))));
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(12)))); // running query num
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(13)))); // waiting query num
             dataBatch.add(trow);
         }
 
@@ -707,4 +714,3 @@ public class MetadataGenerator {
         return result;
     }
 }
-

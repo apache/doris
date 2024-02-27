@@ -321,7 +321,7 @@ Versions BaseTablet::get_missed_versions(int64_t spec_version) const {
             existing_versions.emplace_back(rs->version());
         }
     }
-    return calc_missed_versions(spec_version, existing_versions);
+    return calc_missed_versions(spec_version, std::move(existing_versions));
 }
 
 Versions BaseTablet::get_missed_versions_unlocked(int64_t spec_version) const {
@@ -331,7 +331,7 @@ Versions BaseTablet::get_missed_versions_unlocked(int64_t spec_version) const {
     for (const auto& rs : _tablet_meta->all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
     }
-    return calc_missed_versions(spec_version, existing_versions);
+    return calc_missed_versions(spec_version, std::move(existing_versions));
 }
 
 Versions BaseTablet::calc_missed_versions(int64_t spec_version, Versions existing_versions) {
@@ -793,9 +793,9 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RowsetIdUnorderedSet rowsetids;
         for (const auto& rowset : specified_rowsets) {
             rowsetids.emplace(rowset->rowset_id());
-            LOG(INFO) << "[tabletID:" << tablet_id() << "]"
-                      << "[add_sentinel_mark_to_delete_bitmap][end_version:" << end_version << "]"
-                      << "add:" << rowset->rowset_id();
+            VLOG_NOTICE << "[tabletID:" << tablet_id() << "]"
+                        << "[add_sentinel_mark_to_delete_bitmap][end_version:" << end_version << "]"
+                        << "add:" << rowset->rowset_id();
         }
         add_sentinel_mark_to_delete_bitmap(delete_bitmap.get(), rowsetids);
     }

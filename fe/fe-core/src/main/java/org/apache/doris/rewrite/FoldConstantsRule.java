@@ -425,7 +425,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
                         } else {
                             retExpr = allConstMap.get(entry1.getKey());
                         }
-                        LOG.debug("retExpr: " + retExpr.toString());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("retExpr: " + retExpr.toString());
+                        }
                         tmp.put(entry1.getKey(), retExpr);
                     }
                     if (!tmp.isEmpty()) {

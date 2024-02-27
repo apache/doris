@@ -29,10 +29,7 @@
 namespace doris {
 
 // cgroup cpu.cfs_quota_us default value, it means disable cpu hard limit
-const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
-
-// cgroup cpu.shares default value
-const static uint64_t CPU_SOFT_LIMIT_DEFAULT_VALUE = 1024;
+const static int CGROUP_CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
 
 class CgroupCpuCtl {
 public:

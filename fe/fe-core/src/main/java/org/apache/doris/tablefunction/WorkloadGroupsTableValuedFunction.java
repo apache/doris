@@ -49,6 +49,9 @@ public class WorkloadGroupsTableValuedFunction extends MetadataTableValuedFuncti
             new Column(WorkloadGroup.MAX_QUEUE_SIZE, ScalarType.createType(PrimitiveType.BIGINT)),
             new Column(WorkloadGroup.QUEUE_TIMEOUT, ScalarType.createType(PrimitiveType.BIGINT)),
             new Column(WorkloadGroup.CPU_HARD_LIMIT, ScalarType.createStringType()),
+            new Column(WorkloadGroup.SCAN_THREAD_NUM, ScalarType.createType(PrimitiveType.INT)),
+            new Column(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM, ScalarType.createType(PrimitiveType.INT)),
+            new Column(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM, ScalarType.createType(PrimitiveType.INT)),
             new Column(QueryQueue.RUNNING_QUERY_NUM, ScalarType.createType(PrimitiveType.BIGINT)),
             new Column(QueryQueue.WAITING_QUERY_NUM, ScalarType.createType(PrimitiveType.BIGINT)));
 

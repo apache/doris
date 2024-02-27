@@ -220,7 +220,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     auto tablet = std::static_pointer_cast<Tablet>(ctx.tablet);
 
     std::vector<std::vector<uint32_t>> column_groups;
-    Merger::vertical_split_columns(ctx.tablet_schema, &column_groups);
+    Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups);
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
                                                  ReaderType::READER_SEGMENT_COMPACTION);
 
@@ -247,9 +247,9 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
         Merger::Statistics merger_stats;
         RETURN_IF_ERROR(Merger::vertical_compact_one_group(
-                tablet, ReaderType::READER_SEGMENT_COMPACTION, ctx.tablet_schema, is_key,
-                column_ids, &row_sources_buf, *reader, *writer, INT_MAX, &merger_stats, &index_size,
-                key_bounds));
+                tablet->tablet_id(), ReaderType::READER_SEGMENT_COMPACTION, *ctx.tablet_schema,
+                is_key, column_ids, &row_sources_buf, *reader, *writer, INT_MAX, &merger_stats,
+                &index_size, key_bounds));
         total_index_size += index_size;
         if (is_key) {
             RETURN_IF_ERROR(row_sources_buf.flush());

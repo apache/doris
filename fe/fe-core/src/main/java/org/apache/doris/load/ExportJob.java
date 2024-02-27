@@ -166,6 +166,8 @@ public class ExportJob implements Writable {
 
     @SerializedName("tabletsNum")
     private Integer tabletsNum;
+    @SerializedName("withBom")
+    private String withBom;
 
     private TableRef tableRef;
 
@@ -219,6 +221,7 @@ public class ExportJob implements Writable {
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
         this.columns = "";
+        this.withBom = "false";
     }
 
     public ExportJob(long jobId) {
@@ -270,9 +273,13 @@ public class ExportJob implements Writable {
             // debug LOG output
             if (LOG.isDebugEnabled()) {
                 for (int i = 0; i < selectStmtListPerParallel.size(); ++i) {
-                    LOG.debug("ExportTaskExecutor {} is responsible for outfile:", i);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("ExportTaskExecutor {} is responsible for outfile:", i);
+                    }
                     for (StatementBase outfile : selectStmtListPerParallel.get(i)) {
-                        LOG.debug("outfile sql: [{}]", outfile.toSql());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("outfile sql: [{}]", outfile.toSql());
+                        }
                     }
                 }
             }
@@ -325,7 +332,9 @@ public class ExportJob implements Writable {
         // Because there is no division of tablets in view and external table
         // we set parallelism = 1;
         this.parallelism = 1;
-        LOG.debug("Because there is no division of tablets in view and external table, we set parallelism = 1");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Because there is no division of tablets in view and external table, we set parallelism = 1");
+        }
 
         // build source columns
         List<NamedExpression> selectLists = Lists.newArrayList();
@@ -418,9 +427,13 @@ public class ExportJob implements Writable {
         // debug LOG output
         if (LOG.isDebugEnabled()) {
             for (int i = 0; i < tableRefListPerParallel.size(); i++) {
-                LOG.debug("ExportTaskExecutor {} is responsible for tablets:", i);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("ExportTaskExecutor {} is responsible for tablets:", i);
+                }
                 for (TableRef tableRef : tableRefListPerParallel.get(i)) {
-                    LOG.debug("Tablet id: [{}]", tableRef.getSampleTabletIds());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Tablet id: [{}]", tableRef.getSampleTabletIds());
+                    }
                 }
             }
         }
@@ -445,9 +458,13 @@ public class ExportJob implements Writable {
         // debug LOG output
         if (LOG.isDebugEnabled()) {
             for (int i = 0; i < selectStmtListPerParallel.size(); ++i) {
-                LOG.debug("ExportTaskExecutor {} is responsible for outfile:", i);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("ExportTaskExecutor {} is responsible for outfile:", i);
+                }
                 for (StatementBase outfile : selectStmtListPerParallel.get(i)) {
-                    LOG.debug("outfile sql: [{}]", outfile.toSql());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("outfile sql: [{}]", outfile.toSql());
+                    }
                 }
             }
         }
@@ -554,6 +571,7 @@ public class ExportJob implements Writable {
         if (!deleteExistingFiles.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_DELETE_EXISTING_FILES, deleteExistingFiles);
         }
+        outfileProperties.put(OutFileClause.PROP_WITH_BOM, withBom);
 
         // broker properties
         // outfile clause's broker properties need 'broker.' prefix

@@ -1938,8 +1938,10 @@ Status OrcReader::on_string_dicts_loaded(
                 auto data_type = slot_desc->get_data_type_ptr();
                 if (data_type->is_nullable()) {
                     temp_block.insert(
-                            {ColumnNullable::create(std::move(dict_value_column),
-                                                    ColumnUInt8::create(dict_value_column_size, 0)),
+                            {ColumnNullable::create(
+                                     std::move(
+                                             dict_value_column), // NOLINT(bugprone-use-after-move)
+                                     ColumnUInt8::create(dict_value_column_size, 0)),
                              std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                              ""});
                 } else {
@@ -2168,10 +2170,10 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
     const int* dict_data = dict_column->get_data().data();
     string_values.reserve(num_values);
     size_t max_value_length = 0;
-    auto* null_map_data = null_map->data();
     if (orc_column_type->getKind() == orc::TypeKind::CHAR) {
         // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
         if (null_map) {
+            auto* null_map_data = null_map->data();
             for (int i = 0; i < num_values; ++i) {
                 if (!null_map_data[i]) {
                     char* val_ptr;
@@ -2205,6 +2207,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
         }
     } else {
         if (null_map) {
+            auto* null_map_data = null_map->data();
             for (int i = 0; i < num_values; ++i) {
                 if (!null_map_data[i]) {
                     char* val_ptr;

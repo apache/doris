@@ -321,9 +321,6 @@ public:
     }
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
-    void update_hashes_with_value(std::vector<SipHash>& hashes,
-                                  const uint8_t* __restrict null_data) const override;
-
     void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
@@ -411,8 +408,6 @@ public:
     }
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     MutableColumns scatter(IColumn::ColumnIndex num_columns,
                            const IColumn::Selector& selector) const override {

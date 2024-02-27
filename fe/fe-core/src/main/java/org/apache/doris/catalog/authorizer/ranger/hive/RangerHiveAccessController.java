@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
@@ -118,8 +119,10 @@ public class RangerHiveAccessController extends RangerAccessController {
         request.setResource(resource);
         RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
 
-        LOG.debug(String.format("maskType: %s, maskTypeDef: %s, maskedValue: %s", result.getMaskType(),
-                result.getMaskTypeDef(), result.getMaskedValue()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(String.format("maskType: %s, maskTypeDef: %s, maskedValue: %s", result.getMaskType(),
+                    result.getMaskTypeDef(), result.getMaskedValue()));
+        }
     }
 
     private HiveAccessType convertToAccessType(PrivPredicate predicate) {
@@ -180,6 +183,12 @@ public class RangerHiveAccessController extends RangerAccessController {
         }
 
         checkPrivileges(currentUser, convertToAccessType(wanted), resources);
+    }
+
+    @Override
+    public boolean checkCloudPriv(UserIdentity currentUser, String resourceName,
+                                  PrivPredicate wanted, ResourceTypeEnum type) {
+        return false;
     }
 
     @Override

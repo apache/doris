@@ -19,9 +19,9 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
@@ -95,11 +95,15 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         StringSubstitutor stringSubstitutor;
         if (tableSample == null) {
             // Do full analyze
-            LOG.debug("Will do full collection for column {}", col.getName());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Will do full collection for column {}", col.getName());
+            }
             sb.append(COLLECT_COL_STATISTICS);
         } else {
             // Do sample analyze
-            LOG.debug("Will do sample collection for column {}", col.getName());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Will do sample collection for column {}", col.getName());
+            }
             boolean limitFlag = false;
             boolean bucketFlag = false;
             // If sample size is too large, use limit to control the sample size.

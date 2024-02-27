@@ -291,4 +291,3 @@ public class InternalSchemaInitializer extends Thread {
     }
 
 }
-

@@ -122,7 +122,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
         }
         expr_result_map->insert({m.first, pexpr_result_map});
     }
-
+    //TODO: will be delete the debug log after find problem of timeout.
+    LOG(INFO) << "finish fold_query_id: " << query_id_string();
     return Status::OK();
 }
 
@@ -136,7 +137,7 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
     fragment_params.params = params;
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     _runtime_state = RuntimeState::create_unique(fragment_params.params, query_options,
-                                                 query_globals, ExecEnv::GetInstance());
+                                                 query_globals, ExecEnv::GetInstance(), nullptr);
     DescriptorTbl* desc_tbl = nullptr;
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);

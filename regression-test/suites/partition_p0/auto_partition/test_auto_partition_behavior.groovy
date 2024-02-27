@@ -304,4 +304,24 @@ suite("test_auto_partition_behavior") {
         """
         exception "If support auto partition and dynamic partition at same time, they must have the same interval unit."
     }
+
+    // prohibit too long value for partition column
+    sql "drop table if exists `long_value`"
+    sql """
+        CREATE TABLE `long_value` (
+            `str` varchar not null
+        )
+        DUPLICATE KEY(`str`)
+        AUTO PARTITION BY LIST (`str`)
+        ()
+        DISTRIBUTED BY HASH(`str`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+    test{
+        sql """insert into `long_value` values ("jwklefjklwehrnkjlwbfjkwhefkjhwjkefhkjwehfkjwehfkjwehfkjbvkwebconqkcqnocdmowqmosqmojwnqknrviuwbnclkmwkj");"""
+
+        exception "Partition name's length is over limit of 50."
+    }
 }

@@ -45,24 +45,16 @@ public:
     bool can_write() override { return true; }
 };
 
-class SortSinkDependency final : public Dependency {
-public:
-    using SharedState = SortSharedState;
-    SortSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SortSinkDependency", true, query_ctx) {}
-    ~SortSinkDependency() override = default;
-};
-
 enum class SortAlgorithm { HEAP_SORT, TOPN_SORT, FULL_SORT };
 
 class SortSinkOperatorX;
 
-class SortSinkLocalState : public PipelineXSinkLocalState<SortSinkDependency> {
+class SortSinkLocalState : public PipelineXSinkLocalState<SortSharedState> {
     ENABLE_FACTORY_CREATOR(SortSinkLocalState);
 
 public:
     SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<SortSinkDependency>(parent, state) {}
+            : PipelineXSinkLocalState<SortSharedState>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -91,8 +83,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_is_analytic_sort) {
             return _is_colocate

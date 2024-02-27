@@ -423,7 +423,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             // Column maybe renamed, rebuild the column name map
             indexMeta.initColumnNameMap();
         }
-        LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
+        }
     }
 
     public boolean deleteIndexInfo(String indexName) {
@@ -1278,7 +1280,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public long getRowCount() {
+    public long fetchRowCount() {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
@@ -1293,11 +1295,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             rowCount += index == null ? 0 : index.getRowCount();
         }
         return rowCount;
-    }
-
-    @Override
-    public long getCacheRowCount() {
-        return getRowCount();
     }
 
     @Override
@@ -1376,7 +1373,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
 
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of table {}: {}. signature string: {}", name, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of table {}: {}. signature string: {}", name, md5, sb.toString());
+        }
         return md5;
     }
 
@@ -1615,7 +1614,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
 
         for (MaterializedIndex deleteIndex : shadowIndex) {
-            LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
+            }
             copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
         }
         copied.setState(OlapTableState.NORMAL);
@@ -2470,7 +2471,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     public void initAutoIncrementGenerator(long dbId) {
         for (Column column : fullSchema) {
             if (column.isAutoInc()) {
-                autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, column.getUniqueId());
+                autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, column.getUniqueId(),
+                        column.getAutoIncInitValue());
                 autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
                 break;
             }

@@ -45,14 +45,22 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.catalog.external.IcebergExternalTable;
-import org.apache.doris.catalog.external.JdbcExternalTable;
-import org.apache.doris.catalog.external.MaxComputeExternalTable;
-import org.apache.doris.catalog.external.PaimonExternalTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.es.source.EsScanNode;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.hudi.source.HudiScanNode;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
+import org.apache.doris.datasource.odbc.source.OdbcScanNode;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
@@ -148,7 +156,6 @@ import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.EmptySetNode;
-import org.apache.doris.planner.EsScanNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
@@ -173,13 +180,6 @@ import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
-import org.apache.doris.planner.external.HiveScanNode;
-import org.apache.doris.planner.external.MaxComputeScanNode;
-import org.apache.doris.planner.external.hudi.HudiScanNode;
-import org.apache.doris.planner.external.iceberg.IcebergScanNode;
-import org.apache.doris.planner.external.jdbc.JdbcScanNode;
-import org.apache.doris.planner.external.odbc.OdbcScanNode;
-import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
@@ -1284,8 +1284,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .forEach(s -> rightChildOutputMap.put(s.getExprId(), s));
 
         // translate runtime filter
-        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> runtimeFilterTranslator
-                .getRuntimeFilterOfHashJoinNode(physicalHashJoin)
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> physicalHashJoin.getRuntimeFilters()
                 .forEach(filter -> runtimeFilterTranslator.createLegacyRuntimeFilter(filter, hashJoinNode, context)));
 
         // make intermediate tuple
@@ -1484,8 +1483,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             // translate runtime filter
             context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
-                Set<RuntimeFilter> filters = runtimeFilterTranslator
-                        .getRuntimeFilterOfHashJoinNode(nestedLoopJoin);
+                List<RuntimeFilter> filters = nestedLoopJoin.getRuntimeFilters();
                 filters.forEach(filter -> runtimeFilterTranslator
                         .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
                 if (filters.stream().anyMatch(filter -> filter.getType() == TRuntimeFilterType.BITMAP)) {
@@ -1657,28 +1655,31 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputFragment;
     }
 
-    // Get top most PushDownToProjectionFunction from expression
-    private Expression getOriginalFunctionForRewritten(NamedExpression expression) {
-        List<Expression> targetExpr = expression.collectFirst(PushDownToProjectionFunction.class::isInstance);
-        if (!targetExpr.isEmpty()) {
-            return targetExpr.get(0);
-        }
-        return null;
+    // collect all valid PushDownToProjectionFunction from expression
+    private List<Expression> getPushDownToProjectionFunctionForRewritten(NamedExpression expression) {
+        List<Expression> targetExprList = expression.collectToList(PushDownToProjectionFunction.class::isInstance);
+        return targetExprList.stream()
+                .filter(PushDownToProjectionFunction::validToPushDown)
+                .collect(Collectors.toList());
     }
 
     // register rewritten slots from original PushDownToProjectionFunction
     private void registerRewrittenSlot(PhysicalProject<? extends Plan> project, OlapScanNode olapScanNode) {
         // register slots that are rewritten from element_at/etc..
-        for (NamedExpression expr : project.getProjects()) {
+        List<Expression> allPushDownProjectionFunctions = project.getProjects().stream()
+                .map(this::getPushDownToProjectionFunctionForRewritten)
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
+        for (Expression expr : allPushDownProjectionFunctions) {
+            PushDownToProjectionFunction function = (PushDownToProjectionFunction) expr;
             if (context != null
                     && context.getConnectContext() != null
                     && context.getConnectContext().getStatementContext() != null) {
-                Slot rewrittenSlot = context.getConnectContext()
-                        .getStatementContext().getRewrittenSlotRefByOriginalExpr(getOriginalFunctionForRewritten(expr));
-                if (rewrittenSlot != null) {
-                    TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
-                    context.createSlotDesc(tupleDescriptor, (SlotReference) rewrittenSlot);
-                }
+                Slot argumentSlot = function.getInputSlots().stream().findFirst().get();
+                Expression rewrittenSlot = PushDownToProjectionFunction.rewriteToSlot(
+                        function, (SlotReference) argumentSlot);
+                TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
+                context.createSlotDesc(tupleDescriptor, (SlotReference) rewrittenSlot);
             }
         }
     }
@@ -2471,7 +2472,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private void injectRowIdColumnSlot(TupleDescriptor tupleDesc) {
         SlotDescriptor slotDesc = context.addSlotDesc(tupleDesc);
-        LOG.debug("inject slot {}", slotDesc);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("inject slot {}", slotDesc);
+        }
         String name = Column.ROWID_COL;
         Column col = new Column(name, Type.STRING, false, null, false, "", "rowid column");
         slotDesc.setType(Type.STRING);

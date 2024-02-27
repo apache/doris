@@ -27,7 +27,7 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, SourceOperator)
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState<AnalyticSourceDependency>(state, parent),
+        : PipelineXLocalState<AnalyticSharedState>(state, parent),
           _output_block_index(0),
           _window_end_position(0),
           _next_partition(false),
@@ -159,7 +159,7 @@ bool AnalyticLocalState::_whether_need_next_partition(
 }
 
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSourceDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
@@ -390,8 +390,8 @@ Status AnalyticLocalState::_get_next_for_range(size_t current_block_rows) {
            _window_end_position < current_block_rows) {
         if (_shared_state->current_row_position >= _order_by_end.pos) {
             _update_order_by_range();
-            _executor.execute(_order_by_start.pos, _order_by_end.pos, _order_by_start.pos,
-                              _order_by_end.pos);
+            _executor.execute(_partition_by_start.pos, _shared_state->partition_by_end.pos,
+                              _order_by_start.pos, _order_by_end.pos);
         }
         _executor.insert_result(current_block_rows);
     }
@@ -516,13 +516,13 @@ Status AnalyticSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
 }
 
 Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                          SourceState& source_state) {
+                                          bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._shared_state->input_eos &&
         (local_state._output_block_index == local_state._shared_state->input_blocks.size() ||
          local_state._shared_state->input_total_rows == 0)) {
-        source_state = SourceState::FINISHED;
+        *eos = true;
         return Status::OK();
     }
 
@@ -548,7 +548,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     RETURN_IF_ERROR(local_state.output_current_block(block));
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                            block->columns()));
-    local_state.reached_limit(block, source_state);
+    local_state.reached_limit(block, eos);
     return Status::OK();
 }
 
@@ -564,7 +564,7 @@ Status AnalyticLocalState::close(RuntimeState* state) {
 
     std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
     _result_window_columns.swap(tmp_result_window_columns);
-    return PipelineXLocalState<AnalyticSourceDependency>::close(state);
+    return PipelineXLocalState<AnalyticSharedState>::close(state);
 }
 
 Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {

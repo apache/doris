@@ -101,6 +101,18 @@ public class ColStatsData {
         this.updateTime = row.get(13);
     }
 
+    public ColStatsData(String id, long catalogId, long dbId, long tblId, long idxId, String colId, String partId,
+                        ColumnStatistic columnStatistic) {
+        this.statsId = new StatsId(id, catalogId, dbId, tblId, idxId, colId, partId);
+        this.count = Math.round(columnStatistic.count);
+        this.ndv = Math.round(columnStatistic.ndv);
+        this.nullCount = Math.round(columnStatistic.numNulls);
+        this.minLit = columnStatistic.minExpr == null ? null : columnStatistic.minExpr.getStringValue();
+        this.maxLit = columnStatistic.maxExpr == null ? null : columnStatistic.maxExpr.getStringValue();
+        this.dataSizeInBytes = Math.round(columnStatistic.dataSize);
+        this.updateTime = columnStatistic.updatedTime;
+    }
+
     public String toSQL(boolean roundByParentheses) {
         StringJoiner sj = null;
         if (roundByParentheses) {

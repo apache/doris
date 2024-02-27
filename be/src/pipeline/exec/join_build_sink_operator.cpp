@@ -23,21 +23,21 @@
 
 namespace doris::pipeline {
 
-template <typename DependencyType, typename Derived>
-Status JoinBuildSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
+template <typename SharedStateArg, typename Derived>
+Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
                                                               LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<DependencyType>::init(state, info));
-    auto& p = PipelineXSinkLocalState<DependencyType>::_parent
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SharedStateArg>::init(state, info));
+    auto& p = PipelineXSinkLocalState<SharedStateArg>::_parent
                       ->template cast<typename Derived::Parent>();
 
-    PipelineXSinkLocalState<DependencyType>::profile()->add_info_string("JoinType",
+    PipelineXSinkLocalState<SharedStateArg>::profile()->add_info_string("JoinType",
                                                                         to_string(p._join_op));
-    _build_rows_counter = ADD_COUNTER(PipelineXSinkLocalState<DependencyType>::profile(),
+    _build_rows_counter = ADD_COUNTER(PipelineXSinkLocalState<SharedStateArg>::profile(),
                                       "BuildRows", TUnit::UNIT);
 
-    _publish_runtime_filter_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
+    _publish_runtime_filter_timer = ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(),
                                               "PublishRuntimeFilterTime");
-    _runtime_filter_compute_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
+    _runtime_filter_compute_timer = ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(),
                                               "RuntimeFilterComputeTime");
 
     return Status::OK();
@@ -78,7 +78,8 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
                         : tnode.hash_join_node.__isset.is_mark ? tnode.hash_join_node.is_mark
                                                                : false),
           _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
-                                                !_is_mark_join) {
+                                                !_is_mark_join),
+          _runtime_filter_descs(tnode.runtime_filters) {
     _init_join_op();
     if (_is_mark_join) {
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
@@ -121,9 +122,9 @@ void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
 }
 
 template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState>;
 template class JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
+template class JoinBuildSinkLocalState<NestedLoopJoinSharedState,
                                        NestedLoopJoinBuildSinkLocalState>;
 
 } // namespace doris::pipeline

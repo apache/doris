@@ -113,7 +113,7 @@ In business, most users will choose to partition on time, which has the followin
 
 1.3.1.2. List Partitioning
 
-In business,, users can select cities or other enumeration values for partition.
+In business, users can select cities or other enumeration values for partition.
 
 1.3.2. Hash Bucketing
 
@@ -177,7 +177,6 @@ Users can modify the Schema of an existing table through the Schema Change opera
 - Adding and deleting columns
 - Modify column types
 - Reorder columns
-- Adding or modifying Bloom Filter
-- Adding or removing bitmap index
+- Adding or removing index
 
 For details, please refer to [Schema Change](../advanced/alter-table/schema-change.md)

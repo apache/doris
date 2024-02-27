@@ -20,10 +20,10 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.external.elasticsearch.EsMetaStateTracker;
-import org.apache.doris.external.elasticsearch.EsRestClient;
-import org.apache.doris.external.elasticsearch.EsTablePartitions;
-import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.datasource.es.EsMetaStateTracker;
+import org.apache.doris.datasource.es.EsRestClient;
+import org.apache.doris.datasource.es.EsTablePartitions;
+import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -255,7 +255,9 @@ public class EsTable extends Table {
             }
         }
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of es table {}: {}. signature string: {}", name, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of es table {}: {}. signature string: {}", name, md5, sb.toString());
+        }
         return md5;
     }
 

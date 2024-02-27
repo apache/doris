@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.InternalQueryExecutionException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -27,18 +26,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy;
 
-public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<ColumnStatistic>> {
+public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<StatisticsCacheKey, Optional<ColumnStatistic>> {
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatisticsCacheLoader.class);
-
-    private static final ThreadPoolExecutor singleThreadPool = ThreadPoolManager.newDaemonFixedThreadPool(
-            StatisticConstants.RETRY_LOAD_THREAD_POOL_SIZE,
-            StatisticConstants.RETRY_LOAD_QUEUE_SIZE, "STATS_RELOAD",
-            true,
-            new DiscardOldestPolicy());
 
     @Override
     protected Optional<ColumnStatistic> doLoad(StatisticsCacheKey key) {
@@ -54,13 +45,18 @@ public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<
                 TableIf table = StatisticsUtil.findTable(key.catalogId, key.dbId, key.tableId);
                 columnStatistic = table.getColumnStatistic(key.colName);
             } catch (Exception e) {
-                LOG.debug(String.format("Exception to get column statistics by metadata. [Catalog:{}, DB:{}, Table:{}]",
-                        key.catalogId, key.dbId, key.tableId), e);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(String.format("Exception to get column statistics by metadata."
+                                    + "[Catalog:{}, DB:{}, Table:{}]",
+                            key.catalogId, key.dbId, key.tableId), e);
+                }
             }
         } catch (Throwable t) {
             LOG.warn("Failed to load stats for column [Catalog:{}, DB:{}, Table:{}, Column:{}], Reason: {}",
                     key.catalogId, key.dbId, key.tableId, key.colName, t.getMessage());
-            LOG.debug(t);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(t);
+            }
         }
         return columnStatistic;
     }

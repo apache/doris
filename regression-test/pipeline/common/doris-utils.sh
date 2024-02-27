@@ -148,7 +148,8 @@ function add_doris_be_to_fe() {
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     heartbeat_service_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf heartbeat_service_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
-    if ${cl} -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:${heartbeat_service_port}';"; then echo; else return 1; fi
+    # try to add be, maybe Same backend already exists[127.0.0.1:9050], it's ok
+    if ${cl} -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:${heartbeat_service_port}';"; then echo; else echo; fi
     check_doris_ready
 }
 
@@ -447,9 +448,16 @@ archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
-    archive_content="regression-test/log fe/conf fe/log be/conf be/log session_variables"
+    archive_content="fe/conf fe/log be/conf be/log"
+    if [[ -d "${DORIS_HOME}"/regression-test/log ]]; then
+        archive_content="${archive_content} regression-test/log"
+    fi
+    if [[ -f "${DORIS_HOME:-}"/session_variables ]]; then
+        archive_content="${archive_content} session_variables"
+    fi
     if [[ -d "${DORIS_HOME}"/ms ]]; then
-        cp -rf /var/log/foundationdb "${DORIS_HOME}"/foundationdb/log
+        mkdir -p "${DORIS_HOME}"/foundationdb/log
+        cp -rf /var/log/foundationdb/* "${DORIS_HOME}"/foundationdb/log/
         archive_content="${archive_content} ms/conf ms/log foundationdb/log"
     fi
     if [[ -d "${DORIS_HOME}"/recycler ]]; then
@@ -549,22 +557,22 @@ print_doris_conf() {
 }
 
 function create_warehouse() {
-    if [[ -z ${COS_ak} || -z ${COS_sk} ]]; then
-        echo "ERROR: env COS_ak and COS_sk are required." && return 1
+    if [[ -z ${oss_ak} || -z ${oss_sk} ]]; then
+        echo "ERROR: env oss_ak and oss_sk are required." && return 1
     fi
     if curl "127.0.0.1:5000/MetaService/http/create_instance?token=greedisgood9999" -d "{
         \"instance_id\": \"cloud_instance_0\",
         \"name\":\"cloud_instance_0\",
         \"user_id\":\"user-id\",
         \"obj_info\": {
-            \"provider\": \"COS\",
-            \"region\": \"ap-beijing\",
-            \"bucket\": \"doris-build-1308700295\",
-            \"prefix\": \"ci\",
-            \"endpoint\": \"cos.ap-beijing.myqcloud.com\",
-            \"external_endpoint\": \"cos.ap-beijing.myqcloud.com\",
-            \"ak\": \"${COS_ak}\",
-            \"sk\": \"${COS_sk}\"
+            \"provider\": \"OSS\",
+            \"region\": \"oss-cn-hongkong\",
+            \"bucket\": \"doris-community-test\",
+            \"prefix\": \"cloud_regression\",
+            \"endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+            \"external_endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+            \"ak\": \"${oss_ak}\",
+            \"sk\": \"${oss_sk}\"
         }
     }"; then
         echo

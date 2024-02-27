@@ -27,10 +27,10 @@ namespace doris {
 namespace pipeline {
 template <typename LocalStateType>
 class JoinProbeOperatorX;
-template <typename DependencyType, typename Derived>
-class JoinProbeLocalState : public PipelineXLocalState<DependencyType> {
+template <typename SharedStateArg, typename Derived>
+class JoinProbeLocalState : public PipelineXLocalState<SharedStateArg> {
 public:
-    using Base = PipelineXLocalState<DependencyType>;
+    using Base = PipelineXLocalState<SharedStateArg>;
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
     virtual void add_tuple_is_null_column(vectorized::Block* block) = 0;
@@ -39,9 +39,7 @@ protected:
     template <typename LocalStateType>
     friend class StatefulOperatorX;
     JoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-            : Base(state, parent),
-              _child_block(vectorized::Block::create_unique()),
-              _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
+            : Base(state, parent), _child_block(vectorized::Block::create_unique()) {}
     ~JoinProbeLocalState() override = default;
     void _construct_mutable_join_block();
     Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block,
@@ -61,7 +59,7 @@ protected:
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
 
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
-    SourceState _child_source_state;
+    bool _child_eos = false;
 };
 
 template <typename LocalStateType>
@@ -73,7 +71,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status open(doris::RuntimeState* state) override;
-    [[nodiscard]] const RowDescriptor& row_desc() override { return *_output_row_desc; }
+    [[nodiscard]] const RowDescriptor& row_desc() const override { return *_output_row_desc; }
 
     [[nodiscard]] const RowDescriptor& intermediate_row_desc() const override {
         return *_intermediate_row_desc;
@@ -97,7 +95,7 @@ public:
     }
 
 protected:
-    template <typename DependencyType, typename Derived>
+    template <typename SharedStateArg, typename Derived>
     friend class JoinProbeLocalState;
 
     const TJoinOp::type _join_op;

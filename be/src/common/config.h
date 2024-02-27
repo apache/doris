@@ -247,6 +247,7 @@ DECLARE_mInt32(download_low_speed_time);
 // log dir
 DECLARE_String(sys_log_dir);
 DECLARE_String(user_function_dir);
+DECLARE_String(pipeline_tracing_log_dir);
 // INFO, WARNING, ERROR, FATAL
 DECLARE_String(sys_log_level);
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -265,11 +266,6 @@ DECLARE_String(log_buffer_level);
 // number of threads available to serve backend execution requests
 DECLARE_Int32(be_service_threads);
 
-// Controls the number of threads to run work per core.  It's common to pick 2x
-// or 3x the number of cores.  This keeps the cores busy without causing excessive
-// thrashing.
-DECLARE_Int32(num_threads_per_core);
-DECLARE_mBool(rowbatch_align_tuple_offset);
 // interval between profile reports; in seconds
 DECLARE_mInt32(status_report_interval);
 DECLARE_mInt32(pipeline_status_report_interval);
@@ -317,8 +313,9 @@ DECLARE_mInt64(column_dictionary_key_size_threshold);
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
 DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
-// the prune stale interval of all cache
-DECLARE_mInt32(cache_prune_stale_interval);
+// all cache prune interval, used by GC and periodic thread.
+DECLARE_mInt32(cache_prune_interval_sec);
+DECLARE_mInt32(cache_periodic_prune_stale_sweep_sec);
 // the clean interval of tablet lookup cache
 DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
 DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
@@ -1182,6 +1179,7 @@ DECLARE_Int16(bitmap_serialize_version);
 DECLARE_String(group_commit_wal_path);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
+DECLARE_Int32(group_commit_replay_wal_retry_interval_max_seconds);
 DECLARE_mInt32(group_commit_relay_wal_threads);
 // This config can be set to limit thread number in group commit request fragment thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
@@ -1251,6 +1249,8 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
+
+DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 #ifdef BE_TEST
 // test s3

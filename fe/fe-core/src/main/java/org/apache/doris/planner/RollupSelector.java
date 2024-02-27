@@ -88,7 +88,9 @@ public final class RollupSelector {
             for (Long partitionId : partitionIds) {
                 rowCount += table.getPartition(partitionId).getIndex(indexId).getRowCount();
             }
-            LOG.debug("rowCount={} for table={}", rowCount, indexId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("rowCount={} for table={}", rowCount, indexId);
+            }
             if (rowCount < minRowCount) {
                 minRowCount = rowCount;
                 selectedIndexId = indexId;
@@ -123,7 +125,9 @@ public final class RollupSelector {
         }
 
         final List<MaterializedIndex> rollups = table.getVisibleIndex();
-        LOG.debug("num of rollup(base included): {}, pre aggr: {}", rollups.size(), isPreAggregation);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("num of rollup(base included): {}, pre aggr: {}", rollups.size(), isPreAggregation);
+        }
 
         // 1. find all rollup indexes which contains all tuple columns
         final List<MaterializedIndex> rollupsContainsOutput = Lists.newArrayList();
@@ -138,16 +142,22 @@ public final class RollupSelector {
                 // or those rollup tables which key columns is the same with base table
                 // (often in different order)
                 if (isPreAggregation) {
-                    LOG.debug("preAggregation is on. add index {} which contains all output columns",
-                            rollup.getId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("preAggregation is on. add index {} which contains all output columns",
+                                rollup.getId());
+                    }
                     rollupsContainsOutput.add(rollup);
                 } else if (table.getKeyColumnsByIndexId(rollup.getId()).size() == baseTableColumns.size()) {
-                    LOG.debug("preAggregation is off, but index {} have same key columns with base index.",
-                            rollup.getId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("preAggregation is off, but index {} have same key columns with base index.",
+                                rollup.getId());
+                    }
                     rollupsContainsOutput.add(rollup);
                 }
             } else {
-                LOG.debug("exclude index {} because it does not contain all output columns", rollup.getId());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("exclude index {} because it does not contain all output columns", rollup.getId());
+                }
             }
         }
 
@@ -203,10 +213,16 @@ public final class RollupSelector {
             }
 
             if (prefixMatchCount == maxPrefixMatchCount) {
-                LOG.debug("s3: find a equal prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("s3: find a equal prefix match index {}. match count: {}",
+                            index.getId(), prefixMatchCount);
+                }
                 rollupsMatchingBestPrefixIndex.add(index.getId());
             } else if (prefixMatchCount > maxPrefixMatchCount) {
-                LOG.debug("s3: find a better prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("s3: find a better prefix match index {}. match count: {}",
+                            index.getId(), prefixMatchCount);
+                }
                 maxPrefixMatchCount = prefixMatchCount;
                 rollupsMatchingBestPrefixIndex.clear();
                 rollupsMatchingBestPrefixIndex.add(index.getId());

@@ -827,9 +827,11 @@ visible_functions = {
         [['array_repeat'], 'ARRAY_VARCHAR', ['VARCHAR', 'BIGINT'], 'ALWAYS_NOT_NULLABLE'],
         [['array_repeat'], 'ARRAY_STRING', ['STRING', 'BIGINT'], 'ALWAYS_NOT_NULLABLE'],
 
-        [['array_range'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
-        [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
-        [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
+        [['array_range', 'sequence'], 'ARRAY_DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
 
         [['array_zip'], 'ARRAY', ['ARRAY<T>', '...'], '', ['T']],
 
@@ -1405,8 +1407,8 @@ visible_functions = {
         [['truncate'], 'DECIMAL64', ['DECIMAL64', 'INT'], ''],
         [['truncate'], 'DECIMAL128', ['DECIMAL128', 'INT'], ''],
         
-        [['unhex'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['unhex'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE']
+        [['unhex'], 'VARCHAR', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['unhex'], 'STRING', ['STRING'], 'DEPEND_ON_ARGUMENT']
     ],
 
     # Conditional Functions
@@ -1609,6 +1611,7 @@ visible_functions = {
         [['split_part'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['substring_index'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['extract_url_parameter'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
+        [['url_decode'], 'VARCHAR', ['VARCHAR'], ''],
 
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
@@ -1662,7 +1665,8 @@ visible_functions = {
         [['money_format'], 'STRING', ['DECIMAL64'], ''],
         [['money_format'], 'STRING', ['DECIMAL128'], ''],
         [['split_part'], 'STRING', ['STRING', 'STRING', 'INT'], 'ALWAYS_NULLABLE'],
-        [['substring_index'], 'STRING', ['STRING', 'STRING', 'INT'], 'DEPEND_ON_ARGUMENT']
+        [['substring_index'], 'STRING', ['STRING', 'STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['url_decode'], 'STRING', ['STRING'], '']
     ],
 
 
@@ -1883,7 +1887,11 @@ visible_functions = {
         [['murmur_hash3_32'], 'INT', ['VARCHAR', '...'], ''],
         [['murmur_hash3_32'], 'INT', ['STRING', '...'], ''],
         [['murmur_hash3_64'], 'BIGINT', ['VARCHAR', '...'], ''],
-        [['murmur_hash3_64'], 'BIGINT', ['STRING', '...'], '']
+        [['murmur_hash3_64'], 'BIGINT', ['STRING', '...'], ''],
+        [['xxhash_32'], 'INT', ['VARCHAR', '...'], ''],
+        [['xxhash_32'], 'INT', ['STRING', '...'], ''],
+        [['xxhash_64'], 'BIGINT', ['VARCHAR', '...'], ''],
+        [['xxhash_64'], 'BIGINT', ['STRING', '...'], '']
     ],
 
     # aes and base64 function
@@ -1906,8 +1914,8 @@ visible_functions = {
         [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['from_base64'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['to_base64'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['to_base64'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE']
+        [['to_base64'], 'STRING', ['STRING'], 'DEPEND_ON_ARGUMENT'],
+        [['to_base64'], 'VARCHAR', ['VARCHAR'], 'DEPEND_ON_ARGUMENT']
     ],
 
     # for compatable with MySQL

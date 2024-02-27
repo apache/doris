@@ -293,6 +293,8 @@ message ColumnPB {
     optional bool result_is_nullable = 19;
     // persist info for PathInData that represents path in document, e.g. JSON.
     optional segment_v2.ColumnPathInfo column_path_info = 20;
+    // sparse column within a variant column
+    repeated ColumnPB sparse_columns = 21;
 }
 
 enum IndexType {

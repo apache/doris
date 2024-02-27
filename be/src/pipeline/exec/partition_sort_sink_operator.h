@@ -50,21 +50,13 @@ public:
     bool can_write() override { return true; }
 };
 
-class PartitionSortSinkDependency final : public Dependency {
-public:
-    using SharedState = PartitionSortNodeSharedState;
-    PartitionSortSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "PartitionSortSinkDependency", true, query_ctx) {}
-    ~PartitionSortSinkDependency() override = default;
-};
-
 class PartitionSortSinkOperatorX;
-class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortSinkDependency> {
+class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortNodeSharedState> {
     ENABLE_FACTORY_CREATOR(PartitionSortSinkLocalState);
 
 public:
     PartitionSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<PartitionSortSinkDependency>(parent, state) {}
+            : PipelineXSinkLocalState<PartitionSortNodeSharedState>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -104,8 +96,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
             return DataSinkOperatorX<PartitionSortSinkLocalState>::required_data_distribution();

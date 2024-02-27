@@ -52,7 +52,8 @@ PROPERTIES ("key"="value", ...)
 | `driver_url `             | Yes             |               | JDBC Driver Jar                                                                                                          |
 | `driver_class `           | Yes             |               | JDBC Driver Class                                                                                                        |
 | `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                                                  |
-| `lower_case_table_names`  | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.          |
+| `lower_case_meta_names`   | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.          |
+| `meta_names_mapping`      | No              | ""            | When the jdbc external data source has the same name but different case, such as DORIS and doris, Doris reports an error when querying the Catalog due to ambiguity. In this case, the `meta_names_mapping` parameter needs to be configured to resolve the conflict. |
 | `include_database_list`   | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.   |
 | `exclude_database_list`   | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
 
@@ -60,29 +61,144 @@ PROPERTIES ("key"="value", ...)
 
 `driver_url` can be specified in three ways:
 
-1. File name. For example,  `mysql-connector-java-5.1.47.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
+1. File name. For example,  `mysql-connector-java-8.0.25.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
 
-2. Local absolute path. For example, `file:///path/to/mysql-connector-java-5.1.47.jar`. Please place the Jar file package in the specified paths of FE/BE node.
+2. Local absolute path. For example, `file:///path/to/mysql-connector-java-8.0.25.jar`. Please place the Jar file package in the specified paths of FE/BE node.
 
 3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
 
-### Lowercase table name synchronization
+**Driver package security**
 
-When `lower_case_table_names` is set to `true`, Doris is able to query non-lowercase databases and tables and columns by maintaining a mapping of lowercase names to actual names on the remote system
+In order to prevent the use of a Driver Jar package with an unallowed path when creating the Catalog, Doris will perform path management and checksum checking on the Jar package.
+
+1. For the above method 1, the `jdbc_drivers_dir` configured by the Doris default user and all Jar packages in its directory are safe and will not be path checked.
+
+2. For the above methods 2 and 3, Doris will check the source of the Jar package. The checking rules are as follows:
+
+   * Control the allowed driver package paths through the FE configuration item `jdbc_driver_secure_path`. This configuration item can configure multiple paths, separated by semicolons. When this item is configured, Doris will check whether the prefix of the driver_url path in the Catalog properties is in `jdbc_driver_secure_path`. If not, it will refuse to create the Catalog.
+   * This parameter defaults to `*`, which means Jar packages of all paths are allowed.
+   * If the configuration `jdbc_driver_secure_path` is empty, driver packages for all paths are not allowed, which means that the driver package can only be specified using method 1 above.
+
+   > If you configure `jdbc_driver_secure_path = "file:///path/to/jdbc_drivers;http://path/to/jdbc_drivers"`, only `file:///path/to/jdbc_drivers` or `http:// is allowed The driver package path starting with path/to/jdbc_drivers`.
+
+3. When creating a Catalog, you can specify the checksum of the driver package through the `checksum` parameter. Doris will verify the driver package after loading the driver package. If the verification fails, it will refuse to create the Catalog.
+
+:::warning
+The above verification will only be performed when the Catalog is created. For already created Catalogs, verification will not be performed again.
+:::
+
+### Lowercase name synchronization
+
+When `lower_case_meta_names` is set to `true`, Doris maintains the mapping of lowercase names to actual names in the remote system, enabling queries to use lowercase to query non-lowercase databases, tables and columns of external data sources.
+
+Since FE has the `lower_case_table_names` parameter, it will affect the table name case rules during query, so the rules are as follows
+
+* When FE `lower_case_table_names` config is 0
+
+  lower_case_meta_names = false, the case is consistent with the source library.
+  lower_case_meta_names = true, lowercase repository table column names.
+
+* When FE `lower_case_table_names` config is 1
+
+  lower_case_meta_names = false, the case of db and column is consistent with the source library, but the table is stored in lowercase
+  lower_case_meta_names = true, lowercase repository table column names.
+
+* When FE `lower_case_table_names` config is 2
+
+  lower_case_meta_names = false, the case is consistent with the source library.
+  lower_case_meta_names = true, lowercase repository table column names.
+
+If the parameter configuration when creating the Catalog matches the lowercase conversion rule in the above rules, Doris will convert the corresponding name to lowercase and store it in Doris. When querying, you need to use the lowercase name displayed by Doris.
+
+If the external data source has the same name but different case, such as DORIS and doris, Doris will report an error when querying the Catalog due to ambiguity. In this case, you need to configure the `meta_names_mapping` parameter to resolve the conflict.
+
+The `meta_names_mapping` parameter accepts a Json format string with the following format:
+
+```json
+{
+  "databases": [
+    {
+      "remoteDatabase": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "doris",
+      "mapping": "doris_2"
+    }],
+  "tables": [
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "doris",
+      "mapping": "doris_2"
+    }],
+  "columns": [
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "remoteColumn": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "remoteColumn": "doris",
+      "mapping": "doris_2"
+    }]
+}
+```
+
+When filling this configuration into the statement that creates the Catalog, there are double quotes in Json, so you need to escape the double quotes or directly use single quotes to wrap the Json string when filling in.
+
+```sql
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = "{\"databases\":[{\"remoteDatabase\":\"DORIS\",\"mapping\":\"doris_1\"},{\"remoteDatabase\":\"doris\",\"mapping\":\"doris_2\"}]}"
+    ...
+);
+```
+
+或者
+```sql
+CREATE CATALOG jdbc_catalog PROPERTIES (
+    ...
+    "meta_names_mapping" = '{"databases":[{"remoteDatabase":"DORIS","mapping":"doris_1"},{"remoteDatabase":"doris","mapping":"doris_2"}]}'
+    ...
+);
+
+```
 
 **Notice:**
 
-1. In versions before Doris 2.0.3, it is only valid for Oracle database. When querying, all library names and table names will be converted to uppercase before querying Oracle, for example:
+JDBC Catalog has the following three stages for mapping rules for external table case:
 
-   Oracle has the TEST table in the TEST space. When Doris creates the Catalog, set `lower_case_table_names` to `true`, then Doris can query the TEST table through `select * from oracle_catalog.test.test`, and Doris will automatically format test.test into TEST.TEST is sent to Oracle. It should be noted that this is the default behavior, which also means that lowercase table names in Oracle cannot be queried.
+* Doris versions prior to 2.0.3
 
-   For other databases, you still need to specify the real library name and table name when querying.
+  This configuration name is `lower_case_table_names`, which is only valid for Oracle database. Setting this parameter to `true` in other data sources will affect the query, so please do not set it.
 
-2. In Doris 2.0.3 and later versions, it is valid for all databases. When querying, all database names and table names and columns will be converted into real names and then queried. If you upgrade from an old version to 2.0. 3, `Refresh <catalog_name>` is required to take effect.
+  When querying Oracle, all library names and table names will be converted to uppercase before querying Oracle, for example:
 
-   However, if the database or table or column names differ only in case, such as `Doris` and `doris`, Doris cannot query them due to ambiguity.
+  Oracle has the TEST table in the TEST space. When Doris creates the Catalog, set `lower_case_table_names` to `true`, then Doris can query the TEST table through `select * from oracle_catalog.test.test`, and Doris will automatically format test.test into TEST.TEST is sent to Oracle. It should be noted that this is the default behavior, which also means that lowercase table names in Oracle cannot be queried.
 
-3. When the FE parameter's `lower_case_table_names` is set to `1` or `2`, the JDBC Catalog's `lower_case_table_names` parameter must be set to `true`. If the FE parameter's `lower_case_table_names` is set to `0`, the JDBC Catalog parameter can be `true` or `false` and defaults to `false`. This ensures consistency and predictability in how Doris handles internal and external table configurations.
+* Doris 2.0.3 version:
+
+  This configuration is called `lower_case_table_names` and is valid for all databases. When querying, all library names and table names will be converted into real names and then queried. If you upgrade from an old version to 2.0.3, you need ` Refresh <catalog_name>` can take effect.
+
+  However, if the library, table, or column names differ only in case, such as `Doris` and `doris`, Doris cannot query them due to ambiguity.
+
+  And when the `lower_case_table_names` parameter of the FE parameter is set to `1` or `2`, the `lower_case_table_names` parameter of the JDBC Catalog must be set to `true`. If the `lower_case_table_names` of the FE parameter is set to `0`, the JDBC Catalog parameter can be `true` or `false`, defaulting to `false`.
+
+* Doris 2.1.0 and later versions:
+
+  In order to avoid confusion with the `lower_case_table_names` parameter of FE conf, this configuration name is changed to `lower_case_meta_names`, which is valid for all databases. During query, all library names, table names and column names will be converted into real names, and then Check it out. If you upgrade from an old version to 2.0.4, you need `Refresh <catalog_name>` to take effect.
+
+  For specific rules, please refer to the introduction of `lower_case_meta_names` at the beginning of this section.
+
+  Users who have previously set the JDBC Catalog `lower_case_table_names` parameter will automatically have `lower_case_table_names` converted to `lower_case_meta_names` when upgrading to 2.0.4.
 
 ### Specify synchronization database:
 
@@ -876,3 +992,5 @@ It is recommended to use the following versions of Driver to connect to the corr
     You can download the [lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar) package first, and then put it in DorisFE lib directory and BE's `lib/lib/java_extensions` directory (versions before Doris 2.0 need to be placed in BE's lib directory).
 
     Starting from version 2.0.2, this file can be placed in the `custom_lib/` directory of FE and BE (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
+
+11. If there is a prolonged delay or no response when querying MySQL through JDBC catalog, or if it hangs for an extended period and a significant number of "write lock" logs appear in the fe.warn.log, consider adding a socketTimeout parameter to the URL. For example: `jdbc:mysql://host:port/database?socketTimeout=30000`. This prevents the JDBC client from waiting indefinitely after MySQL closes the connection.

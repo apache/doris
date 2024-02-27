@@ -58,6 +58,7 @@ Workload Group是从2.0版本开始支持的功能，Workload Group在2.0版本�
 * max_concurrency：可选，最大查询并发数，默认值为整型最大值，也就是不做并发的限制。运行中的查询数量达到该值时，新来的查询会进入排队的逻辑。
 * max_queue_size：可选，查询排队队列的长度，当排队队列已满时，新来的查询会被拒绝。默认值为0，含义是不排队。
 * queue_timeout：可选，查询在排队队列中的超时时间，单位为毫秒，如果查询在队列中的排队时间超过这个值，那么就会直接抛出异常给客户端。默认值为0，含义是不排队。
+* scan_thread_num：可选，当前workload group用于scan的线程个数，默认值为-1，含义是不生效，此时以be配置中的scan线程数为准。取值为大于0的整数。
 
 注意事项：
 
@@ -68,9 +69,11 @@ Workload Group是从2.0版本开始支持的功能，Workload Group在2.0版本�
 ## 配置cgroup v1的环境
 Doris的2.0版本使用基于Doris的调度实现CPU资源的限制，但是从2.1版本起，Doris默认使用基于CGroup v1版本对CPU资源进行限制（暂不支持CGroup v2），因此如果期望在2.1版本对CPU资源进行约束，那么需要BE所在的节点上已经安装好CGroup v1的环境。
 
-用户如果在2.0版本使用了Workload Group的软限并升级到了2.1版本，那么也需要配置CGroup。
+用户如果在2.0版本使用了Workload Group的软限并升级到了2.1版本，那么也需要配置CGroup，否则可能导致软限失效。
 
-1 首先确认BE所在节点已经安装好CGroup v1版本，确认存在路径```/sys/fs/cgroup/cpu/```即可。
+在不配置cgroup的情况下，用户可以使用workload group除CPU限制外的所有功能。
+
+1 首先确认BE所在节点已经安装好CGroup v1版本，确认存在路径```/sys/fs/cgroup/cpu/```即可
 
 2 在cgroup的cpu路径下新建一个名为doris的目录，这个目录名用户可以自行指定
 
@@ -87,12 +90,10 @@ chonw -R doris:doris /sys/fs/cgroup/cpu/doris
 
 4 修改BE的配置，指定cgroup的路径
 ```
-方法1：修改be.conf然后重启BE
 doris_cgroup_cpu_path = /sys/fs/cgroup/cpu/doris
-
-方法2：可以通过动态修改内存的方式
-curl -X POST http://{be_ip}:{be_http_port}/api/update_config?doris_cgroup_cpu_path=/sys/fs/cgroup/cpu/doris
 ```
+
+5 重启BE，在日志（be.INFO）可以看到"add thread xxx to group"的字样代表配置成功
 
 需要注意的是，目前的workload group暂时不支持一个机器多个BE的部署方式。
 

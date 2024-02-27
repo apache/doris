@@ -56,6 +56,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateGroupBy;
+import org.apache.doris.nereids.rules.rewrite.EliminateGroupByKey;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinByFK;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinByUnique;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
@@ -101,6 +102,7 @@ import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
@@ -166,7 +168,51 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // after doing NormalizeAggregate in analysis job
                     // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                     bottomUp(new PullUpProjectUnderApply()),
-                    topDown(new PushDownFilterThroughProject()),
+                    topDown(
+                            /*
+                             * for subquery unnest, we need hand sql like
+                             *
+                             * SELECT *
+                             *     FROM table1 AS t1
+                             * WHERE EXISTS
+                             *     (SELECT `pk`
+                             *         FROM table2 AS t2
+                             *     WHERE t1.pk = t2 .pk
+                             *     GROUP BY  t2.pk
+                             *     HAVING t2.pk > 0) ;
+                             *
+                             * before:
+                             *              apply
+                             *            /       \
+                             *          child    Filter(t2.pk > 0)
+                             *                     |
+                             *                  Project(t2.pk)
+                             *                     |
+                             *                    agg
+                             *                     |
+                             *                  Project(t2.pk)
+                             *                     |
+                             *              Filter(t1.pk=t2.pk)
+                             *                     |
+                             *                    child
+                             *
+                             * after:
+                             *              apply
+                             *            /       \
+                             *          child     agg
+                             *                      |
+                             *                  Project(t2.pk)
+                             *                      |
+                             *              Filter(t1.pk=t2.pk and t2.pk >0)
+                             *                      |
+                             *                     child
+                             *
+                             * then PullUpCorrelatedFilterUnderApplyAggregateProject rule can match the node pattern
+                             */
+                            new PushDownFilterThroughAggregation(),
+                            new PushDownFilterThroughProject(),
+                            new MergeFilters()
+                    ),
                     custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
                             AggScalarSubQueryToWindowFunction::new),
                     bottomUp(
@@ -312,6 +358,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                     custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
+            ),
+
+            // this rule should invoke after topic "Join pull up"
+            topic("eliminate group by keys according to fd items",
+                    topDown(new EliminateGroupByKey())
             ),
 
             topic("Limit optimization",

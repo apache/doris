@@ -579,7 +579,9 @@ public class TypeCoercionUtils {
                 }
             }
         } catch (Exception e) {
-            LOG.debug("convert '{}' to type {} failed", value, dataType);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("convert '{}' to type {} failed", value, dataType);
+            }
         }
         return Optional.ofNullable(ret);
 
@@ -951,7 +953,8 @@ public class TypeCoercionUtils {
 
         if (inPredicate.getOptions().stream().map(Expression::getDataType)
                 .allMatch(dt -> dt.equals(inPredicate.getCompareExpr().getDataType()))) {
-            if (!supportCompare(inPredicate.getCompareExpr().getDataType())) {
+            if (!supportCompare(inPredicate.getCompareExpr().getDataType())
+                    && !inPredicate.getCompareExpr().getDataType().isStructType()) {
                 throw new AnalysisException("data type " + inPredicate.getCompareExpr().getDataType()
                         + " could not used in InPredicate " + inPredicate.toSql());
             }
@@ -962,7 +965,13 @@ public class TypeCoercionUtils {
                         .stream()
                         .map(Expression::getDataType).collect(Collectors.toList()),
                 true);
-        if (optionalCommonType.isPresent() && !supportCompare(optionalCommonType.get())) {
+        if (inPredicate.getCompareExpr().getDataType().isStructType() && optionalCommonType.isPresent()
+                && !optionalCommonType.get().isStructType()) {
+            throw new AnalysisException("data type " + optionalCommonType.get()
+                    + " is not match " + inPredicate.getCompareExpr().getDataType() + " used in InPredicate");
+        }
+        if (optionalCommonType.isPresent() && !supportCompare(optionalCommonType.get())
+                && !optionalCommonType.get().isStructType()) {
             throw new AnalysisException("data type " + optionalCommonType.get()
                     + " could not used in InPredicate " + inPredicate.toSql());
         }

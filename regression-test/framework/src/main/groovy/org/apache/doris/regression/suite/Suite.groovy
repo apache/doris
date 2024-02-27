@@ -24,6 +24,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.google.gson.Gson
 import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
+import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.WaitForAction
@@ -215,21 +216,36 @@ class Suite implements GroovyInterceptable {
             return
         }
 
+        boolean pipelineIsCloud = isCloudCluster()
+        boolean dockerIsCloud = false
+        if (options.cloudMode == null) {
+            dockerIsCloud = pipelineIsCloud
+        } else {
+            dockerIsCloud = options.cloudMode
+            if (dockerIsCloud != pipelineIsCloud && options.skipRunWhenPipelineDiff) {
+                return
+            }
+        }
+
         try {
             cluster.destroy(true)
-            cluster.init(options)
+            cluster.init(options, dockerIsCloud)
 
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
-            def masterFe = cluster.getMasterFe()
-            for (def i=0; masterFe == null && i<30; i++) {
-                masterFe = cluster.getMasterFe()
+            Frontend fe = null
+            for (def i=0; fe == null && i<30; i++) {
+                if (options.connectToFollower) {
+                    fe = cluster.getOneFollowerFe()
+                } else {
+                    fe = cluster.getMasterFe()
+                }
                 Thread.sleep(1000)
             }
-            assertNotNull(masterFe)
+            assertNotNull(fe)
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
-                    masterFe.host, masterFe.queryPort)
+                    fe.host, fe.queryPort)
             def conn = DriverManager.getConnection(url, user, password)
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
             logger.info("try create database if not exists {}", context.dbName)
@@ -518,8 +534,16 @@ class Suite implements GroovyInterceptable {
         runAction(new BenchmarkAction(context), actionSupplier)
     }
 
-    void waitForSchemaChangeDone(Closure actionSupplier) {
+    void waitForSchemaChangeDone(Closure actionSupplier, String insertSql = null, boolean cleanOperator = false,String tbName=null) {
         runAction(new WaitForAction(context), actionSupplier)
+        if (ObjectUtils.isNotEmpty(insertSql)){
+            sql insertSql
+        }
+        if (cleanOperator==true){
+            if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
+            quickTest("", """ SELECT * FROM ${tbName}  """)
+            sql """ DROP TABLE  ${tbName} """
+        }
     }
 
     String getBrokerName() {
@@ -906,7 +930,7 @@ class Suite implements GroovyInterceptable {
 
     void waitingMTMVTaskFinished(String jobName) {
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
@@ -928,7 +952,7 @@ class Suite implements GroovyInterceptable {
 
     void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
@@ -956,6 +980,10 @@ class Suite implements GroovyInterceptable {
             Assert.fail();
         }
         return result.last().get(0);
+    }
+
+    boolean isCloudCluster() {
+        return !getFeConfig("cloud_unique_id").isEmpty()
     }
 
     String getFeConfig(String key) {

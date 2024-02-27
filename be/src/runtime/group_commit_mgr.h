@@ -71,14 +71,17 @@ public:
                       WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
                       int be_exe_version);
     Status close_wal();
-    bool has_enough_wal_disk_space(size_t pre_allocated);
-    size_t block_queue_pre_allocated() { return _block_queue_pre_allocated.load(); }
+    bool has_enough_wal_disk_space(size_t estimated_wal_bytes);
 
     UniqueId load_instance_id;
     std::string label;
     int64_t txn_id;
     int64_t schema_version;
     bool wait_internal_group_commit_finish = false;
+    bool data_size_condition = false;
+
+    // counts of load in one group commit
+    std::atomic_size_t group_commit_load_count = 0;
 
     // the execute status of this internal group commit
     std::mutex mutex;
@@ -96,7 +99,6 @@ private:
     // wal
     std::string _wal_base_path;
     std::shared_ptr<vectorized::VWalWriter> _v_wal_writer;
-    std::atomic_size_t _block_queue_pre_allocated = 0;
 
     // commit
     bool _need_commit = false;
