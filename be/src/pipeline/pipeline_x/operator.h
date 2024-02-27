@@ -690,9 +690,8 @@ public:
 
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const = 0;
 
-    [[nodiscard]] bool need_data_from_children(RuntimeState* state) const override {
-        auto need_data = need_more_input_data(state);
-        if (need_data) {
+    bool need_data_from_children(RuntimeState* state) const override {
+        if (need_more_input_data(state)) {
             return OperatorX<LocalStateType>::_child_x->need_data_from_children(state);
         } else {
             return false;
