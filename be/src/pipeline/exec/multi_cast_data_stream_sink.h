@@ -73,15 +73,14 @@ public:
               _sink(sink) {}
     ~MultiCastDataStreamSinkOperatorX() override = default;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override {
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-        if (in_block->rows() > 0 || source_state == SourceState::FINISHED) {
+        if (in_block->rows() > 0 || eos) {
             COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-            auto st = local_state._shared_state->multi_cast_data_streamer.push(
-                    state, in_block, source_state == SourceState::FINISHED);
+            auto st =
+                    local_state._shared_state->multi_cast_data_streamer.push(state, in_block, eos);
             // TODO: improvement: if sink returned END_OF_FILE, pipeline task can be finished
             if (st.template is<ErrorCode::END_OF_FILE>()) {
                 return Status::OK();

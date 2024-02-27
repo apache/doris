@@ -1433,7 +1433,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
 
 template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
-                                                SourceState& source_state) {
+                                                bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
@@ -1457,16 +1457,14 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     }
 
     if (local_state._eos) {
-        source_state = SourceState::FINISHED;
+        *eos = true;
         return Status::OK();
     }
 
-    bool eos = false;
-    RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, &eos, 0));
+    RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, eos, 0));
 
-    local_state.reached_limit(block, source_state);
-    if (eos || source_state == SourceState::FINISHED) {
-        source_state = SourceState::FINISHED;
+    local_state.reached_limit(block, eos);
+    if (*eos) {
         // reach limit, stop the scanners.
         local_state._scanner_ctx->stop_scanners(state);
     }

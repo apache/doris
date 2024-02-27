@@ -197,26 +197,26 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
 }
 
 Status OperatorXBase::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
-                                               SourceState& source_state) {
+                                               bool* eos) {
     auto local_state = state->get_local_state(operator_id());
     if (_output_row_descriptor) {
         local_state->clear_origin_block();
-        auto status = get_block(state, &local_state->_origin_block, source_state);
+        auto status = get_block(state, &local_state->_origin_block, eos);
         if (UNLIKELY(!status.ok())) return status;
         return do_projections(state, &local_state->_origin_block, block);
     }
     local_state->_peak_memory_usage_counter->set(local_state->_mem_tracker->peak_consumption());
-    return get_block(state, block, source_state);
+    return get_block(state, block, eos);
 }
 
 bool PipelineXLocalStateBase::reached_limit() const {
     return _parent->_limit != -1 && _num_rows_returned >= _parent->_limit;
 }
 
-void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, SourceState& source_state) {
+void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos) {
     if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
         block->set_num_rows(_parent->_limit - _num_rows_returned);
-        source_state = SourceState::FINISHED;
+        *eos = true;
     }
 
     if (auto rows = block->rows()) {
@@ -489,42 +489,38 @@ Status PipelineXSinkLocalState<SharedState>::close(RuntimeState* state, Status e
 
 template <typename LocalStateType>
 Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
-                                                     SourceState& source_state) {
-    RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(state, block,
-                                                                                  source_state));
-    return pull(state, block, source_state);
+                                                     bool* eos) {
+    RETURN_IF_ERROR(
+            OperatorX<LocalStateType>::_child_x->get_block_after_projects(state, block, eos));
+    return pull(state, block, eos);
 }
 
 template <typename LocalStateType>
 Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
-                                                    SourceState& source_state) {
+                                                    bool* eos) {
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data();
         RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(
-                state, local_state._child_block.get(), local_state._child_source_state));
-        source_state = local_state._child_source_state;
-        if (local_state._child_block->rows() == 0 &&
-            local_state._child_source_state != SourceState::FINISHED) {
+                state, local_state._child_block.get(), &local_state._child_eos));
+        *eos = local_state._child_eos;
+        if (local_state._child_block->rows() == 0 && !local_state._child_eos) {
             return Status::OK();
         }
         {
             SCOPED_TIMER(local_state.exec_time_counter());
-            RETURN_IF_ERROR(
-                    push(state, local_state._child_block.get(), local_state._child_source_state));
+            RETURN_IF_ERROR(push(state, local_state._child_block.get(), local_state._child_eos));
         }
     }
 
     if (!need_more_input_data(state)) {
         SCOPED_TIMER(local_state.exec_time_counter());
-        SourceState new_state = SourceState::DEPEND_ON_SOURCE;
-        RETURN_IF_ERROR(pull(state, block, new_state));
-        if (new_state == SourceState::FINISHED) {
-            source_state = SourceState::FINISHED;
+        bool new_eos = false;
+        RETURN_IF_ERROR(pull(state, block, &new_eos));
+        if (new_eos) {
+            *eos = true;
         } else if (!need_more_input_data(state)) {
-            source_state = SourceState::MORE_DATA;
-        } else if (source_state == SourceState::MORE_DATA) {
-            source_state = local_state._child_source_state;
+            *eos = false;
         }
     }
     return Status::OK();
@@ -561,8 +557,8 @@ Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
 template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
-                                             SourceState source_state) {
-    return _writer->sink(block, source_state == SourceState::FINISHED);
+                                             bool eos) {
+    return _writer->sink(block, eos);
 }
 
 template <typename Writer, typename Parent>
