@@ -185,9 +185,9 @@ static int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode
     return 0;
 };
 
-static int process_storage_valut(std::string storage_valut_key, std::string_view instance_id,
-                                 GetObjStoreInfoResponse* response, TxnKv* txn_kv,
-                                 MetaServiceCode& code, std::string& msg) {
+static int fetch_all_storage_valut(std::string storage_valut_key, std::string_view instance_id,
+                                   GetObjStoreInfoResponse* response, TxnKv* txn_kv,
+                                   MetaServiceCode& code, std::string& msg) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -279,8 +279,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     for (const auto& resource_id : instance.resource_ids()) {
         std::string storage_vault_k;
         storage_vault_key({instance_id, resource_id}, &storage_vault_k);
-        if (auto ret = process_storage_valut(storage_vault_k, instance_id, response, txn_kv_.get(),
-                                             code, msg);
+        if (auto ret = fetch_all_storage_valut(std::move(storage_vault_k), instance_id, response,
+                                               txn_kv_.get(), code, msg);
             ret != 0) {
             return;
         }
@@ -338,6 +338,35 @@ static int add_hdfs_storage_valut(const InstanceInfoPB& instance, TxnKv* txn_kv,
                           err);
         return -1;
     }
+    txn->put(key, val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit for putting storage vault_id={}, vault_name={}, err={}",
+                          vault_id, hdfs_param.vault_name(), err);
+        return -1;
+    }
+    return 0;
+}
+
+[[maybe_unused]] static int remove_hdfs_storage_valut(std::string_view vault_key, TxnKv* txn_kv,
+                                                      MetaServiceCode& code, std::string& msg) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create txn";
+        LOG(WARNING) << msg << " err=" << err;
+        return -1;
+    }
+    txn->remove(vault_key);
+    LOG(INFO) << "remove storage_vault_key=" << hex(vault_key);
+
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit for removing storage vault_key={}, err={}", vault_key,
+                          err);
+        return -1;
+    }
     return 0;
 }
 
@@ -385,7 +414,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO:
         break;
-    case AlterObjStoreInfoRequest_Operation_UNKNOWN:
+    case AlterObjStoreInfoRequest::UNKNOWN:
         break;
     }
 
