@@ -2217,6 +2217,12 @@ public class Config extends ConfigBase {
     public static int hive_stats_partition_sample_size = 3000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "启用外表DDL",
+            "Enable external table DDL"})
+    public static boolean enable_external_ddl = false;
+
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "Hive创建外部表默认指定的input format",
             "Default hive input format for creating table."})
     public static String hive_default_input_format = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
