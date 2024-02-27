@@ -37,6 +37,7 @@ Status InvertedIndexFileReader::init(int32_t read_buffer_size, bool open_idx_fil
 }
 
 Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
+    std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
     auto index_file_full_path = _index_file_dir / _index_file_name;
     try {
         bool exists = false;
@@ -124,6 +125,7 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
 
 Result<InvertedIndexDirectoryMap> InvertedIndexFileReader::get_all_directories() {
     InvertedIndexDirectoryMap res;
+    std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
     for (auto& index : _indices_entries) {
         auto index_id = index.first.first;
         auto index_suffix = index.first.second;
@@ -160,6 +162,7 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
                     (_index_file_dir / file_name).native(), err.what()));
         }
     } else {
+        std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
         if (_stream == nullptr) {
             return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                     "CLuceneError occur when open idx file {}, stream is nullptr",
@@ -202,6 +205,7 @@ Status InvertedIndexFileReader::index_file_exist(const TabletIndex* index_meta, 
                                                          index_meta->get_index_suffix());
         return _fs->exists(index_file_path, res);
     } else {
+        std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
         if (_stream == nullptr) {
             *res = false;
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
@@ -224,6 +228,7 @@ Status InvertedIndexFileReader::has_null(const TabletIndex* index_meta, bool* re
         *res = true;
         return Status::OK();
     }
+    std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
     if (_stream == nullptr) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                 "idx file {} is not opened", (_index_file_dir / _index_file_name).native());
@@ -252,6 +257,7 @@ Status InvertedIndexFileReader::has_null(const TabletIndex* index_meta, bool* re
 }
 
 void InvertedIndexFileReader::debug_file_entries() {
+    std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
     for (auto& index : _indices_entries) {
         LOG(INFO) << "index_id:" << index.first.first;
         auto* index_entries = index.second.get();

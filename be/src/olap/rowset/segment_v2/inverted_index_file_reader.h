@@ -85,6 +85,7 @@ private:
     int32_t _read_buffer_size = -1;
     bool _open_idx_file_cache = false;
     InvertedIndexStorageFormatPB _storage_format;
+    mutable std::shared_mutex _mutex; // Use mutable for const read operations
 };
 
 } // namespace segment_v2

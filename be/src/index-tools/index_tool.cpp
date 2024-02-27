@@ -601,28 +601,33 @@ int main(int argc, char** argv) {
                 std::cerr << "InvertedIndexFileReader init error:" << st.msg() << std::endl;
                 return -1;
             }
-            std::vector<std::string> files;
-            int64_t index_id = 1;
-            std::string index_suffix = "";
-            doris::TabletIndexPB index_pb;
-            index_pb.set_index_id(index_id);
-            index_pb.set_index_suffix_name(index_suffix);
-            TabletIndex index_meta;
-            index_meta.init_from_pb(index_pb);
-
             std::cout << "Nested files for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
-            CLuceneError err;
-            auto ret = index_file_reader->open(&index_meta);
-            if (!ret.has_value()) {
-                std::cerr << "InvertedIndexFileReader open error:" << ret.error() << std::endl;
-                return -1;
-            }
-            using T = std::decay_t<decltype(ret)>;
-            auto reader = std::forward<T>(ret).value();
-            reader->list(&files);
-            for (auto& file : files) {
-                std::cout << file << std::endl;
+            auto dirs = index_file_reader->get_all_directories();
+            for (auto& dir : *dirs) {
+                auto index_id = dir.first.first;
+                auto index_suffix = dir.first.second;
+                std::vector<std::string> files;
+                doris::TabletIndexPB index_pb;
+                index_pb.set_index_id(index_id);
+                index_pb.set_index_suffix_name(index_suffix);
+                TabletIndex index_meta;
+                index_meta.init_from_pb(index_pb);
+                std::cout << "index_id:" << index_id << " index_suffix:" << index_suffix
+                          << std::endl;
+
+                CLuceneError err;
+                auto ret = index_file_reader->open(&index_meta);
+                if (!ret.has_value()) {
+                    std::cerr << "InvertedIndexFileReader open error:" << ret.error() << std::endl;
+                    return -1;
+                }
+                using T = std::decay_t<decltype(ret)>;
+                auto reader = std::forward<T>(ret).value();
+                reader->list(&files);
+                for (auto& file : files) {
+                    std::cout << file << std::endl;
+                }
             }
         } catch (CLuceneError& err) {
             std::cerr << "error occurred when show files: " << err.what() << std::endl;
