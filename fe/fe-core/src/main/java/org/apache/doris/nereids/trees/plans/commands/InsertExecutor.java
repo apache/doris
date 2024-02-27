@@ -23,6 +23,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -123,7 +124,7 @@ public class InsertExecutor {
     public InsertExecutor(ConnectContext ctx, Database database, Table table,
             String labelName, NereidsPlanner planner) {
         this.ctx = ctx;
-        this.coordinator = new Coordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
+        this.coordinator = EnvFactory.getInstance().createCoordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
         this.labelName = labelName;
         this.database = database;
         this.table = table;

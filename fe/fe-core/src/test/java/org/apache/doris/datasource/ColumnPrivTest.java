@@ -25,6 +25,7 @@ import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.GrantStmt;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.UserIdentity;
@@ -313,6 +314,11 @@ public class ColumnPrivTest extends TestWithFeService {
                         }
                     }
                 }
+            }
+
+            @Override
+            public boolean checkCloudPriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted, ResourceTypeEnum type) {
+                return false;
             }
         }
     }
