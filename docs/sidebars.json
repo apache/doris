@@ -178,12 +178,11 @@
                 "advanced/using-hll",
                 "advanced/variables",
                 "advanced/time-zone",
+                "advanced/sql-mode",
                 "advanced/small-file-mgr",
                 "advanced/cold-hot-separation",
                 "advanced/compute-node",
-                "advanced/lateral-view",
-                "advanced/is-being-synced",
-                "advanced/sql-mode"
+                "advanced/is-being-synced"
             ]
         },
         {
