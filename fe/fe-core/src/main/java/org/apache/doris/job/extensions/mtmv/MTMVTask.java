@@ -179,11 +179,11 @@ public class MTMVTask extends AbstractTask {
                 return;
             }
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
-            this.completedPartitions = Lists.newArrayList();
+            this.completedPartitions = Lists.newCopyOnWriteArrayList();
             int refreshPartitionNum = mtmv.getRefreshPartitionNum();
             long execNum = (needRefreshPartitionIds.size() / refreshPartitionNum) + ((needRefreshPartitionIds.size()
                     % refreshPartitionNum) > 0 ? 1 : 0);
-            this.partitionSnapshots = Maps.newHashMap();
+            this.partitionSnapshots = Maps.newConcurrentMap();
             for (int i = 0; i < execNum; i++) {
                 int start = i * refreshPartitionNum;
                 int end = start + refreshPartitionNum;
