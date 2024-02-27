@@ -650,4 +650,39 @@ void CloudStorageEngine::_lease_compaction_thread_callback() {
     }
 }
 
+Status CloudStorageEngine::get_compaction_status_json(std::string* result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    std::lock_guard lock(_compaction_mtx);
+    // cumu
+    std::string_view cumu = "CumulativeCompaction";
+    rapidjson::Value cumu_key;
+    cumu_key.SetString(cumu.data(), cumu.length(), root.GetAllocator());
+    rapidjson::Document cumu_arr;
+    cumu_arr.SetArray();
+    for (auto& [tablet_id, v] : _submitted_cumu_compactions) {
+        for (int i = 0; i < v.size(); ++i) {
+            cumu_arr.PushBack(tablet_id, root.GetAllocator());
+        }
+    }
+    root.AddMember(cumu_key, cumu_arr, root.GetAllocator());
+    // base
+    std::string_view base = "BaseCompaction";
+    rapidjson::Value base_key;
+    base_key.SetString(base.data(), base.length(), root.GetAllocator());
+    rapidjson::Document base_arr;
+    base_arr.SetArray();
+    for (auto& [tablet_id, _] : _submitted_base_compactions) {
+        base_arr.PushBack(tablet_id, root.GetAllocator());
+    }
+    root.AddMember(base_key, base_arr, root.GetAllocator());
+
+    rapidjson::StringBuffer strbuf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
+    root.Accept(writer);
+    *result = std::string(strbuf.GetString());
+    return Status::OK();
+}
+
 } // namespace doris

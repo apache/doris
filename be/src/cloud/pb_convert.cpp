@@ -102,7 +102,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
         out->mutable_delete_predicate()->Swap(in.mutable_delete_predicate());
     }
     out->set_empty(in.empty());
-    out->mutable_load_id()->CopyFrom(in.load_id());
+    if (in.has_load_id()) {
+        out->mutable_load_id()->CopyFrom(in.load_id());
+    }
     out->set_delete_flag(in.delete_flag());
     out->set_creation_time(in.creation_time());
     if (in.has_tablet_uid()) {

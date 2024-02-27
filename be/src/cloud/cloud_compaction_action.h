@@ -68,10 +68,8 @@ private:
     /// thread callback function for the tablet to do compaction
     Status _execute_compaction_callback(CloudTabletSPtr tablet, const std::string& compaction_type);
 
-    /*
     /// fetch compaction running status
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
-    */
 
 private:
     CloudStorageEngine& _engine;

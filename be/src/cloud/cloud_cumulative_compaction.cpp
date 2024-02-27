@@ -37,7 +37,7 @@ bvar::Adder<uint64_t> cumu_output_size("cumu_compaction", "output_size");
 
 CloudCumulativeCompaction::CloudCumulativeCompaction(CloudStorageEngine& engine,
                                                      CloudTabletSPtr tablet)
-        : CloudCompactionMixin(engine, std::move(tablet),
+        : CloudCompactionMixin(engine, tablet,
                                "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
     auto uuid = UUIDGenerator::instance()->next_uuid();
     std::stringstream ss;

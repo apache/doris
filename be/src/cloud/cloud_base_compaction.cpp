@@ -36,7 +36,7 @@ using namespace ErrorCode;
 bvar::Adder<uint64_t> base_output_size("base_compaction", "output_size");
 
 CloudBaseCompaction::CloudBaseCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
-        : CloudCompactionMixin(engine, std::move(tablet),
+        : CloudCompactionMixin(engine, tablet,
                                "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
     auto uuid = UUIDGenerator::instance()->next_uuid();
     std::stringstream ss;
@@ -332,6 +332,7 @@ Status CloudBaseCompaction::modify_rowsets() {
 }
 
 void CloudBaseCompaction::garbage_collection() {
+    // TODO(luwei) implement file_cache_garbage_collection
     //file_cache_garbage_collection();
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();

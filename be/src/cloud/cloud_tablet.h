@@ -169,6 +169,9 @@ public:
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
 
+    std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
+    std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
+
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;
@@ -214,6 +217,9 @@ private:
     int64_t _cumulative_compaction_cnt = 0;
     int64_t _max_version = -1;
     int64_t _base_size = 0;
+
+    std::mutex _base_compaction_lock;
+    std::mutex _cumulative_compaction_lock;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

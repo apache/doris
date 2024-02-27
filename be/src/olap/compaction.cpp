@@ -181,6 +181,8 @@ Status Compaction::merge_input_rowsets() {
                                    fmt::format("rowset writer build failed. output_version: {}",
                                                _output_version.to_string()));
 
+    //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), true));
+
     // Now we support delete in cumu compaction, to make all data in rowsets whose version
     // is below output_version to be delete in the future base compaction, we should carry
     // all delete predicate in the output rowset.

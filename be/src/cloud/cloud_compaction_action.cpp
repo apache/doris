@@ -178,7 +178,6 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
     return Status::OK();
 }
 
-/*
 Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
     uint64_t table_id = 0;
@@ -192,7 +191,8 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req, st
         return Status::OK();
     } else {
         // fetch the tablet by tablet_id
-        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+        //TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+        CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
         if (tablet == nullptr) {
             LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id;
             return Status::InternalError("fail to get {}", tablet_id);
@@ -243,7 +243,6 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req, st
         return Status::OK();
     }
 }
-*/
 
 Status CloudCompactionAction::_execute_compaction_callback(CloudTabletSPtr tablet,
                                                       const std::string& compaction_type) {
@@ -326,7 +325,6 @@ void CloudCompactionAction::handle(HttpRequest* req) {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
     } else {
-        /*
         std::string json_result;
         Status st = _handle_run_status_compaction(req, &json_result);
         if (!st.ok()) {
@@ -334,7 +332,6 @@ void CloudCompactionAction::handle(HttpRequest* req) {
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
-        */
     }
 }
 

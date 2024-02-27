@@ -77,6 +77,8 @@ public:
     }
 
     Status submit_compaction_task(const CloudTabletSPtr& tablet, CompactionType compaction_type);
+    
+    Status get_compaction_status_json(std::string* result);
 
 private:
     void _refresh_s3_info_thread_callback();
