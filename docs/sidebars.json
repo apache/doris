@@ -181,8 +181,9 @@
                 "advanced/sql-mode",
                 "advanced/small-file-mgr",
                 "advanced/cold-hot-separation",
-                "advanced/lateral-view",
-                "advanced/is-being-synced"
+                "advanced/is-being-synced",
+                "advanced/lateral-view"
+                
             ]
         },
         {
