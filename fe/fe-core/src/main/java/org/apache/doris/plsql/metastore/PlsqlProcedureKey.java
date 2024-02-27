@@ -40,26 +40,26 @@ public class PlsqlProcedureKey implements Writable {
     @SerializedName(value = "catalogName")
     private String catalogName;
 
-    @SerializedName(value = "dbName")
-    private String dbName;
+    @SerializedName(value = "dbId")
+    private long dbId;
 
-    public PlsqlProcedureKey(String name, String catalogName, String dbName) {
+    public PlsqlProcedureKey(String name, String catalogName, long dbId) {
         this.name = name;
         this.catalogName = catalogName;
-        this.dbName = dbName;
+        this.dbId = dbId;
     }
 
     public TPlsqlProcedureKey toThrift() {
-        return new TPlsqlProcedureKey().setName(name).setCatalogName(catalogName).setDbName(dbName);
+        return new TPlsqlProcedureKey().setName(name).setCatalogName(catalogName).setDbId(dbId);
     }
 
     public static PlsqlProcedureKey fromThrift(TPlsqlProcedureKey key) {
-        return new PlsqlProcedureKey(key.getName(), key.getCatalogName(), key.getDbName());
+        return new PlsqlProcedureKey(key.getName(), key.getCatalogName(), key.getDbId());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, catalogName, dbName);
+        return Objects.hash(name, catalogName, dbId);
     }
 
     @Override
@@ -69,12 +69,12 @@ public class PlsqlProcedureKey implements Writable {
         }
         return Objects.equals(this.name, ((PlsqlProcedureKey) obj).name) && Objects.equals(this.catalogName,
                 ((PlsqlProcedureKey) obj).catalogName)
-                && Objects.equals(this.dbName, ((PlsqlProcedureKey) obj).dbName);
+                && Objects.equals(this.dbId, ((PlsqlProcedureKey) obj).dbId);
     }
 
     @Override
     public String toString() {
-        return "name:" + name + ", catalogName:" + catalogName + ", dbName:" + dbName;
+        return "name:" + name + ", catalogName:" + catalogName + ", dbId:" + dbId;
     }
 
     @Override

@@ -66,8 +66,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
     @Override
     public void remove(FuncNameInfo procedureName) {
         try {
-            client.dropPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
-                    procedureName.getDb());
+            client.dropPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(), procedureName.getDbId());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -124,8 +123,8 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         }
     }
 
-    private void callWithParameters(Expr_func_paramsContext ctx, ParserRuleContext procCtx,
-            HashMap<String, Var> out, ArrayList<Var> actualParams) {
+    private void callWithParameters(Expr_func_paramsContext ctx, ParserRuleContext procCtx, HashMap<String, Var> out,
+            ArrayList<Var> actualParams) {
         if (procCtx instanceof Create_function_stmtContext) {
             Create_function_stmtContext func = (Create_function_stmtContext) procCtx;
             InMemoryFunctionRegistry.setCallParameters(func.multipartIdentifier().getText(), ctx, actualParams,
@@ -152,9 +151,8 @@ public class DorisFunctionRegistry implements FunctionRegistry {
     }
 
     private Optional<PlsqlStoredProcedure> getProc(FuncNameInfo procedureName) {
-        return Optional.ofNullable(
-                client.getPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
-                        procedureName.getDb()));
+        return Optional.ofNullable(client.getPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
+                procedureName.getDbId()));
     }
 
     private ArrayList<Var> getActualCallParameters(Expr_func_paramsContext actual) {
@@ -179,7 +177,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         }
         trace(ctx, "CREATE FUNCTION " + procedureName.toString());
         saveInCache(procedureName.toString(), ctx);
-        saveStoredProc(procedureName, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
+        save(procedureName, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
     }
 
     @Override
@@ -192,12 +190,13 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         }
         trace(ctx, "CREATE PROCEDURE " + procedureName.toString());
         saveInCache(procedureName.toString(), ctx);
-        saveStoredProc(procedureName, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
+        save(procedureName, Exec.getFormattedText(ctx), ctx.REPLACE() != null);
     }
 
-    private void saveStoredProc(FuncNameInfo procedureName, String source, boolean isForce) {
-        client.addPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
-                procedureName.getDb(),
+    @Override
+    public void save(FuncNameInfo procedureName, String source, boolean isForce) {
+        // TODO support packageName
+        client.addPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(), procedureName.getDbId(), "",
                 ConnectContext.get().getQualifiedUser(), source, isForce);
     }
 

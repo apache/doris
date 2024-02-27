@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
@@ -28,15 +29,18 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * procedure, function, package name info
  */
 public class FuncNameInfo {
     private final List<String> nameParts;
-    private String ctl;
-    private String db;
+    private String ctl = "";
+    private String db = "";
     private final String name;
+    private long dbId = -1;
+    private boolean isAnalyzed = false;
 
     /**
      * FuncNameInfo
@@ -91,6 +95,9 @@ public class FuncNameInfo {
      * @param ctx ctx
      */
     public void analyze(ConnectContext ctx) {
+        if (isAnalyzed) {
+            return;
+        }
         if (Strings.isNullOrEmpty(ctl)) {
             ctl = ctx.getDefaultCatalog();
             if (Strings.isNullOrEmpty(ctl)) {
@@ -103,10 +110,12 @@ public class FuncNameInfo {
                 throw new AnalysisException("procedure/function/package name no database selected");
             }
         }
-
         if (Strings.isNullOrEmpty(name)) {
             throw new AnalysisException("procedure/function/package name is null");
         }
+        Optional<DatabaseIf> dbInstance = ctx.getCatalog(ctl).getDb(db);
+        dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
+        isAnalyzed = true;
     }
 
     /**
@@ -115,6 +124,7 @@ public class FuncNameInfo {
      * @return ctlName
      */
     public String getCtl() {
+        analyze(ConnectContext.get());
         return ctl == null ? "" : ctl;
     }
 
@@ -123,7 +133,8 @@ public class FuncNameInfo {
      *
      * @return dbName
      */
-    public String getDb() {
+    public String getDbName() {
+        analyze(ConnectContext.get());
         return db == null ? "" : db;
     }
 
@@ -133,10 +144,22 @@ public class FuncNameInfo {
      * @return tableName
      */
     public String getName() {
+        analyze(ConnectContext.get());
         return name == null ? "" : name;
     }
 
+    /**
+     * get db id
+     *
+     * @return dbId
+     */
+    public long getDbId() {
+        analyze(ConnectContext.get());
+        return dbId;
+    }
+
     public String toString() {
+        analyze(ConnectContext.get());
         return nameParts.stream().map(Utils::quoteIfNeeded)
                 .reduce((left, right) -> left + "." + right).orElse("");
     }

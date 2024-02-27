@@ -41,63 +41,66 @@ public class PlsqlMetaClient {
     public PlsqlMetaClient() {
     }
 
-    public void addPlsqlStoredProcedure(String name, String catalogName, String dbName, String ownerName, String source,
+    public void addPlsqlStoredProcedure(String name, String catalogName, long dbId, String packageName,
+            String ownerName, String source,
             boolean isForce) {
         checkPriv();
         if (Env.getCurrentEnv().isMaster()) {
             Env.getCurrentEnv().getPlsqlManager()
-                    .addPlsqlStoredProcedure(new PlsqlStoredProcedure(name, catalogName, dbName, ownerName, source),
+                    .addPlsqlStoredProcedure(
+                            new PlsqlStoredProcedure(name, catalogName, dbId, packageName, ownerName, source),
                             isForce);
         } else {
-            addPlsqlStoredProcedureThrift(name, catalogName, dbName, ownerName, source, isForce);
+            addPlsqlStoredProcedureThrift(name, catalogName, dbId, packageName, ownerName, source, isForce);
         }
     }
 
-    public void dropPlsqlStoredProcedure(String name, String catalogName, String dbName) {
+    public void dropPlsqlStoredProcedure(String name, String catalogName, long dbId) {
         checkPriv();
         if (Env.getCurrentEnv().isMaster()) {
             Env.getCurrentEnv().getPlsqlManager()
-                    .dropPlsqlStoredProcedure(new PlsqlProcedureKey(name, catalogName, dbName));
+                    .dropPlsqlStoredProcedure(new PlsqlProcedureKey(name, catalogName, dbId));
         } else {
-            dropStoredProcedureThrift(name, catalogName, dbName);
+            dropStoredProcedureThrift(name, catalogName, dbId);
         }
     }
 
-    public PlsqlStoredProcedure getPlsqlStoredProcedure(String name, String catalogName, String dbName) {
+    public PlsqlStoredProcedure getPlsqlStoredProcedure(String name, String catalogName, long dbId) {
         return Env.getCurrentEnv().getPlsqlManager()
-                .getPlsqlStoredProcedure(new PlsqlProcedureKey(name, catalogName, dbName));
+                .getPlsqlStoredProcedure(new PlsqlProcedureKey(name, catalogName, dbId));
     }
 
-    public void addPlsqlPackage(String name, String catalogName, String dbName, String ownerName, String header,
+    public void addPlsqlPackage(String name, String catalogName, long dbId, String ownerName, String header,
             String body) {
         checkPriv();
         if (Env.getCurrentEnv().isMaster()) {
             Env.getCurrentEnv().getPlsqlManager()
-                    .addPackage(new PlsqlPackage(name, catalogName, dbName, ownerName, header, body),
+                    .addPackage(new PlsqlPackage(name, catalogName, dbId, ownerName, header, body),
                             false);
         } else {
-            addPlsqlPackageThrift(name, catalogName, dbName, ownerName, header, body);
+            addPlsqlPackageThrift(name, catalogName, dbId, ownerName, header, body);
         }
     }
 
-    public void dropPlsqlPackage(String name, String catalogName, String dbName) {
+    public void dropPlsqlPackage(String name, String catalogName, long dbId) {
         checkPriv();
         if (Env.getCurrentEnv().isMaster()) {
-            Env.getCurrentEnv().getPlsqlManager().dropPackage(new PlsqlProcedureKey(name, catalogName, dbName));
+            Env.getCurrentEnv().getPlsqlManager().dropPackage(new PlsqlProcedureKey(name, catalogName, dbId));
         } else {
-            dropPlsqlPackageThrift(name, catalogName, dbName);
+            dropPlsqlPackageThrift(name, catalogName, dbId);
         }
     }
 
-    public PlsqlPackage getPlsqlPackage(String name, String catalogName, String dbName) {
-        return Env.getCurrentEnv().getPlsqlManager().getPackage(new PlsqlProcedureKey(name, catalogName, dbName));
+    public PlsqlPackage getPlsqlPackage(String name, String catalogName, long dbId) {
+        return Env.getCurrentEnv().getPlsqlManager().getPackage(new PlsqlProcedureKey(name, catalogName, dbId));
     }
 
-    protected void addPlsqlStoredProcedureThrift(String name, String catalogName, String dbName, String ownerName,
+    protected void addPlsqlStoredProcedureThrift(String name, String catalogName, long dbId, String packageName,
+            String ownerName,
             String source, boolean isForce) {
         TPlsqlStoredProcedure tPlsqlStoredProcedure = new TPlsqlStoredProcedure().setName(name)
-                .setCatalogName(catalogName)
-                .setDbName(dbName).setOwnerName(ownerName).setSource(source);
+                .setCatalogName(catalogName).setDbId(dbId)
+                .setPackageName(packageName).setOwnerName(ownerName).setSource(source);
         TAddPlsqlStoredProcedureRequest tAddPlsqlStoredProcedureRequest = new TAddPlsqlStoredProcedureRequest()
                 .setPlsqlStoredProcedure(tPlsqlStoredProcedure);
         tAddPlsqlStoredProcedureRequest.setIsForce(isForce);
@@ -110,9 +113,9 @@ public class PlsqlMetaClient {
         }
     }
 
-    protected void dropStoredProcedureThrift(String name, String catalogName, String dbName) {
+    protected void dropStoredProcedureThrift(String name, String catalogName, long dbId) {
         TPlsqlProcedureKey tPlsqlProcedureKey = new TPlsqlProcedureKey().setName(name).setCatalogName(catalogName)
-                .setDbName(dbName);
+                .setDbId(dbId);
         TDropPlsqlStoredProcedureRequest tDropPlsqlStoredProcedureRequest
                 = new TDropPlsqlStoredProcedureRequest().setPlsqlProcedureKey(
                 tPlsqlProcedureKey);
@@ -125,10 +128,10 @@ public class PlsqlMetaClient {
         }
     }
 
-    protected void addPlsqlPackageThrift(String name, String catalogName, String dbName, String ownerName,
+    protected void addPlsqlPackageThrift(String name, String catalogName, long dbId, String ownerName,
             String header, String body) {
         TPlsqlPackage tPlsqlPackage = new TPlsqlPackage().setName(name).setCatalogName(catalogName)
-                .setDbName(dbName).setOwnerName(ownerName).setHeader(header).setBody(body);
+                .setDbId(dbId).setOwnerName(ownerName).setHeader(header).setBody(body);
         TAddPlsqlPackageRequest tAddPlsqlPackageRequest = new TAddPlsqlPackageRequest()
                 .setPlsqlPackage(tPlsqlPackage);
 
@@ -140,9 +143,9 @@ public class PlsqlMetaClient {
         }
     }
 
-    protected void dropPlsqlPackageThrift(String name, String catalogName, String dbName) {
+    protected void dropPlsqlPackageThrift(String name, String catalogName, long dbId) {
         TPlsqlProcedureKey tPlsqlProcedureKey = new TPlsqlProcedureKey().setName(name).setCatalogName(catalogName)
-                .setDbName(dbName);
+                .setDbId(dbId);
         TDropPlsqlPackageRequest tDropPlsqlPackageRequest = new TDropPlsqlPackageRequest().setPlsqlProcedureKey(
                 tPlsqlProcedureKey);
 
