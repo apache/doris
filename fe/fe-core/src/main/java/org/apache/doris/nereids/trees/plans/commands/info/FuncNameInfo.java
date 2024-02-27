@@ -176,7 +176,6 @@ public class FuncNameInfo {
     }
 
     public String toString() {
-        analyze(ConnectContext.get());
         return nameParts.stream().map(Utils::quoteIfNeeded).reduce((left, right) -> left + "." + right).orElse("");
     }
 }
