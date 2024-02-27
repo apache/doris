@@ -84,7 +84,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     private DistributeHint hint;
 
-    public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, JoinReorderContext otherJoinReorderContext) {
+    public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
+                       JoinReorderContext otherJoinReorderContext) {
         this(joinType, ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE),
                 Optional.empty(), Optional.empty(), Optional.empty(),
@@ -134,14 +135,16 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, DistributeHint hint,
-            Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children, JoinReorderContext otherJoinReorderContext) {
+            Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children,
+            JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
                 markJoinSlotReference, Optional.empty(), Optional.empty(), children, otherJoinReorderContext);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
                        List<Expression> otherJoinConjuncts, List<Expression> markJoinConjuncts, DistributeHint hint,
-                       Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children, JoinReorderContext otherJoinReorderContext) {
+                       Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children,
+                       JoinReorderContext otherJoinReorderContext) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, hint,
                 markJoinSlotReference, Optional.empty(), Optional.empty(), children, otherJoinReorderContext);
     }
@@ -364,7 +367,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 joinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
+    public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right,
+                                                         JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 ImmutableList.of(left, right), otherJoinReorderContext);
@@ -382,7 +386,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public LogicalJoin<Plan, Plan> withJoinConjuncts(List<Expression> hashJoinConjuncts,
                                                      List<Expression> otherJoinConjuncts,
-                                                     List<Expression> markJoinConjuncts, JoinReorderContext otherJoinReorderContext) {
+                                                     List<Expression> markJoinConjuncts,
+                                                     JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.of(getLogicalProperties()),
                 children, otherJoinReorderContext);
@@ -405,7 +410,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
                                                          List<Expression> otherJoinConjuncts,
-                                                         List<Expression> markJoinConjuncts, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
+                                                         List<Expression> markJoinConjuncts, Plan left, Plan right,
+                                                         JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 ImmutableList.of(left, right), otherJoinReorderContext);
@@ -417,7 +423,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 children, otherJoinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withTypeChildren(JoinType joinType, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
+    public LogicalJoin<Plan, Plan> withTypeChildren(JoinType joinType, Plan left, Plan right,
+                                                    JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 ImmutableList.of(left, right), otherJoinReorderContext);

@@ -26,6 +26,7 @@ suite("test_distribute") {
     // setting planner to nereids
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set runtime_filter_mode=OFF'
 
     // create tables
     sql """drop table if exists t1;"""
@@ -68,6 +69,7 @@ suite("test_distribute") {
     streamLoad {
         table "t4"
         db "test_distribute"
+        set 'column_separator', '|'
         set 'format', 'csv'
         file 't4.csv'
         time 10000

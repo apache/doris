@@ -5,16 +5,16 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t1.c1)) otherCondition=() build RFs:RF2 c1->[c1,c2];RF3 c1->[c1];RF4 c1->[c2]
+----------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t1.c1)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t2.c2)) otherCondition=() build RFs:RF0 c1->[c2];RF1 c1->[c2]
+--------------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t2.c2)) otherCondition=()
 ----------------PhysicalProject
 ------------------filter((t2.c2 > 300))
---------------------PhysicalOlapScan[t2] apply RFs: RF0 RF1 RF2 RF4
+--------------------PhysicalOlapScan[t2]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------filter((cte.c1 > 300))
-----------------------PhysicalOlapScan[t1] apply RFs: RF2 RF3
+----------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------filter((t1.c1 > 300))
@@ -26,20 +26,20 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t1.c1)) otherCondition=() build RFs:RF2 c1->[c1,c2];RF3 c1->[c1];RF4 c1->[c2]
+----------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t1.c1)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t2.c2)) otherCondition=() build RFs:RF0 c1->[c2];RF1 c1->[c2]
-----------------PhysicalProject
-------------------filter((t2.c2 > 300))
---------------------PhysicalOlapScan[t2] apply RFs: RF0 RF1 RF2 RF4
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------filter((cte.c1 > 300))
-----------------------PhysicalOlapScan[t1] apply RFs: RF2 RF3
+--------------filter((t1.c1 > 300))
+----------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------filter((t1.c1 > 300))
-------------------PhysicalOlapScan[t1]
+----------------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t2.c2)) otherCondition=()
+------------------PhysicalProject
+--------------------filter((t2.c2 > 300))
+----------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------filter((cte.c1 > 300))
+------------------------PhysicalOlapScan[t1]
 
 Hint log:
 Used: leading(t2 t1 ) leading(t1 cte )
@@ -52,19 +52,19 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t1.c1)) otherCondition=() build RFs:RF2 c1->[c1,c2];RF3 c1->[c1];RF4 c1->[c2]
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t2.c2)) otherCondition=() build RFs:RF0 c2->[c1];RF1 c2->[c1]
-----------------PhysicalProject
-------------------filter((cte.c1 > 300))
---------------------PhysicalOlapScan[t1] apply RFs: RF0 RF1 RF2 RF3
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------filter((t2.c2 > 300))
-----------------------PhysicalOlapScan[t2] apply RFs: RF2 RF4
+----------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t1.c1)) otherCondition=()
 ------------PhysicalProject
 --------------filter((t1.c1 > 300))
 ----------------PhysicalOlapScan[t1]
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t2.c2)) otherCondition=()
+----------------PhysicalProject
+------------------filter((cte.c1 > 300))
+--------------------PhysicalOlapScan[t1]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------filter((t2.c2 > 300))
+----------------------PhysicalOlapScan[t2]
 
 Hint log:
 Used: leading(t1 t2 ) leading(t1 cte )
@@ -77,19 +77,19 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t1.c1)) otherCondition=() build RFs:RF2 c1->[c1,c2];RF3 c1->[c1];RF4 c1->[c2]
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t2.c2)) otherCondition=() build RFs:RF0 c2->[c1];RF1 c2->[c1]
-----------------PhysicalProject
-------------------filter((cte.c1 > 300))
---------------------PhysicalOlapScan[t1] apply RFs: RF0 RF1 RF2 RF3
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------filter((t2.c2 > 300))
-----------------------PhysicalOlapScan[t2] apply RFs: RF2 RF4
+----------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t1.c1)) otherCondition=()
 ------------PhysicalProject
 --------------filter((t1.c1 > 300))
 ----------------PhysicalOlapScan[t1]
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = t2.c2)) otherCondition=()
+----------------PhysicalProject
+------------------filter((cte.c1 > 300))
+--------------------PhysicalOlapScan[t1]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------filter((t2.c2 > 300))
+----------------------PhysicalOlapScan[t2]
 
 Hint log:
 Used: leading(t1 t2 ) leading(t1 cte )
@@ -636,10 +636,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = cte.c11)) otherCondition=()
-------------------------PhysicalOlapScan[t1]
-------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------------------PhysicalProject
 ----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------PhysicalOlapScan[t1]
 
 Hint log:
 Used: leading(cte t1 )
