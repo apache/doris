@@ -49,6 +49,7 @@ import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TruncateTableStmt;
@@ -69,6 +70,7 @@ import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.Index;
@@ -2071,6 +2073,41 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // create partition info
         PartitionDesc partitionDesc = stmt.getPartitionDesc();
+
+        // check legality of partiton exprs
+        ConnectContext ctx = ConnectContext.get();
+        Env env = Env.getCurrentEnv();
+        if (ctx != null && env != null && partitionDesc != null && partitionDesc.getPartitionExprs() != null) {
+            for (Expr expr : partitionDesc.getPartitionExprs()) {
+                if (expr != null && expr instanceof FunctionCallExpr) { // test them
+                    FunctionCallExpr func = (FunctionCallExpr) expr;
+                    ArrayList<Expr> children = func.getChildren();
+                    Type[] childTypes = new Type[children.size()];
+                    for (int i = 0; i < children.size(); i++) {
+                        if (children.get(i) instanceof LiteralExpr) {
+                            childTypes[i] = children.get(i).getType();
+                        } else if (children.get(i) instanceof SlotRef) {
+                            // now maybe they are invalid type. mock it from table.
+                            childTypes[i] = stmt.getColumns().get(i).getType();
+                        } else {
+                            throw new AnalysisException(String.format(
+                                    "partition expr %s has unrecognized parameter in slot %d", func.getExprName(), i));
+                        }
+                    }
+                    Function fn = null;
+                    try {
+                        fn = func.getBuiltinFunction(func.getFnName().getFunction(), childTypes,
+                                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF); // only for test
+                    } catch (Exception e) {
+                        throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
+                    }
+                    if (fn == null) {
+                        throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
+                    }
+                }
+            }
+        }
+
         PartitionInfo partitionInfo = null;
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
@@ -2742,7 +2779,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 throw t;
             }
-
         }
     }
 
