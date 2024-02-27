@@ -415,8 +415,8 @@ public class Alter {
         }
         odbcTable.writeLock();
         try {
-            db.dropTable(mysqlTable.getName());
-            db.createTable(odbcTable);
+            db.unregisterTable(mysqlTable.getName());
+            db.registerTable(odbcTable);
             if (!isReplay) {
                 ModifyTableEngineOperationLog log = new ModifyTableEngineOperationLog(db.getId(),
                         externalTable.getId(), prop);
@@ -595,17 +595,17 @@ public class Alter {
         String newTblName = newTbl.getName();
 
         // drop origin table and new table
-        db.dropTable(oldTblName);
-        db.dropTable(newTblName);
+        db.unregisterTable(oldTblName);
+        db.unregisterTable(newTblName);
 
         // rename new table name to origin table name and add it to database
         newTbl.checkAndSetName(oldTblName, false);
-        db.createTable(newTbl);
+        db.registerTable(newTbl);
 
         if (swapTable) {
             // rename origin table name to new table name and add it to database
             origTable.checkAndSetName(newTblName, false);
-            db.createTable(origTable);
+            db.registerTable(origTable);
         } else {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             Env.getCurrentEnv().onEraseOlapTable(origTable, isReplay);
@@ -637,8 +637,8 @@ public class Alter {
                 }
                 view.setNewFullSchema(newFullSchema);
                 String viewName = view.getName();
-                db.dropTable(viewName);
-                db.createTable(view);
+                db.unregisterTable(viewName);
+                db.registerTable(view);
 
                 AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(),
                         inlineViewDef, newFullSchema, sqlMode);
@@ -673,8 +673,8 @@ public class Alter {
             }
             view.setNewFullSchema(newFullSchema);
 
-            db.dropTable(viewName);
-            db.createTable(view);
+            db.unregisterTable(viewName);
+            db.registerTable(view);
 
             LOG.info("replay modify view[{}] definition to {}", viewName, inlineViewDef);
         } finally {
