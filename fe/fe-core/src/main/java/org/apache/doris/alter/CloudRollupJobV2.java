@@ -44,6 +44,11 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -51,11 +56,13 @@ import java.util.Map;
 public class CloudRollupJobV2 extends RollupJobV2 {
     private static final Logger LOG = LogManager.getLogger(CloudRollupJobV2.class);
 
-    public CloudRollupJobV2(RollupJobV2 job) throws AnalysisException {
-        this(job.rawSql, job.jobId, job.dbId, job.tableId, job.tableName, job.timeoutMs, job.baseIndexId,
-                job.rollupIndexId, job.baseIndexName, job.rollupIndexName, job.rollupSchema, job.whereColumn,
-                job.baseSchemaHash, job.rollupSchemaHash, job.rollupKeysType,
-                job.rollupShortKeyColumnCount, job.origStmt);
+    public static AlterJobV2 buildCloudRollupJobV2(RollupJobV2 job) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(baos);
+        job.write(dos);
+        ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
+        DataInputStream dis = new DataInputStream(bais);
+        return CloudRollupJobV2.read(dis);
     }
 
     private CloudRollupJobV2() {}

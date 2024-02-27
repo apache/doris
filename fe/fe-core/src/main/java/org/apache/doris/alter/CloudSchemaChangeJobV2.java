@@ -41,6 +41,11 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -48,8 +53,13 @@ import java.util.stream.Collectors;
 public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJobV2.class);
 
-    public CloudSchemaChangeJobV2(SchemaChangeJobV2 job) {
-        this(job.rawSql, job.jobId, job.dbId, job.tableId, job.tableName, job.timeoutMs);
+    public static AlterJobV2 buildCloudSchemaChangeJobV2(SchemaChangeJobV2 job) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(baos);
+        job.write(dos);
+        ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
+        DataInputStream dis = new DataInputStream(bais);
+        return CloudSchemaChangeJobV2.read(dis);
     }
 
     public CloudSchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId,

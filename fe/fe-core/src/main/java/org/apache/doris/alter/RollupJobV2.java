@@ -178,6 +178,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     }
 
     public void addMVIndex(long partitionId, MaterializedIndex mvIndex) {
+        if (mvIndex == null) {
+            LOG.info("lightman ?????????");
+        }
         this.partitionIdToRollupIndex.put(partitionId, mvIndex);
     }
 
@@ -200,7 +203,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     protected void createRollupReplica() throws AlterCancelException {
         Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
-
+        LOG.info("lightman1 add size {}", this.partitionIdToRollupIndex.size());
         // 1. create rollup replicas
         AgentBatchTask batchTask = new AgentBatchTask();
         // count total replica num
@@ -217,7 +220,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
-
+        LOG.info("lightman2 add size {}", this.partitionIdToRollupIndex.size());
         tbl.readLock();
         try {
             BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
@@ -276,7 +279,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         } finally {
             tbl.readUnlock();
         }
-
+        LOG.info("lightman3 add size {}", this.partitionIdToRollupIndex.size());
         if (!FeConstants.runningUnitTest) {
             // send all tasks and wait them finished
             AgentTaskQueue.addBatchTask(batchTask);
@@ -308,7 +311,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 throw new AlterCancelException("Create rollup replicas failed. Error: " + errMsg);
             }
         }
-
+        LOG.info("lightman4 add size {}", this.partitionIdToRollupIndex.size());
         // create all rollup replicas success.
         // add rollup index to catalog
         tbl.writeLockOrAlterCancelException();
@@ -351,6 +354,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         for (Partition partition : tbl.getPartitions()) {
             long partitionId = partition.getId();
             MaterializedIndex rollupIndex = this.partitionIdToRollupIndex.get(partitionId);
+            if (rollupIndex == null) {
+                LOG.warn("lightman partitionId {} size {}", partitionId,
+                        this.partitionIdToRollupIndex.size());
+            }
             Preconditions.checkNotNull(rollupIndex);
             Preconditions.checkState(rollupIndex.getState() == IndexState.SHADOW, rollupIndex.getState());
             partition.createRollupIndex(rollupIndex);
