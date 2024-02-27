@@ -292,9 +292,12 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         return builder.build();
     }
 
-    private static class CollectNonWindowedAggFuncs extends DefaultExpressionVisitor<Void, List<AggregateFunction>> {
+    /**
+     * collect non_window_agg_func
+     */
+    public static class CollectNonWindowedAggFuncs extends DefaultExpressionVisitor<Void, List<AggregateFunction>> {
 
-        private static final CollectNonWindowedAggFuncs INSTANCE = new CollectNonWindowedAggFuncs();
+        public static final CollectNonWindowedAggFuncs INSTANCE = new CollectNonWindowedAggFuncs();
 
         @Override
         public Void visitWindow(WindowExpression windowExpression, List<AggregateFunction> context) {
