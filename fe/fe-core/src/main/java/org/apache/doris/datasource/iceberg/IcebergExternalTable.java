@@ -75,14 +75,6 @@ public class IcebergExternalTable extends ExternalTable {
     }
 
     @Override
-    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
-        makeSureInitialized();
-        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(),
-                () -> StatisticsUtil.getIcebergColumnStats(colName,
-                        IcebergUtils.getIcebergTable(catalog, dbName, name)));
-    }
-
-    @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         return new ExternalAnalysisTask(info);
