@@ -131,8 +131,6 @@ public:
     }
     [[nodiscard]] int get_child_count() const { return _child_size; }
 
-    bool need_data_from_children(RuntimeState* state) const override;
-
 private:
     bool _has_data(RuntimeState* state) const {
         auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();

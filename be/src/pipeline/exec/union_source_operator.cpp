@@ -181,10 +181,6 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     return Status::OK();
 }
 
-bool UnionSourceOperatorX::need_data_from_children(RuntimeState* state) const {
-    return !_has_data(state);
-}
-
 Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Block* block) {
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
     auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
