@@ -14,9 +14,19 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "data_type_fixedlengthobject_serde.h"
 
-namespace doris {
+package org.apache.doris.datasource.hive;
 
-namespace vectorized {}
-} // namespace doris
+import org.apache.doris.datasource.DatabaseMetadata;
+
+import lombok.Data;
+
+import java.util.Map;
+
+@Data
+public class HiveDatabaseMetadata implements DatabaseMetadata {
+    private String dbName;
+    private String locationUri;
+    private Map<String, String> properties;
+    private String comment;
+}

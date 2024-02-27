@@ -102,14 +102,6 @@ public class IcebergMetadataCache {
         return icebergTable;
     }
 
-    private Table getIcebergTable(Catalog catalog, long catalogId, String dbName, String tbName,
-            Map<String, String> props) {
-        Table table = HiveMetaStoreClientHelper.ugiDoAs(catalogId,
-                () -> catalog.loadTable(TableIdentifier.of(dbName, tbName)));
-        initIcebergTableFileIO(table, props);
-        return table;
-    }
-
     public void invalidateCatalogCache(long catalogId) {
         snapshotListCache.asMap().keySet().stream()
             .filter(key -> key.catalogId == catalogId)

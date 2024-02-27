@@ -32,18 +32,20 @@ PAUSE JOB
 
 ### Description
 
-用户暂停一个 JOB 作业。被停止的作业可以通过 RESUME JOB 恢复。
+用户暂停一个正在 RUNNING 状态的 JOB ，正在运行的 TASK 会被中断，JOB 状态变更为 PAUSED。 被停止的 JOB 可以通过 RESUME 操作恢复运行。
+
+使用此命令需要 ADMIN 权限。
 
 ```sql
-PAUSE JOB FOR job_name;
+PAUSE JOB WHERE jobname= 'jobname';
 ```
 
 ### Example
 
-1. 暂停名称为 test1 的作业。
+1. 暂停名称为 example 的 JOB。
 
 ```sql
-   PAUSE JOB FOR test1;
+   PAUSE JOB where jobname='example';
 ```
 
 ### Keywords

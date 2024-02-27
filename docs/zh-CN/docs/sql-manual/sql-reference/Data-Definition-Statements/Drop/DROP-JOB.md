@@ -1,7 +1,7 @@
 ---
 {
-"title": "STOP-JOB",
-"language": "en"
+"title": "DROP-JOB",
+"language": "zh-CN"
 }
 ---
 
@@ -24,31 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## STOP-JOB
+## DROP-JOB
 
 ### Name
 
-STOP JOB
+DROP JOB
 
 ### Description
 
-User stops a JOB job. A stopped job cannot be rerun.
+用户删除一个 JOB 作业。作业会被立即停止同时删除。
 
 ```sql
-STOP JOB FOR job_name;
+DROP JOB where jobName='jobname';
 ```
 
 ### Example
 
-1. Stop the job named test1.
+1. 停止名称为 example 的作业。
 
-    ```sql
-    STOP JOB FOR test1;
-    ```
+   ```sql
+   DROP JOB where jobName='example';
+   ```
 
 ### Keywords
 
-     STOP, JOB
+    STOP, JOB
 
 ### Best Practice
 

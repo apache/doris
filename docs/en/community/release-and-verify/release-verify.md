@@ -120,7 +120,7 @@ I checked:
 Other comments...
 ```
 
-> 1. Indicate the github id in the voting email to facilitate the Release Manager to count the votes.
+> 1. Indicate the Apache ID in the voting email to facilitate the Release Manager to count the votes.
 >
 > 2. If you are a Doris PMC member, please indicate (binding) in the voting email. Otherwise indicate (non-binding).
 >
