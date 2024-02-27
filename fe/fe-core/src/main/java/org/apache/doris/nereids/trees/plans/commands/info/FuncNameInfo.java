@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
@@ -98,23 +99,31 @@ public class FuncNameInfo {
         if (isAnalyzed) {
             return;
         }
-        if (Strings.isNullOrEmpty(ctl)) {
-            ctl = ctx.getDefaultCatalog();
+        try {
             if (Strings.isNullOrEmpty(ctl)) {
-                ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
+                ctl = ctx.getDefaultCatalog();
+                if (Strings.isNullOrEmpty(ctl)) {
+                    ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
+                }
             }
-        }
-        if (Strings.isNullOrEmpty(db)) {
-            db = ctx.getDatabase();
             if (Strings.isNullOrEmpty(db)) {
-                throw new AnalysisException("procedure/function/package name no database selected");
+                db = ctx.getDatabase();
+                if (Strings.isNullOrEmpty(db)) {
+                    Optional<DatabaseIf> dbInstance = ctx.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)
+                            .getDb(FeConstants.INTERNAL_DB_NAME);
+                    db = dbInstance.map(DatabaseIf::getFullName).orElse("");
+                    dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
+                } else {
+                    Optional<DatabaseIf> dbInstance = ctx.getCatalog(ctl).getDb(db);
+                    dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
+                }
             }
+            if (Strings.isNullOrEmpty(name)) {
+                throw new AnalysisException("procedure/function/package name is null");
+            }
+        } catch (Exception e) {
+            throw new AnalysisException("failed to analyze procedure name", e);
         }
-        if (Strings.isNullOrEmpty(name)) {
-            throw new AnalysisException("procedure/function/package name is null");
-        }
-        Optional<DatabaseIf> dbInstance = ctx.getCatalog(ctl).getDb(db);
-        dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
         isAnalyzed = true;
     }
 
