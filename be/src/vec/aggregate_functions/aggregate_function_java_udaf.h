@@ -428,6 +428,7 @@ private:
             return Status::InvalidArgument(strings::Substitute(
                     "Java UDAF doesn't support return type is $0 now !", return_type->get_name()));
         }
+        env->DeleteLocalRef(result_obj);
         return Status::OK();
     }
 
