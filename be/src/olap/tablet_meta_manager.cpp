@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/endian.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
@@ -91,7 +92,14 @@ Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash 
                                TabletMetaSharedPtr tablet_meta, const string& header_prefix) {
     std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     std::string value;
-    tablet_meta->serialize(&value);
+    static_cast<void>(tablet_meta->serialize(&value));
+    if (tablet_meta->partition_id() <= 0) {
+        LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << " tablet "
+                     << tablet_meta->tablet_id();
+        // TODO(dx): after fix partition id eq 0 bug, fix it
+        // return Status::InternalError("invaid partition id {} tablet {}",
+        //  tablet_meta->partition_id(), tablet_meta->tablet_id());
+    }
     OlapMeta* meta = store->get_meta();
     VLOG_NOTICE << "save tablet meta"
                 << ", key:" << key << ", meta length:" << value.length();
@@ -126,7 +134,7 @@ Status TabletMetaManager::traverse_headers(
         std::vector<std::string> parts;
         // old format key format: "hdr_" + tablet_id + "_" + schema_hash  0.11
         // new format key format: "tabletmeta_" + tablet_id + "_" + schema_hash  0.10
-        split_string<char>(key, '_', &parts);
+        static_cast<void>(split_string<char>(key, '_', &parts));
         if (parts.size() != 3) {
             LOG(WARNING) << "invalid tablet_meta key:" << key << ", split size:" << parts.size();
             return true;
@@ -186,7 +194,7 @@ Status TabletMetaManager::traverse_pending_publish(
     auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
         std::vector<std::string> parts;
         // key format: "ppi_" + tablet_id + "_" + publish_version
-        split_string<char>(key, '_', &parts);
+        static_cast<void>(split_string<char>(key, '_', &parts));
         if (parts.size() != 3) {
             LOG(WARNING) << "invalid pending publish info key:" << key
                          << ", split size:" << parts.size();

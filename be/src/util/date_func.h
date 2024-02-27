@@ -23,12 +23,20 @@
 
 namespace doris {
 
-uint64_t timestamp_from_datetime(const std::string& datetime_str);
-uint32_t timestamp_from_date(const std::string& date_str);
+struct DateV2ValueType;
+struct DateTimeV2ValueType;
+
+template <typename T>
+class DateV2Value;
+
+class VecDateTimeValue;
+
+VecDateTimeValue timestamp_from_datetime(const std::string& datetime_str);
+VecDateTimeValue timestamp_from_date(const std::string& date_str);
 int32_t time_to_buffer_from_double(double time, char* buffer);
 int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale);
-uint32_t timestamp_from_date_v2(const std::string& date_str);
-uint64_t timestamp_from_datetime_v2(const std::string& date_str);
+DateV2Value<DateV2ValueType> timestamp_from_date_v2(const std::string& date_str);
+DateV2Value<DateTimeV2ValueType> timestamp_from_datetime_v2(const std::string& date_str);
 
 std::string time_to_buffer_from_double(double time);
 std::string timev2_to_buffer_from_double(double time, int scale);

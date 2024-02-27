@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_cast') {
+suite('test_cast', "arrow_flight_sql") {
     def date = "date '2020-01-01'"
     def datev2 = "datev2 '2020-01-01'"
     def datetime = "timestamp '2020-01-01 12:34:45'"
@@ -31,6 +31,64 @@ suite('test_cast') {
         sql "select cast(${datetime} as int), cast(${datetime} as bigint), cast(${datetime} as float), cast(${datetime} as double)"
         result([[869930357, 20200101123445l, ((float) 20200101123445l), ((double) 20200101123445l)]])
     }
+
+    test {
+        sql " select cast('9999e-1' as DECIMALV3(2, 1)) "
+        result([[9.9]])
+    }
+
+    test {
+        sql " select cast('100000' as DECIMALV3(2, 1)) "
+        result([[9.9]])
+    }
+
+    test {
+        sql " select cast('-9999e-1' as DECIMALV3(2, 1)) "
+        result([[-9.9]])
+    }
+
+    // round
+    //result([[123456789]])
+    qt_sql_1 " select cast('123456789.0' as DECIMALV3(9, 0)) "
+
+    // result([[999999999]])
+    qt_sql_2 " select cast('999999999.0' as DECIMALV3(9, 0)) "
+
+    // result([[123456790]])
+    qt_sql_3 " select cast('123456789.9' as DECIMALV3(9, 0)) "
+
+    // result([[926895541712428044]])
+    qt_sql_4 " select cast('926895541712428044.1' as DECIMALV3(18,0)); "
+
+    // result([[99999999999999999.9]])
+    qt_sql_5 " select cast('926895541712428044.1' as DECIMAL(18,1)); "
+
+    // leading-zeros
+    qt_sql_decimalv3 """select CAST('0.29401599228723063' AS DECIMALV3)"""
+
+    // not-leading-zeros
+    qt_sql_decimalv3 """select CAST('1.29401599228723063' AS DECIMALV3) """
+
+    // not-leading-zeros
+    qt_sql_decimalv3 """ select CAST('10.29401599228723063' AS DECIMALV3) """
+
+    // overflow with min value
+    qt_sql_decimalv3 """ select cast('-100000' as DECIMALV3(2, 1)) """
+
+    // overflow with max value
+    qt_sql_decimalv3 """ select cast('0.2147483648e3' as DECIMALV3(2, 1))"""
+
+    // overflow with min value
+    qt_sql_decimalv3 """ select cast('0.2147483648e-3' as DECIMALV3(2, 1))"""
+
+    // decimalv3 with abnormal decimal case ,
+    qt_sql_decimalv3 """ select cast('1001-12-31 00:00:00' as DECIMALV3(27, 9))"""
+
+    qt_sql_decimalv3 """ select cast('1001-12-31 00:00:00' as DECIMALV3(9, 0))"""
+
+    qt_sql_decimalv3 """ select cast('1001-12-31 00:00:00' as DECIMALV3(2, 0))"""
+
+    qt_sql_decimalv3 """ select cast('1001-12-31 00:00:00' as DECIMALV3(1, 0))"""
 
     def tbl = "test_cast"
 

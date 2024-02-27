@@ -224,9 +224,8 @@ private:
 
         if (value->isInt() && curr->isInt()) {
             // Both are ints and optimization can be done here
-            int64_t val = ((const JsonbIntVal*)value)->val();
             // setVal may fail because the new value can't fit into the current one.
-            if (((JsonbIntVal*)curr)->setVal(val)) {
+            if (((JsonbIntVal*)curr)->setVal(((const JsonbIntVal*)value)->val())) {
                 return JsonbErrType::E_NONE;
             }
         }
@@ -367,8 +366,8 @@ private:
     }
 
 private:
-    JsonbDocument* document_;
-    JsonbValue* root_;
+    JsonbDocument* document_ = nullptr;
+    JsonbValue* root_ = nullptr;
     uint buffer_size_;
     // This stack store all the key path in the document. It's deserve
     // noticing that the root node is always in this stack.

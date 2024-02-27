@@ -18,9 +18,9 @@
 suite("test_insert") {
     // todo: test insert, such as insert values, insert select, insert txn
     sql "show load"
-    def test_baseall = "test_query_db.baseall";
-    def test_bigtable = "test_query_db.bigtable";
-    def insert_tbl = "test_insert_tbl";
+    def test_baseall = "baseall"
+    def test_bigtable = "bigtable"
+    def insert_tbl = "test_insert_tbl"
 
     sql """ DROP TABLE IF EXISTS ${insert_tbl}"""
     sql """
@@ -87,5 +87,22 @@ suite("test_insert") {
     sql """ set enable_nereids_dml=false """
     sql """ insert into ${insert_tbl_dft} values() """
     
-    qt_select """ select k1,k2,k3,k4,k5,k6,k8,k10,k11,k12 from ${insert_tbl_dft} """
+    qt_select """ select k1, k2, k3, k4, k5, k6, k8, k10, k11, k12 from ${insert_tbl_dft} """
+    
+    sql 'drop table if exists t3'
+    sql '''
+        create table t3 (
+            id int default "10"
+        ) distributed by hash(id) buckets 13
+        properties(
+            'replication_num'='1'
+        );
+    '''
+    
+    sql 'insert into t3 values(default)'
+    
+    test {
+        sql 'select * from t3'
+        result([[10]])
+    }
 }

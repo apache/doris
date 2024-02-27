@@ -16,9 +16,6 @@
 // under the License.
 suite("test_rollup_agg") {
 
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
-
     def tbName = "test_rollup_agg"
 
     def getJobRollupState = { tableName ->

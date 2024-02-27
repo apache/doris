@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.collections.CollectionUtils;
@@ -32,7 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
 
-public class HistogramCacheLoader extends StatisticsCacheLoader<Optional<Histogram>> {
+public class HistogramCacheLoader extends BasicAsyncCacheLoader<StatisticsCacheKey, Optional<Histogram>> {
 
     private static final Logger LOG = LogManager.getLogger(HistogramCacheLoader.class);
 

@@ -123,12 +123,15 @@ public class DeleteStmt extends DdlStmt {
 
         // analyze predicate
         if (fromClause == null) {
+            if (wherePredicate == null) {
+                throw new AnalysisException("Where clause is not set");
+            }
             ExprRewriter exprRewriter = new ExprRewriter(EXPR_NORMALIZE_RULES);
             wherePredicate = exprRewriter.rewrite(wherePredicate, analyzer);
             try {
                 analyzePredicate(wherePredicate, analyzer);
                 checkDeleteConditions();
-            } catch (Exception e) {
+            } catch (AnalysisException e) {
                 if (!(((OlapTable) targetTable).getKeysType() == KeysType.UNIQUE_KEYS)) {
                     throw new AnalysisException(e.getMessage(), e.getCause());
                 }
@@ -154,7 +157,7 @@ public class DeleteStmt extends DdlStmt {
                 expr = new BoolLiteral(true);
             } else if (column.isKey()) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
-            } else if (!isMow && !column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue())) {
+            } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             } else {
                 continue;
@@ -198,7 +201,9 @@ public class DeleteStmt extends DdlStmt {
                 cols,
                 new InsertSource(selectStmt),
                 null,
-                isPartialUpdate);
+                isPartialUpdate,
+                NativeInsertStmt.InsertType.DELETE);
+        ((NativeInsertStmt) insertStmt).setIsFromDeleteOrUpdateStmt(true);
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws UserException {
@@ -234,18 +239,29 @@ public class DeleteStmt extends DdlStmt {
         }
         if (predicate instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) predicate;
+            binaryPredicate.getChild(0).analyze(analyzer);
+            binaryPredicate.getChild(1).analyze(analyzer);
+
+            binaryPredicate.setChild(1, binaryPredicate.getChild(1).castTo(binaryPredicate.getChild(0).getType()));
             binaryPredicate.analyze(analyzer);
-            ExprRewriter exprRewriter = new ExprRewriter(FoldConstantsRule.INSTANCE);
-            binaryPredicate.setChild(1, exprRewriter.rewrite(binaryPredicate.getChild(1), analyzer, null));
+
+            Expr rightChild = binaryPredicate.getChild(1);
+            Expr rewrittenExpr = FoldConstantsRule.INSTANCE.apply(rightChild, analyzer, null);
+            if (rightChild != rewrittenExpr) {
+                binaryPredicate.setChild(1, rewrittenExpr);
+            }
+
             Expr leftExpr = binaryPredicate.getChild(0);
             if (!(leftExpr instanceof SlotRef)) {
                 throw new AnalysisException(
-                        "Left expr of binary predicate should be column name, predicate=" + binaryPredicate.toSql());
+                        "Left expr of binary predicate should be column name, predicate: " + binaryPredicate.toSql()
+                                + ", left expr type:" + leftExpr.getType());
             }
             Expr rightExpr = binaryPredicate.getChild(1);
             if (!(rightExpr instanceof LiteralExpr)) {
                 throw new AnalysisException(
-                        "Right expr of binary predicate should be value, predicate=" + binaryPredicate.toSql());
+                        "Right expr of binary predicate should be value, predicate: " + binaryPredicate.toSql()
+                                + ", right expr type:" + rightExpr.getType());
             }
             deleteConditions.add(binaryPredicate);
         } else if (predicate instanceof CompoundPredicate) {
@@ -321,13 +337,30 @@ public class DeleteStmt extends DdlStmt {
             }
 
             Column column = nameToColumn.get(columnName);
+            // TODO(Now we can not push down non-scala type like array/map/struct to storage layer because of
+            //  predict_column in be not support non-scala type, so we just should ban this type in delete predict, when
+            //  we delete predict_column in be we should delete this ban)
+            if (!column.getType().isScalarType()) {
+                throw new AnalysisException(String.format("Can not apply delete condition to column type: %s ",
+                        column.getType()));
+
+            }
             // Due to rounding errors, most floating-point numbers end up being slightly imprecise,
             // it also means that numbers expected to be equal often differ slightly, so we do not allow compare with
             // floating-point numbers, floating-point number not allowed in where clause
-            if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS
-                    || column.getDataType().isFloatingPointType()) {
-                throw new AnalysisException("Column[" + columnName + "] is not key column or storage model "
-                        + "is not duplicate or column type is float or double.");
+            if (column.getDataType().isFloatingPointType()) {
+                throw new AnalysisException("Column[" + columnName + "] type is float or double.");
+            }
+            if (!column.isKey()) {
+                if (table.getKeysType() == KeysType.AGG_KEYS) {
+                    throw new AnalysisException("delete predicate on value column only supports Unique table with"
+                            + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
+                                    + "] is an Aggregate table.");
+                } else if (table.getKeysType() == KeysType.UNIQUE_KEYS && !table.getEnableUniqueKeyMergeOnWrite()) {
+                    throw new AnalysisException("delete predicate on value column only supports Unique table with"
+                            + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
+                                    + "] is an Aggregate table.");
+                }
             }
 
             if (condition instanceof BinaryPredicate) {

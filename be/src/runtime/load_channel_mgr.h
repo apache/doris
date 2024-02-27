@@ -21,17 +21,19 @@
 #include <stdint.h>
 
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/lru_cache.h"
 #include "olap/memtable_memory_limiter.h"
 #include "runtime/load_channel.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/countdown_latch.h"
@@ -48,7 +50,6 @@ class Thread;
 class LoadChannelMgr {
 public:
     LoadChannelMgr();
-    ~LoadChannelMgr();
 
     Status init(int64_t process_mem_limit);
 
@@ -61,6 +62,8 @@ public:
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
 
+    void stop();
+
 private:
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const PTabletWriterAddBlockRequest& request);
@@ -69,29 +72,20 @@ private:
 
     Status _start_bg_worker();
 
-    void _register_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
-        for (auto& tablet_channel_it : channel->get_tablets_channels()) {
-            for (auto& writer_it : tablet_channel_it.second->get_tablet_writers()) {
-                _memtable_memory_limiter->register_writer(writer_it.second);
-            }
-        }
-    }
-
-    void _deregister_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
-        for (auto& tablet_channel_it : channel->get_tablets_channels()) {
-            for (auto& writer_it : tablet_channel_it.second->get_tablet_writers()) {
-                _memtable_memory_limiter->deregister_writer(writer_it.second);
-            }
-        }
-    }
+    class LastSuccessChannelCache : public LRUCachePolicy {
+    public:
+        LastSuccessChannelCache(size_t capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE, capacity,
+                                 LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+    };
 
 protected:
     // lock protect the load channel map
     std::mutex _lock;
     // load id -> load channel
-    // when you erase, you should call deregister_writer method in MemTableMemoryLimiter ;
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
-    Cache* _last_success_channel = nullptr;
+    std::unique_ptr<LastSuccessChannelCache> _last_success_channels;
 
     MemTableMemoryLimiter* _memtable_memory_limiter = nullptr;
 

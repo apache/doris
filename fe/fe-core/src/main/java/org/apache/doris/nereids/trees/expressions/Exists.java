@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BooleanType;
@@ -33,7 +32,7 @@ import java.util.Optional;
 /**
  * Exists subquery expression.
  */
-public class Exists extends SubqueryExpr implements LeafExpression {
+public class Exists extends SubqueryExpr {
 
     private final boolean isNot;
 
@@ -102,5 +101,10 @@ public class Exists extends SubqueryExpr implements LeafExpression {
     @Override
     public Expression withTypeCoercion(DataType dataType) {
         return this;
+    }
+
+    @Override
+    public Exists withSubquery(LogicalPlan subquery) {
+        return new Exists(subquery, correlateSlots, typeCoercionExpr, isNot);
     }
 }

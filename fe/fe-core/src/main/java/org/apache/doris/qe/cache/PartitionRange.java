@@ -37,6 +37,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.planner.PartitionColumnFilter;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -152,6 +153,7 @@ public class PartitionRange {
         public boolean init(Type type, String str) {
             switch (type.getPrimitiveType()) {
                 case DATE:
+                case DATEV2:
                     try {
                         date = Date.from(
                                 LocalDate.parse(str, df10).atStartOfDay().atZone(ZoneId.systemDefault()).toInstant());
@@ -188,6 +190,7 @@ public class PartitionRange {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
+                case DECIMAL256:
                 case CHAR:
                 case VARCHAR:
                 case STRING:
@@ -245,7 +248,8 @@ public class PartitionRange {
         }
 
         private Date getDateValue(LiteralExpr expr) {
-            value = expr.getLongValue() / 1000000;
+            Preconditions.checkArgument(expr.getType() == Type.DATE || expr.getType() == Type.DATEV2);
+            value = expr.getLongValue();
             Date dt = null;
             try {
                 dt = Date.from(LocalDate.parse(String.valueOf(value), df8).atStartOfDay().atZone(ZoneId.systemDefault())
@@ -423,7 +427,9 @@ public class PartitionRange {
 
     public boolean rewritePredicate(CompoundPredicate predicate, List<PartitionSingle> rangeList) {
         if (predicate.getOp() != CompoundPredicate.Operator.AND) {
-            LOG.debug("predicate op {}", predicate.getOp().toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("predicate op {}", predicate.getOp().toString());
+            }
             return false;
         }
         for (Expr expr : predicate.getChildren()) {
@@ -566,7 +572,9 @@ public class PartitionRange {
     private PartitionColumnFilter createPartitionFilter(CompoundPredicate partitionKeyPredicate,
                                                         Column partitionColumn) {
         if (partitionKeyPredicate.getOp() != CompoundPredicate.Operator.AND) {
-            LOG.debug("not and op");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("not and op");
+            }
             return null;
         }
         PartitionColumnFilter partitionColumnFilter = new PartitionColumnFilter();
@@ -579,7 +587,9 @@ public class PartitionRange {
                     continue;
                 }
                 if (binPredicate.getOp() == BinaryPredicate.Operator.NE) {
-                    LOG.debug("not support NE operator");
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("not support NE operator");
+                    }
                     continue;
                 }
                 Expr slotBinding;
@@ -588,7 +598,9 @@ public class PartitionRange {
                 } else if (binPredicate.getChild(0) instanceof LiteralExpr) {
                     slotBinding = binPredicate.getChild(0);
                 } else {
-                    LOG.debug("not find LiteralExpr");
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("not find LiteralExpr");
+                    }
                     continue;
                 }
 

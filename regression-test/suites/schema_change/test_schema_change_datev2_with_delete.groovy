@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_schema_change_datev2_with_delete") {
+    sql """ SET enable_profile = true """
     def tbName = "test_schema_change_datev2_with_delete"
     def getJobState = { tableName ->
          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """

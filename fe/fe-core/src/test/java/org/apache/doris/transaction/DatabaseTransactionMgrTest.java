@@ -29,6 +29,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.task.PublishVersionTask;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -56,7 +57,17 @@ public class DatabaseTransactionMgrTest {
     private static Env slaveEnv;
     private static Map<String, Long> LabelToTxnId;
 
-    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
+    private TransactionState.TxnCoordinator transactionSource =
+            new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
+
+    public static void setTransactionFinishPublish(TransactionState transactionState, List<Long> backendIds) {
+        for (long backendId : backendIds) {
+            PublishVersionTask task = new PublishVersionTask(backendId, transactionState.getTransactionId(),
+                    transactionState.getDbId(), null, System.currentTimeMillis());
+            task.setFinished(true);
+            transactionState.addPublishVersionTask(backendId, task);
+        }
+    }
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
@@ -70,10 +81,10 @@ public class DatabaseTransactionMgrTest {
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
-        masterTransMgr = masterEnv.getGlobalTransactionMgr();
+        masterTransMgr = (GlobalTransactionMgr) masterEnv.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterEnv.getEditLog());
 
-        slaveTransMgr = slaveEnv.getGlobalTransactionMgr();
+        slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
 
         LabelToTxnId = addTransactionToTransactionMgr();
@@ -100,7 +111,11 @@ public class DatabaseTransactionMgrTest {
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1, transTablets);
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1, null);
+        TransactionState transactionState1 = fakeEditLog.getTransaction(transactionId1);
+        setTransactionFinishPublish(transactionState1,
+                Lists.newArrayList(CatalogTestUtil.testBackendId1,
+                        CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3));
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1);
         labelToTxnId.put(CatalogTestUtil.testTxnLabel1, transactionId1);
 
         TransactionState.TxnCoordinator beTransactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.BE, "be1");
@@ -120,8 +135,6 @@ public class DatabaseTransactionMgrTest {
         labelToTxnId.put(CatalogTestUtil.testTxnLabel3, transactionId3);
         labelToTxnId.put(CatalogTestUtil.testTxnLabel4, transactionId4);
 
-        TransactionState transactionState1 = fakeEditLog.getTransaction(transactionId1);
-
         FakeEnv.setEnv(slaveEnv);
         slaveTransMgr.replayUpsertTransactionState(transactionState1);
         return labelToTxnId;
@@ -131,8 +144,7 @@ public class DatabaseTransactionMgrTest {
     public void testNormal() throws UserException {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Assert.assertEquals(4, masterDbTransMgr.getTransactionNum());
-        Assert.assertEquals(2, masterDbTransMgr.getRunningTxnNums());
-        Assert.assertEquals(1, masterDbTransMgr.getRunningRoutineLoadTxnNums());
+        Assert.assertEquals(3, masterDbTransMgr.getRunningTxnNums());
         Assert.assertEquals(1, masterDbTransMgr.getFinishedTxnNums());
         DatabaseTransactionMgr slaveDbTransMgr = slaveTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Assert.assertEquals(1, slaveDbTransMgr.getTransactionNum());
@@ -165,14 +177,12 @@ public class DatabaseTransactionMgrTest {
         long txnId2 = LabelToTxnId.get(CatalogTestUtil.testTxnLabel2);
         masterDbTransMgr.abortTransaction(txnId2, "test abort transaction", null);
         Assert.assertEquals(2, masterDbTransMgr.getRunningTxnNums());
-        Assert.assertEquals(0, masterDbTransMgr.getRunningRoutineLoadTxnNums());
         Assert.assertEquals(2, masterDbTransMgr.getFinishedTxnNums());
         Assert.assertEquals(4, masterDbTransMgr.getTransactionNum());
 
         long txnId3 = LabelToTxnId.get(CatalogTestUtil.testTxnLabel3);
         masterDbTransMgr.abortTransaction(txnId3, "test abort transaction", null);
         Assert.assertEquals(1, masterDbTransMgr.getRunningTxnNums());
-        Assert.assertEquals(0, masterDbTransMgr.getRunningRoutineLoadTxnNums());
         Assert.assertEquals(3, masterDbTransMgr.getFinishedTxnNums());
         Assert.assertEquals(4, masterDbTransMgr.getTransactionNum());
     }
@@ -227,7 +237,17 @@ public class DatabaseTransactionMgrTest {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Config.label_keep_max_second = -1;
         long currentMillis = System.currentTimeMillis();
-        masterDbTransMgr.removeExpiredTxns(currentMillis);
+        masterDbTransMgr.removeUselessTxns(currentMillis);
+        Assert.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
+        Assert.assertEquals(3, masterDbTransMgr.getTransactionNum());
+        Assert.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
+    }
+
+    @Test
+    public void testRemoveOverLimitTxns() throws AnalysisException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Config.label_num_threshold = 0;
+        masterDbTransMgr.removeUselessTxns(System.currentTimeMillis());
         Assert.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
         Assert.assertEquals(3, masterDbTransMgr.getTransactionNum());
         Assert.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
@@ -263,8 +283,7 @@ public class DatabaseTransactionMgrTest {
         long txnId = LabelToTxnId.get(CatalogTestUtil.testTxnLabel1);
         TransactionState transactionState = masterDbTransMgr.getTransactionState(txnId);
         masterDbTransMgr.replayDeleteTransaction(transactionState);
-        Assert.assertEquals(2, masterDbTransMgr.getRunningTxnNums());
-        Assert.assertEquals(1, masterDbTransMgr.getRunningRoutineLoadTxnNums());
+        Assert.assertEquals(3, masterDbTransMgr.getRunningTxnNums());
         Assert.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
         Assert.assertEquals(3, masterDbTransMgr.getTransactionNum());
         Assert.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));

@@ -29,7 +29,9 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -37,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -72,7 +75,13 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     @Override
     public Expression visitExistsSubquery(Exists exists, CascadesContext context) {
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
-
+        if (analyzedResult.rootIsLimitZero()) {
+            return BooleanLiteral.of(exists.isNot());
+        }
+        if (analyzedResult.isCorrelated() && analyzedResult.rootIsLimitWithOffset()) {
+            throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause with offset > 0 "
+                    + analyzedResult.getLogicalPlan());
+        }
         return new Exists(analyzedResult.getLogicalPlan(),
                 analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
@@ -82,8 +91,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
-        checkHasNotAgg(analyzedResult);
-        checkHasGroupBy(analyzedResult);
+        checkNoCorrelatedSlotsUnderAgg(analyzedResult);
         checkRootIsLimit(analyzedResult);
 
         return new InSubquery(
@@ -98,7 +106,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkHasAgg(analyzedResult);
-        checkHasGroupBy(analyzedResult);
+        checkHasNoGroupBy(analyzedResult);
 
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
     }
@@ -128,7 +136,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         }
     }
 
-    private void checkHasGroupBy(AnalyzedResult analyzedResult) {
+    private void checkHasNoGroupBy(AnalyzedResult analyzedResult) {
         if (!analyzedResult.isCorrelated()) {
             return;
         }
@@ -138,13 +146,11 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         }
     }
 
-    private void checkHasNotAgg(AnalyzedResult analyzedResult) {
-        if (!analyzedResult.isCorrelated()) {
-            return;
-        }
-        if (analyzedResult.hasAgg()) {
-            throw new AnalysisException("Unsupported correlated subquery with grouping and/or aggregation "
-                + analyzedResult.getLogicalPlan());
+    private void checkNoCorrelatedSlotsUnderAgg(AnalyzedResult analyzedResult) {
+        if (analyzedResult.hasCorrelatedSlotsUnderAgg()) {
+            throw new AnalysisException(
+                    "Unsupported correlated subquery with grouping and/or aggregation "
+                            + analyzedResult.getLogicalPlan());
         }
     }
 
@@ -216,8 +222,39 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
             return false;
         }
 
+        public boolean hasCorrelatedSlotsUnderAgg() {
+            return correlatedSlots.isEmpty() ? false
+                    : findAggContainsCorrelatedSlots(logicalPlan, ImmutableSet.copyOf(correlatedSlots));
+        }
+
+        private boolean findAggContainsCorrelatedSlots(Plan rootPlan, ImmutableSet<Slot> slots) {
+            ArrayDeque<Plan> planQueue = new ArrayDeque<>();
+            planQueue.add(rootPlan);
+            while (!planQueue.isEmpty()) {
+                Plan plan = planQueue.poll();
+                if (plan instanceof LogicalAggregate) {
+                    if (plan.containsSlots(slots)) {
+                        return true;
+                    }
+                } else {
+                    for (Plan child : plan.children()) {
+                        planQueue.add(child);
+                    }
+                }
+            }
+            return false;
+        }
+
         public boolean rootIsLimit() {
             return logicalPlan instanceof LogicalLimit;
+        }
+
+        public boolean rootIsLimitWithOffset() {
+            return logicalPlan instanceof LogicalLimit && ((LogicalLimit<?>) logicalPlan).getOffset() != 0;
+        }
+
+        public boolean rootIsLimitZero() {
+            return logicalPlan instanceof LogicalLimit && ((LogicalLimit<?>) logicalPlan).getLimit() == 0;
         }
     }
 }

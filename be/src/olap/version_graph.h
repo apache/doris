@@ -154,7 +154,7 @@ public:
     void add_version(const Version& version);
 
     void delete_version(const Version& version) {
-        _version_graph.delete_version_from_graph(version);
+        static_cast<void>(_version_graph.delete_version_from_graph(version));
     }
 
     /// Add a version path with stale_rs_metas, this versions in version path

@@ -71,6 +71,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -104,6 +105,16 @@ public class SparkLoadPendingTask extends LoadTask {
         this.transactionId = loadTaskCallback.getTransactionId();
         this.sparkLoadAppHandle = loadTaskCallback.getHandle();
         this.failMsg = new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL);
+        toLowCaseForFileGroups();
+    }
+
+    void toLowCaseForFileGroups() {
+        aggKeyToBrokerFileGroups.values().forEach(fgs -> {
+            fgs.forEach(fg -> {
+                fg.getColumnExprList()
+                        .forEach(expr -> expr.setColumnName(expr.getColumnName().toLowerCase(Locale.ROOT)));
+            });
+        });
     }
 
     @Override
@@ -236,10 +247,13 @@ public class SparkLoadPendingTask extends LoadTask {
             long indexId = entry.getKey();
             int schemaHash = table.getSchemaHashByIndexId(indexId);
 
+            boolean changeAggType = table.getKeysTypeByIndexId(indexId).equals(KeysType.UNIQUE_KEYS)
+                    && table.getTableProperty().getEnableUniqueKeyMergeOnWrite();
+
             // columns
             List<EtlColumn> etlColumns = Lists.newArrayList();
             for (Column column : entry.getValue()) {
-                etlColumns.add(createEtlColumn(column));
+                etlColumns.add(createEtlColumn(column, changeAggType));
             }
 
             // check distribution type
@@ -279,9 +293,9 @@ public class SparkLoadPendingTask extends LoadTask {
         return etlIndexes;
     }
 
-    private EtlColumn createEtlColumn(Column column) {
+    private EtlColumn createEtlColumn(Column column, boolean changeAggType) {
         // column name
-        String name = column.getName();
+        String name = column.getName().toLowerCase(Locale.ROOT);
         // column type
         PrimitiveType type = column.getDataType();
         String columnType = column.getDataType().toString();
@@ -293,7 +307,11 @@ public class SparkLoadPendingTask extends LoadTask {
         // aggregation type
         String aggregationType = null;
         if (column.getAggregationType() != null) {
-            aggregationType = column.getAggregationType().toString();
+            if (changeAggType && !column.isKey()) {
+                aggregationType = AggregateType.REPLACE.toSql();
+            } else {
+                aggregationType = column.getAggregationType().toString();
+            }
         }
 
         // default value

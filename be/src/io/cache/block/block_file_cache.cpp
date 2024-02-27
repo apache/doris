@@ -20,8 +20,11 @@
 
 #include "io/cache/block/block_file_cache.h"
 
+#include <fmt/core.h>
 #include <glog/logging.h>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <sys/resource.h>
+
 #include <chrono> // IWYU pragma: keep
 #include <filesystem>
 #include <utility>
@@ -55,7 +58,7 @@ IFileCache::Key IFileCache::hash(const std::string& path) {
     return Key(key);
 }
 
-std::string IFileCache::cache_type_to_string(CacheType type) {
+std::string_view IFileCache::cache_type_to_string(CacheType type) {
     switch (type) {
     case CacheType::INDEX:
         return "_idx";
@@ -63,6 +66,8 @@ std::string IFileCache::cache_type_to_string(CacheType type) {
         return "_disposable";
     case CacheType::NORMAL:
         return "";
+    case CacheType::TTL:
+        return "_ttl";
     }
     return "";
 }
@@ -81,8 +86,7 @@ CacheType IFileCache::string_to_cache_type(const std::string& str) {
 
 std::string IFileCache::get_path_in_local_cache(const Key& key, size_t offset,
                                                 CacheType type) const {
-    return get_path_in_local_cache(key) + "/" +
-           (std::to_string(offset) + cache_type_to_string(type));
+    return fmt::format("{}/{}{}", get_path_in_local_cache(key), offset, cache_type_to_string(type));
 }
 
 std::string IFileCache::get_path_in_local_cache(const Key& key) const {
@@ -176,7 +180,7 @@ std::weak_ptr<FileReader> IFileCache::cache_file_reader(const AccessKeyAndOffset
     std::weak_ptr<FileReader> wp;
     if (!s_read_only) [[likely]] {
         std::lock_guard lock(s_file_reader_cache_mtx);
-        if (config::file_cache_max_file_reader_cache_size == s_file_reader_cache.size()) {
+        if (s_file_reader_cache.size() >= _max_file_reader_cache_size) {
             s_file_name_to_reader.erase(s_file_reader_cache.back().first);
             s_file_reader_cache.pop_back();
         }
@@ -203,6 +207,22 @@ bool IFileCache::contains_file_reader(const AccessKeyAndOffset& key) {
 size_t IFileCache::file_reader_cache_size() {
     std::lock_guard lock(s_file_reader_cache_mtx);
     return s_file_name_to_reader.size();
+}
+
+void IFileCache::init() {
+    struct rlimit limit;
+    if (getrlimit(RLIMIT_NOFILE, &limit) != 0) {
+        LOG(FATAL) << "getrlimit() failed with errno: " << errno;
+        return;
+    }
+
+    _max_file_reader_cache_size =
+            std::min((uint64_t)config::file_cache_max_file_reader_cache_size, limit.rlim_max / 3);
+    LOG(INFO) << "max file reader cache size is: " << _max_file_reader_cache_size
+              << ", resource hard limit is: " << limit.rlim_max
+              << ", config file_cache_max_file_reader_cache_size is: "
+              << config::file_cache_max_file_reader_cache_size;
+    return;
 }
 
 } // namespace io

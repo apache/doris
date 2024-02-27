@@ -66,7 +66,7 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     }
 
     default DataType getDataType() throws UnboundException {
-        throw new UnboundException("dataType");
+        throw new UnboundException(toSql() + ".getDataType()");
     }
 
     default String toSql() throws UnboundException {

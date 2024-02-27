@@ -23,7 +23,7 @@ public class ClickBenchTestBase extends AnalyzeCheckTestBase {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         ClickBenchUtils.createTables(this);
     }
 }

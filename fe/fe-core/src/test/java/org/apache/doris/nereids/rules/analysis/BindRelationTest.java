@@ -93,7 +93,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         OlapTable externalOlapTable = new OlapTable(1, tableName, externalTableColumns, KeysType.DUP_KEYS,
                 new PartitionInfo(), new RandomDistributionInfo(10)) {
             @Override
-            public List<Column> getBaseSchema() {
+            public List<Column> getBaseSchema(boolean full) {
                 return externalTableColumns;
             }
 

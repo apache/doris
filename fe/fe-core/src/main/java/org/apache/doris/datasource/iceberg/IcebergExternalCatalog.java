@@ -17,68 +17,47 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.Namespace;
-import org.apache.iceberg.catalog.SupportsNamespaces;
-import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
-    private static final Logger LOG = LogManager.getLogger(IcebergExternalCatalog.class);
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
     public static final String ICEBERG_REST = "rest";
     public static final String ICEBERG_HMS = "hms";
+    public static final String ICEBERG_HADOOP = "hadoop";
     public static final String ICEBERG_GLUE = "glue";
     public static final String ICEBERG_DLF = "dlf";
     protected String icebergCatalogType;
     protected Catalog catalog;
-    protected SupportsNamespaces nsCatalog;
-    private final long catalogId;
 
     public IcebergExternalCatalog(long catalogId, String name, String comment) {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
-        this.catalogId = catalogId;
     }
 
     @Override
     protected void init() {
-        nsCatalog = (SupportsNamespaces) catalog;
         super.init();
     }
 
-    protected Configuration getConfiguration() {
-        Configuration conf = new HdfsConfiguration();
-        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
+    // Create catalog based on catalog type
+    protected abstract void initCatalog();
+
+    @Override
+    protected void initLocalObjectsImpl() {
+        initCatalog();
+        metadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
     }
 
     public Catalog getCatalog() {
         makeSureInitialized();
-        return catalog;
-    }
-
-    public SupportsNamespaces getNsCatalog() {
-        makeSureInitialized();
-        return nsCatalog;
+        return ((IcebergMetadataOps) metadataOps).getCatalog();
     }
 
     public String getIcebergCatalogType() {
@@ -86,39 +65,15 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return icebergCatalogType;
     }
 
-    protected List<String> listDatabaseNames() {
-        return nsCatalog.listNamespaces().stream()
-            .map(e -> {
-                String dbName = e.toString();
-                try {
-                    FeNameFormat.checkDbName(dbName);
-                } catch (AnalysisException ex) {
-                    Util.logAndThrowRuntimeException(LOG,
-                            String.format("Not a supported namespace name format: %s", dbName), ex);
-                }
-                return dbName;
-            })
-            .collect(Collectors.toList());
-    }
-
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        return catalog.tableExists(TableIdentifier.of(dbName, tblName));
+        return metadataOps.tableExist(dbName, tblName);
     }
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        List<TableIdentifier> tableIdentifiers = catalog.listTables(Namespace.of(dbName));
-        return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
-    }
-
-    public org.apache.iceberg.Table getIcebergTable(String dbName, String tblName) {
-        makeSureInitialized();
-        return Env.getCurrentEnv()
-            .getExtMetaCacheMgr()
-            .getIcebergMetadataCache()
-            .getIcebergTable(catalog, catalogId, dbName, tblName);
+        return metadataOps.listTableNames(dbName);
     }
 }

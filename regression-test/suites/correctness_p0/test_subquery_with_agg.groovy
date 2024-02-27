@@ -63,6 +63,21 @@ suite("test_subquery_with_agg") {
         subq_1.gid;
     """
 
+    qt_select2 """
+    select
+        0 as row_number,
+        round(sum(num) / 10, 0) as org_id
+    from
+    (
+        select
+            num
+        from
+            agg_subquery_table
+    ) t
+    group by
+        1;
+    """
+
     sql """
         drop table if exists agg_subquery_table;
     """

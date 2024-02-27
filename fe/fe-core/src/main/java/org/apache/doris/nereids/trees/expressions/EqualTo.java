@@ -22,16 +22,25 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
  * Equal to expression: a = b.
  */
-public class EqualTo extends ComparisonPredicate implements PropagateNullable {
+public class EqualTo extends EqualPredicate implements PropagateNullable {
 
     public EqualTo(Expression left, Expression right) {
-        super(left, right, "=");
+        this(left, right, false);
+    }
+
+    public EqualTo(Expression left, Expression right, boolean inferred) {
+        super(ImmutableList.of(left, right), "=", inferred);
+    }
+
+    private EqualTo(List<Expression> children, boolean inferred) {
+        super(children, "=", inferred);
     }
 
     @Override
@@ -40,14 +49,14 @@ public class EqualTo extends ComparisonPredicate implements PropagateNullable {
     }
 
     @Override
-    public String toString() {
-        return "(" + left() + " = " + right() + ")";
+    public EqualTo withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new EqualTo(children, this.isInferred());
     }
 
     @Override
-    public EqualTo withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new EqualTo(children.get(0), children.get(1));
+    public Expression withInferred(boolean inferred) {
+        return new EqualTo(this.children, inferred);
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -55,7 +64,7 @@ public class EqualTo extends ComparisonPredicate implements PropagateNullable {
     }
 
     @Override
-    public ComparisonPredicate commute() {
+    public EqualTo commute() {
         return new EqualTo(right(), left());
     }
 }

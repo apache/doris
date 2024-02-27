@@ -21,16 +21,16 @@
 
 #include <ostream>
 
+#include "runtime/exec_env.h"
+
 namespace doris {
-
-StoragePageCache* StoragePageCache::_s_instance = nullptr;
-
-void StoragePageCache::create_global_cache(size_t capacity, int32_t index_cache_percentage,
-                                           int64_t pk_index_cache_capacity, uint32_t num_shards) {
-    DCHECK(_s_instance == nullptr);
-    static StoragePageCache instance(capacity, index_cache_percentage, pk_index_cache_capacity,
-                                     num_shards);
-    _s_instance = &instance;
+StoragePageCache* StoragePageCache::create_global_cache(size_t capacity,
+                                                        int32_t index_cache_percentage,
+                                                        int64_t pk_index_cache_capacity,
+                                                        uint32_t num_shards) {
+    StoragePageCache* res = new StoragePageCache(capacity, index_cache_percentage,
+                                                 pk_index_cache_capacity, num_shards);
+    return res;
 }
 
 StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percentage,
@@ -48,10 +48,8 @@ StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percenta
     } else {
         CHECK(false) << "invalid index page cache percentage";
     }
-    if (pk_index_cache_capacity > 0) {
-        _pk_index_page_cache =
-                std::make_unique<PKIndexPageCache>(pk_index_cache_capacity, num_shards);
-    }
+
+    _pk_index_page_cache = std::make_unique<PKIndexPageCache>(pk_index_cache_capacity, num_shards);
 }
 
 bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle,
@@ -62,7 +60,6 @@ bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle,
         return false;
     }
     *handle = PageCacheHandle(cache, lru_handle);
-    handle->update_last_visit_time();
     return true;
 }
 
@@ -81,7 +78,6 @@ void StoragePageCache::insert(const CacheKey& key, DataPage* data, PageCacheHand
     auto cache = _get_page_cache(page_type);
     auto lru_handle = cache->insert(key.encode(), data, data->capacity(), deleter, priority);
     *handle = PageCacheHandle(cache, lru_handle);
-    handle->update_last_visit_time();
 }
 
 } // namespace doris

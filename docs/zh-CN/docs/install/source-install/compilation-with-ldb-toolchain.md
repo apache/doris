@@ -64,7 +64,7 @@ Doris目前推荐的LDB toolchain版本为 0.17, 其中含有clang-16和gcc-11�
 
 3. 下载并安装其他编译组件
 
-    1. [Java8](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u131-linux-x64.tar.gz)
+    1. [Java8](https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/jdk-8u391-linux-x64.tar.gz)
     2. [Apache Maven 3.6.3](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz)
     3. [Node v12.13.0](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v12.13.0-linux-x64.tar.gz)
 
@@ -124,6 +124,11 @@ $ USE_AVX2=0 sh build.sh
 ```
 
 若支持则直接执行 `sh build.sh` 即可
+
+如需编译Debug版本的BE，增加 BUILD_TYPE=Debug
+```
+$ BUILD_TYPE=Debug sh build.sh
+```
 
 该脚本会先编译第三方库，之后再编译 Doris 组件（FE、BE）。编译产出在 `output/` 目录下。
 

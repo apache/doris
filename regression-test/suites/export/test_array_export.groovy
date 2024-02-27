@@ -52,15 +52,20 @@ suite("test_array_export", "export") {
     // define the table and out file path
     def tableName = "array_outfile_test"
     def outFilePath = """${context.file.parent}/test_array_export"""
-    def outFile = "/tmp"
+    List<List<Object>> backends =  sql """ show backends """
+    assertTrue(backends.size() > 0)
+    def outFile = outFilePath
+    if (backends.size() > 1) {
+        outFile = "/tmp"
+    }
     def urlHost = ""
     def csvFiles = ""
-    logger.warn("test_array_export the outFilePath=" + outFilePath)
+    logger.warn("test_array_export the outFile=" + outFile)
 
     def create_test_table = {testTablex ->
         sql """ DROP TABLE IF EXISTS ${tableName} """
 
-        result1 = sql """
+        def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
               `k1` INT(11) NULL COMMENT "",
               `k2` ARRAY<SMALLINT> NOT NULL COMMENT "",
@@ -169,12 +174,16 @@ suite("test_array_export", "export") {
         result = sql """
             SELECT * FROM ${tableName} t ORDER BY k1 INTO OUTFILE "file://${outFile}/";
         """
-        url = result[0][3]
+        def url = result[0][3]
         urlHost = url.substring(8, url.indexOf("${outFile}"))
-        def filePrifix = url.split("${outFile}")[1]
-        csvFiles = "${outFile}${filePrifix}*.csv"
-        scpFiles ("root", urlHost, csvFiles, outFilePath);
+        if (backends.size() > 1) {
+            // custer will scp files
+            def filePrifix = url.split("${outFile}")[1]
+            csvFiles = "${outFile}${filePrifix}*.csv"
+            scpFiles ("root", urlHost, csvFiles, outFilePath)
+        }
 
+        // path is from outputfilepath
         File[] files = path.listFiles()
         assert files.length == 1
         List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
@@ -193,8 +202,10 @@ suite("test_array_export", "export") {
             }
             path.delete();
         }
-        cmd = "rm -rf ${csvFiles}"
-        sshExec ("root", urlHost, cmd)
+        if (csvFiles != "") {
+            cmd = "rm -rf ${csvFiles}"
+            sshExec("root", urlHost, cmd)
+        }
     }
     
     

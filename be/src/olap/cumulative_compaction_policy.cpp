@@ -33,10 +33,11 @@ namespace doris {
 
 SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
         int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
-        int64_t compaction_min_size)
+        int64_t promotion_version_count, int64_t compaction_min_size)
         : _promotion_size(promotion_size),
           _promotion_ratio(promotion_ratio),
           _promotion_min_size(promotion_min_size),
+          _promotion_version_count(promotion_version_count),
           _compaction_min_size(compaction_min_size) {}
 
 void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
@@ -103,7 +104,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
         VLOG_NOTICE
                 << "cumulative compaction size_based policy, calculate cumulative point value = "
                 << *ret_cumulative_point << ", calc promotion size value = " << promotion_size
-                << " tablet = " << tablet->full_name();
+                << " tablet = " << tablet->tablet_id();
     } else if (tablet->tablet_state() == TABLET_NOTREADY) {
         // tablet under alter process
         // we choose version next to the base version as cumulative point
@@ -151,6 +152,15 @@ void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
         // satisfies promotion size.
         size_t total_size = output_rowset->rowset_meta()->total_disk_size();
         if (total_size >= tablet->cumulative_promotion_size()) {
+            tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
+        } else if (tablet->enable_unique_key_merge_on_write() &&
+                   output_rowset->end_version() - output_rowset->start_version() >
+                           _promotion_version_count) {
+            // for MoW table, if there's too many versions, the delete bitmap will grow to
+            // a very big size, which may cause the tablet meta too big and the `save_meta`
+            // operation too slow.
+            // if the rowset should not promotion according to it's disk size, we should also
+            // consider it's version count here.
             tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
         }
     }
@@ -335,7 +345,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     VLOG_CRITICAL << "cumulative compaction size_based policy, compaction_score = "
                   << *compaction_score << ", total_size = " << total_size
                   << ", calc promotion size value = " << promotion_size
-                  << ", tablet = " << tablet->full_name() << ", input_rowset size "
+                  << ", tablet = " << tablet->tablet_id() << ", input_rowset size "
                   << input_rowsets->size();
 
     // empty return

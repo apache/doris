@@ -73,7 +73,8 @@ public class StatementSubmitter {
     private static final String JDBC_DRIVER = "org.mariadb.jdbc.Driver";
     private static final String DB_URL_PATTERN = "jdbc:mariadb://127.0.0.1:%d/%s";
 
-    private ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPool(2, "SQL submitter", true);
+    private final ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPoolThrowException(
+                        Config.http_sql_submitter_max_worker_threads, "SQL submitter", true);
 
     public Future<ExecutionResultSet> submit(StmtContext queryCtx) {
         Worker worker = new Worker(ConnectContext.get(), queryCtx);
@@ -81,8 +82,8 @@ public class StatementSubmitter {
     }
 
     private static class Worker implements Callable<ExecutionResultSet> {
-        private ConnectContext ctx;
-        private StmtContext queryCtx;
+        private final ConnectContext ctx;
+        private final StmtContext queryCtx;
 
         public Worker(ConnectContext ctx, StmtContext queryCtx) {
             this.ctx = ctx;
@@ -104,7 +105,7 @@ public class StatementSubmitter {
                     stmt = conn.prepareStatement(
                             queryCtx.stmt, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
                     // set fetch size to 1 to enable streaming result set to avoid OOM.
-                    ((PreparedStatement) stmt).setFetchSize(1000);
+                    stmt.setFetchSize(1000);
                     ResultSet rs = ((PreparedStatement) stmt).executeQuery();
                     if (queryCtx.isStream) {
                         StreamResponseInf streamResponse = new JsonStreamResponse(queryCtx.response);
@@ -123,8 +124,7 @@ public class StatementSubmitter {
                         streamResponse.handleDdlAndExport(startTime);
                         return new ExecutionResultSet(null);
                     }
-                    ExecutionResultSet resultSet = generateExecStatus(startTime);
-                    return resultSet;
+                    return generateExecStatus(startTime);
                 } else {
                     throw new Exception("Unsupported statement type");
                 }

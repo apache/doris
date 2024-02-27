@@ -21,8 +21,8 @@ suite('bitmap') {
     sql 'set enable_fallback_to_original_planner=false'
     test {
         sql "select id from (select BITMAP_EMPTY() as c0 from expr_test) as ref0 where c0 = 1 order by id"
-        exception "errCode = 2, detailMessage = Unexpected exception: can not cast from origin type BITMAP to target type=DOUBLE"
+        exception "can not cast from origin type BITMAP to target type=DOUBLE"
         sql "select id from expr_test group by id having ktint in (select BITMAP_EMPTY() from expr_test) order by id"
-        exception "errCode = 2, detailMessage = Unexpected exception: Doris hll, bitmap, array, map, struct, jsonb column must use with specific function,"
+        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function,"
     }
 }

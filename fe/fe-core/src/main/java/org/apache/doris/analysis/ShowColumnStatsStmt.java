@@ -32,6 +32,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 
 import com.google.common.collect.ImmutableList;
@@ -47,6 +48,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
                     .add("column_name")
+                    .add("index_name")
                     .add("count")
                     .add("ndv")
                     .add("num_null")
@@ -54,6 +56,10 @@ public class ShowColumnStatsStmt extends ShowStmt {
                     .add("avg_size_byte")
                     .add("min")
                     .add("max")
+                    .add("method")
+                    .add("type")
+                    .add("trigger")
+                    .add("query_times")
                     .add("updated_time")
                     .build();
 
@@ -130,14 +136,16 @@ public class ShowColumnStatsStmt extends ShowStmt {
         return table;
     }
 
-    public ShowResultSet constructResultSet(List<Pair<String, ColumnStatistic>> columnStatistics) {
+    public ShowResultSet constructResultSet(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics) {
         List<List<String>> result = Lists.newArrayList();
         columnStatistics.forEach(p -> {
             if (p.second.isUnKnown) {
                 return;
             }
+
             List<String> row = Lists.newArrayList();
-            row.add(p.first);
+            row.add(p.first.first);
+            row.add(p.first.second);
             row.add(String.valueOf(p.second.count));
             row.add(String.valueOf(p.second.ndv));
             row.add(String.valueOf(p.second.numNulls));
@@ -145,6 +153,12 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(p.second.avgSizeByte));
             row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
             row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
+            ColStatsMeta colStatsMeta = Env.getCurrentEnv().getAnalysisManager().findColStatsMeta(table.getId(),
+                    p.first.first);
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisMethod));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisType));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.jobType));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.queriedTimes));
             row.add(String.valueOf(p.second.updatedTime));
             result.add(row);
         });
@@ -165,5 +179,9 @@ public class ShowColumnStatsStmt extends ShowStmt {
 
     public boolean isCached() {
         return cached;
+    }
+
+    public boolean isAllColumns() {
+        return columnNames == null;
     }
 }

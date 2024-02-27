@@ -34,11 +34,9 @@
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/utils.h"
+#include "util/debug_points.h"
 
 namespace doris {
-namespace {
-const std::string ROWSET_PREFIX = "rst_";
-} // namespace
 
 using namespace ErrorCode;
 
@@ -91,15 +89,29 @@ Status RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_
 }
 Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                                const RowsetMetaPB& rowset_meta_pb, bool enable_binlog) {
+    if (rowset_meta_pb.partition_id() <= 0) {
+        LOG(WARNING) << "invalid partition id " << rowset_meta_pb.partition_id() << " tablet "
+                     << rowset_meta_pb.tablet_id();
+        // TODO(dx): after fix partition id eq 0 bug, fix it
+        // return Status::InternalError("invaid partition id {} tablet {}",
+        //  rowset_meta_pb.partition_id(), rowset_meta_pb.tablet_id());
+    }
+    DBUG_EXECUTE_IF("RowsetMetaManager::save::zero_partition_id", {
+        long partition_id = rowset_meta_pb.partition_id();
+        auto& rs_pb = const_cast<std::decay_t<decltype(rowset_meta_pb)>&>(rowset_meta_pb);
+        rs_pb.set_partition_id(0);
+        LOG(WARNING) << "set debug point RowsetMetaManager::save::zero_partition_id old="
+                     << partition_id << " new=" << rowset_meta_pb.DebugString();
+    });
     if (enable_binlog) {
         return _save_with_binlog(meta, tablet_uid, rowset_id, rowset_meta_pb);
     } else {
-        return save(meta, tablet_uid, rowset_id, rowset_meta_pb);
+        return _save(meta, tablet_uid, rowset_id, rowset_meta_pb);
     }
 }
 
-Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                               const RowsetMetaPB& rowset_meta_pb) {
+Status RowsetMetaManager::_save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
+                                const RowsetMetaPB& rowset_meta_pb) {
     std::string key =
             fmt::format("{}{}_{}", ROWSET_PREFIX, tablet_uid.to_string(), rowset_id.to_string());
     std::string value;
@@ -413,8 +425,10 @@ Status RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const Row
 }
 
 Status RowsetMetaManager::remove_binlog(OlapMeta* meta, const std::string& suffix) {
+    // Please do not remove std::vector<std::string>, more info refer to pr#23190
     return meta->remove(META_COLUMN_FAMILY_INDEX,
-                        {kBinlogMetaPrefix.data() + suffix, kBinlogDataPrefix.data() + suffix});
+                        std::vector<std::string> {kBinlogMetaPrefix.data() + suffix,
+                                                  kBinlogDataPrefix.data() + suffix});
 }
 
 Status RowsetMetaManager::ingest_binlog_metas(OlapMeta* meta, TabletUid tablet_uid,
@@ -445,7 +459,7 @@ Status RowsetMetaManager::traverse_rowset_metas(
                                              const std::string& value) -> bool {
         std::vector<std::string> parts;
         // key format: rst_uuid_rowset_id
-        split_string<char>(key, '_', &parts);
+        RETURN_IF_ERROR(split_string<char>(key, '_', &parts));
         if (parts.size() != 3) {
             LOG(WARNING) << "invalid rowset key:" << key << ", splitted size:" << parts.size();
             return true;
@@ -453,7 +467,7 @@ Status RowsetMetaManager::traverse_rowset_metas(
         RowsetId rowset_id;
         rowset_id.init(parts[2]);
         std::vector<std::string> uid_parts;
-        split_string<char>(parts[1], '-', &uid_parts);
+        RETURN_IF_ERROR(split_string<char>(parts[1], '-', &uid_parts));
         TabletUid tablet_uid(uid_parts[0], uid_parts[1]);
         return func(tablet_uid, rowset_id, value);
     };
@@ -463,7 +477,8 @@ Status RowsetMetaManager::traverse_rowset_metas(
 }
 
 Status RowsetMetaManager::traverse_binlog_metas(
-        OlapMeta* meta, std::function<bool(const string&, const string&, bool)> const& collector) {
+        OlapMeta* meta,
+        std::function<bool(const std::string&, const std::string&, bool)> const& collector) {
     std::pair<std::string, bool> last_info = std::make_pair(kBinlogMetaPrefix.data(), false);
     bool seek_found = false;
     Status status;
@@ -516,7 +531,7 @@ Status RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta,
     }
     RowsetId rowset_id = rowset_meta.rowset_id();
     TabletUid tablet_uid = rowset_meta.tablet_uid();
-    Status status = save(meta, tablet_uid, rowset_id, rowset_meta.get_rowset_pb());
+    Status status = save(meta, tablet_uid, rowset_id, rowset_meta.get_rowset_pb(), false);
     return status;
 }
 

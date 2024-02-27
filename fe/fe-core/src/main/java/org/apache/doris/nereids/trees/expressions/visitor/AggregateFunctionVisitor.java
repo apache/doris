@@ -19,16 +19,21 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
@@ -38,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Histogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -83,12 +89,20 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(anyValue, context);
     }
 
+    default R visitArrayAgg(ArrayAgg arrayAgg, C context) {
+        return visitAggregateFunction(arrayAgg, context);
+    }
+
     default R visitAvg(Avg avg, C context) {
         return visitNullableAggregateFunction(avg, context);
     }
 
     default R visitAvgWeighted(AvgWeighted avgWeighted, C context) {
         return visitAggregateFunction(avgWeighted, context);
+    }
+
+    default R visitBitmapAgg(BitmapAgg bitmapAgg, C context) {
+        return visitAggregateFunction(bitmapAgg, context);
     }
 
     default R visitBitmapIntersect(BitmapIntersect bitmapIntersect, C context) {
@@ -115,12 +129,24 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(collectSet, context);
     }
 
+    default R visitCorr(Corr corr, C context) {
+        return visitAggregateFunction(corr, context);
+    }
+
     default R visitCount(Count count, C context) {
         return visitAggregateFunction(count, context);
     }
 
     default R visitCountByEnum(CountByEnum count, C context) {
         return visitAggregateFunction(count, context);
+    }
+
+    default R visitCovar(Covar covar, C context) {
+        return visitAggregateFunction(covar, context);
+    }
+
+    default R visitCovarSamp(CovarSamp covarSamp, C context) {
+        return visitAggregateFunction(covarSamp, context);
     }
 
     default R visitMultiDistinctCount(MultiDistinctCount multiDistinctCount, C context) {
@@ -169,6 +195,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitIntersectCount(IntersectCount intersectCount, C context) {
         return visitAggregateFunction(intersectCount, context);
+    }
+
+    default R visitMapAgg(MapAgg mapAgg, C context) {
+        return visitAggregateFunction(mapAgg, context);
     }
 
     default R visitMax(Max max, C context) {
@@ -278,4 +308,5 @@ public interface AggregateFunctionVisitor<R, C> {
     default R visitJavaUdaf(JavaUdaf javaUdaf, C context) {
         return visitAggregateFunction(javaUdaf, context);
     }
+
 }

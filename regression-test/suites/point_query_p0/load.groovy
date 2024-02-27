@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_point_query_load", "p0") {
 
+    // nereids do not support point query now
+    sql """set enable_nereids_planner=false"""
+
     def dataFile = """${getS3Url()}/regression/datatypes/test_scalar_types_10w.csv"""
 
     // define dup key table1
@@ -97,4 +100,23 @@ suite("test_point_query_load", "p0") {
           }
      }
     sql "INSERT INTO ${testTable} SELECT * from ${testTable}"
+
+    sql """set enable_nereids_planner=true;"""
+    explain {
+        sql("""SELECT
+                    t0.`c_int` as column_key,
+                    COUNT(1) as `count`
+                FROM
+                    (
+                        SELECT
+                            `c_int`
+                        FROM
+                            `tbl_scalar_types_dup`
+                        limit
+                            200000
+                    ) as `t0`
+                GROUP BY
+                    `t0`.`c_int`""")
+        notContains "(mv_${testTable})"
+    }
 }

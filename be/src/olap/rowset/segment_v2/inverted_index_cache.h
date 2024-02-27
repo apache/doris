@@ -17,7 +17,14 @@
 
 #pragma once
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 #include <CLucene.h> // IWYU pragma: keep
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include <CLucene/config/repl_wchar.h>
 #include <CLucene/util/Misc.h>
 #include <butil/macros.h>
@@ -27,9 +34,11 @@
 
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
 #include <utility>
+#include <variant>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -37,6 +46,8 @@
 #include "io/fs/path.h"
 #include "olap/lru_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
+#include "olap/rowset/segment_v2/inverted_index_searcher.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/slice.h"
@@ -46,85 +57,99 @@ namespace lucene {
 namespace search {
 class IndexSearcher;
 } // namespace search
+
+namespace util::bkd {
+class bkd_reader;
+}
+
 } // namespace lucene
 
 namespace doris {
 struct OlapReaderStatistics;
 
 namespace segment_v2 {
-using IndexSearcherPtr = std::shared_ptr<lucene::search::IndexSearcher>;
-
 class InvertedIndexCacheHandle;
+class DorisCompoundReader;
 
-class InvertedIndexSearcherCache : public LRUCachePolicy {
+class InvertedIndexSearcherCache {
 public:
     // The cache key of index_searcher lru cache
     struct CacheKey {
-        CacheKey(std::string index_file_path) : index_file_path(index_file_path) {}
+        CacheKey(std::string index_file_path) : index_file_path(std::move(index_file_path)) {}
         std::string index_file_path;
     };
 
     // The cache value of index_searcher lru cache.
-    // Holding a opened index_searcher.
-    struct CacheValue : public LRUCacheValueBase {
+    // Holding an opened index_searcher.
+    struct CacheValue {
         IndexSearcherPtr index_searcher;
-    };
+        size_t size = 0;
+        int64_t last_visit_time;
 
+        CacheValue() = default;
+        explicit CacheValue(IndexSearcherPtr searcher, size_t mem_size, int64_t visit_time)
+                : index_searcher(std::move(searcher)) {
+            size = mem_size;
+            last_visit_time = visit_time;
+        }
+    };
     // Create global instance of this class.
     // "capacity" is the capacity of lru cache.
-    static void create_global_instance(size_t capacity, uint32_t num_shards = 16);
-
-    void reset() {
-        _cache.reset();
-        _mem_tracker.reset();
-        // Reset or clear the state of the object.
-    }
-
-    static void reset_global_instance() {
-        if (_s_instance != nullptr) {
-            _s_instance->reset();
-        }
-    }
+    static InvertedIndexSearcherCache* create_global_instance(size_t capacity,
+                                                              uint32_t num_shards = 16);
 
     // Return global instance.
     // Client should call create_global_cache before.
-    static InvertedIndexSearcherCache* instance() { return _s_instance; }
-
-    static IndexSearcherPtr build_index_searcher(const io::FileSystemSPtr& fs,
-                                                 const std::string& index_dir,
-                                                 const std::string& file_name);
+    static InvertedIndexSearcherCache* instance() {
+        return ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
+    }
 
     InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards);
 
-    Status get_index_searcher(const io::FileSystemSPtr& fs, const std::string& index_dir,
-                              const std::string& file_name, InvertedIndexCacheHandle* cache_handle,
-                              OlapReaderStatistics* stats, bool use_cache = true);
+    void insert(const InvertedIndexSearcherCache::CacheKey& cache_key, CacheValue* cache_value);
 
-    // function `insert` called after inverted index writer close
-    Status insert(const io::FileSystemSPtr& fs, const std::string& index_dir,
-                  const std::string& file_name);
-
-    // function `erase` called after compaction remove segment
-    Status erase(const std::string& index_file_path);
-
-    int64_t mem_consumption();
-
-private:
-    InvertedIndexSearcherCache();
+    void insert(const InvertedIndexSearcherCache::CacheKey& cache_key, CacheValue* cache_value,
+                InvertedIndexCacheHandle* handle);
 
     // Lookup the given index_searcher in the cache.
     // If the index_searcher is found, the cache entry will be written into handle.
     // Return true if entry is found, otherwise return false.
-    bool _lookup(const InvertedIndexSearcherCache::CacheKey& key, InvertedIndexCacheHandle* handle);
+    bool lookup(const InvertedIndexSearcherCache::CacheKey& key, InvertedIndexCacheHandle* handle);
 
+    // function `erase` called after compaction remove segment
+    Status erase(const std::string& index_file_path);
+
+    void release(Cache::Handle* handle) { _policy->cache()->release(handle); }
+
+    int64_t mem_consumption();
+
+private:
+    InvertedIndexSearcherCache() = default;
+
+    class InvertedIndexSearcherCachePolicy : public LRUCachePolicy {
+    public:
+        InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
+                                         uint32_t element_count_capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 element_count_capacity, true) {}
+        InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
+                                         uint32_t element_count_capacity,
+                                         CacheValueTimeExtractor cache_value_time_extractor,
+                                         bool cache_value_check_timestamp)
+                : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 element_count_capacity, cache_value_time_extractor,
+                                 cache_value_check_timestamp, true) {}
+    };
     // Insert a cache entry by key.
     // And the cache entry will be returned in handle.
     // This function is thread-safe.
     Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
 
-private:
-    static InvertedIndexSearcherCache* _s_instance;
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<InvertedIndexSearcherCachePolicy> _policy;
 };
 
 using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValue>;
@@ -136,14 +161,13 @@ using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValu
 // So the caller need to make sure the handle is valid in lifecycle.
 class InvertedIndexCacheHandle {
 public:
-    InvertedIndexCacheHandle() {}
+    InvertedIndexCacheHandle() = default;
     InvertedIndexCacheHandle(Cache* cache, Cache::Handle* handle)
             : _cache(cache), _handle(handle) {}
 
     ~InvertedIndexCacheHandle() {
         if (_handle != nullptr) {
             CHECK(_cache != nullptr);
-            CHECK(!owned);
             // only after get_index_searcher call this destructor will
             // add `config::index_cache_entry_stay_time_after_lookup_s` on last_visit_time,
             // this is to extend the retention time of the entries hit by lookup.
@@ -156,31 +180,21 @@ public:
     InvertedIndexCacheHandle(InvertedIndexCacheHandle&& other) noexcept {
         std::swap(_cache, other._cache);
         std::swap(_handle, other._handle);
-        this->owned = other.owned;
-        this->index_searcher = std::move(other.index_searcher);
     }
 
     InvertedIndexCacheHandle& operator=(InvertedIndexCacheHandle&& other) noexcept {
         std::swap(_cache, other._cache);
         std::swap(_handle, other._handle);
-        this->owned = other.owned;
-        this->index_searcher = std::move(other.index_searcher);
         return *this;
     }
 
     IndexSearcherPtr get_index_searcher() {
-        if (owned) {
-            return index_searcher;
-        } else {
-            return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))
-                    ->index_searcher;
-        }
+        return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))->index_searcher;
     }
 
-public:
-    // If set to true, the loaded index_searcher will be saved in index_searcher, not in lru cache;
-    bool owned = false;
-    IndexSearcherPtr index_searcher;
+    InvertedIndexSearcherCache::CacheValue* get_index_cache_value() {
+        return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle));
+    }
 
 private:
     Cache* _cache = nullptr;
@@ -199,7 +213,7 @@ public:
         io::Path index_path;               // index file path
         std::string column_name;           // column name
         InvertedIndexQueryType query_type; // query type
-        std::wstring value;                // query value
+        std::string value;                 // query value
 
         // Encode to a flat binary which can be used as LRUCache's key
         std::string encode() const {
@@ -207,38 +221,39 @@ public:
             key_buf.append("/");
             key_buf.append(column_name);
             key_buf.append("/");
-            auto query_type_str = InvertedIndexQueryType_toString(query_type);
+            auto query_type_str = query_type_to_string(query_type);
             if (query_type_str.empty()) {
                 return "";
             }
             key_buf.append(query_type_str);
             key_buf.append("/");
-            auto str = lucene_wcstoutf8string(value.c_str(), value.length());
-            key_buf.append(str);
+            key_buf.append(value);
             return key_buf;
         }
     };
 
-    struct CacheValue : public LRUCacheValueBase {
+    struct CacheValue {
         std::shared_ptr<roaring::Roaring> bitmap;
     };
 
     // Create global instance of this class
-    static void create_global_cache(size_t capacity, uint32_t num_shards = 16) {
-        DCHECK(_s_instance == nullptr);
-        static InvertedIndexQueryCache instance(capacity, num_shards);
-        _s_instance = &instance;
+    static InvertedIndexQueryCache* create_global_cache(size_t capacity, uint32_t num_shards = 16) {
+        InvertedIndexQueryCache* res = new InvertedIndexQueryCache(capacity, num_shards);
+        return res;
     }
 
     // Return global instance.
     // Client should call create_global_cache before.
-    static InvertedIndexQueryCache* instance() { return _s_instance; }
+    static InvertedIndexQueryCache* instance() {
+        return ExecEnv::GetInstance()->get_inverted_index_query_cache();
+    }
 
     InvertedIndexQueryCache() = delete;
 
     InvertedIndexQueryCache(size_t capacity, uint32_t num_shards)
-            : LRUCachePolicy("InvertedIndexQueryCache", capacity, LRUCacheType::SIZE,
-                             config::inverted_index_cache_stale_sweep_time_sec, num_shards) {}
+            : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_QUERY_CACHE, capacity,
+                             LRUCacheType::SIZE, config::inverted_index_cache_stale_sweep_time_sec,
+                             num_shards) {}
 
     bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
 
@@ -246,14 +261,11 @@ public:
                 InvertedIndexQueryCacheHandle* handle);
 
     int64_t mem_consumption();
-
-private:
-    static InvertedIndexQueryCache* _s_instance;
 };
 
 class InvertedIndexQueryCacheHandle {
 public:
-    InvertedIndexQueryCacheHandle() {}
+    InvertedIndexQueryCacheHandle() = default;
 
     InvertedIndexQueryCacheHandle(Cache* cache, Cache::Handle* handle)
             : _cache(cache), _handle(handle) {}

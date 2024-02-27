@@ -116,6 +116,11 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
         }
 
         StringRef host_start = protocol_end.substring(start_pos);
+        // Find first '?'.
+        int32_t query_start_pos = _s_question_search.search(&host_start);
+        if (query_start_pos > 0) {
+            host_start = host_start.substring(0, query_start_pos);
+        }
         // Find ':' to strip out port.
         int32_t end_pos = _s_colon_search.search(&host_start);
 
@@ -384,7 +389,7 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
         and_pod = sub_url.find_first_of('&');
         if (and_pod != -1) {
             key_url = sub_url.substring(0, and_pod);
-            sub_url = sub_url.substring(and_pod + 1, len - and_pod);
+            sub_url = sub_url.substring(and_pod + 1, len - and_pod - 1);
         } else {
             auto end_pos = sub_url.find_first_of('#');
             key_url = end_pos == -1 ? sub_url : sub_url.substring(0, end_pos);

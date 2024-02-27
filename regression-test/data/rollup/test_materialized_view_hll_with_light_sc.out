@@ -7,7 +7,7 @@ test_materialized_view_hll_with_light_sc	DUP_KEYS	record_id	INT	INT	Yes	true	\N	
 		sale_amt	BIGINT	BIGINT	Yes	false	\N	NONE	true		
 											
 amt_count1	AGG_KEYS	mv_store_id	INT	INT	Yes	true	\N		true	`store_id`	
-		mva_HLL_UNION__hll_hash(`sale_amt`)	HLL	HLL	No	false	\N	HLL_UNION	true	hll_hash(`sale_amt`)	
+		mva_HLL_UNION__hll_hash(CAST(`sale_amt` AS VARCHAR(65533)))	HLL	HLL	No	false	\N	HLL_UNION	true	hll_hash(CAST(`sale_amt` AS VARCHAR(65533)))	
 
 -- !sql --
 1	1

@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/exec/aggregation_source_operator.h"
 #include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/vaggregation_node.h"
 
@@ -50,7 +51,7 @@ private:
 };
 
 class DistinctStreamingAggSourceOperator final
-        : public SourceOperator<DistinctStreamingAggSourceOperatorBuilder> {
+        : public SourceOperator<vectorized::DistinctAggregationNode> {
 public:
     DistinctStreamingAggSourceOperator(OperatorBuilderBase*, ExecNode*, std::shared_ptr<DataQueue>);
     bool can_read() override;

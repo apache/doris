@@ -19,9 +19,9 @@ package org.apache.doris.fs.remote.dfs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
-import org.apache.doris.catalog.AuthType;
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
@@ -82,81 +82,29 @@ public class DFSFileSystem extends RemoteFileSystem {
             conf.set(propEntry.getKey(), propEntry.getValue());
         }
 
-        boolean hasRelogin = false;
-        UserGroupInformation ugi;
+        UserGroupInformation ugi = HadoopUGI.loginWithUGI(AuthenticationConfig.getKerberosConfig(conf));
         try {
-            // try use current ugi first to avoid relogin
-            // because it may be a time-consuming task
-            ugi = UserGroupInformation.getCurrentUser();
-        } catch (IOException e) {
-            LOG.warn("An IOException occurs when invoke "
-                    + "UserGroupInformation.getCurrentUser(), relogin immediately.", e);
-            ugi = doLogin(conf);
-            hasRelogin = true;
-        }
-
-        do {
-            try {
-                dfsFileSystem = ugi.doAs((PrivilegedAction<FileSystem>) () -> {
-                    try {
-                        String username = properties.get(HdfsResource.HADOOP_USER_NAME);
-                        return username == null
-                                    ? FileSystem.get(new Path(remotePath).toUri(), conf)
-                                    : FileSystem.get(new Path(remotePath).toUri(), conf, username);
-                    } catch (IOException | InterruptedException e) {
-                        throw new RuntimeException(e);
-                    }
-                });
-                LOG.debug("Reuse current ugi for dfs, remote path: {}", remotePath);
-                break;
-            } catch (SecurityException e) {
-                LOG.warn("A SecurityException occurs when invoke ugi.doAs(), "
-                            + "relogin and retry immediately.", e);
-                if (hasRelogin) {
-                    throw new UserException(e);
+            dfsFileSystem = ugi.doAs((PrivilegedAction<FileSystem>) () -> {
+                try {
+                    return FileSystem.get(new Path(remotePath).toUri(), conf);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
                 }
-                ugi = doLogin(conf);
-                hasRelogin = true;
-            }
-        } while (true);
+            });
+        } catch (SecurityException e) {
+            throw new UserException(e);
+        }
 
         Preconditions.checkNotNull(dfsFileSystem);
         operations = new HDFSFileOperations(dfsFileSystem);
         return dfsFileSystem;
     }
 
-    private UserGroupInformation doLogin(Configuration conf) throws UserException {
-        if (AuthType.KERBEROS.getDesc().equals(
-                    conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null))) {
-            conf.set(HdfsResource.HADOOP_KERBEROS_AUTHORIZATION, "true");
-            String principal = conf.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
-            String keytab = conf.get(HdfsResource.HADOOP_KERBEROS_KEYTAB);
-
-            UserGroupInformation.setConfiguration(conf);
-            try {
-                UserGroupInformation ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
-                UserGroupInformation.setLoginUser(ugi);
-                LOG.info("Login by kerberos authentication with principal: {}", principal);
-                return ugi;
-            } catch (IOException e) {
-                throw new UserException(e);
-            }
-        } else {
-            String hadoopUserName = conf.get(HdfsResource.HADOOP_USER_NAME);
-            if (hadoopUserName == null) {
-                hadoopUserName = "hadoop";
-                LOG.debug(HdfsResource.HADOOP_USER_NAME + " is unset, use default user: hadoop");
-            }
-            UserGroupInformation ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
-            UserGroupInformation.setLoginUser(ugi);
-            LOG.info("Login by proxy user, hadoop.username: {}", hadoopUserName);
-            return ugi;
-        }
-    }
-
     @Override
     public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
-        LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
+        }
         final long start = System.currentTimeMillis();
         HDFSOpParams hdfsOpParams = OpParams.of(remoteFilePath);
         Status st = operations.openReader(hdfsOpParams);
@@ -256,8 +204,10 @@ public class DFSFileSystem extends RemoteFileSystem {
             }
             if (currentStreamOffset != readOffset) {
                 // it's ok, when reading some format like parquet, it is not a sequential read
-                LOG.debug("invalid offset, current read offset is " + currentStreamOffset
-                        + " is not equal to request offset " + readOffset + " seek to it");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("invalid offset, current read offset is " + currentStreamOffset
+                            + " is not equal to request offset " + readOffset + " seek to it");
+                }
                 try {
                     fsDataInputStream.seek(readOffset);
                 } catch (IOException e) {
@@ -355,7 +305,9 @@ public class DFSFileSystem extends RemoteFileSystem {
     @Override
     public Status upload(String localPath, String remotePath) {
         long start = System.currentTimeMillis();
-        LOG.debug("local path {}, remote path {}", localPath, remotePath);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("local path {}, remote path {}", localPath, remotePath);
+        }
         HDFSOpParams hdfsOpParams = OpParams.of(remotePath);
         Status wst = operations.openWriter(hdfsOpParams);
         if (wst != Status.OK) {
@@ -500,4 +452,3 @@ public class DFSFileSystem extends RemoteFileSystem {
         return new Status(Status.ErrCode.COMMON_ERROR, "mkdir is not implemented.");
     }
 }
-

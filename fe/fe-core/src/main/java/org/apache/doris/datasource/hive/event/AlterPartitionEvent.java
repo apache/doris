@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -29,8 +30,9 @@ import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.AlterPartitionMessage;
 
+import java.security.SecureRandom;
 import java.util.List;
-import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -47,14 +49,15 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
 
     // for test
     public AlterPartitionEvent(long eventId, String catalogName, String dbName, String tblName,
-                                String partitionNameBefore, String partitionNameAfter) {
-        super(eventId, catalogName, dbName, tblName);
+                                String partitionNameBefore, boolean isRename) {
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.ALTER_PARTITION);
         this.partitionNameBefore = partitionNameBefore;
-        this.partitionNameAfter = partitionNameAfter;
+        this.partitionNameAfter = isRename ? (partitionNameBefore + new SecureRandom().nextInt(100))
+                                           : partitionNameBefore;
         this.hmsTbl = null;
         this.partitionAfter = null;
         this.partitionBefore = null;
-        isRename = !partitionNameBefore.equalsIgnoreCase(partitionNameAfter);
+        this.isRename = isRename;
     }
 
     private AlterPartitionEvent(NotificationEvent event,
@@ -80,6 +83,24 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
         }
     }
 
+    @Override
+    protected boolean willChangePartitionName() {
+        return isRename;
+    }
+
+    @Override
+    public Set<String> getAllPartitionNames() {
+        return ImmutableSet.of(partitionNameBefore);
+    }
+
+    public String getPartitionNameAfter() {
+        return partitionNameAfter;
+    }
+
+    public boolean isRename() {
+        return isRename;
+    }
+
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,
             String catalogName) {
         return Lists.newArrayList(new AlterPartitionEvent(event, catalogName));
@@ -93,14 +114,14 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
             if (isRename) {
                 Env.getCurrentEnv().getCatalogMgr()
                         .dropExternalPartitions(catalogName, dbName, tblName,
-                                Lists.newArrayList(partitionNameBefore), true);
+                                Lists.newArrayList(partitionNameBefore), eventTime, true);
                 Env.getCurrentEnv().getCatalogMgr()
                         .addExternalPartitions(catalogName, dbName, tblName,
-                                Lists.newArrayList(partitionNameAfter), true);
+                                Lists.newArrayList(partitionNameAfter), eventTime, true);
             } else {
                 Env.getCurrentEnv().getCatalogMgr()
                         .refreshExternalPartitions(catalogName, dbName, hmsTbl.getTableName(),
-                                Lists.newArrayList(partitionNameAfter), true);
+                                Lists.newArrayList(partitionNameAfter), eventTime, true);
             }
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
@@ -109,10 +130,28 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
     }
 
     @Override
-    protected boolean canBeBatched(MetastoreEvent event) {
-        return isSameTable(event)
-                    && event instanceof AlterPartitionEvent
-                    && Objects.equals(partitionBefore, ((AlterPartitionEvent) event).partitionBefore)
-                    && Objects.equals(partitionAfter, ((AlterPartitionEvent) event).partitionAfter);
+    protected boolean canBeBatched(MetastoreEvent that) {
+        if (!isSameTable(that) || !(that instanceof MetastorePartitionEvent)) {
+            return false;
+        }
+
+        // Check if `that` event is a rename event, a rename event can not be batched
+        // because the process of `that` event will change the reference relation of this partition
+        MetastorePartitionEvent thatPartitionEvent = (MetastorePartitionEvent) that;
+        if (thatPartitionEvent.willChangePartitionName()) {
+            return false;
+        }
+
+        // `that` event can be batched if this event's partitions contains all of the partitions which `that` event has
+        // else just remove `that` event's relevant partitions
+        for (String partitionName : getAllPartitionNames()) {
+            if (thatPartitionEvent instanceof AddPartitionEvent) {
+                ((AddPartitionEvent) thatPartitionEvent).removePartition(partitionName);
+            } else if (thatPartitionEvent instanceof DropPartitionEvent) {
+                ((DropPartitionEvent) thatPartitionEvent).removePartition(partitionName);
+            }
+        }
+
+        return getAllPartitionNames().containsAll(thatPartitionEvent.getAllPartitionNames());
     }
 }

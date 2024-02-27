@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -37,7 +38,8 @@ import java.util.Optional;
 /**
  * LogicalCTEProducer
  */
-public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements
+        PropagateFuncDeps {
 
     private final CTEId cteId;
 
@@ -102,15 +104,12 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         LogicalCTEProducer<?> that = (LogicalCTEProducer<?>) o;
         return Objects.equals(cteId, that.cteId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), cteId);
+        return Objects.hash(cteId);
     }
 }

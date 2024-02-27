@@ -24,16 +24,21 @@
 #include <gtest/gtest-test-part.h>
 #include <unistd.h>
 
+#include <memory>
+
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/numbers.h"
 #include "http/action/pad_rowset_action.h"
+#include "http/http_request.h"
 #include "io/fs/local_file_system.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "testutil/mock_rowset.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -43,7 +48,7 @@ using namespace std;
 namespace doris {
 using RowsetMetaSharedContainerPtr = std::shared_ptr<std::vector<RowsetMetaSharedPtr>>;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 static const std::string kTestDir = "/data_test/data/tablet_test";
 static const uint32_t MAX_PATH_LEN = 1024;
 
@@ -77,25 +82,24 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
 
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
-        _data_dir = std::make_unique<DataDir>(absolute_dir);
-        _data_dir->update_capacity();
 
         doris::EngineOptions options;
-        k_engine = new StorageEngine(options);
-        StorageEngine::_s_instance = k_engine;
+        k_engine = std::make_unique<StorageEngine>(options);
+
+        _data_dir = std::make_unique<DataDir>(*k_engine, absolute_dir);
+        static_cast<void>(_data_dir->update_capacity());
     }
 
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
+        k_engine.reset();
     }
 
     TabletMetaSharedPtr new_tablet_meta(TTabletSchema schema, bool enable_merge_on_write = false) {
@@ -234,11 +238,11 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
     fetch_expired_row_rs_meta(&expired_rs_metas);
 
     for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
-    _tablet->init();
+    TabletSharedPtr _tablet(new Tablet(*k_engine, _tablet_meta, nullptr));
+    static_cast<void>(_tablet->init());
 
     for (auto ptr : expired_rs_metas) {
         for (auto rs : *ptr) {
@@ -270,21 +274,20 @@ TEST_F(TestTablet, pad_rowset) {
     RowsetSharedPtr rowset3 = make_shared<BetaRowset>(nullptr, "", ptr3);
 
     for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
     }
 
-    _data_dir->init();
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, _data_dir.get()));
-    _tablet->init();
+    static_cast<void>(_data_dir->init());
+    TabletSharedPtr _tablet(new Tablet(*k_engine, _tablet_meta, _data_dir.get()));
+    static_cast<void>(_tablet->init());
 
     Version version(5, 5);
     std::vector<RowSetSplits> splits;
-    ASSERT_FALSE(_tablet->capture_rs_readers(version, &splits).ok());
+    ASSERT_FALSE(_tablet->capture_rs_readers(version, &splits, false).ok());
     splits.clear();
 
-    PadRowsetAction action(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
-    action._pad_rowset(_tablet, version);
-    ASSERT_TRUE(_tablet->capture_rs_readers(version, &splits).ok());
+    static_cast<void>(PadRowsetAction::_pad_rowset(_tablet.get(), version));
+    ASSERT_TRUE(_tablet->capture_rs_readers(version, &splits, false).ok());
 }
 
 TEST_F(TestTablet, cooldown_policy) {
@@ -315,11 +318,11 @@ TEST_F(TestTablet, cooldown_policy) {
     RowsetSharedPtr rowset5 = make_shared<BetaRowset>(nullptr, "", ptr5);
 
     for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
-    _tablet->init();
+    TabletSharedPtr _tablet(new Tablet(*k_engine, _tablet_meta, nullptr));
+    static_cast<void>(_tablet->init());
     constexpr int64_t storage_policy_id = 10000;
     _tablet->set_storage_policy_id(storage_policy_id);
 
@@ -340,8 +343,8 @@ TEST_F(TestTablet, cooldown_policy) {
 
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
-        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
-        ASSERT_TRUE(ret);
+        auto ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        ASSERT_TRUE(ret != nullptr);
         ASSERT_EQ(cooldown_timestamp, 250);
         ASSERT_EQ(file_size, 84699);
     }
@@ -354,8 +357,8 @@ TEST_F(TestTablet, cooldown_policy) {
 
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
-        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
-        ASSERT_TRUE(ret);
+        auto ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        ASSERT_TRUE(ret != nullptr);
         ASSERT_EQ(cooldown_timestamp, 3800);
         ASSERT_EQ(file_size, 84699);
     }
@@ -368,8 +371,8 @@ TEST_F(TestTablet, cooldown_policy) {
 
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
-        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
-        ASSERT_FALSE(ret);
+        auto ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        ASSERT_FALSE(ret != nullptr);
         ASSERT_EQ(cooldown_timestamp, -1);
         ASSERT_EQ(file_size, -1);
     }
@@ -382,11 +385,11 @@ TEST_F(TestTablet, cooldown_policy) {
 
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
-        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        auto ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
         // the rowset with earliest version woule be picked up to do cooldown of which the timestamp
         // is UnixSeconds() - 250
         int64_t expect_cooldown_timestamp = UnixSeconds() - 50;
-        ASSERT_TRUE(ret);
+        ASSERT_TRUE(ret != nullptr);
         ASSERT_EQ(cooldown_timestamp, expect_cooldown_timestamp);
         ASSERT_EQ(file_size, 84699);
     }

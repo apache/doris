@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.FeMetaVersion;
@@ -74,7 +75,7 @@ public class PrivInfoTest {
     @Test
     public void testWithTablePattern() throws IOException {
         PrivInfo privInfo = new PrivInfo(UserIdentity.ROOT, TablePattern.ALL, PrivBitSet.of(Privilege.DROP_PRIV),
-                new byte[] {'a', 'b', 'c'}, "role");
+                new byte[] {'a', 'b', 'c'}, "role", null);
 
         // 1. Write objects to file
         File file = new File("./privInfo");
@@ -98,7 +99,7 @@ public class PrivInfoTest {
 
     @Test
     public void testWithResourcePattern() throws IOException {
-        PrivInfo privInfo = new PrivInfo(UserIdentity.ROOT, new ResourcePattern("res1"),
+        PrivInfo privInfo = new PrivInfo(UserIdentity.ROOT, new ResourcePattern("res1", ResourceTypeEnum.GENERAL),
                 PrivBitSet.of(Privilege.DROP_PRIV), new byte[] {'a', 'b', 'c'}, "role");
 
         // 1. Write objects to file

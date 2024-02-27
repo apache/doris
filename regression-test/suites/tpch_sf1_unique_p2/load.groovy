@@ -97,10 +97,15 @@ suite("load") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+    }
+
+    Thread.sleep(70000) // wait for row count report of the tables just loaded
+    for (String tableName in tables) {
         sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
 
     def table = "revenue1"
     sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
     sql new File("""${context.file.parent}/ddl/${table}.sql""").text
+    sql """ sync """
 }

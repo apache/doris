@@ -42,7 +42,8 @@
   * In the rest, behaves like a dynamic_cast.
   */
 template <typename To, typename From>
-std::enable_if_t<std::is_reference_v<To>, To> typeid_cast(From& from) {
+    requires std::is_reference_v<To>
+To typeid_cast(From& from) {
     try {
         if (typeid(from) == typeid(To)) {
             return static_cast<To>(from);
@@ -58,13 +59,18 @@ std::enable_if_t<std::is_reference_v<To>, To> typeid_cast(From& from) {
 
 template <typename To, typename From>
 To typeid_cast(From* from) {
+#ifndef NDEBUG
     try {
         if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
             return static_cast<To>(from);
-        } else {
-            return nullptr;
         }
     } catch (const std::exception& e) {
         throw doris::Exception(doris::ErrorCode::BAD_CAST, e.what());
     }
+#else
+    if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
+        return static_cast<To>(from);
+    }
+#endif
+    return nullptr;
 }

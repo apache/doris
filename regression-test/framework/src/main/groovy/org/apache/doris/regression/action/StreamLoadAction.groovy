@@ -40,7 +40,7 @@ import org.junit.Assert
 
 @Slf4j
 class StreamLoadAction implements SuiteAction {
-    public final InetSocketAddress address
+    public InetSocketAddress address
     public final String user
     public final String password
     String db
@@ -53,9 +53,10 @@ class StreamLoadAction implements SuiteAction {
     Closure check
     Map<String, String> headers
     SuiteContext context
+    boolean directToBe = false
 
     StreamLoadAction(SuiteContext context) {
-        this.address = context.config.feHttpInetSocketAddress
+        this.address = context.getFeHttpAddress()
         this.user = context.config.feHttpUser
         this.password = context.config.feHttpPassword
 
@@ -81,6 +82,11 @@ class StreamLoadAction implements SuiteAction {
 
     void table(Closure<String> table) {
         this.table = table.call()
+    }
+
+    void directToBe(String beHost, int beHttpPort) {
+        this.address = new InetSocketAddress(beHost, beHttpPort)
+        this.directToBe = true
     }
 
     void inputStream(InputStream inputStream) {
@@ -139,37 +145,37 @@ class StreamLoadAction implements SuiteAction {
         headers.put(key, value)
     }
 
+    void unset(String key) {
+        headers.remove(key)
+    }
+
     @Override
     void run() {
         String responseText = null
         Throwable ex = null
         long startTime = System.currentTimeMillis()
+        def isHttpStream = headers.containsKey("version")
         try {
-            if (headers.containsKey("version")) {
-                log.info("Stream load with sql")
-                def uri = "http://${address.hostString}:${address.port}/api/_stream_load_with_sql"
-                HttpClients.createDefault().withCloseable { client ->
-                    RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
-                    HttpEntity httpEntity = prepareHttpEntity(client)
+            def uri = isHttpStream ? "http://${address.hostString}:${address.port}/api/_http_stream"
+                    : "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
+            HttpClients.createDefault().withCloseable { client ->
+                RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
+                HttpEntity httpEntity = prepareHttpEntity(client)
+                if (!directToBe) {
                     String beLocation = streamLoadToFe(client, requestBuilder)
-                    responseText = streamLoadToBe(client, requestBuilder, beLocation, httpEntity)
+                    log.info("Redirect stream load to ${beLocation}".toString())
+                    requestBuilder.setUri(beLocation)
                 }
-            } else {
-                def uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
-                HttpClients.createDefault().withCloseable { client ->
-                    RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
-                    HttpEntity httpEntity = prepareHttpEntity(client)
-                    String beLocation = streamLoadToFe(client, requestBuilder)
-                    responseText = streamLoadToBe(client, requestBuilder, beLocation, httpEntity)
-                }
+                requestBuilder.setEntity(httpEntity)
+                responseText = streamLoadToBe(client, requestBuilder)
             }
         } catch (Throwable t) {
             ex = t
         }
         long endTime = System.currentTimeMillis()
 
-        log.info("Stream load elapsed ${endTime - startTime} ms, response: ${responseText}".toString() +
-                 ex.toString())
+        log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
+                " response: ${responseText}" + ex.toString())
         checkResult(responseText, ex, startTime, endTime)
     }
 
@@ -285,10 +291,7 @@ class StreamLoadAction implements SuiteAction {
         return backendStreamLoadUri
     }
 
-    private String streamLoadToBe(CloseableHttpClient client, RequestBuilder requestBuilder, String beLocation, HttpEntity httpEntity) {
-        log.info("Redirect stream load to ${beLocation}".toString())
-        requestBuilder.setUri(beLocation)
-        requestBuilder.setEntity(httpEntity)
+    private String streamLoadToBe(CloseableHttpClient client, RequestBuilder requestBuilder) {
         String responseText
         try{
             client.execute(requestBuilder.build()).withCloseable { resp ->

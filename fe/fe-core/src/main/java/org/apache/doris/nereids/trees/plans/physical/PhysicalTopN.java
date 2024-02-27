@@ -41,37 +41,38 @@ import java.util.Optional;
  */
 public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> implements TopN {
 
-    public static final String TOPN_RUNTIME_FILTER = "topn_runtime_filter";
-
     private final long limit;
     private final long offset;
+    private final boolean enableRuntimeFilter;
 
     public PhysicalTopN(List<OrderKey> orderKeys, long limit, long offset,
             SortPhase phase, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(orderKeys, limit, offset, phase, Optional.empty(), logicalProperties, child);
+        this(orderKeys, limit, offset, phase, false, Optional.empty(), logicalProperties, child);
     }
 
     /**
      * Constructor of PhysicalHashJoinNode.
      */
     public PhysicalTopN(List<OrderKey> orderKeys, long limit, long offset,
-            SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            CHILD_TYPE child) {
-        this(orderKeys, limit, offset, phase, groupExpression, logicalProperties,
-                null, null, child);
+            SortPhase phase, boolean enableRuntimeFilter,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
+        this(orderKeys, limit, offset, phase, enableRuntimeFilter,
+                groupExpression, logicalProperties, null, null, child);
     }
 
     /**
      * Constructor of PhysicalHashJoinNode.
      */
     public PhysicalTopN(List<OrderKey> orderKeys, long limit, long offset,
-            SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            SortPhase phase, boolean enableRuntimeFilter,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_TOP_N, orderKeys, phase, groupExpression, logicalProperties, physicalProperties,
                 statistics, child);
         Objects.requireNonNull(orderKeys, "orderKeys should not be null in PhysicalTopN.");
         this.limit = limit;
         this.offset = offset;
+        this.enableRuntimeFilter = enableRuntimeFilter;
     }
 
     public long getLimit() {
@@ -80,6 +81,10 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
 
     public long getOffset() {
         return offset;
+    }
+
+    public boolean isEnableRuntimeFilter() {
+        return enableRuntimeFilter;
     }
 
     @Override
@@ -94,12 +99,12 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
             return false;
         }
         PhysicalTopN<?> that = (PhysicalTopN<?>) o;
-        return limit == that.limit && offset == that.offset;
+        return limit == that.limit && offset == that.offset && enableRuntimeFilter == that.enableRuntimeFilter;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), limit, offset);
+        return Objects.hash(super.hashCode(), limit, offset, enableRuntimeFilter);
     }
 
     @Override
@@ -107,42 +112,54 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
         return visitor.visitPhysicalTopN(this, context);
     }
 
+    public PhysicalTopN<Plan> withEnableRuntimeFilter(boolean enableRuntimeFilter) {
+        return new PhysicalTopN<>(orderKeys, limit, offset, phase, enableRuntimeFilter,
+                groupExpression, getLogicalProperties(), child());
+    }
+
     @Override
     public PhysicalTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalTopN's children size must be 1, but real is %s", children.size());
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
+        return new PhysicalTopN<>(orderKeys, limit, offset, phase, enableRuntimeFilter, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
     @Override
     public PhysicalTopN<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression, getLogicalProperties(), child());
+        return new PhysicalTopN<>(orderKeys, limit, offset, phase, enableRuntimeFilter,
+                groupExpression, getLogicalProperties(), child());
     }
 
     @Override
-    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+    public PhysicalTopN<Plan> withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalTopN's children size must be 1, but real is %s", children.size());
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression, logicalProperties.get(),
-                children.get(0));
+        return new PhysicalTopN<>(orderKeys, limit, offset, phase, enableRuntimeFilter,
+                groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalTopN<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child());
+        return new PhysicalTopN<>(orderKeys, limit, offset, phase, enableRuntimeFilter,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+    }
+
+    @Override
+    public String shapeInfo() {
+        return this.getClass().getSimpleName() + "[" + phase + "]";
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalTopN[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalTopN[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "limit", limit,
                 "offset", offset,
                 "orderKeys", orderKeys,
-                "phase", phase.toString()
+                "phase", phase.toString(),
+                "enableRuntimeFilter", enableRuntimeFilter
         );
     }
 
@@ -152,8 +169,8 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     }
 
     @Override
-    public PhysicalTopN<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
+    public PhysicalTopN<Plan> resetLogicalProperties() {
+        return new PhysicalTopN<>(orderKeys, limit, offset, phase, enableRuntimeFilter, groupExpression,
                 null, physicalProperties, statistics, child());
     }
 

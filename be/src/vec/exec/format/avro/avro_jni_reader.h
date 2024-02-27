@@ -56,7 +56,7 @@ public:
      * Call java side by jni to get table data.
      */
     AvroJNIReader(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const std::vector<SlotDescriptor*>& file_slot_descs);
+                  const std::vector<SlotDescriptor*>& file_slot_descs, const TFileRangeDesc& range);
 
     /**
      * Call java side by jni to get table schema.
@@ -74,6 +74,8 @@ public:
     Status init_fetch_table_reader(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
+    TFileType::type get_file_type();
+
     Status init_fetch_table_schema_reader();
 
     Status get_parsed_schema(std::vector<std::string>* col_names,
@@ -85,11 +87,11 @@ public:
 
 private:
     const std::vector<SlotDescriptor*>& _file_slot_descs;
-    RuntimeState* _state;
-    RuntimeProfile* _profile;
+    RuntimeState* _state = nullptr;
+    RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams _params;
     const TFileRangeDesc _range;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     std::unique_ptr<JniConnector> _jni_connector;
 };
 

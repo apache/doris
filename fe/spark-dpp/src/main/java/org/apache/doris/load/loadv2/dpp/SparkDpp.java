@@ -627,7 +627,7 @@ public final class SparkDpp implements java.io.Serializable {
             srcColumnsWithColumnsFromPath.addAll(fileGroup.columnsFromPath);
         }
 
-        if (fileGroup.fileFormat.equalsIgnoreCase("parquet")) {
+        if ("parquet".equalsIgnoreCase(fileGroup.fileFormat)) {
             // parquet had its own schema, just use it; perhaps we could add some validation in future.
             Dataset<Row> dataFrame = spark.read().parquet(fileUrl);
             if (!CollectionUtils.isEmpty(columnValueFromPath)) {
@@ -639,7 +639,7 @@ public final class SparkDpp implements java.io.Serializable {
             return dataFrame;
         }
 
-        if (fileGroup.fileFormat.equalsIgnoreCase("orc")) {
+        if ("orc".equalsIgnoreCase(fileGroup.fileFormat)) {
             Dataset<Row> dataFrame = spark.read().orc(fileUrl);
             if (!CollectionUtils.isEmpty(columnValueFromPath)) {
                 for (int k = 0; k < columnValueFromPath.size(); k++) {

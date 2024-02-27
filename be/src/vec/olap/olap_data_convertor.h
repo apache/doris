@@ -35,6 +35,7 @@
 #include "runtime/collection_value.h"
 #include "util/slice.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -43,6 +44,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_object.h"
 
 namespace doris {
 
@@ -198,6 +200,7 @@ private:
                                size_t num_rows) override;
         const void* get_data() const override;
         const void* get_data_at(size_t offset) const override;
+        Status convert_to_olap(const UInt8* null_map, const ColumnString* column_array);
         Status convert_to_olap() override;
 
     private:
@@ -429,18 +432,30 @@ private:
         std::vector<const void*> _results;
     };
 
-    class OlapColumnDataConvertorArray
-            : public OlapColumnDataConvertorPaddedPODArray<CollectionValue> {
+    class OlapColumnDataConvertorArray : public OlapColumnDataConvertorBase {
     public:
         OlapColumnDataConvertorArray(OlapColumnDataConvertorBaseUPtr item_convertor)
-                : _item_convertor(std::move(item_convertor)) {}
+                : _item_convertor(std::move(item_convertor)) {
+            _base_offset = 0;
+            _results.resize(4); // size + offset + item_data + item_nullmap
+        }
 
+        const void* get_data() const override { return _results.data(); };
+        const void* get_data_at(size_t offset) const override {
+            LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorArray";
+        };
         Status convert_to_olap() override;
 
     private:
-        Status convert_to_olap(const UInt8* null_map, const ColumnArray* column_array,
+        //        Status convert_to_olap(const UInt8* null_map, const ColumnArray* column_array,
+        //                               const DataTypeArray* data_type_array);
+        Status convert_to_olap(const ColumnArray* column_array,
                                const DataTypeArray* data_type_array);
         OlapColumnDataConvertorBaseUPtr _item_convertor;
+        UInt64 _base_offset;
+        PaddedPODArray<UInt64> _offsets; // array offsets in disk layout
+        // size + offsets_data + item_data + item_nullmap
+        std::vector<const void*> _results;
     };
 
     class OlapColumnDataConvertorMap : public OlapColumnDataConvertorBase {
@@ -467,6 +482,24 @@ private:
         PaddedPODArray<UInt64> _offsets; // map offsets in disk layout
         UInt64 _base_offset;
     }; //OlapColumnDataConvertorMap
+
+    class OlapColumnDataConvertorVariant : public OlapColumnDataConvertorBase {
+    public:
+        OlapColumnDataConvertorVariant()
+                : _root_data_convertor(std::make_unique<OlapColumnDataConvertorVarChar>(true)) {}
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override;
+        Status convert_to_olap() override;
+
+        const void* get_data() const override;
+        const void* get_data_at(size_t offset) const override;
+
+    private:
+        // encodes sparsed columns
+        const ColumnString* _root_data_column;
+        // _nullmap contains null info for this variant
+        std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
+    };
 
 private:
     std::vector<OlapColumnDataConvertorBaseUPtr> _convertors;

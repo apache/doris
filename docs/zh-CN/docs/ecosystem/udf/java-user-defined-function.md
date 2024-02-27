@@ -57,8 +57,9 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 |String|String|
 |Decimal|BigDecimal|
 |```array<Type>```|```ArrayList<Type>```|
+|```map<Type1,Type2>```|```HashMap<Type1,Type2>```|
 
-* array类型可以嵌套基本类型，例如Doris: ```array<int>```对应JAVA UDF Argument Type: ```ArrayList<Integer>```, 其他依此类推
+* array/map类型可以嵌套其它类型，例如Doris: ```array<array<int>>```对应JAVA UDF Argument Type: ```ArrayList<ArrayList<Integer>>```, 其他依此类推
 ## 编写 UDF 函数
 
 本小节主要介绍如何开发一个 Java UDF。在 `samples/doris-demo/java-udf-demo/` 下提供了示例，可供参考，查看点击[这里](https://github.com/apache/doris/tree/master/samples/doris-demo/java-udf-demo)
@@ -341,7 +342,7 @@ UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函�
 
 ## 使用须知
 1. 不支持复杂数据类型（HLL，Bitmap）。
-2. 当前允许用户自己指定JVM最大堆大小，配置项是jvm_max_heap_size。配置项在BE安装目录下的be.conf全局配置中，默认512M，如果需要聚合数据，建议调大一些，增加性能，减少内存溢出风险。
+2. 当前允许用户自己指定JVM最大堆大小，配置项是 be.conf 中的 JAVA_OPTS 的 -Xmx 部分。默认 1024m，如果需要聚合数据，建议调大一些，增加性能，减少内存溢出风险。
 3. char类型的udf在create function时需要使用String类型。
 4. 由于jvm加载同名类的问题，不要同时使用多个同名类作为udf实现，如果想更新某个同名类的udf，需要重启be重新加载classpath。
 

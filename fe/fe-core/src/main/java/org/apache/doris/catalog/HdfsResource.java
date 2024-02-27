@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.thrift.THdfsConf;
 import org.apache.doris.thrift.THdfsParams;
 
@@ -44,16 +45,11 @@ import java.util.Map;
 public class HdfsResource extends Resource {
     public static final String HADOOP_FS_PREFIX = "dfs.";
     public static String HADOOP_FS_NAME = "fs.defaultFS";
-    // simple or kerberos
-    public static String HADOOP_USER_NAME = "hadoop.username";
-    public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
-    public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
-    public static String HADOOP_KERBEROS_AUTHORIZATION = "hadoop.security.authorization";
-    public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
     public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
     public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
     public static String DSF_NAMESERVICES = "dfs.nameservices";
     public static final String HDFS_PREFIX = "hdfs:";
+    public static final String HDFS_FILE_PREFIX = "hdfs://";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
@@ -75,7 +71,7 @@ public class HdfsResource extends Resource {
     protected void setProperties(Map<String, String> properties) throws DdlException {
         // `dfs.client.read.shortcircuit` and `dfs.domain.socket.path` should be both set to enable short circuit read.
         // We should disable short circuit read if they are not both set because it will cause performance down.
-        if (!properties.containsKey(HADOOP_SHORT_CIRCUIT) || !properties.containsKey(HADOOP_SOCKET_PATH)) {
+        if (!(enableShortCircuitRead(properties))) {
             properties.put(HADOOP_SHORT_CIRCUIT, "false");
         }
         this.properties = properties;
@@ -94,6 +90,11 @@ public class HdfsResource extends Resource {
         }
     }
 
+    public static boolean enableShortCircuitRead(Map<String, String> properties) {
+        return "true".equalsIgnoreCase(properties.getOrDefault(HADOOP_SHORT_CIRCUIT, "false"))
+                    && properties.containsKey(HADOOP_SOCKET_PATH);
+    }
+
     // Will be removed after BE unified storage params
     public static THdfsParams generateHdfsParam(Map<String, String> properties) {
         THdfsParams tHdfsParams = new THdfsParams();
@@ -101,11 +102,11 @@ public class HdfsResource extends Resource {
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
                 tHdfsParams.setFsName(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HADOOP_USER_NAME)) {
+            } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_USER_NAME)) {
                 tHdfsParams.setUser(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_PRINCIPAL)) {
+            } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL)) {
                 tHdfsParams.setHdfsKerberosPrincipal(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_KEYTAB)) {
+            } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB)) {
                 tHdfsParams.setHdfsKerberosKeytab(property.getValue());
             } else {
                 THdfsConf hdfsConf = new THdfsConf();

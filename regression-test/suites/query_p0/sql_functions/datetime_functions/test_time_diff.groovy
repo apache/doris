@@ -22,4 +22,7 @@ suite("test_time_diff") {
     qt_sql """SELECT hours_diff('9020-02-02 15:30:00', '1900-02-16 15:27:00');   """
     qt_sql """SELECT seconds_diff('3000-02-02 15:30:00', '1900-02-16 15:27:00'); """
     qt_sql """SELECT seconds_diff('3000-01-01 00:00:00', '1000-01-01 00:00:00'); """
+    qt_sql """SELECT milliseconds_diff('2020-02-02 15:30:00', '1951-02-16 15:27:00'); """
+    qt_sql """SELECT microseconds_diff('2020-02-02 15:30:00', '1951-02-16 15:27:00'); """
+
 }

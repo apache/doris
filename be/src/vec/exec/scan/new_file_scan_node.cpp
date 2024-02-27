@@ -58,8 +58,15 @@ Status NewFileScanNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-void NewFileScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
-    int max_scanners = config::doris_scanner_thread_pool_thread_num;
+void NewFileScanNode::set_scan_ranges(RuntimeState* state,
+                                      const std::vector<TScanRangeParams>& scan_ranges) {
+    int max_scanners =
+            config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
+    max_scanners = std::max(std::max(max_scanners, state->parallel_scan_max_scanners_count()), 1);
+    // For select * from table limit 10; should just use one thread.
+    if (should_run_serial()) {
+        max_scanners = 1;
+    }
     if (scan_ranges.size() <= max_scanners) {
         _scan_ranges = scan_ranges;
     } else {
@@ -109,9 +116,10 @@ Status NewFileScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         return Status::OK();
     }
 
-    // TODO: determine kv cache shard num
-    size_t shard_num =
-            std::min<size_t>(config::doris_scanner_thread_pool_thread_num, _scan_ranges.size());
+    size_t shard_num = std::min<size_t>(
+            config::doris_scanner_thread_pool_thread_num / _state->query_parallel_instance_num(),
+            _scan_ranges.size());
+    shard_num = std::max(shard_num, (size_t)1);
     _kv_cache.reset(new ShardedKVCache(shard_num));
     for (auto& scan_range : _scan_ranges) {
         std::unique_ptr<VFileScanner> scanner =
@@ -122,7 +130,6 @@ Status NewFileScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 scanner->prepare(_conjuncts, &_colname_to_value_range, &_colname_to_slot_id));
         scanners->push_back(std::move(scanner));
     }
-
     return Status::OK();
 }
 

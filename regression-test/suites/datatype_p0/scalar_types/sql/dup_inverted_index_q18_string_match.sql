@@ -1,0 +1,1 @@
+SELECT * FROM tbl_scalar_types_dup_inverted_index WHERE c_string MATCH 'part way road point hill trail crossing street court pass drive place circle plaza Junction Junction Center Avenue Alley Lane' AND abs(c_bigint) < 100000 ORDER BY k1;

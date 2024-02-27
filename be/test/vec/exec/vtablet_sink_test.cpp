@@ -14,8 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "vec/sink/vtablet_sink.h"
-
 #include <brpc/closure_guard.h>
 #include <brpc/server.h>
 #include <gen_cpp/DataSinks_types.h>
@@ -24,6 +22,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -32,7 +31,9 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
+#include "olap/wal/wal_manager.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
@@ -45,6 +46,7 @@
 #include "util/threadpool.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/sink/volap_table_sink.h"
 
 namespace google {
 namespace protobuf {
@@ -55,7 +57,7 @@ class RpcController;
 namespace doris {
 class PFunctionService_Stub;
 
-namespace stream_load {
+namespace vectorized {
 
 Status k_add_batch_status;
 
@@ -316,7 +318,8 @@ public:
             k_add_batch_status.to_protobuf(response->mutable_status());
 
             if (request->has_block() && _row_desc != nullptr) {
-                vectorized::Block block(request->block());
+                vectorized::Block block;
+                static_cast<void>(block.deserialize(request->block()));
 
                 for (size_t row_num = 0; row_num < block.rows(); ++row_num) {
                     std::stringstream out;
@@ -357,18 +360,24 @@ public:
         k_add_batch_status = Status::OK();
         _env = ExecEnv::GetInstance();
         _env->_master_info = new TMasterInfo();
+        _env->_master_info->network_address.hostname = "host name";
+        _env->_master_info->network_address.port = 1234;
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
-        ThreadPoolBuilder("SendBatchThreadPool")
-                .set_min_threads(1)
-                .set_max_threads(5)
-                .set_max_queue_size(100)
-                .build(&_env->_send_batch_thread_pool);
+        _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
+        static_cast<void>(_env->wal_mgr()->init());
+        static_cast<void>(ThreadPoolBuilder("SendBatchThreadPool")
+                                  .set_min_threads(1)
+                                  .set_max_threads(5)
+                                  .set_max_queue_size(100)
+                                  .build(&_env->_send_batch_thread_pool));
         config::tablet_writer_open_rpc_timeout_sec = 60;
         config::max_send_batch_parallelism_per_job = 1;
     }
 
     void TearDown() override {
+        static_cast<void>(io::global_local_filesystem()->delete_directory(wal_dir));
+        SAFE_STOP(_env->_wal_manager);
         SAFE_DELETE(_env->_internal_client_cache);
         SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_master_info);
@@ -395,6 +404,9 @@ public:
         query_options.batch_size = 1;
         query_options.be_exec_version = be_exec_version;
         RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
+        std::shared_ptr<TaskExecutionContext> task_ctx_lock =
+                std::make_shared<TaskExecutionContext>();
+        state.set_task_execution_context(task_ctx_lock);
         state.init_mem_trackers(TUniqueId());
 
         ObjectPool obj_pool;
@@ -415,7 +427,8 @@ public:
         std::set<std::string> output_set;
         service->_output_set = &output_set;
 
-        VOlapTableSink sink(&obj_pool, row_desc, {}, &st);
+        std::vector<TExpr> exprs;
+        VOlapTableSink sink(&obj_pool, row_desc, exprs);
         ASSERT_TRUE(st.ok());
 
         // init
@@ -486,6 +499,7 @@ public:
 private:
     ExecEnv* _env = nullptr;
     brpc::Server* _server = nullptr;
+    std::string wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
 };
 
 TEST_F(VOlapTableSinkTest, normal) {
@@ -512,6 +526,8 @@ TEST_F(VOlapTableSinkTest, convert) {
     query_options.batch_size = 1024;
     query_options.be_exec_version = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    state.set_task_execution_context(task_ctx_lock);
     state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
@@ -555,7 +571,7 @@ TEST_F(VOlapTableSinkTest, convert) {
     exprs[2].nodes[0].slot_ref.slot_id = 2;
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, &st);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs);
     ASSERT_TRUE(st.ok());
 
     // set output tuple_id
@@ -642,6 +658,8 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
     query_options.batch_size = 1;
     query_options.be_exec_version = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    state.set_task_execution_context(task_ctx_lock);
     state.init_mem_trackers(TUniqueId());
 
     TDescriptorTable tdesc_tbl;
@@ -682,7 +700,7 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
     exprs[2].nodes[0].slot_ref.slot_id = 2;
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, &st);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs);
     ASSERT_TRUE(st.ok());
 
     // set output tuple_id
@@ -732,8 +750,8 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
 
     // Send batch multiple times, can make _cur_batch or _pending_batches(in channels) not empty.
     // To ensure the order of releasing resource is OK.
-    sink.send(&state, &block);
-    sink.send(&state, &block);
+    static_cast<void>(sink.send(&state, &block));
+    static_cast<void>(sink.send(&state, &block));
 
     // close
     st = sink.close(&state, Status::OK());
@@ -756,6 +774,8 @@ TEST_F(VOlapTableSinkTest, decimal) {
     query_options.batch_size = 1;
     query_options.be_exec_version = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    state.set_task_execution_context(task_ctx_lock);
     state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
@@ -776,7 +796,8 @@ TEST_F(VOlapTableSinkTest, decimal) {
     std::set<std::string> output_set;
     service->_output_set = &output_set;
 
-    VOlapTableSink sink(&obj_pool, row_desc, {}, &st);
+    std::vector<TExpr> exprs;
+    VOlapTableSink sink(&obj_pool, row_desc, exprs);
     ASSERT_TRUE(st.ok());
 
     // init
@@ -832,5 +853,6 @@ TEST_F(VOlapTableSinkTest, decimal) {
     ASSERT_TRUE(output_set.count("(12, 12.300000000)") > 0);
     ASSERT_TRUE(output_set.count("(13, 123.120000000)") > 0);
 }
-} // namespace stream_load
+
+} // namespace vectorized
 } // namespace doris

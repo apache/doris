@@ -22,8 +22,11 @@
 #include <cstdint>
 #include <memory>
 
+#include "aggregation_sink_operator.h"
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/exec/aggregation_sink_operator.h"
+#include "pipeline/exec/aggregation_source_operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/distinct_vaggregation_node.h"
@@ -51,7 +54,7 @@ private:
 };
 
 class DistinctStreamingAggSinkOperator final
-        : public StreamingOperator<DistinctStreamingAggSinkOperatorBuilder> {
+        : public StreamingOperator<vectorized::DistinctAggregationNode> {
 public:
     DistinctStreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
                                      std::shared_ptr<DataQueue>);

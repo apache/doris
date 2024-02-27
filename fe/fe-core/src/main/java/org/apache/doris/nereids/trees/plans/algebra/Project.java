@@ -23,15 +23,17 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Common interface for logical/physical project.
@@ -51,16 +53,7 @@ public interface Project {
      * </pre>
      */
     default Map<Slot, Expression> getAliasToProducer() {
-        return getProjects()
-                .stream()
-                .filter(Alias.class::isInstance)
-                .collect(
-                        Collectors.toMap(
-                                NamedExpression::toSlot,
-                                // Avoid cast to alias, retrieving the first child expression.
-                                alias -> alias.child(0)
-                        )
-                );
+        return ExpressionUtils.generateReplaceMap(getProjects());
     }
 
     /**
@@ -76,25 +69,43 @@ public interface Project {
     }
 
     /**
+     * Check if it is a project that is pull up from scan in analyze rule
+     * e.g. BindSlotWithPaths
+     * And check if contains PushDownToProjectionFunction that can pushed down to project
+     */
+    default boolean hasPushedDownToProjectionFunctions() {
+        return ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable() != null
+                && ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()
+                && getProjects().stream().allMatch(namedExpr ->
+                namedExpr instanceof SlotReference
+                        || (namedExpr instanceof Alias
+                        && PushDownToProjectionFunction.validToPushDown(((Alias) namedExpr).child())))
+                && getProjects().stream().anyMatch((namedExpr -> namedExpr instanceof Alias
+                && PushDownToProjectionFunction.validToPushDown(((Alias) namedExpr).child())));
+    }
+
+    /**
      * find projects, if not found the slot, then throw AnalysisException
      */
-    static List<NamedExpression> findProject(
-            Collection<? extends Slot> slotReferences,
-            List<NamedExpression> projects) throws AnalysisException {
+    static List<? extends Expression> findProject(
+            Collection<? extends Expression> expressions,
+            List<? extends NamedExpression> projects) throws AnalysisException {
         Map<ExprId, NamedExpression> exprIdToProject = projects.stream()
-                .collect(ImmutableMap.toImmutableMap(p -> p.getExprId(), p -> p));
+                .collect(ImmutableMap.toImmutableMap(NamedExpression::getExprId, p -> p));
 
-        return slotReferences.stream()
-                .map(slot -> {
-                    ExprId exprId = slot.getExprId();
-                    NamedExpression project = exprIdToProject.get(exprId);
-                    if (project == null) {
-                        throw new AnalysisException("ExprId " + slot.getExprId() + " no exists in " + projects);
+        return ExpressionUtils.rewriteDownShortCircuit(expressions,
+                expr -> {
+                    if (expr instanceof Slot) {
+                        Slot slot = (Slot) expr;
+                        ExprId exprId = slot.getExprId();
+                        NamedExpression project = exprIdToProject.get(exprId);
+                        if (project == null) {
+                            throw new AnalysisException("ExprId " + slot.getExprId() + " no exists in " + projects);
+                        }
+                        return project;
                     }
-                    return project;
-                })
-                .collect(ImmutableList.toImmutableList());
+                    return expr;
+                });
     }
 }
-
-

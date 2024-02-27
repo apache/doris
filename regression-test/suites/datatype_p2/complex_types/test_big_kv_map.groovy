@@ -59,7 +59,7 @@ suite("test_big_kv_map", "p2") {
                 assertEquals(100, json.NumberLoadedRows)
             }
         }
-
+        sql "sync"
         qt_select_total "SELECT count(*) FROM ${testTable}"
         qt_select_map "SELECT count(actor) FROM ${testTable}"
     } finally {

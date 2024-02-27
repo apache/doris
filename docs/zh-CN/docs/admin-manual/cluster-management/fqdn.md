@@ -65,7 +65,7 @@ Doris 支持 FQDN 之后，各节点之间通信完全基于 FQDN。添加各类
 
 Pod 意外重启后，K8s 不能保证 Pod 的 IP 不发生变化，但是能保证域名不变，基于这一特性，Doris 开启 FQDN 时，能保证 Pod 意外重启后，还能正常提供服务。
 
-K8s 部署 Doris 的方法请参考[K8s 部署doris](../../install/k8s-deploy.md)
+K8s 部署 Doris 的方法请参考[K8s 部署 Doris](../../install/k8s-deploy/operator-deploy.md)
 
 ### 服务器变更 IP
 
@@ -76,13 +76,17 @@ K8s 部署 Doris 的方法请参考[K8s 部署doris](../../install/k8s-deploy.md
 前提条件：当前程序支持`ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`语法，
 如果不支持，需要升级到支持该语法的版本
 
+>注意：
+>
+> 至少有三台follower才能进行如下操作，否则会造成集群无法正常启动
+
 接下来按照如下步骤操作：
 
 1. 逐一对 Follower、Observer 节点进行以下操作(最后操作 Master 节点)：
 
     1. 停止节点。
     2. 检查节点是否停止。通过 MySQL 客户端执行`show frontends`，查看该 FE 节点的 Alive 状态直至变为 false
-    3. 为节点设置 FQDN: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`
+    3. 为节点设置 FQDN: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`（停掉master后，会选举出新的master节点，用新的master节点来执行sql语句）
     4. 修改节点配置。修改 FE 根目录中的`conf/fe.conf`文件，添加配置：`enable_fqdn_mode = true`
     5. 启动节点。
     

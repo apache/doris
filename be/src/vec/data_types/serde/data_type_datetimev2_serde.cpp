@@ -19,18 +19,34 @@
 
 #include <arrow/builder.h>
 
+#include <chrono> // IWYU pragma: keep
 #include <type_traits>
 
-#include "gutil/casts.h"
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
 
+enum {
+    DIVISOR_FOR_SECOND = 1,
+    DIVISOR_FOR_MILLI = 1000,
+    DIVISOR_FOR_MICRO = 1000000,
+    DIVISOR_FOR_NANO = 1000000000
+};
+
 namespace doris {
 namespace vectorized {
+static const int64_t timestamp_threshold = -2177481943;
+static const int64_t timestamp_diff = 343;
+static const int64_t micr_to_nano_second = 1000;
 
-void DataTypeDateTimeV2SerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
-                                                         BufferWritable& bw,
-                                                         const FormatOptions& options) const {
+Status DataTypeDateTimeV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                         int end_idx, BufferWritable& bw,
+                                                         FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON();
+}
+
+Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                           BufferWritable& bw,
+                                                           FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -50,24 +66,31 @@ void DataTypeDateTimeV2SerDe::serialize_one_cell_to_text(const IColumn& column, 
         char* pos = val.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
-    bw.commit();
+    return Status::OK();
 }
 
-Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+Status DataTypeDateTimeV2SerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
+    return Status::OK();
+}
+Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                                const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnUInt64&>(column);
     UInt64 val = 0;
     if (options.date_olap_format) {
-        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_value;
+        DateV2Value<DateTimeV2ValueType> datetimev2_value;
         std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
         if (datetimev2_value.from_date_format_str(date_format.data(), date_format.size(),
-                                                  rb.position(), rb.count())) {
+                                                  slice.data, slice.size)) {
             val = datetimev2_value.to_date_int_val();
         } else {
-            val = doris::vectorized::MIN_DATETIME_V2;
+            val = MIN_DATETIME_V2;
         }
 
-    } else if (!read_datetime_v2_text_impl<UInt64>(val, rb)) {
+    } else if (ReadBuffer rb(slice.data, slice.size);
+               !read_datetime_v2_text_impl<UInt64>(val, rb, scale)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -82,8 +105,8 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
-        const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* time_val =
-                (const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*)(&col_data[i]);
+        const DateV2Value<DateTimeV2ValueType>* time_val =
+                (const DateV2Value<DateTimeV2ValueType>*)(&col_data[i]);
         int len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
@@ -92,6 +115,52 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
             checkArrowStatus(string_builder.Append(buf, len), column.get_name(),
                              array_builder->type()->name());
         }
+    }
+}
+
+void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
+                                                     const arrow::Array* arrow_array, int start,
+                                                     int end, const cctz::time_zone& ctz) const {
+    auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
+    int64_t divisor = 1;
+    if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
+        auto concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
+        const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
+        switch (type->unit()) {
+        case arrow::TimeUnit::type::SECOND: {
+            divisor = DIVISOR_FOR_SECOND;
+            break;
+        }
+        case arrow::TimeUnit::type::MILLI: {
+            divisor = DIVISOR_FOR_MILLI;
+            break;
+        }
+        case arrow::TimeUnit::type::MICRO: {
+            divisor = DIVISOR_FOR_MICRO;
+            break;
+        }
+        case arrow::TimeUnit::type::NANO: {
+            divisor = DIVISOR_FOR_NANO;
+            break;
+        }
+        default: {
+            LOG(WARNING) << "not support convert to datetimev2 from time_unit:" << type->unit();
+            return;
+        }
+        }
+        for (size_t value_i = start; value_i < end; ++value_i) {
+            auto utc_epoch = static_cast<UInt64>(concrete_array->Value(value_i));
+
+            DateV2Value<DateTimeV2ValueType> v;
+            // convert second
+            v.from_unixtime(utc_epoch / divisor, ctz);
+            // get rest time
+            v.set_microsecond(utc_epoch % divisor);
+            col_data.emplace_back(binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(v));
+        }
+    } else {
+        LOG(WARNING) << "not support convert to datetimev2 from arrow type:"
+                     << arrow_array->type()->id();
     }
 }
 
@@ -105,8 +174,20 @@ Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
     DateV2Value<DateTimeV2ValueType> date_val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(data[col_index]);
     char* pos = date_val.to_string(buf, scale);
+    // _nesting_level >= 2 means this datetimev2 is in complex type
+    // and we should add double quotes
+    if (_nesting_level >= 2) {
+        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+    }
     if (UNLIKELY(0 != result.push_string(buf, pos - buf - 1))) {
         return Status::InternalError("pack mysql buffer failed.");
+    }
+    if (_nesting_level >= 2) {
+        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
     }
     return Status::OK();
 }
@@ -121,6 +202,41 @@ Status DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
                                                       MysqlRowBuffer<false>& row_buffer,
                                                       int row_idx, bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
+                                                    const IColumn& column, const NullMap* null_map,
+                                                    orc::ColumnVectorBatch* orc_col_batch,
+                                                    int start, int end,
+                                                    std::vector<StringRef>& buffer_list) const {
+    const auto& col_data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
+    auto* cur_batch = dynamic_cast<orc::TimestampVectorBatch*>(orc_col_batch);
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 0) {
+            continue;
+        }
+
+        int64_t timestamp = 0;
+        DateV2Value<DateTimeV2ValueType> datetime_val =
+                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[row_id]);
+        if (!datetime_val.unix_timestamp(&timestamp, timezone)) {
+            return Status::InternalError("get unix timestamp error.");
+        }
+
+        // -2177481943 represent '1900-12-31 23:54:17'
+        // but -2177481944 represent '1900-12-31 23:59:59'
+        // so for timestamp <= -2177481944, we subtract 343 (5min 43s)
+        // Reference: https://www.timeanddate.com/time/change/china/shanghai?year=1900
+        if (timezone == TimezoneUtils::default_time_zone && timestamp < timestamp_threshold) {
+            timestamp -= timestamp_diff;
+        }
+
+        cur_batch->data[row_id] = timestamp;
+        cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micr_to_nano_second;
+    }
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 } // namespace vectorized

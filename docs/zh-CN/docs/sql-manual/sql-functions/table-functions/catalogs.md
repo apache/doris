@@ -1,6 +1,6 @@
 ---
 {
-    "title": "catalogs",
+    "title": "CATALOGS",
     "language": "zh-CN"
 }
 ---

@@ -24,7 +24,7 @@ import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.planner.external.odbc.OdbcTableSink;
+import org.apache.doris.datasource.odbc.sink.OdbcTableSink;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TExplainLevel;
 
@@ -39,7 +39,8 @@ public abstract class DataSink {
     protected PlanFragment fragment;
 
     /**
-     * Return an explain string for the DataSink. Each line of the explain will be prefixed
+     * Return an explain string for the DataSink. Each line of the explain will be
+     * prefixed
      * by "prefix"
      *
      * @param prefix each explain line will be started with the given prefix

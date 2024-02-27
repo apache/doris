@@ -51,9 +51,10 @@ under the License.
     
     - MacOS: 
 
-        1. `brew tap-new $USER/local-tap`
-        2. `brew extract --version='0.16.0' thrift $USER/local-tap`
-        3. `brew install thrift@0.16.0`
+        1. `brew tap homebrew/core --force`
+        2. `brew tap-new $USER/local-tap`
+        3. `brew extract --version='0.16.0' thrift $USER/local-tap`
+        4. `brew install thrift@0.16.0`
 
         If there is an error related to downloading, you can modify the following files:
 
@@ -174,6 +175,7 @@ sys_log_level = INFO
 http_port = 8030
 rpc_port = 9020
 query_port = 9030
+arrow_flight_sql_port = -1
 edit_log_port = 9010
 
 # Choose one if there are more than one ip except loopback address. 

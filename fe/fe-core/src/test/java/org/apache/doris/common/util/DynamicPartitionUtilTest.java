@@ -222,7 +222,7 @@ public class DynamicPartitionUtilTest {
         List<Column> partitionColumnList = Lists.newArrayList();
         Column partitionColumn = new Column();
         partitionColumn.setType(Type.DATE);
-        Deencapsulation.setField(rangePartitionInfo, partitionColumnList);
+        Deencapsulation.setField(rangePartitionInfo, "partitionColumns", partitionColumnList);
         try {
             Deencapsulation.invoke(dynamicPartitionUtil, "checkTimeUnit", "HOUR", rangePartitionInfo);
             Assert.fail();

@@ -54,6 +54,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -74,10 +75,13 @@ public class SystemInfoService {
 
     public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG = "There is no scanNode Backend available.";
 
-    private volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
-    private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
+    public static final String NOT_USING_VALID_CLUSTER_MSG = "Not using valid cloud clusters, "
+            + "please use a cluster before issuing any queries";
 
-    private volatile ImmutableMap<Long, DiskInfo> pathHashToDishInfoRef = ImmutableMap.of();
+    protected volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
+    protected volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
+
+    private volatile ImmutableMap<Long, DiskInfo> pathHashToDiskInfoRef = ImmutableMap.of();
 
     public static class HostInfo implements Comparable<HostInfo> {
         public String host;
@@ -105,7 +109,7 @@ public class SystemInfoService {
         }
 
         public String getIdent() {
-            return host;
+            return host + "_" + port;
         }
 
         @Override
@@ -231,13 +235,23 @@ public class SystemInfoService {
         for (HostInfo hostInfo : hostInfos) {
             // check is already exist
             if (getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort()) == null) {
-                String backendIdentifier = hostInfo.getHost() + ":" + hostInfo.getPort();
+                String backendIdentifier = NetUtils
+                        .getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort());
                 throw new DdlException("backend does not exists[" + backendIdentifier + "]");
             }
-        }
-        for (HostInfo hostInfo : hostInfos) {
             dropBackend(hostInfo.getHost(), hostInfo.getPort());
         }
+    }
+
+    public void dropBackendsByIds(List<String> ids) throws DdlException {
+
+        for (String id : ids) {
+            if (getBackend(Long.parseLong(id)) == null) {
+                throw new DdlException("backend does not exists[" + id + "]");
+            }
+            dropBackend(Long.parseLong(id));
+        }
+
     }
 
     // for decommission
@@ -253,8 +267,8 @@ public class SystemInfoService {
     public void dropBackend(String host, int heartbeatPort) throws DdlException {
         Backend droppedBackend = getBackendWithHeartbeatPort(host, heartbeatPort);
         if (droppedBackend == null) {
-            throw new DdlException("backend does not exists[" + host
-                    + ":" + heartbeatPort + "]");
+            throw new DdlException("backend does not exists[" + NetUtils
+                    .getHostPortInAccessibleFormat(host, heartbeatPort) + "]");
         }
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
@@ -355,7 +369,7 @@ public class SystemInfoService {
     }
 
     public int getBackendsNumber(boolean needAlive) {
-        int beNumber = ConnectContext.get().getSessionVariable().getBeNumber();
+        int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
         if (beNumber < 0) {
             beNumber = getAllBackendIds(needAlive).size();
         }
@@ -405,86 +419,55 @@ public class SystemInfoService {
         return idToBackendRef.values().stream().filter(backend -> backend.isComputeNode()).collect(Collectors.toList());
     }
 
-    class BeComparator implements Comparator<Backend> {
+    // return num of backends that from different hosts
+    public int getBackendNumFromDiffHosts(boolean aliveOnly) {
+        Set<String> hosts = Sets.newHashSet();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        for (Backend backend : idToBackend.values()) {
+            if (aliveOnly && !backend.isAlive()) {
+                continue;
+            }
+            hosts.add(backend.getHost());
+        }
+        return hosts.size();
+    }
+
+    class BeIdComparator implements Comparator<Backend> {
         public int compare(Backend a, Backend b) {
             return (int) (a.getId() - b.getId());
         }
     }
 
-    public List<Long> selectBackendIdsRoundRobinByPolicy(BeSelectionPolicy policy, int number,
-            int nextIndex) {
-        Preconditions.checkArgument(number >= -1);
-        List<Backend> candidates = getCandidates(policy);
-        if (number != -1 && candidates.size() < number) {
-            LOG.info("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
-            return Lists.newArrayList();
+    class BeHostComparator implements Comparator<Backend> {
+        public int compare(Backend a, Backend b) {
+            return a.getHost().compareTo(b.getHost());
         }
-
-        int realIndex = nextIndex % candidates.size();
-        List<Long> partialOrderList = new ArrayList<Long>();
-        partialOrderList.addAll(candidates.subList(realIndex, candidates.size())
-                .stream().map(b -> b.getId()).collect(Collectors.toList()));
-        partialOrderList.addAll(candidates.subList(0, realIndex)
-                .stream().map(b -> b.getId()).collect(Collectors.toList()));
-
-        if (number == -1) {
-            return partialOrderList;
-        } else {
-            return partialOrderList.subList(0, number);
-        }
-    }
-
-    public List<Backend> getCandidates(BeSelectionPolicy policy) {
-        List<Backend> candidates = policy.getCandidateBackends(idToBackendRef.values());
-        if (candidates.isEmpty()) {
-            LOG.info("Not match policy: {}. candidates num: {}", policy, candidates.size());
-            return Lists.newArrayList();
-        }
-
-        if (!policy.allowOnSameHost) {
-            Map<String, List<Backend>> backendMaps = Maps.newHashMap();
-            for (Backend backend : candidates) {
-                if (backendMaps.containsKey(backend.getHost())) {
-                    backendMaps.get(backend.getHost()).add(backend);
-                } else {
-                    List<Backend> list = Lists.newArrayList();
-                    list.add(backend);
-                    backendMaps.put(backend.getHost(), list);
-                }
-            }
-            candidates.clear();
-            for (List<Backend> list : backendMaps.values()) {
-                candidates.add(list.get(0));
-            }
-        }
-
-        if (candidates.isEmpty()) {
-            LOG.info("Not match policy: {}. candidates num: {}", policy, candidates.size());
-            return Lists.newArrayList();
-        }
-
-        Collections.sort(candidates, new BeComparator());
-        return candidates;
     }
 
     // Select the smallest number of tablets as the starting position of
     // round robin in the BE that match the policy
-    public int getStartPosOfRoundRobin(Tag tag, TStorageMedium storageMedium) {
+    public int getStartPosOfRoundRobin(Tag tag, TStorageMedium storageMedium, boolean isStorageMediumSpecified) {
         BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder()
-                .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(tag))
+                .needScheduleAvailable()
+                .needCheckDiskUsage()
+                .addTags(Sets.newHashSet(tag))
                 .setStorageMedium(storageMedium);
         if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
             builder.allowOnSameHost();
         }
 
         BeSelectionPolicy policy = builder.build();
-        List<Backend> candidates = getCandidates(policy);
+        List<Long> beIds = selectBackendIdsByPolicy(policy, -1);
+        if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified) {
+            storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
+            policy = builder.setStorageMedium(storageMedium).build();
+            beIds = selectBackendIdsByPolicy(policy, -1);
+        }
 
         long minBeTabletsNum = Long.MAX_VALUE;
         int minIndex = -1;
-        for (int i = 0; i < candidates.size(); ++i) {
-            long tabletsNum = Env.getCurrentInvertedIndex()
-                    .getTabletIdsByBackendId(candidates.get(i).getId()).size();
+        for (int i = 0; i < beIds.size(); ++i) {
+            long tabletsNum = Env.getCurrentInvertedIndex().getTabletIdsByBackendId(beIds.get(i)).size();
             if (tabletsNum < minBeTabletsNum) {
                 minBeTabletsNum = tabletsNum;
                 minIndex = i;
@@ -493,40 +476,12 @@ public class SystemInfoService {
         return minIndex;
     }
 
-    public Map<Tag, List<Long>> getBeIdRoundRobinForReplicaCreation(
-            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium,
-            Map<Tag, Integer> nextIndexs) throws DdlException {
-        Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
-        Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
-        short totalReplicaNum = 0;
-        for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
-            BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder()
-                    .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(entry.getKey()))
-                    .setStorageMedium(storageMedium);
-            if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
-                builder.allowOnSameHost();
-            }
-
-            BeSelectionPolicy policy = builder.build();
-            int nextIndex = nextIndexs.get(entry.getKey());
-            List<Long> beIds = selectBackendIdsRoundRobinByPolicy(policy, entry.getValue(), nextIndex);
-            nextIndexs.put(entry.getKey(), nextIndex + beIds.size());
-
-            if (beIds.isEmpty()) {
-                throw new DdlException("Failed to find " + entry.getValue() + " backend(s) for policy: " + policy);
-            }
-            chosenBackendIds.put(entry.getKey(), beIds);
-            totalReplicaNum += beIds.size();
-        }
-        Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
-        return chosenBackendIds;
-    }
-
     /**
      * Select a set of backends for replica creation.
      * The following parameters need to be considered when selecting backends.
      *
      * @param replicaAlloc
+     * @param nextIndexs create tablet round robin next be index, when enable_round_robin_create_tablet
      * @param storageMedium
      * @param isStorageMediumSpecified
      * @param isOnlyForCheck set true if only used for check available backend
@@ -534,7 +489,8 @@ public class SystemInfoService {
      * @throws DdlException
      */
     public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
-            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium, boolean isStorageMediumSpecified,
+            ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
+            TStorageMedium storageMedium, boolean isStorageMediumSpecified,
             boolean isOnlyForCheck)
             throws DdlException {
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
@@ -551,11 +507,16 @@ public class SystemInfoService {
             List<String> failedEntries = Lists.newArrayList();
 
             for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
+                Tag tag = entry.getKey();
                 BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder()
                         .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(entry.getKey()))
                         .setStorageMedium(storageMedium);
                 if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
                     builder.allowOnSameHost();
+                }
+                if (Config.enable_round_robin_create_tablet) {
+                    builder.setEnableRoundRobin(true);
+                    builder.setNextRoundRobinIndex(nextIndexs.getOrDefault(tag, -1));
                 }
 
                 BeSelectionPolicy policy = builder.build();
@@ -564,8 +525,15 @@ public class SystemInfoService {
                 // if only for check, no need to retry different storage medium to get backend
                 if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
                     storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
-                    policy = builder.setStorageMedium(storageMedium).build();
+                    builder.setStorageMedium(storageMedium);
+                    if (Config.enable_round_robin_create_tablet) {
+                        builder.setNextRoundRobinIndex(nextIndexs.getOrDefault(tag, -1));
+                    }
+                    policy = builder.build();
                     beIds = selectBackendIdsByPolicy(policy, entry.getValue());
+                }
+                if (Config.enable_round_robin_create_tablet) {
+                    nextIndexs.put(tag, policy.nextRoundRobinIndex);
                 }
                 // after retry different storage medium, it's still empty
                 if (beIds.isEmpty()) {
@@ -583,7 +551,8 @@ public class SystemInfoService {
             if (!failedEntries.isEmpty()) {
                 String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
-                        + "replication tag and storage medium.\n" + "Create failed replications:\n" + failedMsg);
+                        + "replication tag and storage medium and avail capacity of backends.\n"
+                        + "Create failed replications:\n" + failedMsg);
             }
         }
 
@@ -594,7 +563,7 @@ public class SystemInfoService {
     /**
      * Select a set of backends by the given policy.
      *
-     * @param policy
+     * @param policy if policy is enableRoundRobin, will update its nextRoundRobinIndex
      * @param number number of backends which need to be selected. -1 means return as many as possible.
      * @return return #number of backend ids,
      * or empty set if no backends match the policy, or the number of matched backends is less than "number";
@@ -602,50 +571,81 @@ public class SystemInfoService {
     public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number) {
         Preconditions.checkArgument(number >= -1);
         List<Backend> candidates = policy.getCandidateBackends(idToBackendRef.values());
-        if ((number != -1 && candidates.size() < number) || candidates.isEmpty()) {
-            LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+        if (candidates.size() < number || candidates.isEmpty()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+            }
             return Lists.newArrayList();
         }
+
         // If only need one Backend, just return a random one.
-        if (number == 1) {
+        if (number == 1 && !policy.enableRoundRobin) {
             Collections.shuffle(candidates);
             return Lists.newArrayList(candidates.get(0).getId());
         }
 
-        if (policy.allowOnSameHost) {
-            Collections.shuffle(candidates);
-            if (number == -1) {
-                return candidates.stream().map(b -> b.getId()).collect(Collectors.toList());
-            } else {
-                return candidates.subList(0, number).stream().map(b -> b.getId()).collect(Collectors.toList());
+        boolean hasSameHost = false;
+        if (!policy.allowOnSameHost) {
+            // for each host, random select one backend.
+            Map<String, List<Backend>> backendMaps = Maps.newHashMap();
+            for (Backend backend : candidates) {
+                if (backendMaps.containsKey(backend.getHost())) {
+                    backendMaps.get(backend.getHost()).add(backend);
+                } else {
+                    List<Backend> list = Lists.newArrayList();
+                    list.add(backend);
+                    backendMaps.put(backend.getHost(), list);
+                }
+            }
+
+            candidates.clear();
+            for (List<Backend> list : backendMaps.values()) {
+                if (list.size() > 1) {
+                    Collections.shuffle(list);
+                    hasSameHost = true;
+                }
+                candidates.add(list.get(0));
             }
         }
 
-        // for each host, random select one backend.
-        Map<String, List<Backend>> backendMaps = Maps.newHashMap();
-        for (Backend backend : candidates) {
-            if (backendMaps.containsKey(backend.getHost())) {
-                backendMaps.get(backend.getHost()).add(backend);
-            } else {
-                List<Backend> list = Lists.newArrayList();
-                list.add(backend);
-                backendMaps.put(backend.getHost(), list);
+        if (candidates.size() < number) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
             }
-        }
-        candidates.clear();
-        for (List<Backend> list : backendMaps.values()) {
-            Collections.shuffle(list);
-            candidates.add(list.get(0));
-        }
-        if (number != -1 && candidates.size() < number) {
-            LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
             return Lists.newArrayList();
         }
-        Collections.shuffle(candidates);
-        if (number != -1) {
-            return candidates.subList(0, number).stream().map(b -> b.getId()).collect(Collectors.toList());
+
+        if (policy.enableRoundRobin) {
+            if (!policy.allowOnSameHost && hasSameHost) {
+                // not allow same host and has same host,
+                // then we compare them with their host
+                Collections.sort(candidates, new BeHostComparator());
+            } else {
+                Collections.sort(candidates, new BeIdComparator());
+            }
+
+            if (policy.nextRoundRobinIndex < 0) {
+                policy.nextRoundRobinIndex = new SecureRandom().nextInt(candidates.size());
+            }
+
+            int realIndex = policy.nextRoundRobinIndex % candidates.size();
+            List<Long> partialOrderList = new ArrayList<Long>();
+            partialOrderList.addAll(candidates.subList(realIndex, candidates.size())
+                    .stream().map(Backend::getId).collect(Collectors.toList()));
+            partialOrderList.addAll(candidates.subList(0, realIndex)
+                    .stream().map(Backend::getId).collect(Collectors.toList()));
+
+            List<Long> result = number == -1 ? partialOrderList : partialOrderList.subList(0, number);
+            policy.nextRoundRobinIndex = realIndex + result.size();
+
+            return result;
         } else {
-            return candidates.stream().map(b -> b.getId()).collect(Collectors.toList());
+            Collections.shuffle(candidates);
+            if (number != -1) {
+                return candidates.subList(0, number).stream().map(Backend::getId).collect(Collectors.toList());
+            } else {
+                return candidates.stream().map(Backend::getId).collect(Collectors.toList());
+            }
         }
     }
 
@@ -675,8 +675,10 @@ public class SystemInfoService {
                 return;
             }
             atomicLong.set(newReportVersion);
-            LOG.debug("update backend {} report version: {}, db: {}, table: {}",
-                    backendId, newReportVersion, dbId, tableId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("update backend {} report version: {}, db: {}, table: {}",
+                        backendId, newReportVersion, dbId, tableId);
+            }
         }
     }
 
@@ -760,7 +762,9 @@ public class SystemInfoService {
     }
 
     public void replayDropBackend(Backend backend) {
-        LOG.debug("replayDropBackend: {}", backend);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replayDropBackend: {}", backend);
+        }
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.remove(backend.getId());
@@ -788,6 +792,7 @@ public class SystemInfoService {
             memoryBe.setHttpPort(be.getHttpPort());
             memoryBe.setBeRpcPort(be.getBeRpcPort());
             memoryBe.setBrpcPort(be.getBrpcPort());
+            memoryBe.setArrowFlightSqlPort(be.getArrowFlightSqlPort());
             memoryBe.setLastUpdateMs(be.getLastUpdateMs());
             memoryBe.setLastStartTime(be.getLastStartTime());
             memoryBe.setDisks(be.getDisks());
@@ -847,14 +852,17 @@ public class SystemInfoService {
      * return Status.OK if not reach the limit
      */
     public Status checkExceedDiskCapacityLimit(Multimap<Long, Long> bePathsMap, boolean floodStage) {
-        LOG.debug("pathBeMap: {}", bePathsMap);
-        ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDishInfoRef;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("pathBeMap: {}", bePathsMap);
+        }
+        ImmutableMap<Long, DiskInfo> pathHashToDiskInfo = pathHashToDiskInfoRef;
         for (Long beId : bePathsMap.keySet()) {
             for (Long pathHash : bePathsMap.get(beId)) {
                 DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
                 if (diskInfo != null && diskInfo.exceedLimit(floodStage)) {
                     return new Status(TStatusCode.CANCELLED,
-                            "disk " + pathHash + " on backend " + beId + " exceed limit usage");
+                            "disk " + diskInfo.getRootPath() + " on backend "
+                                    + beId + " exceed limit usage, path hash: " + pathHash);
                 }
             }
         }
@@ -864,7 +872,7 @@ public class SystemInfoService {
     // update the path info when disk report
     // there is only one thread can update path info, so no need to worry about concurrency control
     public void updatePathInfo(List<DiskInfo> addedDisks, List<DiskInfo> removedDisks) {
-        Map<Long, DiskInfo> copiedPathInfos = Maps.newHashMap(pathHashToDishInfoRef);
+        Map<Long, DiskInfo> copiedPathInfos = Maps.newHashMap(pathHashToDiskInfoRef);
         for (DiskInfo diskInfo : addedDisks) {
             copiedPathInfos.put(diskInfo.getPathHash(), diskInfo);
         }
@@ -872,14 +880,17 @@ public class SystemInfoService {
             copiedPathInfos.remove(diskInfo.getPathHash());
         }
         ImmutableMap<Long, DiskInfo> newPathInfos = ImmutableMap.copyOf(copiedPathInfos);
-        pathHashToDishInfoRef = newPathInfos;
-        LOG.debug("update path infos: {}", newPathInfos);
+        pathHashToDiskInfoRef = newPathInfos;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("update path infos: {}", newPathInfos);
+        }
     }
 
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
         Backend be = getBackendWithHeartbeatPort(clause.getHost(), clause.getPort());
         if (be == null) {
-            throw new DdlException("backend does not exists[" + clause.getHost() + ":" + clause.getPort() + "]");
+            throw new DdlException("backend does not exists[" + NetUtils
+                    .getHostPortInAccessibleFormat(clause.getHost(), clause.getPort()) + "]");
         }
         if (be.getHost().equals(clause.getNewHost())) {
             // no need to modify
@@ -892,13 +903,26 @@ public class SystemInfoService {
     public void modifyBackends(ModifyBackendClause alterClause) throws UserException {
         List<HostInfo> hostInfos = alterClause.getHostInfos();
         List<Backend> backends = Lists.newArrayList();
-        for (HostInfo hostInfo : hostInfos) {
-            Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
-            if (be == null) {
-                throw new DdlException(
-                        "backend does not exists[" + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
+        if (hostInfos.isEmpty()) {
+            List<String> ids = alterClause.getIds();
+            for (String id : ids) {
+                long backendId = Long.parseLong(id);
+                Backend be = getBackend(backendId);
+                if (be == null) {
+                    throw new DdlException("backend does not exists[" + backendId + "]");
+                }
+                backends.add(be);
             }
-            backends.add(be);
+        } else {
+            for (HostInfo hostInfo : hostInfos) {
+                Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
+                if (be == null) {
+                    throw new DdlException(
+                            "backend does not exists[" + NetUtils
+                                    .getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
+                }
+                backends.add(be);
+            }
         }
 
         for (Backend be : backends) {
@@ -936,7 +960,9 @@ public class SystemInfoService {
         memBe.setQueryDisabled(backend.isQueryDisabled());
         memBe.setLoadDisabled(backend.isLoadDisabled());
         memBe.setHost(backend.getHost());
-        LOG.debug("replay modify backend: {}", backend);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replay modify backend: {}", backend);
+        }
     }
 
     // Check if there is enough suitable BE for replica allocation

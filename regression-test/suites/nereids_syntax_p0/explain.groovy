@@ -26,7 +26,7 @@ suite("nereids_explain") {
 
     explain {
         sql("select count(2) + 1, sum(2) + sum(lo_suppkey) from lineorder")
-        contains "(sum(2) + sum(lo_suppkey))[#"
+        contains "sum(2) + sum(lo_suppkey)"
     }
 
 
@@ -63,7 +63,7 @@ suite("nereids_explain") {
             when 1>1 then cast(1 as float)
             else 0.0 end;
             """
-        contains "SlotDescriptor{id=0, col=null, colUniqueId=null, type=double, nullable=false, isAutoIncrement=false}"
+        contains "SlotDescriptor{id=0, col=null, colUniqueId=null, type=DOUBLE, nullable=false, isAutoIncrement=false, subColPath=null}"
     }
 
     def explainStr = sql("select sum(if(lo_tax=1,lo_tax,0)) from lineorder where false").toString()

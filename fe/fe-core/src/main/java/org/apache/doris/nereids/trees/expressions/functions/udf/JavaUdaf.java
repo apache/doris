@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
@@ -48,9 +47,10 @@ import java.util.stream.Collectors;
  */
 public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSignature, Udf {
     private final String dbName;
+    private final long functionId;
     private final TFunctionBinaryType binaryType;
     private final FunctionSignature signature;
-    private final AbstractDataType intermediateType;
+    private final DataType intermediateType;
     private final NullableMode nullableMode;
     private final String objectFile;
     private final String symbol;
@@ -66,14 +66,16 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     /**
      * Constructor of UDAF
      */
-    public JavaUdaf(String name, String dbName, TFunctionBinaryType binaryType, FunctionSignature signature,
-            AbstractDataType intermediateType, NullableMode nullableMode,
+    public JavaUdaf(String name, long functionId, String dbName, TFunctionBinaryType binaryType,
+            FunctionSignature signature,
+            DataType intermediateType, NullableMode nullableMode,
             String objectFile, String symbol,
             String initFn, String updateFn, String mergeFn,
             String serializeFn, String finalizeFn, String getValueFn, String removeFn,
             boolean isDistinct, String checkSum, Expression... args) {
         super(name, isDistinct, args);
         this.dbName = dbName;
+        this.functionId = functionId;
         this.binaryType = binaryType;
         this.signature = signature;
         this.intermediateType = intermediateType == null ? signature.returnType : intermediateType;
@@ -116,7 +118,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     @Override
     public JavaUdaf withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
-        return new JavaUdaf(getName(), dbName, binaryType, signature, intermediateType, nullableMode,
+        return new JavaUdaf(getName(), functionId, dbName, binaryType, signature, intermediateType, nullableMode,
                 objectFile, symbol, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn, removeFn,
                 isDistinct, checkSum, children.toArray(new Expression[0]));
     }
@@ -146,7 +148,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
             intermediateType = DataType.fromCatalogType(aggregate.getIntermediateType());
         }
 
-        JavaUdaf udaf = new JavaUdaf(fnName, dbName, aggregate.getBinaryType(), sig,
+        JavaUdaf udaf = new JavaUdaf(fnName, aggregate.getId(), dbName, aggregate.getBinaryType(), sig,
                 intermediateType,
                 aggregate.getNullableMode(),
                 aggregate.getLocation().getLocation(),
@@ -176,7 +178,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         try {
             org.apache.doris.catalog.AggregateFunction expr = new org.apache.doris.catalog.AggregateFunction(
                     new FunctionName(dbName, getName()),
-                    signature.argumentsTypes.stream().map(AbstractDataType::toCatalogDataType).toArray(Type[]::new),
+                    signature.argumentsTypes.stream().map(DataType::toCatalogDataType).toArray(Type[]::new),
                     signature.returnType.toCatalogDataType(),
                     signature.hasVarArgs,
                     intermediateType.toCatalogDataType(),
@@ -193,6 +195,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
             expr.setBinaryType(binaryType);
             expr.setNullableMode(nullableMode);
             expr.setChecksum(checkSum);
+            expr.setId(functionId);
             return expr;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());

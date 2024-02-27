@@ -19,27 +19,34 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("no_await") {
 
+    def tblName = "agg_have_dup_base_no_await"
     def waitDrop = {
-        def try_times = 100
+        def try_times = 1000
         def result = "null"
+        sql "sync;"
         while (!result.contains("FINISHED")) {
-            result = (sql "SHOW ALTER TABLE MATERIALIZED VIEW ORDER BY CreateTime DESC LIMIT 1;")[0]
-            Thread.sleep(500)
+            result = (sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tblName}' ORDER BY CreateTime DESC LIMIT 1;")[0]
+            if (!result.contains("RUNNING")&&!result.contains("PENDING")&&!result.contains("FINISHED")&&!result.contains("WAITING_TXN")) {
+                assertTrue(false)
+            }
+            log.info("result: ${result}")
+            Thread.sleep(3000)
             try_times -= 1
             assertTrue(try_times > 0)
         }
-
-        sql "drop materialized view k12s3m on agg_have_dup_base;"
-        while (!(sql "show create materialized view k12s3m on agg_have_dup_base;").empty) {
+        sql "sync;"
+        sql "drop materialized view k12s3m on ${tblName};"
+        while (!(sql "show create materialized view k12s3m on ${tblName};").empty) {
             sleep(100)
             try_times -= 1
             assertTrue(try_times > 0)
         }
+        sql "sync;"
     }
 
-    sql 'drop table if exists agg_have_dup_base'
-    sql '''
-        create table agg_have_dup_base (
+    sql "drop table if exists ${tblName} force;"
+    sql """
+        create table ${tblName} (
             k1 int null,
             k2 int not null,
             k3 bigint null,
@@ -48,95 +55,95 @@ suite ("no_await") {
         duplicate key (k1, k2, k3)
         distributed by hash(k1) buckets 3
         properties("replication_num" = "1");
-    '''
-    sql "insert into agg_have_dup_base select e1, -4, -4, 'd' from (select 1 k1) as t lateral view explode_numbers(10000) tmp1 as e1;"
+    """
+    sql "insert into ${tblName} select e1, -4, -4, 'd' from (select 1 k1) as t lateral view explode_numbers(10000) tmp1 as e1;"
     // do not await
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;"
-    sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-    qt_mv 'select sum(k1) from agg_have_dup_base'
+    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    qt_mv "select sum(k1) from ${tblName}"
 }

@@ -48,7 +48,7 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
         String sql = "show create table table1";
         ShowResultSet showResultSet = showCreateTable(sql);
         String showSql = showResultSet.getResultRows().get(0).get(1);
-        Assertions.assertTrue(showSql.contains("`k1` int(11) NULL COMMENT 'test column k1'"));
+        Assertions.assertTrue(showSql.contains("`k1` INT NULL COMMENT 'test column k1'"));
         Assertions.assertTrue(showSql.contains("COMMENT 'test table1'"));
     }
 

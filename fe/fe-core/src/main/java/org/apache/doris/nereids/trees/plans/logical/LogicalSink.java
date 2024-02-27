@@ -19,21 +19,67 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /** abstract logical sink */
 public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
-    public LogicalSink(PlanType type, CHILD_TYPE child) {
+    protected final List<NamedExpression> outputExprs;
+
+    public LogicalSink(PlanType type, List<NamedExpression> outputExprs, CHILD_TYPE child) {
         super(type, child);
+        this.outputExprs = ImmutableList.copyOf(Objects.requireNonNull(outputExprs, "outputExprs should not null"));
     }
 
-    public LogicalSink(PlanType type,
+    public LogicalSink(PlanType type, List<NamedExpression> outputExprs,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(type, groupExpression, logicalProperties, child);
+        this.outputExprs = ImmutableList.copyOf(Objects.requireNonNull(outputExprs, "outputExprs should not null"));
+    }
+
+    public List<NamedExpression> getOutputExprs() {
+        return outputExprs;
+    }
+
+    public abstract LogicalSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs);
+
+    @Override
+    public List<? extends Expression> getExpressions() {
+        return outputExprs;
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return outputExprs.stream()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalSink<?> that = (LogicalSink<?>) o;
+        return Objects.equals(outputExprs, that.outputExprs);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), outputExprs);
     }
 }

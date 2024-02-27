@@ -124,7 +124,7 @@ public:
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
         if (_offsets.size() == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         *reinterpret_cast<Slice*>(value) = Slice(_first_value);
         return Status::OK();
@@ -132,7 +132,7 @@ public:
     Status get_last_value(void* value) const override {
         DCHECK(_finished);
         if (_offsets.size() == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         *reinterpret_cast<Slice*>(value) = Slice(_last_value);
         return Status::OK();

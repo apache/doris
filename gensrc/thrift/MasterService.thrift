@@ -46,6 +46,9 @@ struct TTabletInfo {
     // 18: optional bool is_cooldown
     19: optional i64 cooldown_term
     20: optional Types.TUniqueId cooldown_meta_id
+
+    // For cloud
+    1000: optional bool is_persistent
 }
 
 struct TFinishTaskRequest {
@@ -65,6 +68,8 @@ struct TFinishTaskRequest {
     14: optional list<Types.TTabletId> downloaded_tablet_ids
     15: optional i64 copy_size
     16: optional i64 copy_time_ms
+    17: optional map<Types.TTabletId, Types.TVersion> succ_tablets
+    18: optional map<i64, i64> table_id_to_delta_num_rows
 }
 
 struct TTablet {
@@ -81,6 +86,7 @@ struct TDisk {
     6: optional i64 path_hash
     7: optional Types.TStorageMedium storage_medium
     8: optional Types.TSize remote_used_capacity
+    9: optional Types.TSize trash_used_capacity
 }
 
 struct TPluginInfo {

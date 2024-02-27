@@ -17,15 +17,35 @@
 
 suite("test_array_functions_by_literal") {
     // array_nested function
+    sql """ set enable_nereids_planner = false; """
     qt_sql "select a from (select array(1, 1, 2, 2, 2, 2) as a) t"
+
+    // array with decimal and other types
+    qt_sql_1 """select array(1.0,2.0,null, null,2.0);"""
+    qt_sql_1 """select array('a',2.0,null, null,2.0);"""
+    qt_sql_1 """select array(1,2.0,null, null,2.0);"""
+    qt_sql_2 """select array_sort(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_3 """select array_min(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_4 """select array_max(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_5 """select array_avg(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_6 """select array_sum(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_7 """select array_product(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_8 """select array_distinct(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_9 """select array_intersect(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
+    qt_sql_10 """select array_except(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
+    qt_sql_11 """select array_union(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
+    qt_sql_14 """select array_popfront(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_15 """select array_popback(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_16 """select array_concat(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
 
 
     // array_contains function
+    qt_sql "select array_contains([1.111, 2, 3.333], 2);"
     qt_sql "select array_contains([1,2,3], 1)"
     qt_sql "select array_contains([1,2,3], 4)"
     qt_sql "select array_contains([1,2,3,NULL], 1)"
     qt_sql "select array_contains([1,2,3,NULL], NULL)"
-    qt_sql "select array_contains([], 1)"
+    qt_sql "select array_contains([], true)"
     qt_sql "select array_contains([], NULL)"
     qt_sql "select array_contains(NULL, 1)"
     qt_sql "select array_contains(NULL, NULL)"
@@ -35,16 +55,17 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_contains(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))), cast (111.111 as decimalv3(6,3)))"
 
     // array_position function
+    qt_sql "select array_position([1.111, 2, 3.333], 2);"
     qt_sql "select array_position([1,2,3], 1)"
     qt_sql "select array_position([1,2,3], 3)"
     qt_sql "select array_position([1,2,3], 4)"
     qt_sql "select array_position([NULL,2,3], 2)"
     qt_sql "select array_position([NULL,2,3], NULL)"
-    qt_sql "select array_position([], 1)"
+    qt_sql "select array_position([], true)"
     qt_sql "select array_position([], NULL)"
     qt_sql "select array_position(NULL, 1)"
     qt_sql "select array_position(NULL, NULL)"
-    qt_sql "select array_position([null], 0)"
+    qt_sql "select array_position([null], true)"
     qt_sql "select array_position([0], null)"
     qt_sql "select array_position([null, '1'], '')"
     qt_sql "select array_position([''], null)"
@@ -229,6 +250,12 @@ suite("test_array_functions_by_literal") {
     qt_sql_intersect_3 "select array_intersect([1,2,3, null], [1,2,3,null], [1,2,null], [1, null])"
     qt_sql_intersect_4 "select array_intersect([1,2,3], [1,2,3], [null], [])"
 
+    // array_union-with-multiple-arguments
+    qt_sql_union_1 "select array_union([1,2,3], [1,2,3], [null])"
+    qt_sql_union_2 "select array_union([1, 2, null], [1, 3, null], [1,2,3,null])"
+    qt_sql_union_3 "select array_union([1,2,3, null], [1,2,3,null], [1,2,null], [1, null])"
+    qt_sql_union_4 "select array_union([1,2,3], [1,2,3], [null], [])"
+
     // array_popfront function
     qt_sql "select array_popfront([1,2,3,4,5,6])"
     qt_sql "select array_popfront([])"
@@ -292,10 +319,11 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_concat(array(cast ('2023-03-05 12:23:24.999' as datetimev2(3)),cast ('2023-03-05 15:23:23.997' as datetimev2(3))))"
 
     // array_shuffle
-    qt_select_array_shuffle1 "SELECT array_sum(array_shuffle([1, 2, 3, 3, null, null, 4, 4])), array_shuffle([1, 2, 3, 3, null, null, 4, 4], 0), shuffle([1, 2, 3, 3, null, null, 4, 4], 0)"
-    qt_select_array_shuffle2 "SELECT array_sum(array_shuffle([1.111, 2.222, 3.333])), array_shuffle([1.111, 2.222, 3.333], 0), shuffle([1.111, 2.222, 3.333], 0)"
-    qt_select_array_shuffle3 "SELECT array_size(array_shuffle(['aaa', null, 'bbb', 'fff'])), array_shuffle(['aaa', null, 'bbb', 'fff'], 0), shuffle(['aaa', null, 'bbb', 'fff'], 0)"
-    qt_select_array_shuffle4 """select array_size(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17")), array_shuffle(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17"), 0), shuffle(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17"), 0)"""
+    // do not check result, since shuffle result is random
+    sql "SELECT array_sum(array_shuffle([1, 2, 3, 3, null, null, 4, 4])), array_shuffle([1, 2, 3, 3, null, null, 4, 4], 0), shuffle([1, 2, 3, 3, null, null, 4, 4], 0)"
+    sql "SELECT array_sum(array_shuffle([1.111, 2.222, 3.333])), array_shuffle([1.111, 2.222, 3.333], 0), shuffle([1.111, 2.222, 3.333], 0)"
+    sql "SELECT array_size(array_shuffle(['aaa', null, 'bbb', 'fff'])), array_shuffle(['aaa', null, 'bbb', 'fff'], 0), shuffle(['aaa', null, 'bbb', 'fff'], 0)"
+    sql """select array_size(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17")), array_shuffle(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17"), 0), shuffle(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17"), 0)"""
 
     // array_zip
     qt_sql "select array_zip(['a', 'b', 'c'], ['d', 'e', 'f'])"

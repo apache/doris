@@ -17,13 +17,18 @@
 
 package org.apache.doris.datasource;
 
-
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -34,6 +39,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -84,7 +90,7 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         if (this instanceof ExternalCatalog) {
-            ((ExternalCatalog) this).setUninitialized(false);
+            ((ExternalCatalog) this).onRefresh(false);
         }
     }
 
@@ -153,6 +159,9 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     String getComment();
 
+    default void setComment(String comment) {
+    }
+
     default long getLastUpdateTime() {
         return -1L;
     }
@@ -168,6 +177,17 @@ public interface CatalogIf<T extends DatabaseIf> {
     }
 
     // Return a copy of all db collection.
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    public Collection<DatabaseIf> getAllDbs();
+    Collection<DatabaseIf<? extends TableIf>> getAllDbs();
+
+    boolean enableAutoAnalyze();
+
+    ConcurrentHashMap<Long, DatabaseIf> getIdToDb();
+
+    void createDb(CreateDbStmt stmt) throws DdlException;
+
+    void dropDb(DropDbStmt stmt) throws DdlException;
+
+    void createTable(CreateTableStmt stmt) throws UserException;
+
+    void dropTable(DropTableStmt stmt) throws DdlException;
 }

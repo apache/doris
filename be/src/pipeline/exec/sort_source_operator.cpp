@@ -25,4 +25,20 @@ namespace doris::pipeline {
 
 OPERATOR_CODE_GENERATOR(SortSourceOperator, SourceOperator)
 
+SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
+        : PipelineXLocalState<SortSharedState>(state, parent) {}
+
+SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                                         const DescriptorTbl& descs)
+        : OperatorX<SortLocalState>(pool, tnode, operator_id, descs) {}
+
+Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+            local_state._shared_state->sorter->get_next(state, block, eos));
+    local_state.reached_limit(block, eos);
+    return Status::OK();
+}
+
 } // namespace doris::pipeline

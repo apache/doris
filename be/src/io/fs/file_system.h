@@ -17,42 +17,35 @@
 
 #pragma once
 
-#include <bthread/bthread.h>
 #include <butil/macros.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
-#include <filesystem>
-#include <functional>
+#include <cstdint>
 #include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "io/fs/file_reader_options.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/fs_utils.h"
 #include "io/fs/path.h"
 
-namespace doris {
-namespace io {
-class FileSystem;
+namespace doris::io {
 
 #ifndef FILESYSTEM_M
-#define FILESYSTEM_M(stmt)                    \
-    do {                                      \
-        Status _s;                            \
-        if (bthread_self() == 0) {            \
-            _s = (stmt);                      \
-        } else {                              \
-            auto task = [&] { _s = (stmt); }; \
-            AsyncIO::run_task(task, _type);   \
-        }                                     \
-        if (!_s) {                            \
-            LOG(WARNING) << _s;               \
-        }                                     \
-        return _s;                            \
+#define FILESYSTEM_M(stmt)                                  \
+    do {                                                    \
+        Status _s;                                          \
+        if (bthread_self() == 0) {                          \
+            _s = (stmt);                                    \
+        } else {                                            \
+            auto task = [&] { _s = (stmt); };               \
+            AsyncIO::run_task(task, _type);                 \
+        }                                                   \
+        if (!_s) {                                          \
+            LOG(WARNING) << _s;                             \
+            _s = Status::Error<false>(_s.code(), _s.msg()); \
+        }                                                   \
+        return _s;                                          \
     } while (0);
 #endif
 
@@ -74,17 +67,10 @@ class FileSystem : public std::enable_shared_from_this<FileSystem> {
 public:
     // The following are public interface.
     // And derived classes should implement all xxx_impl methods.
-    Status create_file(const Path& file, FileWriterPtr* writer);
-    Status open_file(const Path& file, FileReaderSPtr* reader) {
-        FileDescription fd;
-        fd.path = file.native();
-        return open_file(fd, FileReaderOptions::DEFAULT, reader);
-    }
-    Status open_file(const FileDescription& fd, FileReaderSPtr* reader) {
-        return open_file(fd, FileReaderOptions::DEFAULT, reader);
-    }
-    Status open_file(const FileDescription& fd, const FileReaderOptions& reader_options,
-                     FileReaderSPtr* reader);
+    Status create_file(const Path& file, FileWriterPtr* writer,
+                       const FileWriterOptions* opts = nullptr);
+    Status open_file(const Path& file, FileReaderSPtr* reader,
+                     const FileReaderOptions* opts = nullptr);
     Status create_directory(const Path& dir, bool failed_if_exists = false);
     Status delete_file(const Path& file);
     Status delete_directory(const Path& dir);
@@ -93,11 +79,9 @@ public:
     Status file_size(const Path& file, int64_t* file_size) const;
     Status list(const Path& dir, bool only_file, std::vector<FileInfo>* files, bool* exists);
     Status rename(const Path& orig_name, const Path& new_name);
-    Status rename_dir(const Path& orig_name, const Path& new_name);
 
     std::shared_ptr<FileSystem> getSPtr() { return shared_from_this(); }
 
-public:
     // the root path of this fs.
     // if not empty, all given Path will be "_root_path/path"
     const Path& root_path() const { return _root_path; }
@@ -111,16 +95,17 @@ public:
     virtual ~FileSystem() = default;
 
     // Each derived class should implement create method to create fs.
-    DISALLOW_COPY_AND_ASSIGN(FileSystem);
+    FileSystem(const FileSystem&) = delete;
+    const FileSystem& operator=(const FileSystem&) = delete;
 
 protected:
     /// create file and return a FileWriter
-    virtual Status create_file_impl(const Path& file, FileWriterPtr* writer) = 0;
+    virtual Status create_file_impl(const Path& file, FileWriterPtr* writer,
+                                    const FileWriterOptions* opts) = 0;
 
     /// open file and return a FileReader
-    virtual Status open_file_impl(const FileDescription& fd, const Path& abs_file,
-                                  const FileReaderOptions& reader_options,
-                                  FileReaderSPtr* reader) = 0;
+    virtual Status open_file_impl(const Path& file, FileReaderSPtr* reader,
+                                  const FileReaderOptions* opts) = 0;
 
     /// create directory recursively
     virtual Status create_directory_impl(const Path& dir, bool failed_if_exists = false) = 0;
@@ -159,9 +144,6 @@ protected:
     /// rename file from orig_name to new_name
     virtual Status rename_impl(const Path& orig_name, const Path& new_name) = 0;
 
-    /// rename dir from orig_name to new_name
-    virtual Status rename_dir_impl(const Path& orig_name, const Path& new_name) = 0;
-
     virtual Path absolute_path(const Path& path) const {
         if (path.is_absolute()) {
             return path;
@@ -169,7 +151,6 @@ protected:
         return _root_path / path;
     }
 
-protected:
     FileSystem(Path&& root_path, std::string&& id, FileSystemType type)
             : _root_path(std::move(root_path)), _id(std::move(id)), _type(type) {}
 
@@ -180,5 +161,4 @@ protected:
 
 using FileSystemSPtr = std::shared_ptr<FileSystem>;
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

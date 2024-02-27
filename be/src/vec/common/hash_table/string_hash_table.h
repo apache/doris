@@ -24,34 +24,43 @@
 #include <variant>
 
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_table_utils.h"
+#include "vec/common/hash_table/hash_table.h"
+#include "vec/common/memcpy_small.h"
 
+using StringKey2 = doris::vectorized::UInt16;
+using StringKey4 = doris::vectorized::UInt32;
 using StringKey8 = doris::vectorized::UInt64;
 using StringKey16 = doris::vectorized::UInt128;
-struct StringKey24 {
-    doris::vectorized::UInt64 a;
-    doris::vectorized::UInt64 b;
-    doris::vectorized::UInt64 c;
 
-    bool operator==(const StringKey24 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
+struct StringHashMapSubKeys {
+    using T1 = StringKey2;
+    using T2 = StringKey4;
+    using T3 = StringKey8;
+    using T4 = StringKey16;
 };
 
-inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey8& n) {
+template <typename StringKey>
+StringKey to_string_key(const doris::StringRef& key) {
+    DCHECK_LE(key.size, sizeof(StringKey));
+    StringKey string_key {};
+    memcpy_small<sizeof(StringKey)>((char*)&string_key, key.data, key.size);
+    return string_key;
+}
+
+template <typename T>
+inline doris::StringRef ALWAYS_INLINE to_string_ref(const T& n) {
     assert(n != 0);
-    return {reinterpret_cast<const char*>(&n), 8ul - (__builtin_clzll(n) >> 3)};
+    return {reinterpret_cast<const char*>(&n), sizeof(T) - (__builtin_clzll(n) >> 3)};
 }
 inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey16& n) {
     assert(n.high != 0);
     return {reinterpret_cast<const char*>(&n), 16ul - (__builtin_clzll(n.high) >> 3)};
 }
-inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey24& n) {
-    assert(n.c != 0);
-    return {reinterpret_cast<const char*>(&n), 24ul - (__builtin_clzll(n.c) >> 3)};
-}
 
 struct StringHashTableHash {
 #if defined(__SSE4_2__) || defined(__aarch64__)
-    size_t ALWAYS_INLINE operator()(StringKey8 key) const {
+    template <typename T>
+    size_t ALWAYS_INLINE operator()(T key) const {
         size_t res = -1ULL;
         res = _mm_crc32_u64(res, key);
         return res;
@@ -62,32 +71,30 @@ struct StringHashTableHash {
         res = _mm_crc32_u64(res, key.high);
         return res;
     }
-    size_t ALWAYS_INLINE operator()(StringKey24 key) const {
-        size_t res = -1ULL;
-        res = _mm_crc32_u64(res, key.a);
-        res = _mm_crc32_u64(res, key.b);
-        res = _mm_crc32_u64(res, key.c);
-        return res;
-    }
 #else
-    size_t ALWAYS_INLINE operator()(StringKey8 key) const {
-        return util_hash::CityHash64(reinterpret_cast<const char*>(&key), 8);
-    }
-    size_t ALWAYS_INLINE operator()(StringKey16 key) const {
-        return util_hash::CityHash64(reinterpret_cast<const char*>(&key), 16);
-    }
-    size_t ALWAYS_INLINE operator()(StringKey24 key) const {
-        return util_hash::CityHash64(reinterpret_cast<const char*>(&key), 24);
+    template <typename T>
+    size_t ALWAYS_INLINE operator()(T key) const {
+        return util_hash::CityHash64(reinterpret_cast<const char*>(&key), sizeof(T));
     }
 #endif
     size_t ALWAYS_INLINE operator()(doris::StringRef key) const {
+        if (key.size == 0) {
+            return 0;
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T1)) {
+            return StringHashTableHash()(to_string_key<StringHashMapSubKeys::T1>(key));
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T2)) {
+            return StringHashTableHash()(to_string_key<StringHashMapSubKeys::T2>(key));
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T3)) {
+            return StringHashTableHash()(to_string_key<StringHashMapSubKeys::T3>(key));
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T4)) {
+            return StringHashTableHash()(to_string_key<StringHashMapSubKeys::T4>(key));
+        }
         return doris::StringRefHash()(key);
     }
 };
 
 template <typename Cell>
-struct StringHashTableEmpty //-V730
-{
+struct StringHashTableEmpty {
     using Self = StringHashTableEmpty;
 
     bool _has_zero = false;
@@ -124,10 +131,8 @@ public:
     using ConstLookupResult = const Cell*;
 
     template <typename KeyHolder>
-    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted,
-                               size_t = 0) {
+    void ALWAYS_INLINE emplace(KeyHolder&& key, LookupResult& it, bool& inserted, size_t = 0) {
         if (!has_zero()) {
-            const auto& key = key_holder_get_key(key_holder);
             set_has_zero(key);
             inserted = true;
         } else {
@@ -146,16 +151,15 @@ public:
 
     private:
         Constructor(Cell* cell) : _cell(cell) {}
-        Cell* _cell;
+        Cell* _cell = nullptr;
     };
 
-    template <typename KeyHolder, typename Func>
-    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
-                                    Func&& f) {
+    template <typename KeyHolder, typename Func, typename Origin>
+    void ALWAYS_INLINE lazy_emplace_with_origin(KeyHolder&& key, Origin&& origin, LookupResult& it,
+                                                size_t hash_value, Func&& f) {
         if (!has_zero()) {
-            const auto& key = key_holder_get_key(key_holder);
             set_has_zero(key);
-            std::forward<Func>(f)(Constructor(zero_value()), key);
+            std::forward<Func>(f)(Constructor(zero_value()), key, origin);
         }
         it = zero_value();
     }
@@ -184,10 +188,9 @@ struct StringHashTableGrower : public HashTableGrowerWithPrecalculation<initial_
 template <typename Mapped>
 struct StringHashTableLookupResult {
     Mapped* mapped_ptr;
-    StringHashTableLookupResult() : mapped_ptr(nullptr) {}                        /// NOLINT
-    StringHashTableLookupResult(Mapped* mapped_ptr_) : mapped_ptr(mapped_ptr_) {} /// NOLINT
-    StringHashTableLookupResult(std::nullptr_t) {}                                /// NOLINT
-    const VoidKey getKey() const { return {}; }                                   /// NOLINT
+    StringHashTableLookupResult() : mapped_ptr(nullptr) {}
+    StringHashTableLookupResult(Mapped* mapped_ptr_) : mapped_ptr(mapped_ptr_) {}
+    StringHashTableLookupResult(std::nullptr_t) {}
     auto& get_mapped() { return *mapped_ptr; }
     auto& operator*() { return *this; }
     auto& operator*() const { return *this; }
@@ -216,7 +219,6 @@ ALWAYS_INLINE inline auto lookup_result_get_mapped(StringHashTableLookupResult<M
 template <typename SubMaps>
 class StringHashTable : private boost::noncopyable {
 protected:
-    static constexpr size_t NUM_MAPS = 5;
     // Map for storing empty string
     using T0 = typename SubMaps::T0;
 
@@ -224,18 +226,17 @@ protected:
     using T1 = typename SubMaps::T1;
     using T2 = typename SubMaps::T2;
     using T3 = typename SubMaps::T3;
+    using T4 = typename SubMaps::T4;
 
     // Long strings are stored as doris::StringRef along with saved hash
     using Ts = typename SubMaps::Ts;
     using Self = StringHashTable;
 
-    template <typename, typename, size_t>
-    friend class TwoLevelStringHashTable;
-
     T0 m0;
     T1 m1;
     T2 m2;
     T3 m3;
+    T4 m4;
     Ts ms;
 
     using Cell = typename Ts::cell_type;
@@ -244,12 +245,13 @@ protected:
     class iterator_base {
         using Container = std::conditional_t<is_const, const Self, Self>;
 
-        Container* container;
+        Container* container = nullptr;
         int sub_table_index;
         typename T1::iterator iterator1;
         typename T2::iterator iterator2;
         typename T3::iterator iterator3;
-        typename Ts::iterator iterator4;
+        typename T4::iterator iterator4;
+        typename Ts::iterator iterator5;
 
         typename Ts::cell_type cell;
 
@@ -259,39 +261,52 @@ protected:
         iterator_base() = default;
         iterator_base(Container* container_, bool end = false) : container(container_) {
             if (end) {
-                sub_table_index = 4;
-                iterator4 = container->ms.end();
+                sub_table_index = 5;
+                iterator5 = container->ms.end();
             } else {
                 sub_table_index = 0;
-                if (container->m0.size() == 0)
+                if (container->m0.size() == 0) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
                 iterator1 = container->m1.begin();
-                if (iterator1 == container->m1.end())
+                if (iterator1 == container->m1.end()) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
                 iterator2 = container->m2.begin();
-                if (iterator2 == container->m2.end())
+                if (iterator2 == container->m2.end()) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
                 iterator3 = container->m3.begin();
-                if (iterator3 == container->m3.end())
+                if (iterator3 == container->m3.end()) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
-                iterator4 = container->ms.begin();
+                iterator4 = container->m4.begin();
+                if (iterator4 == container->m4.end()) {
+                    sub_table_index++;
+                } else {
+                    return;
+                }
+
+                iterator5 = container->ms.begin();
             }
         }
 
         bool operator==(const iterator_base& rhs) const {
-            if (sub_table_index != rhs.sub_table_index) return false;
+            if (sub_table_index != rhs.sub_table_index) {
+                return false;
+            }
             switch (sub_table_index) {
             case 0: {
                 return true;
@@ -308,7 +323,11 @@ protected:
             case 4: {
                 return iterator4 == rhs.iterator4;
             }
+            case 5: {
+                return iterator5 == rhs.iterator5;
             }
+            }
+            LOG(FATAL) << "__builtin_unreachable";
             __builtin_unreachable();
         }
 
@@ -344,6 +363,13 @@ protected:
             }
             case 4: {
                 ++iterator4;
+                if (iterator4 == container->m4.end()) {
+                    need_switch_to_next = true;
+                }
+                break;
+            }
+            case 5: {
+                ++iterator5;
                 break;
             }
             }
@@ -374,7 +400,14 @@ protected:
                     break;
                 }
                 case 4: {
-                    iterator4 = container->ms.begin();
+                    iterator4 = container->m4.begin();
+                    if (iterator4 == container->m4.end()) {
+                        need_switch_to_next = true;
+                    }
+                    break;
+                }
+                case 5: {
+                    iterator5 = container->ms.begin();
                     break;
                 }
                 }
@@ -405,6 +438,10 @@ protected:
                 const_cast<iterator_base*>(this)->cell = *iterator4;
                 break;
             }
+            case 5: {
+                const_cast<iterator_base*>(this)->cell = *iterator5;
+                break;
+            }
             }
             return cell;
         }
@@ -427,12 +464,13 @@ protected:
                 return iterator3->get_hash(container->m3);
             }
             case 4: {
-                return iterator4->get_hash(container->ms);
+                return iterator4->get_hash(container->m4);
+            }
+            case 5: {
+                return iterator5->get_hash(container->ms);
             }
             }
         }
-
-        size_t get_collision_chain_length() const { return 0; }
 
         /**
           * A hack for HashedDictionary.
@@ -465,29 +503,15 @@ public:
     StringHashTable() = default;
 
     explicit StringHashTable(size_t reserve_for_num_elements)
-            : m1 {reserve_for_num_elements / 4},
-              m2 {reserve_for_num_elements / 4},
-              m3 {reserve_for_num_elements / 4},
-              ms {reserve_for_num_elements / 4} {}
-
-    StringHashTable(StringHashTable&& rhs) noexcept
-            : m1(std::move(rhs.m1)),
-              m2(std::move(rhs.m2)),
-              m3(std::move(rhs.m3)),
-              ms(std::move(rhs.ms)) {}
-
-    StringHashTable& operator=(StringHashTable&& other) {
-        std::swap(m0, other.m0);
-        std::swap(m1, other.m1);
-        std::swap(m2, other.m2);
-        std::swap(m3, other.m3);
-        std::swap(ms, other.ms);
-        return *this;
-    }
+            : m1 {reserve_for_num_elements / 5},
+              m2 {reserve_for_num_elements / 5},
+              m3 {reserve_for_num_elements / 5},
+              m4 {reserve_for_num_elements / 5},
+              ms {reserve_for_num_elements / 5} {}
 
     ~StringHashTable() = default;
 
-    size_t hash(doris::StringRef key) { return StringHashTableHash()(key); }
+    size_t hash(const doris::StringRef& key) { return StringHashTableHash()(key); }
 
     // Dispatch is written in a way that maximizes the performance:
     // 1. Always memcpy 8 times bytes
@@ -500,68 +524,33 @@ public:
     // std::string here, but you can pass i.e. ColumnString::getDataAt()),
     // since it copies 8 bytes at a time.
     template <typename Self, typename KeyHolder, typename Func>
-    static auto ALWAYS_INLINE dispatch(Self& self, KeyHolder&& key_holder, Func&& func) {
-        StringHashTableHash hash;
-        const doris::StringRef& x = key_holder_get_key(key_holder);
-        const size_t sz = x.size;
+    static auto ALWAYS_INLINE dispatch(Self& self, KeyHolder&& key, size_t hash_value,
+                                       Func&& func) {
+        const size_t sz = key.size;
         if (sz == 0) {
-            key_holder_discard_key(key_holder);
-            return func(self.m0, std::forward<KeyHolder>(key_holder), 0);
+            return func(self.m0, std::forward<KeyHolder>(key), key, 0);
         }
 
-        if (x.data[sz - 1] == 0) {
+        if (key.data[sz - 1] == 0) {
             // Strings with trailing zeros are not representable as fixed-size
             // string keys. Put them to the generic table.
-            return func(self.ms, std::forward<KeyHolder>(key_holder), hash(x));
+            return func(self.ms, std::forward<KeyHolder>(key), key, hash_value);
         }
 
-        const char* p = x.data;
-        // pending bits that needs to be shifted out
-        const char s = (-sz & 7) * 8;
-        union {
-            StringKey8 k8;
-            StringKey16 k16;
-            StringKey24 k24;
-            doris::vectorized::UInt64 n[3];
-        };
-        switch ((sz - 1) >> 3) {
-        case 0: // 1..8 bytes
-        {
-            // first half page
-            if ((reinterpret_cast<uintptr_t>(p) & 2048) == 0) {
-                memcpy(&n[0], p, 8);
-                n[0] &= -1ULL >> s;
-            } else {
-                const char* lp = x.data + x.size - 8;
-                memcpy(&n[0], lp, 8);
-                n[0] >>= s;
-            }
-            key_holder_discard_key(key_holder);
-            return func(self.m1, k8, hash(k8));
+        if (sz <= sizeof(StringHashMapSubKeys::T1)) {
+            return func(self.m1, to_string_key<StringHashMapSubKeys::T1>(key), key, hash_value);
         }
-        case 1: // 9..16 bytes
-        {
-            memcpy(&n[0], p, 8);
-            const char* lp = x.data + x.size - 8;
-            memcpy(&n[1], lp, 8);
-            n[1] >>= s;
-            key_holder_discard_key(key_holder);
-            return func(self.m2, k16, hash(k16));
+        if (sz <= sizeof(StringHashMapSubKeys::T2)) {
+            return func(self.m2, to_string_key<StringHashMapSubKeys::T2>(key), key, hash_value);
         }
-        case 2: // 17..24 bytes
-        {
-            memcpy(&n[0], p, 16);
-            const char* lp = x.data + x.size - 8;
-            memcpy(&n[2], lp, 8);
-            n[2] >>= s;
-            key_holder_discard_key(key_holder);
-            return func(self.m3, k24, hash(k24));
+        if (sz <= sizeof(StringHashMapSubKeys::T3)) {
+            return func(self.m3, to_string_key<StringHashMapSubKeys::T3>(key), key, hash_value);
         }
-        default: // >= 25 bytes
-        {
-            return func(self.ms, std::forward<KeyHolder>(key_holder), hash(x));
+        if (sz <= sizeof(StringHashMapSubKeys::T4)) {
+            return func(self.m4, to_string_key<StringHashMapSubKeys::T4>(key), key, hash_value);
         }
-        }
+
+        return func(self.ms, std::forward<KeyHolder>(key), key, hash_value);
     }
 
     struct EmplaceCallable {
@@ -571,8 +560,9 @@ public:
         EmplaceCallable(LookupResult& mapped_, bool& inserted_)
                 : mapped(mapped_), inserted(inserted_) {}
 
-        template <typename Map, typename KeyHolder>
-        void ALWAYS_INLINE operator()(Map& map, KeyHolder&& key_holder, size_t hash) {
+        template <typename Map, typename KeyHolder, typename Origin>
+        void ALWAYS_INLINE operator()(Map& map, KeyHolder&& key_holder, Origin&& origin,
+                                      size_t hash) {
             typename Map::LookupResult result;
             map.emplace(key_holder, result, inserted, hash);
             mapped = &result->get_second();
@@ -580,8 +570,9 @@ public:
     };
 
     template <typename KeyHolder>
-    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted) {
-        this->dispatch(*this, key_holder, EmplaceCallable(it, inserted));
+    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted,
+                               size_t hash_value) {
+        this->dispatch(*this, key_holder, hash_value, EmplaceCallable(it, inserted));
     }
 
     template <typename Func>
@@ -592,47 +583,69 @@ public:
         LazyEmplaceCallable(LookupResult& mapped_, Func&& f_)
                 : mapped(mapped_), f(std::forward<Func>(f_)) {}
 
-        template <typename Map, typename KeyHolder>
-        void ALWAYS_INLINE operator()(Map& map, KeyHolder&& key_holder, size_t hash) {
+        template <typename Map, typename Key, typename OriginalKey>
+        void ALWAYS_INLINE operator()(Map& map, Key&& key, OriginalKey&& origin, size_t hash) {
             typename Map::LookupResult result;
-            map.lazy_emplace(key_holder, result, hash, std::forward<Func>(f));
+            map.lazy_emplace_with_origin(key, origin, result, hash, std::forward<Func>(f));
             mapped = &result->get_second();
         }
     };
 
     template <typename KeyHolder, typename Func>
-    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
-        this->dispatch(*this, key_holder, LazyEmplaceCallable<Func>(it, std::forward<Func>(f)));
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                                    Func&& f) {
+        this->dispatch(*this, key_holder, hash_value,
+                       LazyEmplaceCallable<Func>(it, std::forward<Func>(f)));
+    }
+
+    template <bool read>
+    void ALWAYS_INLINE prefetch(const doris::StringRef& key, size_t hash_value) {
+        if (!key.size) {
+            return;
+        }
+        if (key.size <= sizeof(StringHashMapSubKeys::T1)) {
+            m1.template prefetch<read>(hash_value);
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T2)) {
+            m2.template prefetch<read>(hash_value);
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T3)) {
+            m3.template prefetch<read>(hash_value);
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T4)) {
+            m4.template prefetch<read>(hash_value);
+        } else {
+            ms.template prefetch<read>(hash_value);
+        }
     }
 
     struct FindCallable {
         // find() doesn't need any key memory management, so we don't work with
         // any key holders here, only with normal keys. The key type is still
         // different for every subtable, this is why it is a template parameter.
-        template <typename Submap, typename SubmapKey>
-        auto ALWAYS_INLINE operator()(Submap& map, const SubmapKey& key, size_t hash) {
+        template <typename Submap, typename SubmapKey, typename Origin>
+        auto ALWAYS_INLINE operator()(Submap& map, const SubmapKey& key, const Origin& origin,
+                                      size_t hash) {
             auto it = map.find(key, hash);
-            if (!it)
+            if (!it) {
                 return decltype(&it->get_mapped()) {};
-            else
+            } else {
                 return &it->get_mapped();
+            }
         }
     };
 
-    LookupResult ALWAYS_INLINE find(const Key& x) { return dispatch(*this, x, FindCallable {}); }
-
-    ConstLookupResult ALWAYS_INLINE find(const Key& x) const {
-        return dispatch(*this, x, FindCallable {});
+    LookupResult ALWAYS_INLINE find(const Key& x, size_t hash_value) {
+        return dispatch(*this, x, hash_value, FindCallable {});
     }
 
-    bool ALWAYS_INLINE has(const Key& x, size_t = 0) const {
-        return dispatch(*this, x, FindCallable {}) != nullptr;
+    ConstLookupResult ALWAYS_INLINE find(const Key& x, size_t hash_value) const {
+        return dispatch(*this, x, hash_value, FindCallable {});
     }
 
-    size_t size() const { return m0.size() + m1.size() + m2.size() + m3.size() + ms.size(); }
+    size_t size() const {
+        return m0.size() + m1.size() + m2.size() + m3.size() + m4.size() + ms.size();
+    }
 
     bool empty() const {
-        return m0.empty() && m1.empty() && m2.empty() && m3.empty() && ms.empty();
+        return m0.empty() && m1.empty() && m2.empty() && m3.empty() && m4.empty() && ms.empty();
     }
 
     size_t get_buffer_size_in_bytes() const {
@@ -663,17 +676,7 @@ public:
 
     bool add_elem_size_overflow(size_t add_size) const {
         return m1.add_elem_size_overflow(add_size) || m2.add_elem_size_overflow(add_size) ||
-               m3.add_elem_size_overflow(add_size) || ms.add_elem_size_overflow(add_size);
+               m3.add_elem_size_overflow(add_size) || m4.add_elem_size_overflow(add_size) ||
+               ms.add_elem_size_overflow(add_size);
     }
-
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-    size_t get_collisions() const { return 0; }
-#endif
-};
-
-template <typename SubMaps>
-struct HashTableTraits<StringHashTable<SubMaps>> {
-    static constexpr bool is_phmap = false;
-    static constexpr bool is_string_hash_table = true;
-    static constexpr bool is_partitioned_table = false;
 };

@@ -46,52 +46,14 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
 
     private boolean isBeingSynced = false;
 
+    private short minLoadReplicaNum = -1;
+
     public void setIsBeingSynced(boolean isBeingSynced) {
         this.isBeingSynced = isBeingSynced;
     }
 
     public boolean isBeingSynced() {
         return isBeingSynced;
-    }
-
-    private String compactionPolicy;
-
-    private long timeSeriesCompactionGoalSizeMbytes;
-
-    private long timeSeriesCompactionFileCountThreshold;
-
-    private long timeSeriesCompactionTimeThresholdSeconds;
-
-    public void setCompactionPolicy(String compactionPolicy) {
-        this.compactionPolicy = compactionPolicy;
-    }
-
-    public String compactionPolicy() {
-        return compactionPolicy;
-    }
-
-    public void setTimeSeriesCompactionGoalSizeMbytes(long timeSeriesCompactionGoalSizeMbytes) {
-        this.timeSeriesCompactionGoalSizeMbytes = timeSeriesCompactionGoalSizeMbytes;
-    }
-
-    public long timeSeriesCompactionGoalSizeMbytes() {
-        return timeSeriesCompactionGoalSizeMbytes;
-    }
-
-    public void setTimeSeriesCompactionFileCountThreshold(long timeSeriesCompactionFileCountThreshold) {
-        this.timeSeriesCompactionFileCountThreshold = timeSeriesCompactionFileCountThreshold;
-    }
-
-    public Long timeSeriesCompactionFileCountThreshold() {
-        return timeSeriesCompactionFileCountThreshold;
-    }
-
-    public void setTimeSeriesCompactionTimeThresholdSeconds(long timeSeriesCompactionTimeThresholdSeconds) {
-        this.timeSeriesCompactionTimeThresholdSeconds = timeSeriesCompactionTimeThresholdSeconds;
-    }
-
-    public Long timeSeriesCompactionTimeThresholdSeconds() {
-        return timeSeriesCompactionTimeThresholdSeconds;
     }
 
     public ModifyTablePropertiesClause(Map<String, String> properties) {
@@ -157,6 +119,9 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TABLET_TYPE)) {
             throw new AnalysisException("Alter tablet type not supported");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM)) {
+            // do nothing, will be alter in Alter.processAlterOlapTable
+            this.needTableStable = false;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
             this.needTableStable = false;
             String storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
@@ -192,7 +157,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                         + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
             }
             this.needTableStable = false;
-            setCompactionPolicy(compactionPolicy);
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
             long goalSizeMbytes;
             String goalSizeMbytesStr = properties
@@ -208,7 +173,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                         + goalSizeMbytesStr);
             }
             this.needTableStable = false;
-            setTimeSeriesCompactionGoalSizeMbytes(goalSizeMbytes);
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
             long fileCountThreshold;
             String fileCountThresholdStr = properties
@@ -224,7 +189,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                                                                                 + fileCountThresholdStr);
             }
             this.needTableStable = false;
-            setTimeSeriesCompactionFileCountThreshold(fileCountThreshold);
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
             long timeThresholdSeconds;
             String timeThresholdSecondsStr = properties
@@ -240,7 +205,83 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                                                                                         + timeThresholdSecondsStr);
             }
             this.needTableStable = false;
-            setTimeSeriesCompactionTimeThresholdSeconds(timeThresholdSeconds);
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+            long emptyRowsetsThreshold;
+            String emptyRowsetsThresholdStr = properties
+                                    .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
+            try {
+                emptyRowsetsThreshold = Long.parseLong(emptyRowsetsThresholdStr);
+                if (emptyRowsetsThreshold < 2) {
+                    throw new AnalysisException("time_series_compaction_empty_rowsets_threshold can not be less than 2:"
+                        + emptyRowsetsThresholdStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_empty_rowsets_threshold format: "
+                        + emptyRowsetsThresholdStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer
+                                                .PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                    "Property "
+                    + PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD + " should be set to true or false");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer
+                                            .PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                    "Property "
+                    + PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION + " should be set to true or false");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer
+                                            .PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                    "Property "
+                        + PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION + " should be set to true or false");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
+            long groupCommitIntervalMs;
+            String groupCommitIntervalMsStr = properties.get(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            try {
+                groupCommitIntervalMs = Long.parseLong(groupCommitIntervalMsStr);
+                if (groupCommitIntervalMs < 0) {
+                    throw new AnalysisException("group_commit_interval_ms can not be less than 0:"
+                                                                                        + groupCommitIntervalMsStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid group_commit_interval_ms format: "
+                                                                                        + groupCommitIntervalMsStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
+            long groupCommitDataBytes;
+            String groupCommitDataBytesStr = properties.get(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            try {
+                groupCommitDataBytes = Long.parseLong(groupCommitDataBytesStr);
+                if (groupCommitDataBytes < 0) {
+                    throw new AnalysisException("group_commit_data_bytes can not be less than 0:"
+                        + groupCommitDataBytesStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid group_commit_data_bytes format: "
+                    + groupCommitDataBytesStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

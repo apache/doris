@@ -221,6 +221,7 @@ template <typename E>
 #ifdef _MSC_VER
   __assume(0);
 #else
+ LOG(FATAL) << "__builtin_unreachable";
   __builtin_unreachable();
 #endif
 #endif

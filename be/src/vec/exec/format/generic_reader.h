@@ -36,12 +36,9 @@ public:
     void set_push_down_agg_type(TPushAggOp::type push_down_agg_type) {
         _push_down_agg_type = push_down_agg_type;
     }
+
     virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof) = 0;
 
-    virtual std::unordered_map<std::string, TypeDescriptor> get_name_to_type() {
-        std::unordered_map<std::string, TypeDescriptor> map;
-        return map;
-    }
     virtual Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                                std::unordered_set<std::string>* missing_cols) {
         return Status::NotSupported("get_columns is not implemented");
@@ -67,7 +64,7 @@ public:
         return Status::OK();
     }
 
-    virtual void close() {}
+    virtual Status close() { return Status::OK(); }
 
 protected:
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)

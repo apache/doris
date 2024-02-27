@@ -19,8 +19,13 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.types.DataType;
 
-/** StringLikeLiteral. */
+import java.util.Objects;
+
+/**
+ * StringLikeLiteral.
+ */
 public abstract class StringLikeLiteral extends Literal {
+    public static final int CHINESE_CHAR_BYTE_LENGTH = 4;
     public final String value;
 
     public StringLikeLiteral(String value, DataType dataType) {
@@ -42,5 +47,27 @@ public abstract class StringLikeLiteral extends Literal {
             pos++;
         }
         return (double) v;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof StringLikeLiteral)) {
+            return false;
+        }
+        StringLikeLiteral that = (StringLikeLiteral) o;
+        return Objects.equals(value, that.value);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(value);
+    }
+
+    @Override
+    public String toString() {
+        return "'" + value + "'";
     }
 }

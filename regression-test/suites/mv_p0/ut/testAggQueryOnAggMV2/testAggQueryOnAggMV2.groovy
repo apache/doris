@@ -16,7 +16,7 @@
 // under the License.
 
 suite ("testAggQueryOnAggMV2") {
-
+    sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS emps; """
     sql """
             create table emps (

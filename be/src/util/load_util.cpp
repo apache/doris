@@ -46,9 +46,15 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
         } else if (iequal(compress_type_str, "LZ4")) {
             *format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
             *compress_type = TFileCompressType::LZ4FRAME;
+        } else if (iequal(compress_type_str, "LZ4_BLOCK")) {
+            *format_type = TFileFormatType::FORMAT_CSV_LZ4BLOCK;
+            *compress_type = TFileCompressType::LZ4BLOCK;
         } else if (iequal(compress_type_str, "LZOP")) {
             *format_type = TFileFormatType::FORMAT_CSV_LZOP;
             *compress_type = TFileCompressType::LZO;
+        } else if (iequal(compress_type_str, "SNAPPY_BLOCK")) {
+            *format_type = TFileFormatType::FORMAT_CSV_SNAPPYBLOCK;
+            *compress_type = TFileCompressType::SNAPPYBLOCK;
         } else if (iequal(compress_type_str, "DEFLATE")) {
             *format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
             *compress_type = TFileCompressType::DEFLATE;
@@ -61,6 +67,10 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
         *format_type = TFileFormatType::FORMAT_PARQUET;
     } else if (iequal(format_str, "ORC")) {
         *format_type = TFileFormatType::FORMAT_ORC;
+    } else if (iequal(format_str, "WAL")) {
+        *format_type = TFileFormatType::FORMAT_WAL;
+    } else if (iequal(format_str, "ARROW")) {
+        *format_type = TFileFormatType::FORMAT_ARROW;
     }
     return;
 }
@@ -72,9 +82,12 @@ bool LoadUtil::is_format_support_streaming(TFileFormatType::type format) {
     case TFileFormatType::FORMAT_CSV_DEFLATE:
     case TFileFormatType::FORMAT_CSV_GZ:
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
     case TFileFormatType::FORMAT_CSV_LZO:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_JSON:
+    case TFileFormatType::FORMAT_WAL:
+    case TFileFormatType::FORMAT_ARROW:
         return true;
     default:
         return false;

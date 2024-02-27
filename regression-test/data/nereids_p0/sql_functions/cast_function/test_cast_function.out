@@ -6,7 +6,7 @@
 11
 
 -- !sql --
-2000-01-01T03:14:17
+\N
 
 -- !sql --
 \N
@@ -17,9 +17,18 @@
 -- !sql --
 20
 
--- !sql --
-1
-
 -- !sql_null_cast_bitmap --
 true
+
+-- !sql_to_tiny --
+\N
+
+-- !sql_to_small --
+\N
+
+-- !sql_to_int --
+\N
+
+-- !sql_to_big --
+\N
 

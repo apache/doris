@@ -23,6 +23,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -31,10 +32,10 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -50,10 +51,11 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class RoleManager implements Writable {
+public class RoleManager implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RoleManager.class);
     //prefix of each user default role
     public static String DEFAULT_ROLE_PREFIX = "default_role_rbac_";
@@ -63,10 +65,8 @@ public class RoleManager implements Writable {
     private Map<String, Role> roles = Maps.newHashMap();
 
     public RoleManager() {
-        roles.put(
-                Role.OPERATOR.getRoleName(), Role.OPERATOR);
-        roles.put(
-                Role.ADMIN.getRoleName(), Role.ADMIN);
+        roles.put(Role.OPERATOR.getRoleName(), Role.OPERATOR);
+        roles.put(Role.ADMIN.getRoleName(), Role.ADMIN);
     }
 
     public Role getRole(String name) {
@@ -100,7 +100,16 @@ public class RoleManager implements Writable {
         roles.remove(qualifiedRole);
     }
 
-    public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs, boolean errOnNonExist)
+    private void replaceResourceLevel(Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> map, PrivLevel type) {
+        List<Entry<ResourcePattern, PrivBitSet>> clusterSet = map.get(PrivLevel.RESOURCE);
+        if (clusterSet != null && !clusterSet.isEmpty()) {
+            map.remove(PrivLevel.RESOURCE);
+            map.put(type, clusterSet);
+        }
+    }
+
+    public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs,
+            Map<ColPrivilegeKey, Set<String>> colPrivileges, boolean errOnNonExist)
             throws DdlException {
         Role existingRole = roles.get(name);
         if (existingRole == null) {
@@ -109,7 +118,7 @@ public class RoleManager implements Writable {
             }
             return null;
         }
-        existingRole.revokePrivs(tblPattern, privs, errOnNonExist);
+        existingRole.revokePrivs(tblPattern, privs, colPrivileges, errOnNonExist);
         return existingRole;
     }
 
@@ -150,7 +159,13 @@ public class RoleManager implements Writable {
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
             info.add(Joiner.on(", ").join(Env.getCurrentEnv().getAuth().getRoleUsers(role.getRoleName())));
+
+            Map<PrivLevel, List<Entry<ResourcePattern, PrivBitSet>>> clusterMap = role.getClusterPatternToPrivs()
+                    .entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()));
+            replaceResourceLevel(clusterMap, PrivLevel.CLUSTER);
+
             Map<PrivLevel, String> infoMap =
+                    Stream.concat(
                     Stream.concat(
                             role.getTblPatternToPrivs().entrySet().stream()
                                     .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
@@ -161,6 +176,8 @@ public class RoleManager implements Writable {
                                     role.getWorkloadGroupPatternToPrivs().entrySet().stream()
                                             .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
                                             .entrySet().stream())
+                    ),
+                    clusterMap.entrySet().stream()
                     ).collect(Collectors.toMap(Entry::getKey, entry -> {
                                 if (entry.getKey() == PrivLevel.GLOBAL) {
                                     return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
@@ -172,7 +189,8 @@ public class RoleManager implements Writable {
                                 }
                             }, (s1, s2) -> s1 + " " + s2
                     ));
-            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE)
+            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE,
+                        PrivLevel.CLUSTER)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);
                         if (Strings.isNullOrEmpty(infoItem)) {
@@ -189,13 +207,24 @@ public class RoleManager implements Writable {
         if (roles.containsKey(userDefaultRoleName)) {
             return roles.get(userDefaultRoleName);
         }
-        // grant read privs to database information_schema
-        TablePattern tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
+
+        // grant read privs to database information_schema & mysql
+        List<TablePattern> tablePatterns = Lists.newArrayList();
+        TablePattern informationTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
-            tblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            informationTblPattern.analyze();
+            tablePatterns.add(informationTblPattern);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
+        TablePattern mysqlTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
+        try {
+            mysqlTblPattern.analyze();
+            tablePatterns.add(mysqlTblPattern);
+        } catch (AnalysisException e) {
+            LOG.warn("should not happen", e);
+        }
+
         // grant read privs of default workload group
         WorkloadGroupPattern workloadGroupPattern = new WorkloadGroupPattern(WorkloadGroupMgr.DEFAULT_GROUP_NAME);
         try {
@@ -203,7 +232,7 @@ public class RoleManager implements Writable {
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
-        Role role = new Role(userDefaultRoleName, tblPattern, PrivBitSet.of(Privilege.SELECT_PRIV),
+        Role role = new Role(userDefaultRoleName, tablePatterns, PrivBitSet.of(Privilege.SELECT_PRIV),
                 workloadGroupPattern, PrivBitSet.of(Privilege.USAGE_PRIV));
         roles.put(role.getRoleName(), role);
         return role;
@@ -252,6 +281,16 @@ public class RoleManager implements Writable {
         }
     }
 
+    // should be removed after version 3.0
+    private void removeClusterPrefix() {
+        Map<String, Role> newRoles = Maps.newHashMap();
+        for (Map.Entry<String, Role> entry : roles.entrySet()) {
+            String roleName = ClusterNamespace.getNameFromFullName(entry.getKey());
+            newRoles.put(roleName, entry.getValue());
+        }
+        roles = newRoles;
+    }
+
     @Deprecated
     private void readFields(DataInput in) throws IOException {
         int size = in.readInt();
@@ -259,5 +298,10 @@ public class RoleManager implements Writable {
             Role role = Role.read(in);
             roles.put(role.getRoleName(), role);
         }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        removeClusterPrefix();
     }
 }

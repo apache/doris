@@ -51,6 +51,8 @@ public:
 
     ~RoutineLoadTaskExecutor();
 
+    void stop();
+
     // submit a routine load task
     Status submit_task(const TRoutineLoadTask& task);
 
@@ -78,7 +80,7 @@ private:
                         std::shared_ptr<StreamLoadContext> ctx);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     PriorityThreadPool _thread_pool;
     DataConsumerPool _data_consumer_pool;
 

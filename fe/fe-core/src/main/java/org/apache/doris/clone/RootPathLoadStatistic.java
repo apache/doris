@@ -31,9 +31,14 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
     private TStorageMedium storageMedium;
     private long capacityB;
     private long usedCapacityB;
+    private long copingSizeB;
     private DiskState diskState;
 
-    private Classification clazz = Classification.INIT;
+    // localClazz is compare with other disks on the same backend
+    private Classification localClazz = Classification.INIT;
+
+    // globalClazz is compare with other disks on all backends
+    private Classification globalClazz = Classification.INIT;
 
     public RootPathLoadStatistic(long beId, String path, Long pathHash, TStorageMedium storageMedium,
             long capacityB, long usedCapacityB, DiskState diskState) {
@@ -43,6 +48,7 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         this.storageMedium = storageMedium;
         this.capacityB = capacityB <= 0 ? 1 : capacityB;
         this.usedCapacityB = usedCapacityB;
+        this.copingSizeB = 0;
         this.diskState = diskState;
     }
 
@@ -71,15 +77,35 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
     }
 
     public double getUsedPercent() {
-        return capacityB <= 0 ? 0.0 : usedCapacityB / (double) capacityB;
+        return capacityB <= 0 ? 0.0 : (usedCapacityB + copingSizeB) / (double) capacityB;
     }
 
-    public void setClazz(Classification clazz) {
-        this.clazz = clazz;
+    public void incrCopingSizeB(long size) {
+        copingSizeB += size;
     }
 
-    public Classification getClazz() {
-        return clazz;
+    public void setLocalClazz(Classification clazz) {
+        this.localClazz = clazz;
+    }
+
+    public Classification getLocalClazz() {
+        return localClazz;
+    }
+
+    public void setGlobalClazz(Classification clazz) {
+        this.globalClazz = clazz;
+    }
+
+    public Classification getGlobalClazz() {
+        return globalClazz;
+    }
+
+    public boolean isGlobalHighUsage() {
+        return globalClazz == Classification.HIGH;
+    }
+
+    public boolean isGlobalLowUsage() {
+        return globalClazz == Classification.LOW;
     }
 
     public DiskState getDiskState() {
@@ -92,9 +118,11 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
                     toString() + " does not fit tablet with size: " + tabletSize + ", offline");
         }
 
+        double newUsagePerc = (usedCapacityB + tabletSize) / (double) capacityB;
+        long newLeftCapacity = capacityB - usedCapacityB - tabletSize;
         if (isSupplement) {
-            if ((usedCapacityB + tabletSize) / (double) capacityB > (Config.storage_flood_stage_usage_percent / 100.0)
-                    && capacityB - usedCapacityB - tabletSize < Config.storage_flood_stage_left_capacity_bytes) {
+            if (newUsagePerc > (Config.storage_flood_stage_usage_percent / 100.0)
+                    || newLeftCapacity < Config.storage_flood_stage_left_capacity_bytes) {
                 return new BalanceStatus(ErrCode.COMMON_ERROR,
                         toString() + " does not fit tablet with size: " + tabletSize + ", limitation reached");
             } else {
@@ -102,8 +130,8 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
             }
         }
 
-        if ((usedCapacityB + tabletSize) / (double) capacityB > (Config.storage_high_watermark_usage_percent / 100.0)
-                || capacityB - usedCapacityB - tabletSize < Config.storage_min_left_capacity_bytes) {
+        if (newUsagePerc > (Config.storage_high_watermark_usage_percent / 100.0)
+                || newLeftCapacity < Config.storage_min_left_capacity_bytes) {
             return new BalanceStatus(ErrCode.COMMON_ERROR,
                     toString() + " does not fit tablet with size: " + tabletSize);
         }

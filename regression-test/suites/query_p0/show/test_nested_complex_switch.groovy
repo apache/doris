@@ -137,63 +137,7 @@ suite("test_nested_complex_switch", "query") {
         sql "DROP TABLE IF EXISTS ${testTable_m}"
         sql "DROP TABLE IF EXISTS ${testTable_a}"
         sql "DROP TABLE IF EXISTS ${testTable_s}"
-        sql "ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'true')"
 
-        // map
-        test {
-            sql sql_m_s
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported data type: MAP<text,STRUCT<f1:tinyint(4)>>"
-        }
-
-        test {
-            sql sql_m_a
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported data type: MAP<array<int(11)>,text>"
-        }
-
-        test {
-            sql sql_m_m
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported data type: MAP<text,MAP<text,int(11)>>"
-        }
-
-        // array
-        test {
-            sql sql_a_s
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported data type: ARRAY<STRUCT<f1:tinyint(4)>>"
-        }
-
-
-        test {
-            sql sql_a_m
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported data type: ARRAY<MAP<text,int(11)>>"
-        }
-
-        // struct
-        test {
-            sql sql_s_s
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported field type: STRUCT<f11:boolean> for STRUCT"
-        }
-
-        test {
-            sql sql_s_a
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported field type: array<int(11)> for STRUCT"
-        }
-
-        test {
-            sql sql_s_m
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported field type: MAP<boolean,tinyint(4)> for STRUCT"
-        }
-
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable_m}")
-        try_sql("DROP TABLE IF EXISTS ${testTable_a}")
-        try_sql("DROP TABLE IF EXISTS ${testTable_s}")
-    }
-
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable_m}"
-        sql "DROP TABLE IF EXISTS ${testTable_a}"
-        sql "DROP TABLE IF EXISTS ${testTable_s}"
-        sql "ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"
 
 
         // map

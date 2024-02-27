@@ -45,14 +45,12 @@ class VRuntimeFilterWrapper final : public VExpr {
 
 public:
     VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl);
-    VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr);
     ~VRuntimeFilterWrapper() override = default;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
     std::string debug_string() const override { return _impl->debug_string(); }
-    bool is_constant() const override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
@@ -62,10 +60,10 @@ public:
     // if filter rate less than this, bloom filter will set always true
     constexpr static double EXPECTED_FILTER_RATE = 0.4;
 
-    static void calculate_filter(int64_t filter_rows, int64_t scan_rows, bool& has_calculate,
-                                 bool& always_true) {
-        if ((!has_calculate) && (scan_rows > config::bloom_filter_predicate_check_row_num)) {
-            if (filter_rows / (scan_rows * 1.0) < VRuntimeFilterWrapper::EXPECTED_FILTER_RATE) {
+    static void calculate_filter(double ignore_threshold, int64_t filter_rows, int64_t scan_rows,
+                                 bool& has_calculate, bool& always_true) {
+        if ((!has_calculate) && (scan_rows > config::rf_predicate_check_row_num)) {
+            if (filter_rows / (scan_rows * 1.0) < ignore_threshold) {
                 always_true = true;
             }
             has_calculate = true;

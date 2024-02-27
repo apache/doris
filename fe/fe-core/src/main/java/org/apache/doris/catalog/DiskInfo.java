@@ -47,6 +47,8 @@ public class DiskInfo implements Writable {
     private long totalCapacityB;
     @SerializedName("dataUsedCapacityB")
     private long dataUsedCapacityB;
+    @SerializedName("trashUsedCapacityB")
+    private long trashUsedCapacityB;
     @SerializedName("remoteUsedCapacity")
     private long remoteUsedCapacity = 0;
     @SerializedName("diskAvailableCapacityB")
@@ -65,6 +67,7 @@ public class DiskInfo implements Writable {
         this.rootPath = rootPath;
         this.totalCapacityB = DEFAULT_CAPACITY_B;
         this.dataUsedCapacityB = 0;
+        this.trashUsedCapacityB = 0;
         this.diskAvailableCapacityB = DEFAULT_CAPACITY_B;
         this.state = DiskState.ONLINE;
         this.pathHash = 0;
@@ -97,6 +100,14 @@ public class DiskInfo implements Writable {
 
     public void setRemoteUsedCapacity(long remoteUsedCapacity) {
         this.remoteUsedCapacity = remoteUsedCapacity;
+    }
+
+    public long getTrashUsedCapacityB() {
+        return trashUsedCapacityB;
+    }
+
+    public void setTrashUsedCapacityB(long trashUsedCapacityB) {
+        this.trashUsedCapacityB = trashUsedCapacityB;
     }
 
     public long getDiskUsedCapacityB() {
@@ -158,8 +169,10 @@ public class DiskInfo implements Writable {
      *      floodStage threshold means a loosely limit, and we use 'AND' to give a more loosely limit.
      */
     public boolean exceedLimit(boolean floodStage) {
-        LOG.debug("flood stage: {}, diskAvailableCapacityB: {}, totalCapacityB: {}",
-                floodStage, diskAvailableCapacityB, totalCapacityB);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("flood stage: {}, diskAvailableCapacityB: {}, totalCapacityB: {}",
+                    floodStage, diskAvailableCapacityB, totalCapacityB);
+        }
         if (floodStage) {
             return diskAvailableCapacityB < Config.storage_flood_stage_left_capacity_bytes
                 && this.getUsedPct() > (Config.storage_flood_stage_usage_percent / 100.0);
@@ -172,8 +185,9 @@ public class DiskInfo implements Writable {
     @Override
     public String toString() {
         return "DiskInfo [rootPath=" + rootPath + "(" + pathHash + "), totalCapacityB=" + totalCapacityB
-                + ", dataUsedCapacityB=" + dataUsedCapacityB + ", diskAvailableCapacityB="
-                + diskAvailableCapacityB + ", state=" + state + ", medium: " + storageMedium + "]";
+                + ", dataUsedCapacityB=" + dataUsedCapacityB + ", trashUsedCapacityB=" + trashUsedCapacityB
+                + ", diskAvailableCapacityB=" + diskAvailableCapacityB + ", state=" + state
+                + ", medium: " + storageMedium + "]";
     }
 
     @Override

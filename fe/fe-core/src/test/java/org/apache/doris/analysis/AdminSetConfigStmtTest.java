@@ -23,9 +23,9 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.Assert;
@@ -77,10 +77,16 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
         Assert.assertNotEquals(enableMtmv, Config.enable_mtmv);
 
         // 3. show config
-        int num = ConfigBase.getConfigNumByExperimentalType(ExperimentalType.EXPERIMENTAL);
+        int num = ConfigBase.getConfigNumByVariableAnnotation(VariableAnnotation.EXPERIMENTAL);
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern("%experimental%",
                 CaseSensibility.CONFIG.getCaseSensibility());
         List<List<String>> results = ConfigBase.getConfigInfo(matcher);
+        Assert.assertEquals(num, results.size());
+
+        num = ConfigBase.getConfigNumByVariableAnnotation(VariableAnnotation.DEPRECATED);
+        matcher = PatternMatcherWrapper.createMysqlPattern("%deprecated%",
+                CaseSensibility.CONFIG.getCaseSensibility());
+        results = ConfigBase.getConfigInfo(matcher);
         Assert.assertEquals(num, results.size());
     }
 }

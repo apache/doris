@@ -197,7 +197,7 @@ suite("create_policy") {
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket",
+            "AWS_BUCKET" = "test-bucket"
         );
         """
         // errCode = 2, detailMessage = Missing [s3_validity_check] in properties.
@@ -220,8 +220,8 @@ suite("create_policy") {
             "s3_validity_check" = "false"
         );
         """
-        // errCode = 2, detailMessage = Missing [AWS_ACCESS_KEY] in properties.
-        assertEquals(failed_create_2, null)
+        // can read AWS_ACCESS_KEY from environment variable
+        assertEquals(failed_create_2, [[0]])
     }
 
     if (has_created_2.size() == 0) {
@@ -240,7 +240,7 @@ suite("create_policy") {
             "s3_validity_check" = "false"
         );
         """
-        // errCode = 2, detailMessage = Missing [AWS_SECRET_KEY] in properties.
+        // can read AWS_SECRET_KEY from environment variables
         assertEquals(failed_create_2, null)
     }
 
@@ -441,5 +441,53 @@ suite("create_policy") {
         """
         //  errCode = 2, detailMessage = storage resource doesn't exist: s3_resource_not_exist
         assertEquals(storage_exist.call("testPolicy_15"), false)
+    }
+
+    if (!storage_exist.call("testPolicy_redundant_name")) {
+        def create_s3_resource = try_sql """
+            CREATE RESOURCE "testPolicy_redundant_name_resource"
+            PROPERTIES(
+                "type"="s3",
+                "AWS_REGION" = "bj",
+                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_SECRET_KEY" = "aaaa",
+                "AWS_ACCESS_KEY" = "bbba",
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
+            );
+        """
+        def create_s3_resource_1 = try_sql """
+            CREATE RESOURCE "testPolicy_redundant_name_resource_1"
+            PROPERTIES(
+                "type"="s3",
+                "AWS_REGION" = "bj",
+                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_SECRET_KEY" = "aaaa",
+                "AWS_ACCESS_KEY" = "bbba",
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
+            );
+        """
+        def create_succ_1 = try_sql """
+            CREATE STORAGE POLICY testPolicy_redundant_name
+            PROPERTIES(
+            "storage_resource" = "testPolicy_redundant_name_resource",
+            "cooldown_ttl" = "10086"
+            );
+        """
+        try {
+            sql """
+                CREATE STORAGE POLICY testPolicy_redundant_name
+                PROPERTIES(
+                "storage_resource" = "testPolicy_redundant_name_resource_1",
+                "cooldown_ttl" = "10086"
+                );
+            """
+        } catch (Exception e) {
+            log.info(e.getMessage())
+            assertTrue(e.getMessage().contains('already create'))
+        }
     }
 }

@@ -39,7 +39,11 @@ struct ODBCConnectorParam {
 
     // only use in query
     std::string query_string;
-    const TupleDescriptor* tuple_desc;
+
+    // only use in insert
+    std::string table_name;
+    bool use_transaction = false;
+    const TupleDescriptor* tuple_desc = nullptr;
 };
 
 // Because the DataBinding have the mem alloc, so
@@ -61,9 +65,8 @@ struct DataBinding {
 class ODBCConnector : public TableConnector {
 public:
     explicit ODBCConnector(const ODBCConnectorParam& param);
-    ~ODBCConnector() override;
 
-    Status open(RuntimeState* state, bool read = false) override;
+    Status open(RuntimeState* state, bool read = false);
     // query for ODBC table
     Status query() override;
 
@@ -83,12 +86,18 @@ public:
     Status abort_trans() override; // should be call after transaction abort
     Status finish_trans() override; // should be call after transaction commit
 
+    Status append(vectorized::Block* block, const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
+                  uint32_t start_send_row, uint32_t* num_rows_sent,
+                  TOdbcTableType::type table_type = TOdbcTableType::MYSQL) override;
+
     const DataBinding& get_column_data(int i) const { return *_columns_data.at(i).get(); }
-    Status init_to_write(RuntimeProfile* profile);
+    Status init_to_write(RuntimeProfile* profile) override;
 
     // Now we only treat HLL, CHAR, VARCHAR as big column
     uint32_t big_column_size_buffer = config::big_column_size_buffer;
     uint32_t small_column_size_buffer = config::small_column_size_buffer;
+
+    Status close(Status) override;
 
 private:
     static Status error_status(const std::string& prefix, const std::string& error_msg);

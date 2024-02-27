@@ -56,9 +56,6 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
 
     public static final String MAX_TABLET_COMPACTION_SCORE = "max_tablet_compaction_score";
 
-    private int ordinal = 0;
-    private int metricNumber = 0;
-
     private static final Map<String, String> CORE_METRICS = Maps.newHashMap();
 
     static {
@@ -76,12 +73,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void setMetricNumber(int metricNumber) {
-        this.metricNumber = metricNumber;
-    }
-
-    @Override
-    public void visitJvm(StringBuilder sb, JvmStats jvmStats) {
+    public void visitJvm(JvmStats jvmStats) {
         Iterator<MemoryPool> memIter = jvmStats.getMem().iterator();
         while (memIter.hasNext()) {
             MemoryPool memPool = memIter.next();
@@ -104,7 +96,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visit(StringBuilder sb, String prefix, Metric metric) {
+    public void visit(String prefix, Metric metric) {
         if (!CORE_METRICS.containsKey(metric.getName())) {
             return;
         }
@@ -120,7 +112,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visitHistogram(StringBuilder sb, String prefix, String name, Histogram histogram) {
+    public void visitHistogram(String prefix, String name, Histogram histogram) {
         if (!CORE_METRICS.containsKey(name)) {
             return;
         }
@@ -134,7 +126,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void getNodeInfo(StringBuilder sb) {
+    public void getNodeInfo() {
         long feDeadNum = Env.getCurrentEnv().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
         long beDeadNum = Env.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive())
                 .count();

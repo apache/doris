@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_export_with_hdfs", "p2") {
+    // open nereids
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_fallback_to_original_planner=false """
+
+
     String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
     String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
     String fs = "hdfs://${nameNodeHost}:${hdfsPort}"
@@ -37,7 +42,8 @@ suite("test_export_with_hdfs", "p2") {
             PARTITION between_20_70 VALUES [("20"),("70")),
             PARTITION more_than_70 VALUES LESS THAN ("151")
         )
-        DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES("replication_num" = "1");
     """
     StringBuilder sb = new StringBuilder()
     int i = 1
@@ -62,8 +68,9 @@ suite("test_export_with_hdfs", "p2") {
             if (res[0][2] == "FINISHED") {
                 def json = parseJson(res[0][11])
                 assert json instanceof List
-                assertEquals("1", json.fileNumber[0])
-                return json.url[0];
+                assertEquals("1", json.fileNumber[0][0])
+                log.info("outfile_path: ${json.url[0][0]}")
+                return json.url[0][0];
             } else if (res[0][2] == "CANCELLED") {
                 throw new IllegalStateException("""export failed: ${res[0][10]}""")
             } else {
@@ -97,8 +104,8 @@ suite("test_export_with_hdfs", "p2") {
         // check data correctness
         order_qt_select """ select * from hdfs(
                 "uri" = "${outfile_url}0.${file_suffix}",
-                "fs.defaultFS" = "${fs}",
                 "hadoop.username" = "${user_name}",
+                "column_separator" = ",",
                 "format" = "${format}");
             """
     }

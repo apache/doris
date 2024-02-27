@@ -23,7 +23,6 @@
 #include <arrow/util/decimal.h>
 
 #include "arrow/type.h"
-#include "gutil/casts.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/io/io_helper.h"
@@ -33,9 +32,16 @@ namespace doris {
 namespace vectorized {
 
 template <typename T>
-void DataTypeDecimalSerDe<T>::serialize_one_cell_to_text(const IColumn& column, int row_num,
-                                                         BufferWritable& bw,
-                                                         const FormatOptions& options) const {
+Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                         int end_idx, BufferWritable& bw,
+                                                         FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON();
+}
+
+template <typename T>
+Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                           BufferWritable& bw,
+                                                           FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -49,20 +55,32 @@ void DataTypeDecimalSerDe<T>::serialize_one_cell_to_text(const IColumn& column, 
         auto length = col.get_element(row_num).to_string(buf, scale, scale_multiplier);
         bw.write(buf, length);
     }
-    bw.commit();
+    return Status::OK();
 }
+
 template <typename T>
-Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
+    return Status::OK();
+}
+
+template <typename T>
+Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                                const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
-    T val = 0;
-    if (!read_decimal_text_impl<get_primitive_type(), T>(val, rb, precision, scale)) {
-        return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str(),
-                                       get_primitive_type());
+    T val = {};
+    ReadBuffer rb(slice.data, slice.size);
+    StringParser::ParseResult res =
+            read_decimal_text_impl<get_primitive_type(), T>(val, rb, precision, scale);
+    if (res == StringParser::PARSE_SUCCESS || res == StringParser::PARSE_UNDERFLOW) {
+        column_data.emplace_back(val);
+        return Status::OK();
     }
-    column_data.emplace_back(val);
-    return Status::OK();
+    return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
+                                   std::string(rb.position(), rb.count()).c_str(),
+                                   get_primitive_type());
 }
 
 template <typename T>
@@ -88,7 +106,8 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
-    } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
+        // TODO: decimal256
+    } else if constexpr (std::is_same_v<T, Decimal128V3>) {
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
         for (size_t i = start; i < end; ++i) {
@@ -134,7 +153,8 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                              array_builder->type()->name());
         }
     } else {
-        LOG(FATAL) << "Not support write " << column.get_name() << " to arrow";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "write_column_to_arrow with type " + column.get_name());
     }
 }
 
@@ -142,26 +162,29 @@ template <typename T>
 void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int start,
                                                      int end, const cctz::time_zone& ctz) const {
-    auto concrete_array = down_cast<const arrow::DecimalArray*>(arrow_array);
+    auto concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
     const auto* arrow_decimal_type =
             static_cast<const arrow::DecimalType*>(arrow_array->type().get());
     const auto arrow_scale = arrow_decimal_type->scale();
     auto& column_data = static_cast<ColumnDecimal<T>&>(column).get_data();
+    // Decimal<Int128> for decimalv2
+    // Decimal<Int128I> for deicmalv3
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         // TODO check precision
         for (size_t value_i = start; value_i < end; ++value_i) {
-            auto value = *reinterpret_cast<const vectorized::Decimal128*>(
+            auto value = *reinterpret_cast<const vectorized::Decimal128V2*>(
                     concrete_array->Value(value_i));
             // convert scale to 9;
             if (9 > arrow_scale) {
-                using MaxNativeType = typename Decimal128::NativeType;
+                using MaxNativeType = typename Decimal128V2::NativeType;
                 MaxNativeType converted_value = common::exp10_i128(9 - arrow_scale);
                 if (common::mul_overflow(static_cast<MaxNativeType>(value), converted_value,
                                          converted_value)) {
                     VLOG_DEBUG << "Decimal convert overflow";
                     value = converted_value < 0
-                                    ? std::numeric_limits<typename Decimal128 ::NativeType>::min()
-                                    : std::numeric_limits<typename Decimal128 ::NativeType>::max();
+                                    ? std::numeric_limits<typename Decimal128V2 ::NativeType>::min()
+                                    : std::numeric_limits<
+                                              typename Decimal128V2 ::NativeType>::max();
                 } else {
                     value = converted_value;
                 }
@@ -170,12 +193,13 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
             }
             column_data.emplace_back(value);
         }
-    } else if constexpr (std::is_same_v<T, Decimal64> || std::is_same_v<T, Decimal32>) {
+    } else if constexpr (std::is_same_v<T, Decimal128V3> || std::is_same_v<T, Decimal64> ||
+                         std::is_same_v<T, Decimal32>) {
         for (size_t value_i = start; value_i < end; ++value_i) {
             column_data.emplace_back(*reinterpret_cast<const T*>(concrete_array->Value(value_i)));
         }
     } else {
-        LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
+        LOG(WARNING) << "Unsuppoted convertion to decimal from " << column.get_name();
     }
 }
 
@@ -215,9 +239,44 @@ Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
+template <typename T>
+Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
+                                                    const IColumn& column, const NullMap* null_map,
+                                                    orc::ColumnVectorBatch* orc_col_batch,
+                                                    int start, int end,
+                                                    std::vector<StringRef>& buffer_list) const {
+    auto& col_data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
+
+    if constexpr (IsDecimal128V2<T> || IsDecimal128V3<T>) {
+        orc::Decimal128VectorBatch* cur_batch =
+                dynamic_cast<orc::Decimal128VectorBatch*>(orc_col_batch);
+
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                auto& v = col_data[row_id];
+                orc::Int128 value(v >> 64, (uint64_t)v);
+                cur_batch->values[row_id] = value;
+            }
+        }
+        cur_batch->numElements = end - start;
+    } else {
+        orc::Decimal64VectorBatch* cur_batch =
+                dynamic_cast<orc::Decimal64VectorBatch*>(orc_col_batch);
+
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                cur_batch->values[row_id] = col_data[row_id];
+            }
+        }
+        cur_batch->numElements = end - start;
+    }
+    return Status::OK();
+}
+
 template class DataTypeDecimalSerDe<Decimal32>;
 template class DataTypeDecimalSerDe<Decimal64>;
-template class DataTypeDecimalSerDe<Decimal128>;
-template class DataTypeDecimalSerDe<Decimal128I>;
+template class DataTypeDecimalSerDe<Decimal128V2>;
+template class DataTypeDecimalSerDe<Decimal128V3>;
+template class DataTypeDecimalSerDe<Decimal256>;
 } // namespace vectorized
 } // namespace doris

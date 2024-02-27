@@ -29,9 +29,10 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/data_dir.h"
-#include "olap/reader.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
+#include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
 #include "vec/exec/scan/vscanner.h"
 
@@ -53,13 +54,19 @@ class NewOlapScanner : public VScanner {
     ENABLE_FACTORY_CREATOR(NewOlapScanner);
 
 public:
-    NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
-                   const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
-                   RuntimeProfile* profile);
+    struct Params {
+        RuntimeState* state = nullptr;
+        RuntimeProfile* profile = nullptr;
+        std::vector<OlapScanRange*> key_ranges;
+        BaseTabletSPtr tablet;
+        int64_t version;
+        TabletReader::ReadSource read_source;
+        int64_t limit;
+        bool aggregation;
+    };
 
-    NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
-                   const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
-                   const std::vector<RowSetSplits>& rs_splits, RuntimeProfile* profile);
+    template <class T>
+    NewOlapScanner(T* parent, Params&& params);
 
     Status init() override;
 
@@ -68,8 +75,6 @@ public:
     Status close(RuntimeState* state) override;
 
     Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
-
-    const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
 
     void set_compound_filters(const std::vector<TCondition>& compound_filters);
 
@@ -87,14 +92,9 @@ private:
                                       const FilterPredicates& filter_predicates,
                                       const std::vector<FunctionFilter>& function_filters);
 
-    Status _init_return_columns();
+    [[nodiscard]] Status _init_return_columns();
+    [[nodiscard]] Status _init_variant_columns();
 
-    bool _aggregation;
-
-    TabletSchemaSPtr _tablet_schema;
-    TabletSharedPtr _tablet;
-    int64_t _version;
-    const TPaloScanRange& _scan_range;
     std::vector<OlapScanRange*> _key_ranges;
 
     TabletReader::ReaderParams _tablet_reader_params;

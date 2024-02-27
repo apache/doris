@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <boost/regex.hpp>
 #include <utility>
 
 #include "CLucene/StdHeader.h"
@@ -29,46 +30,28 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
-    std::string::size_type start = 0;
+    boost::regex pattern(
+            R"delimiter((?:'([^']*)'|"([^"]*)"|([^,]*))\s*=\s*(?:'([^']*)'|"([^"]*)"|([^,]*)))delimiter");
+    boost::smatch matches;
 
-    while (start < str.size()) {
-        std::string::size_type end = str.find(',', start);
-        std::string pair =
-                (end == std::string::npos) ? str.substr(start) : str.substr(start, end - start);
-
-        std::string::size_type eq_pos = pair.find('=');
-        if (eq_pos == std::string::npos) {
-            return Status::InvalidArgument(
-                    fmt::format("invalid params {} for function tokenize", str));
-        }
-        std::string key = pair.substr(0, eq_pos);
-        key = key.substr(key.find_first_not_of(" '\""
-                                               "\t\n\r"),
-                         key.find_last_not_of(" '\""
-                                              "\t\n\r") -
-                                 key.find_first_not_of(" '\""
-                                                       "\t\n\r") +
-                                 1);
-        std::string value = pair.substr(eq_pos + 1);
-        value = value.substr(value.find_first_not_of(" '\""
-                                                     "\t\n\r"),
-                             value.find_last_not_of(" '\""
-                                                    "\t\n\r") -
-                                     value.find_first_not_of(" '\""
-                                                             "\t\n\r") +
-                                     1);
+    std::string::const_iterator searchStart(str.cbegin());
+    while (boost::regex_search(searchStart, str.cend(), matches, pattern)) {
+        std::string key = matches[1].length()
+                                  ? matches[1].str()
+                                  : (matches[2].length() ? matches[2].str() : matches[3].str());
+        std::string value = matches[4].length()
+                                    ? matches[4].str()
+                                    : (matches[5].length() ? matches[5].str() : matches[6].str());
 
         result[key] = value;
 
-        start = (end == std::string::npos) ? str.size() : end + 1;
+        searchStart = matches.suffix().first;
     }
 
     return Status::OK();
@@ -78,7 +61,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
                                     InvertedIndexCtx& inverted_index_ctx,
                                     IColumn& dest_nested_column,
                                     ColumnArray::Offsets64& dest_offsets,
-                                    NullMapType* dest_nested_null_map) {
+                                    NullMapType* dest_nested_null_map) const {
     ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
     ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
     ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -95,13 +78,14 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
             dest_offsets.push_back(dest_pos);
             continue;
         }
-        std::vector<std::wstring> query_tokens =
-                doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                        "tokenize", tokenize_str.to_string(),
-                        doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                        &inverted_index_ctx);
-        for (auto token_ws : query_tokens) {
-            std::string token = lucene_wcstoutf8string(token_ws.data(), token_ws.length());
+        auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
+                &inverted_index_ctx, tokenize_str.to_string());
+
+        std::vector<std::string> query_tokens;
+        doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                query_tokens, reader.get(), inverted_index_ctx.analyzer, "tokenize",
+                doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+        for (auto token : query_tokens) {
             const size_t old_size = column_string_chars.size();
             const size_t split_part_size = token.length();
             if (split_part_size > 0) {
@@ -123,7 +107,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
 
 Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block,
                                       const ColumnNumbers& arguments, size_t result,
-                                      size_t /*input_rows_count*/) {
+                                      size_t /*input_rows_count*/) const {
     DCHECK_EQ(arguments.size(), 2);
     const auto& [src_column, left_const] =
             unpack_if_const(block.get_by_position(arguments[0]).column);
@@ -156,6 +140,19 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(properties));
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
+            inverted_index_ctx.char_filter_map =
+                    get_parser_char_filter_map_from_properties(properties);
+
+            std::unique_ptr<lucene::analysis::Analyzer> analyzer;
+            try {
+                analyzer = doris::segment_v2::InvertedIndexReader::create_analyzer(
+                        &inverted_index_ctx);
+            } catch (CLuceneError& e) {
+                return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                        "inverted index create analyzer failed: {}", e.what());
+            }
+
+            inverted_index_ctx.analyzer = analyzer.get();
             _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,
                          dest_nested_null_map);
 
@@ -163,6 +160,6 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             return Status::OK();
         }
     }
-    return Status::RuntimeError("unimplements function {}", get_name());
+    return Status::RuntimeError("unimplemented function {}", get_name());
 }
 } // namespace doris::vectorized

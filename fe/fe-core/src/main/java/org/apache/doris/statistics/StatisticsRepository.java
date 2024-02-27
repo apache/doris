@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AlterColumnStatsStmt;
-import org.apache.doris.analysis.AlterTableStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -28,11 +27,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.DBObjects;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.SystemInfoService;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
@@ -42,6 +38,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,8 +52,7 @@ public class StatisticsRepository {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsRepository.class);
 
-    private static final String FULL_QUALIFIED_DB_NAME = "`" + SystemInfoService.DEFAULT_CLUSTER + ":"
-            + FeConstants.INTERNAL_DB_NAME + "`";
+    private static final String FULL_QUALIFIED_DB_NAME = "`" + FeConstants.INTERNAL_DB_NAME + "`";
 
     private static final String FULL_QUALIFIED_COLUMN_STATISTICS_NAME = FULL_QUALIFIED_DB_NAME + "."
             + "`" + StatisticConstants.STATISTIC_TBL_NAME + "`";
@@ -96,42 +92,23 @@ public class StatisticsRepository {
                     + " ORDER BY update_time "
                     + "LIMIT ${limit} OFFSET ${offset}";
 
-    private static final String FETCH_STATS_PART_ID = "SELECT col_id, part_id FROM "
+    private static final String FETCH_STATS_PART_ID = "SELECT * FROM "
             + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
             + " WHERE tbl_id = ${tblId}"
             + " AND part_id IS NOT NULL";
-
-    private static final String PERSIST_TABLE_STATS_TEMPLATE = "INSERT INTO "
-            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
-            + " VALUES('${id}', ${catalogId}, ${dbId}, ${tblId}, ${indexId}, ${partId}, ${rowCount},"
-            + " ${lastAnalyzeTimeInMs}, NOW())";
-
-    private static final String FETCH_TABLE_LEVEL_STATS_TEMPLATE = "SELECT * FROM "
-            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
-            + " WHERE tbl_id = ${tblId}"
-            + " AND part_id IS NULL";
-
-    private static final String FETCH_TABLE_LEVEL_PART_STATS_TEMPLATE = "SELECT * FROM "
-            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
-            + " WHERE part_id = ${partId}";
-
-
-    private static final String FETCH_PART_TABLE_STATS_TEMPLATE = "SELECT * FROM "
-            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
-            + " WHERE tbl_id = ${tblId}"
-            + " AND part_id IS NOT NULL";
-
-    private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
-            + "tbl_id=${tblId} AND idx_id=${idxId} AND col_id='${colId}'";
 
     private static final String QUERY_PARTITION_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
             + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
             + " ${inPredicate}"
             + " AND part_id IS NOT NULL";
 
-    public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
-        ResultRow resultRow = queryColumnStatisticById(tableId, colName);
+    private static final String FETCH_TABLE_STATISTICS = "SELECT * FROM "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
+            + " WHERE tbl_id = ${tblId}"
+            + " AND part_id IS NULL";
+
+    public static ColumnStatistic queryColumnStatisticsByName(long tableId, long indexId, String colName) {
+        ResultRow resultRow = queryColumnStatisticById(tableId, indexId, colName);
         if (resultRow == null) {
             return ColumnStatistic.UNKNOWN;
         }
@@ -154,18 +131,26 @@ public class StatisticsRepository {
                 Collectors.toList());
     }
 
-    public static ResultRow queryColumnStatisticById(long tblId, String colName) {
-        return queryColumnStatisticById(tblId, colName, false);
+    public static List<ResultRow> queryColumnStatisticsForTable(long tableId)
+            throws AnalysisException {
+        Map<String, String> params = new HashMap<>();
+        params.put("tblId", String.valueOf(tableId));
+        List<ResultRow> rows = StatisticsUtil.executeQuery(FETCH_TABLE_STATISTICS, params);
+        return rows == null ? Collections.emptyList() : rows;
     }
 
-    public static ResultRow queryColumnHistogramById(long tblId, String colName) {
-        return queryColumnStatisticById(tblId, colName, true);
+    public static ResultRow queryColumnStatisticById(long tblId, long indexId, String colName) {
+        return queryColumnStatisticById(tblId, indexId, colName, false);
     }
 
-    private static ResultRow queryColumnStatisticById(long tblId, String colName, boolean isHistogram) {
+    public static ResultRow queryColumnHistogramById(long tblId, long indexId, String colName) {
+        return queryColumnStatisticById(tblId, indexId, colName, true);
+    }
+
+    private static ResultRow queryColumnStatisticById(long tblId, long indexId, String colName, boolean isHistogram) {
         Map<String, String> map = new HashMap<>();
-        String id = constructId(tblId, -1, colName);
-        map.put("id", id);
+        String id = constructId(tblId, indexId, colName);
+        map.put("id", StatisticsUtil.escapeSQL(id));
         List<ResultRow> rows = isHistogram ? StatisticsUtil.executeQuery(FETCH_COLUMN_HISTOGRAM_TEMPLATE, map) :
                 StatisticsUtil.executeQuery(FETCH_COLUMN_STATISTIC_TEMPLATE, map);
         int size = rows.size();
@@ -186,8 +171,8 @@ public class StatisticsRepository {
         return rows == null ? Collections.emptyList() : rows;
     }
 
-    public static Histogram queryColumnHistogramByName(long tableId, String colName) {
-        ResultRow resultRow = queryColumnHistogramById(tableId, colName);
+    public static Histogram queryColumnHistogramByName(long tableId, long indexId, String colName) {
+        ResultRow resultRow = queryColumnHistogramById(tableId, indexId, colName);
         if (resultRow == null) {
             return Histogram.UNKNOWN;
         }
@@ -202,35 +187,49 @@ public class StatisticsRepository {
         return stringJoiner.toString();
     }
 
-    public static void dropStatistics(Set<Long> partIds) throws DdlException {
-        dropStatisticsByPartId(partIds, StatisticConstants.ANALYSIS_TBL_NAME);
+    public static void dropStatistics(Set<String> partIds) throws DdlException {
         dropStatisticsByPartId(partIds, StatisticConstants.STATISTIC_TBL_NAME);
     }
 
     public static void dropStatistics(long tblId, Set<String> colNames) throws DdlException {
+        if (colNames == null) {
+            return;
+        }
         dropStatisticsByColName(tblId, colNames, StatisticConstants.STATISTIC_TBL_NAME);
         dropStatisticsByColName(tblId, colNames, StatisticConstants.HISTOGRAM_TBL_NAME);
-    }
-
-    public static void dropExternalTableStatistics(long tblId) throws DdlException {
-        Map<String, String> params = new HashMap<>();
-        String inPredicate = String.format("tbl_id = %s", tblId);
-        params.put("tblName", StatisticConstants.ANALYSIS_TBL_NAME);
-        params.put("condition", inPredicate);
-        try {
-            StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(DROP_TABLE_STATISTICS_TEMPLATE));
-        } catch (Exception e) {
-            throw new DdlException(e.getMessage(), e);
-        }
     }
 
     public static void dropStatisticsByColName(long tblId, Set<String> colNames, String statsTblName)
             throws DdlException {
         Map<String, String> params = new HashMap<>();
-        String right = colNames.stream().map(s -> "'" + s + "'").collect(Collectors.joining(","));
-        String inPredicate = String.format("tbl_id = %s AND %s IN (%s)", tblId, "col_id", right);
         params.put("tblName", statsTblName);
-        params.put("condition", inPredicate);
+        Iterator<String> iterator = colNames.iterator();
+        int columnCount = 0;
+        StringBuilder inPredicate = new StringBuilder();
+        while (iterator.hasNext()) {
+            inPredicate.append("'");
+            inPredicate.append(iterator.next());
+            inPredicate.append("'");
+            inPredicate.append(",");
+            columnCount++;
+            if (columnCount == Config.max_allowed_in_element_num_of_delete) {
+                executeDropSql(inPredicate, tblId, params);
+                columnCount = 0;
+                inPredicate.setLength(0);
+            }
+        }
+        if (inPredicate.length() > 0) {
+            executeDropSql(inPredicate, tblId, params);
+        }
+    }
+
+    public static void executeDropSql(StringBuilder inPredicate, long tblId, Map<String, String> params)
+            throws DdlException {
+        if (inPredicate.length() > 0) {
+            inPredicate.delete(inPredicate.length() - 1, inPredicate.length());
+        }
+        String predicate = String.format("tbl_id = '%s' AND %s IN (%s)", tblId, "col_id", inPredicate);
+        params.put("condition", predicate);
         try {
             StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(DROP_TABLE_STATISTICS_TEMPLATE));
         } catch (Exception e) {
@@ -238,7 +237,7 @@ public class StatisticsRepository {
         }
     }
 
-    public static void dropStatisticsByPartId(Set<Long> partIds, String statsTblName) throws DdlException {
+    public static void dropStatisticsByPartId(Set<String> partIds, String statsTblName) throws DdlException {
         Map<String, String> params = new HashMap<>();
         String right = StatisticsUtil.joinElementsToString(partIds, ",");
         String inPredicate = String.format(" part_id IN (%s)", right);
@@ -251,34 +250,6 @@ public class StatisticsRepository {
         }
     }
 
-    public static void persistTableStats(Map<String, String> params) throws Exception {
-        StatisticsUtil.execUpdate(PERSIST_TABLE_STATS_TEMPLATE, params);
-    }
-
-    public static void alterTableStatistics(AlterTableStatsStmt alterTableStatsStmt) throws Exception {
-        TableName tableName = alterTableStatsStmt.getTableName();
-        DBObjects objects = StatisticsUtil.convertTableNameToObjects(tableName);
-        String rowCount = alterTableStatsStmt.getValue(StatsType.ROW_COUNT);
-        TableStatisticBuilder builder = new TableStatisticBuilder();
-        builder.setRowCount(Long.parseLong(rowCount));
-        builder.setLastAnalyzeTimeInMs(0);
-        TableStatistic tableStatistic = builder.build();
-        Map<String, String> params = new HashMap<>();
-        String id = StatisticsUtil.constructId(objects.table.getId(), -1);
-        params.put("id", id);
-        params.put("catalogId", String.valueOf(objects.catalog.getId()));
-        params.put("dbId", String.valueOf(objects.db.getId()));
-        params.put("tblId", String.valueOf(objects.table.getId()));
-        params.put("indexId", "-1");
-        params.put("partId", "NULL");
-        params.put("rowCount", String.valueOf(tableStatistic.rowCount));
-        params.put("lastAnalyzeTimeInMs", "0");
-        StatisticsUtil.execUpdate(PERSIST_TABLE_STATS_TEMPLATE, params);
-        // TODO update statistics cache
-        // Env.getCurrentEnv().getStatisticsCache()
-        //         .updateColStatsCache(objects.table.getId(), -1, builder.build());
-    }
-
     public static void alterColumnStatistics(AlterColumnStatsStmt alterColumnStatsStmt) throws Exception {
         TableName tableName = alterColumnStatsStmt.getTableName();
         List<Long> partitionIds = alterColumnStatsStmt.getPartitionIds();
@@ -289,6 +260,7 @@ public class StatisticsRepository {
         String min = alterColumnStatsStmt.getValue(StatsType.MIN_VALUE);
         String max = alterColumnStatsStmt.getValue(StatsType.MAX_VALUE);
         String dataSize = alterColumnStatsStmt.getValue(StatsType.DATA_SIZE);
+        long indexId = alterColumnStatsStmt.getIndexId();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder();
         String colName = alterColumnStatsStmt.getColumnName();
         Column column = objects.table.getColumn(colName);
@@ -312,30 +284,47 @@ public class StatisticsRepository {
             builder.setMaxValue(StatisticsUtil.convertToDouble(column.getType(), max));
         }
         if (dataSize != null) {
-            builder.setDataSize(Double.parseDouble(dataSize));
+            double size = Double.parseDouble(dataSize);
+            double rows = Double.parseDouble(rowCount);
+            if (size > 0) {
+                builder.setDataSize(size);
+                if (rows > 0) {
+                    builder.setAvgSizeByte(size / rows);
+                }
+            }
         }
 
         ColumnStatistic columnStatistic = builder.build();
         Map<String, String> params = new HashMap<>();
-        params.put("id", constructId(objects.table.getId(), -1, colName));
+        params.put("id", constructId(objects.table.getId(), indexId, colName));
         params.put("catalogId", String.valueOf(objects.catalog.getId()));
         params.put("dbId", String.valueOf(objects.db.getId()));
-        params.put("idxId", "-1");
+        params.put("idxId", String.valueOf(indexId));
         params.put("tblId", String.valueOf(objects.table.getId()));
         params.put("colId", String.valueOf(colName));
         params.put("count", String.valueOf(columnStatistic.count));
         params.put("ndv", String.valueOf(columnStatistic.ndv));
         params.put("nullCount", String.valueOf(columnStatistic.numNulls));
-        params.put("min", min == null ? "NULL" : min);
-        params.put("max", max == null ? "NULL" : max);
+        params.put("min", StatisticsUtil.escapeSQL(min));
+        params.put("max", StatisticsUtil.escapeSQL(max));
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
 
         if (partitionIds.isEmpty()) {
             // update table granularity statistics
             params.put("partId", "NULL");
             StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
-            Env.getCurrentEnv().getStatisticsCache()
-                    .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
+            ColStatsData data = new ColStatsData(constructId(objects.table.getId(), indexId, colName),
+                    objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
+                    null, columnStatistic);
+            Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
+            AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
+                    .setTblUpdateTime(System.currentTimeMillis())
+                    .setColName("")
+                    .setColToPartitions(Maps.newHashMap())
+                    .setUserInject(true)
+                    .setJobType(AnalysisInfo.JobType.MANUAL)
+                    .build();
+            Env.getCurrentEnv().getAnalysisManager().updateTableStatsForAlterStats(mockedJobInfo, objects.table);
         } else {
             // update partition granularity statistics
             for (Long partitionId : partitionIds) {
@@ -360,25 +349,24 @@ public class StatisticsRepository {
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FETCH_STATS_FULL_NAME));
     }
 
-    public static Map<String, Set<Long>> fetchColAndPartsForStats(long tblId) {
+    public static Map<String, Set<String>> fetchColAndPartsForStats(long tblId) {
         Map<String, String> params = Maps.newHashMap();
         params.put("tblId", String.valueOf(tblId));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String partSql = stringSubstitutor.replace(FETCH_STATS_PART_ID);
         List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(partSql);
 
-        Map<String, Set<Long>> columnToPartitions = Maps.newHashMap();
+        Map<String, Set<String>> columnToPartitions = Maps.newHashMap();
 
         resultRows.forEach(row -> {
             try {
-                String colId = row.getColumnValue("col_id");
-                String partId = row.getColumnValue("part_id");
-                if (partId == null) {
+                StatsId statsId = new StatsId(row);
+                if (statsId.partId == null) {
                     return;
                 }
-                columnToPartitions.computeIfAbsent(colId,
-                        k -> new HashSet<>()).add(Long.valueOf(partId));
-            } catch (NumberFormatException | DdlException e) {
+                columnToPartitions.computeIfAbsent(String.valueOf(statsId.colId),
+                        k -> new HashSet<>()).add(statsId.partId);
+            } catch (NumberFormatException e) {
                 LOG.warn("Failed to obtain the column and partition for statistics.",
                         e);
             }
@@ -387,58 +375,13 @@ public class StatisticsRepository {
         return columnToPartitions;
     }
 
-    public static TableStatistic fetchTableLevelStats(long tblId) throws DdlException {
-        ImmutableMap<String, String> params = ImmutableMap
-                .of("tblId", String.valueOf(tblId));
-        String sql = StatisticsUtil.replaceParams(FETCH_TABLE_LEVEL_STATS_TEMPLATE, params);
-        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(sql);
-        if (resultRows.size() == 1) {
-            return TableStatistic.fromResultRow(resultRows.get(0));
-        }
-        return TableStatistic.UNKNOWN;
-    }
-
-    public static TableStatistic fetchTableLevelOfPartStats(long partId) throws DdlException {
-        ImmutableMap<String, String> params = ImmutableMap
-                .of("partId", String.valueOf(partId));
-        String sql = StatisticsUtil.replaceParams(FETCH_TABLE_LEVEL_PART_STATS_TEMPLATE, params);
-        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(sql);
-        if (resultRows.size() == 1) {
-            return TableStatistic.fromResultRow(resultRows.get(0));
-        }
-        throw new DdlException("Query result is not as expected: " + sql);
-    }
-
-    public static Map<Long, TableStatistic> fetchTableLevelOfIdPartStats(long tblId) throws DdlException {
-        ImmutableMap<String, String> params = ImmutableMap
-                .of("tblId", String.valueOf(tblId));
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String sql = stringSubstitutor.replace(FETCH_PART_TABLE_STATS_TEMPLATE);
-        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(sql);
-
-        if (resultRows.size() == 0) {
-            return Collections.emptyMap();
-        }
-
-        Map<Long, TableStatistic> idToPartitionTableStats = Maps.newHashMap();
-
-        for (ResultRow resultRow : resultRows) {
-            long partId = Long.parseLong(resultRow.getColumnValue("part_id"));
-            TableStatistic partStats = TableStatistic.fromResultRow(resultRow);
-            idToPartitionTableStats.put(partId, partStats);
-        }
-
-        return idToPartitionTableStats;
-    }
-
     public static List<ResultRow> loadColStats(long tableId, long idxId, String colName) {
         Map<String, String> params = new HashMap<>();
-        params.put("tblId", String.valueOf(tableId));
-        params.put("idxId", String.valueOf(idxId));
-        params.put("colId", colName);
+        String id = constructId(tableId, idxId, colName);
+        params.put("id", StatisticsUtil.escapeSQL(id));
 
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                .replace(QUERY_COLUMN_STATISTICS));
+                .replace(FETCH_COLUMN_STATISTIC_TEMPLATE));
     }
 
     public static List<ResultRow> loadPartStats(Collection<StatisticsCacheKey> keys) {

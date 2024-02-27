@@ -45,7 +45,7 @@ TEST(FunctionUrlTEST, DomainTest) {
             {{STRING("example.com")}, STRING("example.com")},
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionUrlTEST, DomainWithoutWWWTest) {
@@ -64,7 +64,7 @@ TEST(FunctionUrlTEST, DomainWithoutWWWTest) {
             {{STRING("example.com")}, STRING("example.com")},
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionUrlTEST, ProtocolTest) {
@@ -90,7 +90,7 @@ TEST(FunctionUrlTEST, ProtocolTest) {
             {{STRING("http!://example.com/")}, STRING("")},
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 } // namespace doris::vectorized

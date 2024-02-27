@@ -22,7 +22,7 @@ suite("test_map_select_with_limit", "query") {
     sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` INT(11) NULL,
-              `k2` MAP<SMALLINT(6), STRING> NULL,
+              `k2` MAP<SMALLINT(6), STRING> NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             COMMENT 'OLAP'

@@ -14,3 +14,9 @@ true	false
 -- !select5 --
 \N	\N
 
+-- !select6 --
+2
+
+-- !select7 --
+1
+

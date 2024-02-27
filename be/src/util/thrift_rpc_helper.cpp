@@ -73,6 +73,7 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
         try {
             callback(client);
         } catch (apache::thrift::transport::TTransportException& e) {
+            std::cerr << "thrift error, reason=" << e.what();
             LOG(WARNING) << "retrying call frontend service after "
                          << config::thrift_client_retry_interval_ms << " ms, address=" << address
                          << ", reason=" << e.what();
@@ -92,7 +93,7 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
         std::this_thread::sleep_for(
                 std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
         // just reopen to disable this connection
-        client.reopen(timeout_ms);
+        static_cast<void>(client.reopen(timeout_ms));
         return Status::RpcError("failed to call frontend service, reason: {}", e.what());
     }
     return Status::OK();

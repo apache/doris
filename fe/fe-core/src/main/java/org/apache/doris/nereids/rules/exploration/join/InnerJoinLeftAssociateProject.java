@@ -51,7 +51,7 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(group(), logicalProject(innerLogicalJoin()))
                 .when(InnerJoinLeftAssociate::checkReorder)
-                .whenNot(join -> join.hasJoinHint() || join.right().child().hasJoinHint())
+                .whenNot(join -> join.hasDistributeHint() || join.right().child().hasDistributeHint())
                 .whenNot(join -> join.isMarkJoin() || join.right().child().isMarkJoin())
                 .when(join -> join.right().isAllSlots())
                 .then(topJoin -> {
@@ -88,10 +88,9 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
                             newTopHashConjuncts, newTopOtherConjuncts, left, right);
-                    InnerJoinLeftAssociate.setNewBottomJoinReorder(newBottomJoin, bottomJoin);
-                    InnerJoinLeftAssociate.setNewTopJoinReorder(newTopJoin, topJoin);
+                    newTopJoin.getJoinReorderContext().setHasLeftAssociate(true);
 
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
-                }).toRule(RuleType.LOGICAL_INNER_JOIN_LEFT_ASSOCIATIVE);
+                }).toRule(RuleType.LOGICAL_INNER_JOIN_LEFT_ASSOCIATIVE_PROJECT);
     }
 }

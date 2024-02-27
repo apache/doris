@@ -16,25 +16,25 @@
 // under the License.
 
 suite("test_full_join_batch_size", "query,p0") {
-    sql " drop table if exists test_left_join_batch_size_l; ";
-    sql " drop table if exists test_left_join_batch_size_r; ";
+    sql " drop table if exists test_full_join_batch_size_l; ";
+    sql " drop table if exists test_full_join_batch_size_r; ";
     sql """
-        create table test_left_join_batch_size_l (
+        create table test_full_join_batch_size_l (
             k1 int,
             v1 int
         ) distributed by hash(k1) buckets 3
         properties("replication_num" = "1");
     """
     sql """
-        create table test_left_join_batch_size_r (
+        create table test_full_join_batch_size_r (
             k1 int,
             v1 int
         ) distributed by hash(k1) buckets 3
         properties("replication_num" = "1");
     """
 
-    sql """ insert into test_left_join_batch_size_l values (1, 11), (1, 111), (1, 1111) """
-    sql """ insert into test_left_join_batch_size_r values (1, null), (1, 211), (1, 311), (1, 411) """
+    sql """ insert into test_full_join_batch_size_l values (1, 11), (1, 111), (1, 1111) """
+    sql """ insert into test_full_join_batch_size_r values (1, null), (1, 211), (1, 311), (1, 411) """
 
     qt_sql1 """
         select /*+SET_VAR(batch_size=3)*/
@@ -43,8 +43,8 @@ suite("test_full_join_batch_size", "query,p0") {
                r.k1,
                r.v1
         from
-               test_left_join_batch_size_l l
-               full join test_left_join_batch_size_r r on (
+               test_full_join_batch_size_l l
+               full join test_full_join_batch_size_r r on (
                       r.v1 = 0
                       or r.v1 is null
                )

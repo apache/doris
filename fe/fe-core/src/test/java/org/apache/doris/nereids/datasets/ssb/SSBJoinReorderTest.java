@@ -39,7 +39,7 @@ public class SSBJoinReorderTest extends SSBTestBase implements MemoPatternMatchS
                 ImmutableList.of(
                         "(c_region = 'AMERICA')",
                         "(s_region = 'AMERICA')",
-                        "p_mfgr IN ('MFGR#2', 'MFGR#1')"
+                        "p_mfgr IN ('MFGR#1', 'MFGR#2')"
                 )
         );
     }
@@ -58,7 +58,7 @@ public class SSBJoinReorderTest extends SSBTestBase implements MemoPatternMatchS
                         "d_year IN (1997, 1998)",
                         "(c_region = 'AMERICA')",
                         "(s_region = 'AMERICA')",
-                        "p_mfgr IN ('MFGR#2', 'MFGR#1')"
+                        "p_mfgr IN ('MFGR#1', 'MFGR#2')"
                 )
         );
     }

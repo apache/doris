@@ -27,7 +27,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -40,7 +39,11 @@ template <typename K>
 struct AggregateFunctionMapAggData {
     using KeyType = std::conditional_t<std::is_same_v<K, String>, StringRef, K>;
     using Map = phmap::flat_hash_map<StringRef, int64_t>;
-    AggregateFunctionMapAggData() { __builtin_unreachable(); }
+
+    AggregateFunctionMapAggData() {
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
 
     AggregateFunctionMapAggData(const DataTypes& argument_types) {
         _key_type = remove_nullable(argument_types[0]);
@@ -55,20 +58,49 @@ struct AggregateFunctionMapAggData {
         _value_column->clear();
     }
 
-    void add(const StringRef& key, const StringRef& value) {
+    void add(StringRef key, const Field& value) {
         DCHECK(key.data != nullptr);
         if (UNLIKELY(_map.find(key) != _map.end())) {
             return;
         }
 
-        ArenaKeyHolder key_holder {key, _arena};
-        if (key.size > 0) {
-            key_holder_persist_key(key_holder);
-        }
+        key.data = _arena.insert(key.data, key.size);
 
-        _map.emplace(key_holder.key, _key_column->size());
-        _key_column->insert_data(key_holder.key.data, key_holder.key.size);
-        _value_column->insert_data(value.data, value.size);
+        _map.emplace(key, _key_column->size());
+        _key_column->insert_data(key.data, key.size);
+        _value_column->insert(value);
+    }
+
+    void add(const Field& key_, const Field& value) {
+        DCHECK(!key_.is_null());
+        auto key_array = vectorized::get<Array>(key_);
+        auto value_array = vectorized::get<Array>(value);
+
+        const auto count = key_array.size();
+        DCHECK_EQ(count, value_array.size());
+
+        for (size_t i = 0; i != count; ++i) {
+            StringRef key;
+            if constexpr (std::is_same_v<K, String>) {
+                auto& string = key_array[i].get<K>();
+                key.data = string.data();
+                key.size = string.size();
+            } else {
+                auto& k = key_array[i].get<KeyType>();
+                key.data = reinterpret_cast<const char*>(&k);
+                key.size = sizeof(k);
+            }
+
+            if (UNLIKELY(_map.find(key) != _map.end())) {
+                return;
+            }
+
+            key.data = _arena.insert(key.data, key.size);
+
+            _map.emplace(key, _key_column->size());
+            _key_column->insert_data(key.data, key.size);
+            _value_column->insert(value_array[i]);
+        }
     }
 
     void merge(const AggregateFunctionMapAggData& other) {
@@ -84,76 +116,13 @@ struct AggregateFunctionMapAggData {
             if (_map.find(key) != _map.cend()) {
                 continue;
             }
-            ArenaKeyHolder key_holder {key, _arena};
-            if (key.size > 0) {
-                key_holder_persist_key(key_holder);
-            }
+            key.data = _arena.insert(key.data, key.size);
 
-            _map.emplace(key_holder.key, _key_column->size());
-            static_cast<KeyColumnType&>(*_key_column)
-                    .insert_data(key_holder.key.data, key_holder.key.size);
+            _map.emplace(key, _key_column->size());
+            static_cast<KeyColumnType&>(*_key_column).insert_data(key.data, key.size);
 
             auto value = other._value_column->get_data_at(i);
             _value_column->insert_data(value.data, value.size);
-        }
-    }
-
-    static void serialize(BufferWritable& buf, const IColumn& key_column,
-                          const IColumn& value_column, const DataTypePtr& key_type,
-                          const DataTypePtr& value_type) {
-        size_t element_number = key_column.size();
-        write_binary(element_number, buf);
-
-        DCHECK(!key_column.is_nullable());
-        DCHECK(!key_type->is_nullable());
-        DCHECK(value_column.is_nullable());
-        DCHECK(value_type->is_nullable());
-
-        if (element_number > 0) {
-            size_t serialized_size = key_type->get_uncompressed_serialized_bytes(key_column, 0);
-            serialized_size += value_type->get_uncompressed_serialized_bytes(value_column, 0);
-
-            std::string serialized_buffer;
-            serialized_buffer.resize(serialized_size);
-            auto* serialized_data = serialized_buffer.data();
-
-            serialized_data = key_type->serialize(key_column, serialized_data, 0);
-            value_type->serialize(value_column, serialized_data, 0);
-
-            write_binary(serialized_size, buf);
-            buf.write(serialized_buffer.data(), serialized_buffer.size());
-        }
-    }
-
-    void write(BufferWritable& buf) const {
-        serialize(buf, *_key_column, *_value_column, _key_type, _value_type);
-    }
-
-    void read(BufferReadable& buf) {
-        size_t element_number = 0;
-        read_binary(element_number, buf);
-
-        if (element_number > 0) {
-            _map.reserve(element_number);
-
-            size_t serialized_size;
-            read_binary(serialized_size, buf);
-            std::string serialized_buffer;
-            serialized_buffer.resize(serialized_size);
-
-            buf.read(serialized_buffer.data(), serialized_size);
-            const auto* serialized_data = serialized_buffer.data();
-            serialized_data = _key_type->deserialize(serialized_data, _key_column.get(), 0);
-            _value_type->deserialize(serialized_data, _value_column.get(), 0);
-
-            DCHECK_EQ(element_number, _key_column->size());
-            DCHECK_EQ(element_number, _value_column->size());
-
-            for (size_t i = 0; i != element_number; ++i) {
-                auto key = static_cast<KeyColumnType&>(*_key_column).get_data_at(i);
-                DCHECK(_map.find(key) == _map.cend());
-                _map.emplace(key, i);
-            }
         }
     }
 
@@ -211,14 +180,17 @@ public:
             if (nullable_map[row_num]) {
                 return;
             }
+            Field value;
+            columns[1]->get(row_num, value);
             this->data(place).add(
                     assert_cast<const KeyColumnType&>(nullable_col.get_nested_column())
                             .get_data_at(row_num),
-                    columns[1]->get_data_at(row_num));
+                    value);
         } else {
+            Field value;
+            columns[1]->get(row_num, value);
             this->data(place).add(
-                    assert_cast<const KeyColumnType&>(*columns[0]).get_data_at(row_num),
-                    columns[1]->get_data_at(row_num));
+                    assert_cast<const KeyColumnType&>(*columns[0]).get_data_at(row_num), value);
         }
     }
 
@@ -233,79 +205,109 @@ public:
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).write(buf);
+    void serialize(ConstAggregateDataPtr /* __restrict place */,
+                   BufferWritable& /* buf */) const override {
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
     }
 
-    template <bool key_nullable, bool value_nullable>
-    void streaming_agg_serialize_to_column_impl(const size_t num_rows, const IColumn& key_column,
-                                                const IColumn& value_column,
-                                                const NullMap& null_map,
-                                                BufferWritable& writer) const {
-        auto& key_col = assert_cast<const KeyColumnType&>(key_column);
-        auto key_to_serialize = key_col.clone_empty();
-        auto val_to_serialize = value_column.clone_empty();
-        auto key_type = remove_nullable(argument_types[0]);
-        auto val_type = make_nullable(argument_types[1]);
-        for (size_t i = 0; i != num_rows; ++i) {
-            key_to_serialize->clear();
-            val_to_serialize->clear();
-            if constexpr (key_nullable) {
-                if (!null_map[i]) {
-                    key_to_serialize->insert_range_from(key_col, i, 1);
-                    val_to_serialize->insert_range_from(value_column, i, 1);
-                }
-            } else {
-                key_to_serialize->insert_range_from(key_col, i, 1);
-                val_to_serialize->insert_range_from(value_column, i, 1);
-            }
-
-            if constexpr (value_nullable) {
-                Data::serialize(writer, *key_to_serialize, *val_to_serialize, key_type, val_type);
-            } else {
-                auto nullable_value_col = make_nullable(val_to_serialize->assume_mutable(), false);
-                Data::serialize(writer, *key_to_serialize, *nullable_value_col, key_type, val_type);
-                val_to_serialize = value_column.clone_empty();
-            }
-            writer.commit();
-        }
+    void deserialize(AggregateDataPtr /* __restrict place */, BufferReadable& /* buf */,
+                     Arena*) const override {
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
-        auto& col = assert_cast<ColumnString&>(*dst);
-        col.reserve(num_rows);
-        VectorBufferWriter writer(col);
-
-        if (columns[0]->is_nullable()) {
-            auto& nullable_col = assert_cast<const ColumnNullable&>(*columns[0]);
-            auto& null_map = nullable_col.get_null_map_data();
-            if (columns[0]->is_nullable()) {
-                this->streaming_agg_serialize_to_column_impl<true, true>(
-                        num_rows, nullable_col.get_nested_column(), *columns[1], null_map, writer);
-            } else {
-                this->streaming_agg_serialize_to_column_impl<true, false>(
-                        num_rows, nullable_col.get_nested_column(), *columns[1], null_map, writer);
+        auto& col = assert_cast<ColumnMap&>(*dst);
+        for (size_t i = 0; i != num_rows; ++i) {
+            Field key, value;
+            columns[0]->get(i, key);
+            if (key.is_null()) {
+                continue;
             }
-        } else {
-            if (columns[0]->is_nullable()) {
-                this->streaming_agg_serialize_to_column_impl<false, true>(num_rows, *columns[0],
-                                                                          *columns[1], {}, writer);
-            } else {
-                this->streaming_agg_serialize_to_column_impl<false, false>(num_rows, *columns[0],
-                                                                           *columns[1], {}, writer);
+
+            columns[1]->get(i, value);
+            col.insert(Map {Array {key}, Array {value}});
+        }
+    }
+
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
+                                 size_t num_rows) const override {
+        auto& col = assert_cast<const ColumnMap&>(column);
+        auto* data = &(this->data(places));
+        for (size_t i = 0; i != num_rows; ++i) {
+            auto map = doris::vectorized::get<Map>(col[i]);
+            data->add(map[0], map[1]);
+        }
+    }
+
+    void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
+                             MutableColumnPtr& dst, const size_t num_rows) const override {
+        for (size_t i = 0; i != num_rows; ++i) {
+            Data& data_ = this->data(places[i] + offset);
+            data_.insert_result_into(*dst);
+        }
+    }
+
+    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
+                                           Arena* arena) const override {
+        auto& col = assert_cast<const ColumnMap&>(column);
+        const size_t num_rows = column.size();
+        for (size_t i = 0; i != num_rows; ++i) {
+            auto map = doris::vectorized::get<Map>(col[i]);
+            this->data(place).add(map[0], map[1]);
+        }
+    }
+
+    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
+                                                 const IColumn& column, size_t begin, size_t end,
+                                                 Arena* arena) const override {
+        DCHECK(end <= column.size() && begin <= end)
+                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        auto& col = assert_cast<const ColumnMap&>(column);
+        for (size_t i = begin; i <= end; ++i) {
+            auto map = doris::vectorized::get<Map>(col[i]);
+            this->data(place).add(map[0], map[1]);
+        }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        auto& col = assert_cast<const ColumnMap&>(*assert_cast<const IColumn*>(column));
+        for (size_t i = 0; i != num_rows; ++i) {
+            auto map = doris::vectorized::get<Map>(col[i]);
+            this->data(places[i]).add(map[0], map[1]);
+        }
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        auto& col = assert_cast<const ColumnMap&>(*assert_cast<const IColumn*>(column));
+        for (size_t i = 0; i != num_rows; ++i) {
+            if (places[i]) {
+                auto map = doris::vectorized::get<Map>(col[i]);
+                this->data(places[i]).add(map[0], map[1]);
             }
         }
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
-        this->data(place).read(buf);
+    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+                                         IColumn& to) const override {
+        this->data(place).insert_result_into(to);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
+
+    [[nodiscard]] MutableColumnPtr create_serialize_column() const override {
+        return get_return_type()->create_column();
+    }
+
+    [[nodiscard]] DataTypePtr get_serialized_type() const override { return get_return_type(); }
 
 protected:
     using IAggregateFunction::argument_types;

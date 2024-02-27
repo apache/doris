@@ -17,21 +17,23 @@
 
 #pragma once
 
+#include <string>
+
+#include "runtime/exec_env.h"
+#include "runtime/memory/cache_policy.h"
 #include "util/runtime_profile.h"
+#include "util/time.h"
 
 namespace doris {
-
-class CachePolicy;
 
 // Hold the list of all caches, for prune when memory not enough or timing.
 class CacheManager {
 public:
-    static void create_global_instance() {
-        DCHECK(_s_instance == nullptr);
-        static CacheManager instance;
-        _s_instance = &instance;
+    static CacheManager* create_global_instance() {
+        CacheManager* res = new CacheManager();
+        return res;
     }
-    static CacheManager* instance() { return _s_instance; }
+    static CacheManager* instance() { return ExecEnv::GetInstance()->get_cache_manager(); }
 
     std::list<CachePolicy*>::iterator register_cache(CachePolicy* cache) {
         std::lock_guard<std::mutex> l(_caches_lock);
@@ -53,11 +55,27 @@ public:
 
     int64_t for_each_cache_prune_all(RuntimeProfile* profile = nullptr);
 
-private:
-    static inline CacheManager* _s_instance = nullptr;
+    void clear_once(CachePolicy::CacheType type);
 
+    bool need_prune(int64_t* last_timestamp, const std::string& type) {
+        int64_t now = UnixSeconds();
+        std::lock_guard<std::mutex> l(_caches_lock);
+        if (now - *last_timestamp > config::cache_prune_interval_sec) {
+            *last_timestamp = now;
+            return true;
+        }
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] cache no prune {}, last prune less than interval {}, now {}, last "
+                "timestamp {}",
+                type, config::cache_prune_interval_sec, now, *last_timestamp);
+        return false;
+    }
+
+private:
     std::mutex _caches_lock;
     std::list<CachePolicy*> _caches;
+    int64_t _last_prune_stale_timestamp = 0;
+    int64_t _last_prune_all_timestamp = 0;
 };
 
 } // namespace doris

@@ -84,6 +84,10 @@ public:
                          << ", fragment_instance_id=" << print_id(request->finst_id())
                          << ", node=" << request->node_id();
         }
+        if (done != nullptr) {
+            st.to_protobuf(response->mutable_status());
+            done->Run();
+        }
     }
 
 private:
@@ -147,6 +151,8 @@ TEST_F(VDataStreamTest, BasicTest) {
 
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    runtime_stat.set_task_execution_context(task_ctx_lock);
     runtime_stat.init_mem_trackers();
     runtime_stat.set_desc_tbl(desc_tbl);
     runtime_stat.set_be_number(1);
@@ -165,9 +171,8 @@ TEST_F(VDataStreamTest, BasicTest) {
     int num_senders = 1;
     RuntimeProfile profile("profile");
     bool is_merge = false;
-    std::shared_ptr<QueryStatisticsRecvr> statistics = std::make_shared<QueryStatisticsRecvr>();
     auto recv = _instance.create_recvr(&runtime_stat, row_desc, uid, nid, num_senders, &profile,
-                                       is_merge, statistics);
+                                       is_merge);
 
     // Test Sender
     int sender_id = 1;
@@ -188,15 +193,11 @@ TEST_F(VDataStreamTest, BasicTest) {
         dest.__set_server(addr);
         dests.push_back(dest);
     }
-    int per_channel_buffer_size = 1024 * 1024;
-    bool send_query_statistics_with_every_batch = false;
     VDataStreamSender sender(&runtime_stat, &_object_pool, sender_id, row_desc, tsink.stream_sink,
-                             dests, per_channel_buffer_size,
-                             send_query_statistics_with_every_batch);
-    sender.set_query_statistics(std::make_shared<QueryStatistics>());
-    sender.init(tsink);
-    sender.prepare(&runtime_stat);
-    sender.open(&runtime_stat);
+                             dests);
+    static_cast<void>(sender.init(tsink));
+    static_cast<void>(sender.prepare(&runtime_stat));
+    static_cast<void>(sender.open(&runtime_stat));
 
     auto vec = vectorized::ColumnVector<Int32>::create();
     auto& data = vec->get_data();
@@ -206,14 +207,14 @@ TEST_F(VDataStreamTest, BasicTest) {
     vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
     vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
     vectorized::Block block({type_and_name});
-    sender.send(&runtime_stat, &block);
+    static_cast<void>(sender.send(&runtime_stat, &block));
 
     Status exec_status;
-    sender.close(&runtime_stat, exec_status);
+    static_cast<void>(sender.close(&runtime_stat, exec_status));
 
     Block block_2;
     bool eos;
-    recv->get_next(&block_2, &eos);
+    static_cast<void>(recv->get_next(&block_2, &eos));
 
     EXPECT_EQ(block_2.rows(), 1024);
 

@@ -571,7 +571,7 @@ suite("test_bitmap_function") {
 
     // TO_BITMAP
     qt_sql """ select bitmap_count(to_bitmap(10)) """
-    qt_sql """ select bitmap_to_string(to_bitmap(-1)) """
+    qt_sql """ select bitmap_to_string(to_bitmap("-1")) """
 
     // BITMAP_MAX
     qt_sql """ select bitmap_max(bitmap_from_string('')) value; """

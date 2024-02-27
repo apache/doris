@@ -19,7 +19,9 @@ package org.apache.doris.maxcompute;
 
 import org.apache.doris.common.jni.vec.ColumnValue;
 
+import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.DateDayVector;
 import org.apache.arrow.vector.DateMilliVector;
 import org.apache.arrow.vector.DecimalVector;
@@ -32,11 +34,11 @@ import org.apache.arrow.vector.TimeStampNanoVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
-import org.apache.arrow.vector.util.DecimalUtility;
 import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.ByteOrder;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -83,8 +85,8 @@ public class MaxComputeColumnValue implements ColumnValue {
     @Override
     public boolean getBoolean() {
         skippedIfNull();
-        TinyIntVector tinyIntCol = (TinyIntVector) column;
-        return tinyIntCol.get(idx++) > 0;
+        BitVector bitCol = (BitVector) column;
+        return bitCol.get(idx++) != 0;
     }
 
     @Override
@@ -140,8 +142,36 @@ public class MaxComputeColumnValue implements ColumnValue {
     public BigDecimal getDecimal() {
         skippedIfNull();
         DecimalVector decimalCol = (DecimalVector) column;
-        return DecimalUtility.getBigDecimalFromArrowBuf(column.getDataBuffer(), idx++,
+        return getBigDecimalFromArrowBuf(column.getDataBuffer(), idx++,
                     decimalCol.getScale(), DecimalVector.TYPE_WIDTH);
+    }
+
+    /**
+     * copy from arrow vector DecimalUtility.getBigDecimalFromArrowBuf
+     * @param byteBuf byteBuf
+     * @param index index
+     * @param scale scale
+     * @param byteWidth DecimalVector TYPE_WIDTH
+     * @return java BigDecimal
+     */
+    public static BigDecimal getBigDecimalFromArrowBuf(ArrowBuf byteBuf, int index, int scale, int byteWidth) {
+        byte[] value = new byte[byteWidth];
+        byte temp;
+        final long startIndex = (long) index * byteWidth;
+
+        byteBuf.getBytes(startIndex, value, 0, byteWidth);
+        if (ByteOrder.nativeOrder() == ByteOrder.LITTLE_ENDIAN) {
+            // Decimal stored as native endian, need to swap bytes to make BigDecimal if native endian is LE
+            int stop = byteWidth / 2;
+            for (int i = 0, j; i < stop; i++) {
+                temp = value[i];
+                j = (byteWidth - 1) - i;
+                value[i] = value[j];
+                value[j] = temp;
+            }
+        }
+        BigInteger unscaledValue = new BigInteger(value);
+        return new BigDecimal(unscaledValue, scale);
     }
 
     @Override

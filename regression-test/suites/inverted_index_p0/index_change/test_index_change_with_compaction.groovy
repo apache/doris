@@ -20,6 +20,26 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_index_change_with_compaction") {
     def tableName = "index_change_with_compaction_dup_keys"
 
+    def timeout = 60000
+    def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
+
+    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(3000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
+
     try {
         //BackendId,Cluster,IP,HeartbeatPort,BePort,HttpPort,BrpcPort,LastStartTime,LastHeartbeat,Alive,SystemDecommissioned,ClusterDecommissioned,TabletNum,DataUsedCapacity,AvailCapacity,TotalCapacity,UsedPct,MaxDiskUsedPct,Tag,ErrMsg,Version,Status
         String[][] backends = sql """ show backends; """
@@ -112,17 +132,19 @@ suite("test_index_change_with_compaction") {
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
-        String[][] tablets = sql """ show tablets from ${tableName}; """
+        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // create inverted index
         sql """ CREATE INDEX idx_user_id ON ${tableName}(`user_id`) USING INVERTED """
         sql """ CREATE INDEX idx_date ON ${tableName}(`date`) USING INVERTED """
         sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED """
 
+        wait_for_latest_op_on_table_finish(tableName, timeout)
+
         // trigger compactions for all tablets in ${tableName}
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            backend_id = tablet[2]
+        for (def tablet in tablets) {
+            String tablet_id = tablet.TabletId
+            backend_id = tablet.BackendId
             StringBuilder sb = new StringBuilder();
             sb.append("curl -X POST http://")
             sb.append(backendId_to_backendIP.get(backend_id))
@@ -155,12 +177,12 @@ suite("test_index_change_with_compaction") {
         sql "build index idx_city on ${tableName}"
 
         // wait for all compactions done
-        for (String[] tablet in tablets) {
+        for (def tablet in tablets) {
             boolean running = true
             do {
                 Thread.sleep(1000)
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
+                String tablet_id = tablet.TabletId
+                backend_id = tablet.BackendId
                 StringBuilder sb = new StringBuilder();
                 sb.append("curl -X GET http://")
                 sb.append(backendId_to_backendIP.get(backend_id))
@@ -184,12 +206,11 @@ suite("test_index_change_with_compaction") {
         }
 
         int rowCount = 0
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
+        for (def tablet in tablets) {
+            String tablet_id = tablet.TabletId
             StringBuilder sb = new StringBuilder();
-            def compactionStatusUrlIndex = 18
             sb.append("curl -X GET ")
-            sb.append(tablet[compactionStatusUrlIndex])
+            sb.append(tablet.CompactionStatus)
             String command = sb.toString()
             // wait for cleaning stale_rowsets
             process = command.execute()
@@ -204,7 +225,18 @@ suite("test_index_change_with_compaction") {
                 rowCount += Integer.parseInt(rowset.split(" ")[1])
             }
         }
-        assert (rowCount <= 8)
+
+        def dedup_tablets = deduplicate_tablets(tablets)
+
+        // In the p0 testing environment, there are no expected operations such as scaling down BE (backend) services
+        // if tablets or dedup_tablets is empty, exception is thrown, and case fail
+        int replicaNum = Math.floor(tablets.size() / dedup_tablets.size())
+        if (replicaNum != 1 && replicaNum != 3)
+        {
+            assert(false);
+        }
+
+        assert (rowCount <= 8*replicaNum)
         qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")

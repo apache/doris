@@ -145,7 +145,7 @@ Status ThriftServer::ThriftServerEventProcessor::start_and_wait_for_server() {
 
     // _started == true only if preServe was called. May be false if there was an exception
     // after preServe that was caught by Supervise, causing it to reset the error condition.
-    if (_thrift_server->_started == false) {
+    if (!_thrift_server->_started) {
         std::stringstream ss;
         ss << "ThriftServer '" << _thrift_server->_name << "' (on port: " << _thrift_server->_port
            << ") did not start correctly ";
@@ -297,6 +297,11 @@ ThriftServer::ThriftServer(const std::string& name,
             std::string("thrift_server.") + name, {{"name", name}});
     INT_GAUGE_METRIC_REGISTER(_thrift_server_metric_entity, thrift_current_connections);
     INT_COUNTER_METRIC_REGISTER(_thrift_server_metric_entity, thrift_connections_total);
+}
+
+ThriftServer::~ThriftServer() {
+    stop();
+    join();
 }
 
 Status ThriftServer::start() {

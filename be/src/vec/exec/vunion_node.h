@@ -18,8 +18,8 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <iosfwd>
 #include <vector>
 
@@ -64,6 +64,8 @@ public:
     /// GetNext() for the constant expression case.
     Status get_next_const(RuntimeState* state, Block* block);
 
+    bool resource_allocated() const { return _resource_allocated; }
+
 private:
     /// Const exprs materialized by this node. These exprs don't refer to any children.
     /// Only materialized by the first fragment instance to avoid duplication.
@@ -90,6 +92,9 @@ private:
     /// Index of the child that needs to be closed on the next GetNext() call. Should be set
     /// to -1 if no child needs to be closed.
     int _to_close_child_idx;
+
+    std::mutex _resource_lock;
+    bool _resource_allocated {false};
 
     // Time spent to evaluates exprs and materializes the results
     RuntimeProfile::Counter* _materialize_exprs_evaluate_timer = nullptr;

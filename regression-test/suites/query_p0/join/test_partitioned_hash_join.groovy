@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_partitioned_hash_join", "query,p0") {
+suite("test_partitioned_hash_join", "query,p0,arrow_flight_sql") {
     sql "drop table if exists test_partitioned_hash_join_l"
     sql "drop table if exists test_partitioned_hash_join_r"
     sql """ create table test_partitioned_hash_join_l (
@@ -58,7 +58,10 @@ suite("test_partitioned_hash_join", "query,p0") {
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
     }
+    sql """ set enable_profile = 1; """
     sql "insert into test_partitioned_hash_join_l values (100, 1100), (0, 10), (1, 110), (255, 2550)";
+
+    sql """ sync """
 
     qt_partitioned_hash_join1 """
         select

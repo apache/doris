@@ -67,6 +67,7 @@ import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class MasterImpl {
@@ -191,7 +192,7 @@ public class MasterImpl {
                     finishRecoverTablet(task);
                     break;
                 case ALTER:
-                    finishAlterTask(task);
+                    finishAlterTask(task, request);
                     break;
                 case ALTER_INVERTED_INDEX:
                     finishAlterInvertedIndexTask(task, request);
@@ -215,7 +216,9 @@ public class MasterImpl {
         }
 
         if (tStatus.getStatusCode() == TStatusCode.OK) {
-            LOG.debug("report task success. {}", request.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("report task success. {}", request.toString());
+            }
         }
 
         return result;
@@ -261,8 +264,10 @@ public class MasterImpl {
                         request.getReportVersion(), task.getDbId(), task.getTableId());
 
                 createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
-                LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
-                        tabletId, task.getBackendId(), request.getReportVersion());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
+                            tabletId, task.getBackendId(), request.getReportVersion());
+                }
             }
         } finally {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
@@ -280,8 +285,10 @@ public class MasterImpl {
                         + request.getTaskStatus().getErrorMsgs().toString());
             } else {
                 tabletTask.countDownLatch(task.getBackendId(), tabletTask.getTablets());
-                LOG.debug("finish update tablet meta. tablet id: {}, be: {}",
-                        tabletTask.getTablets(), task.getBackendId());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("finish update tablet meta. tablet id: {}, be: {}",
+                            tabletTask.getTablets(), task.getBackendId());
+                }
             }
         } finally {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.UPDATE_TABLET_META_INFO, task.getSignature());
@@ -328,7 +335,9 @@ public class MasterImpl {
             LOG.warn("invalid push report infos. finishTabletInfos' size: " + finishTabletInfos.size());
             return;
         }
-        LOG.debug("push report state: {}", pushState.name());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("push report state: {}", pushState.name());
+        }
 
         OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
         if (olapTable == null || !olapTable.writeLockIfExist()) {
@@ -394,7 +403,9 @@ public class MasterImpl {
             }
 
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
-            LOG.debug("finish push replica. tabletId: {}, backendId: {}", pushTabletId, backendId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finish push replica. tabletId: {}, backendId: {}", pushTabletId, backendId);
+            }
         } catch (MetaNotFoundException e) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error", e);
@@ -465,6 +476,10 @@ public class MasterImpl {
     }
 
     private void finishPublishVersion(AgentTask task, TFinishTaskRequest request) {
+        Map<Long, Long> succTablets = null;
+        if (request.isSetSuccTablets()) {
+            succTablets = request.getSuccTablets();
+        }
         List<Long> errorTabletIds = null;
         if (request.isSetErrorTabletIds()) {
             errorTabletIds = request.getErrorTabletIds();
@@ -478,12 +493,16 @@ public class MasterImpl {
         }
 
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;
+        publishVersionTask.setSuccTablets(succTablets);
         publishVersionTask.addErrorTablets(errorTabletIds);
         publishVersionTask.setFinished(true);
 
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             // not remove the task from queue and be will retry
             return;
+        }
+        if (request.isSetTableIdToDeltaNumRows()) {
+            publishVersionTask.setTableIdToDeltaNumRows(request.getTableIdToDeltaNumRows());
         }
         AgentTaskQueue.removeTask(publishVersionTask.getBackendId(),
                                   publishVersionTask.getTaskType(),
@@ -566,7 +585,7 @@ public class MasterImpl {
         return reportHandler.handleReport(request);
     }
 
-    private void finishAlterTask(AgentTask task) {
+    private void finishAlterTask(AgentTask task, TFinishTaskRequest request) {
         AlterReplicaTask alterTask = (AlterReplicaTask) task;
         try {
             if (alterTask.getJobType() == JobType.ROLLUP) {
@@ -575,6 +594,11 @@ public class MasterImpl {
                 Env.getCurrentEnv().getSchemaChangeHandler().handleFinishAlterTask(alterTask);
             }
             alterTask.setFinished(true);
+            if (request.isSetReportVersion()) {
+                long reportVersion = request.getReportVersion();
+                Env.getCurrentSystemInfo().updateBackendReportVersion(
+                        task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+            }
         } catch (MetaNotFoundException e) {
             LOG.warn("failed to handle finish alter task: {}, {}", task.getSignature(), e.getMessage());
         }

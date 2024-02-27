@@ -26,6 +26,11 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
+namespace lucene {
+namespace analysis {
+class Analyzer;
+}
+} // namespace lucene
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
@@ -43,7 +48,7 @@ class VMatchPredicate final : public VExpr {
 
 public:
     VMatchPredicate(const TExprNode& node);
-    ~VMatchPredicate() override = default;
+    ~VMatchPredicate() override;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
@@ -61,5 +66,6 @@ private:
     std::string _expr_name;
     std::string _function_name;
     InvertedIndexCtxSPtr _inverted_index_ctx;
+    std::unique_ptr<lucene::analysis::Analyzer> _analyzer;
 };
 } // namespace doris::vectorized

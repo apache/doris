@@ -17,12 +17,15 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.LocalTime;
 import java.util.concurrent.FutureTask;
 
 public class AnalysisTaskWrapper extends FutureTask<Void> {
@@ -52,6 +55,13 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
             if (task.killed) {
                 return;
             }
+            if (task.info.scheduleType.equals(ScheduleType.AUTOMATIC) && !StatisticsUtil.inAnalyzeTime(
+                    LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
+                // TODO: Do we need a separate AnalysisState here?
+                task.job.taskFailed(task, "Auto task"
+                                + "doesn't get executed within specified time range");
+                return;
+            }
             executor.putJob(this);
             super.run();
             Object result = get();
@@ -64,15 +74,7 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
             if (!task.killed) {
                 if (except != null) {
                     LOG.warn("Analyze {} failed.", task.toString(), except);
-                    Env.getCurrentEnv().getAnalysisManager()
-                            .updateTaskStatus(task.info,
-                                    AnalysisState.FAILED, Util.getRootCauseMessage(except), System.currentTimeMillis());
-                } else {
-                    LOG.debug("Analyze {} finished, cost time:{}", task.toString(),
-                            System.currentTimeMillis() - startTime);
-                    Env.getCurrentEnv().getAnalysisManager()
-                            .updateTaskStatus(task.info,
-                                    AnalysisState.FINISHED, "", System.currentTimeMillis());
+                    task.job.taskFailed(task, Util.getRootCauseMessage(except));
                 }
             }
         }

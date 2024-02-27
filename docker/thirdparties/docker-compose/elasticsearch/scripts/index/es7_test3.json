@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "dynamic": "true",
+    "dynamic_date_formats": [
+      "strict_date_optional_time",
+      "yyyy/MM/dd HH:mm:ss Z||yyyy/MM/dd Z"
+    ],
+    "dynamic_templates": [
+
+    ],
+    "date_detection": true,
+    "numeric_detection": false,
+    "properties": {
+      "field1": { "type": "text" },
+      "field2": { "type": "keyword" }
+    }
+  }
+}

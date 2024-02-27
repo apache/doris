@@ -232,6 +232,10 @@ bool valid_datetime(const std::string& value_str, const uint32_t scale);
 
 bool valid_bool(const std::string& value_str);
 
+bool valid_ipv4(const std::string& value_str);
+
+bool valid_ipv6(const std::string& value_str);
+
 constexpr bool is_string_type(const FieldType& field_type) {
     return field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
            field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
@@ -257,6 +261,7 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
            field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
 }
 

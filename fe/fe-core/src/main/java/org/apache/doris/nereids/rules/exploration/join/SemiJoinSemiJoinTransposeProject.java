@@ -53,8 +53,8 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
     public Rule build() {
         return logicalJoin(logicalProject(logicalJoin()), group())
                 .when(this::typeChecker)
-                .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child()))
-                .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
+                .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child(), false))
+                .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> join.left().isAllSlots())
                 .then(topSemi -> {

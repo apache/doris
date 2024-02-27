@@ -29,7 +29,7 @@ suite("test_uniq_seq_col_schema_change", "schema_change") {
                 value3 INT
             )
             UNIQUE KEY (k1)
-            DISTRIBUTED BY HASH(k1) BUCKETS 1 
+            DISTRIBUTED BY HASH(k1) BUCKETS 8
             properties("replication_num" = "1",
                        "light_schema_change" = "false",
                        "function_column.sequence_type" = 'INT');
@@ -50,7 +50,7 @@ suite("test_uniq_seq_col_schema_change", "schema_change") {
 
         sql "insert into ${tbName1} ${columnWithHidden_2}values(5,5,5,5,5,0,5);"
         sql "insert into ${tbName1} ${columnWithHidden_2}values(5,6,6,6,6,0,6);"
-        sql "insert into ${tbName1} values(5,6,6,7,6);"
+        sql "insert into ${tbName1} ${columnWithHidden_2}values(5,6,6,7,6,0,4);"
         qt_sql "select * from ${tbName1} order by k1;"
         sql "insert into ${tbName1} ${columnWithHidden_2}values(5,6,6,7,6,0,7);"
         qt_sql "select * from ${tbName1} order by k1;"

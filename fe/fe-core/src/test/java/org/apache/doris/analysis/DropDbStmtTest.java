@@ -48,8 +48,8 @@ public class DropDbStmtTest {
         DropDbStmt stmt = new DropDbStmt(false, "test", true);
 
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:test", stmt.getDbName());
-        Assert.assertEquals("DROP DATABASE `testCluster:test`", stmt.toString());
+        Assert.assertEquals("test", stmt.getDbName());
+        Assert.assertEquals("DROP DATABASE `test`", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
@@ -60,11 +60,17 @@ public class DropDbStmtTest {
         Assert.fail("no exception");
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testNoPriv() throws UserException, AnalysisException {
+    @Test
+    public void testNoPriv() {
         DropDbStmt stmt = new DropDbStmt(false, "", true);
-
-        stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
+        try {
+            stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
+        } catch (AnalysisException e) {
+            return;
+        } catch (Exception e) {
+            e.printStackTrace();
+            Assert.fail(e.getMessage());
+        }
         Assert.fail("no exception");
     }
 }

@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <string>
 
 #if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
@@ -127,6 +128,14 @@ public:
 #endif
     }
 
+    static std::mutex je_purge_dirty_pages_lock;
+    static std::condition_variable je_purge_dirty_pages_cv;
+    static std::atomic<bool> je_purge_dirty_pages_notify;
+    static void notify_je_purge_dirty_pages() {
+        je_purge_dirty_pages_notify.store(true, std::memory_order_relaxed);
+        je_purge_dirty_pages_cv.notify_all();
+    }
+
     static inline size_t allocator_virtual_mem() {
         return _s_virtual_memory_used.load(std::memory_order_relaxed);
     }
@@ -184,8 +193,9 @@ public:
     static bool process_minor_gc();
     static bool process_full_gc();
 
-    static int64_t tg_hard_memory_limit_gc();
-    static int64_t tg_soft_memory_limit_gc(int64_t request_free_memory, RuntimeProfile* profile);
+    static int64_t tg_not_enable_overcommit_group_gc();
+    static int64_t tg_enable_overcommit_group_gc(int64_t request_free_memory,
+                                                 RuntimeProfile* profile);
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.

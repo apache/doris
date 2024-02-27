@@ -55,9 +55,19 @@ CREATE CATALOG hudi PROPERTIES (
 );
 ```
 
+可选配置参数：
+
+|参数名|说明|默认值|
+|---|---|---|
+|use_hive_sync_partition|使用hms已同步的分区数据|false|
+
 ## 列类型映射
 
 和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。
+
+## Skip Merge
+Spark 在创建 hudi mor 表的时候，会创建 `_ro` 后缀的 read optimize 表，doris 读取 read optimize 表会跳过 log 文件的合并。doris 判定一个表是否为 read optimize 表并不是通过 `_ro` 后缀，而是通过 hive inputformat，用户可以通过 `SHOW CREATE TABLE` 命令观察 cow/mor/read optimize 表的 inputformat 是否相同。
+此外 doris 支持在 catalog properties 添加 hoodie 相关的配置，配置项兼容 [Spark Datasource Configs](https://hudi.apache.org/docs/configurations/#Read-Options)。所以用户可以在 catalog properties 中添加 `hoodie.datasource.merge.type=skip_merge` 跳过合并 log 文件。
 
 ## 查询优化
 

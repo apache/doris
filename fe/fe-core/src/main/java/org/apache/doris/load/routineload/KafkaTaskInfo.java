@@ -46,14 +46,14 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     // <partitionId, offset to be consumed>
     private Map<Integer, Long> partitionIdToOffset;
 
-    public KafkaTaskInfo(UUID id, long jobId, String clusterName,
+    public KafkaTaskInfo(UUID id, long jobId,
                          long timeoutMs, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
-        super(id, jobId, clusterName, timeoutMs, isMultiTable);
+        super(id, jobId, timeoutMs, isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
     public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
-        super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getClusterName(),
+        super(UUID.randomUUID(), kafkaTaskInfo.getJobId(),
                 kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId(), isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
     }
@@ -108,6 +108,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         } else {
             tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_CSV_PLAIN);
         }
+        tRoutineLoadTask.setMemtableOnSinkNode(routineLoadJob.isMemtableOnSinkNode());
         return tRoutineLoadTask;
     }
 
@@ -118,7 +119,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     }
 
     @Override
-    boolean hasMoreDataToConsume() {
+    boolean hasMoreDataToConsume() throws UserException {
         KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
         return routineLoadJob.hasMoreDataToConsume(id, partitionIdToOffset);
     }

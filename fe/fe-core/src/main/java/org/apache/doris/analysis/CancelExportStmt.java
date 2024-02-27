@@ -18,11 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.ExportJob;
-import org.apache.doris.load.ExportJob.JobState;
+import org.apache.doris.load.ExportJobState;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -83,11 +81,10 @@ public class CancelExportStmt extends DdlStmt {
                 throw new AnalysisException("Only label can use like");
             }
             state = inputValue;
-            ExportJob.JobState jobState = ExportJob.JobState.valueOf(state);
-            if (jobState != ExportJob.JobState.PENDING
-                    && jobState != JobState.IN_QUEUE
-                    && jobState != ExportJob.JobState.EXPORTING) {
-                throw new AnalysisException("Only support PENDING/IN_QUEUE/EXPORTING, invalid state: " + state);
+            ExportJobState jobState = ExportJobState.valueOf(state);
+            if (jobState != ExportJobState.PENDING
+                    && jobState != ExportJobState.EXPORTING) {
+                throw new AnalysisException("Only support PENDING/EXPORTING, invalid state: " + state);
             }
         }
     }
@@ -138,8 +135,6 @@ public class CancelExportStmt extends DdlStmt {
             if (Strings.isNullOrEmpty(dbName)) {
                 throw new AnalysisException("No database selected");
             }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
         if (null == whereClause) {

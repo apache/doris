@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -39,9 +40,9 @@ public class ToBitmap extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BitmapType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(BitmapType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(BitmapType.INSTANCE).args(StringType.INSTANCE)
-    );
+            FunctionSignature.ret(BitmapType.INSTANCE).args(StringType.INSTANCE));
 
     /**
      * constructor with 1 argument.

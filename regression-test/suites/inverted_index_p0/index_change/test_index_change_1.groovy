@@ -80,8 +80,11 @@ suite("test_index_change_1") {
 
     // create inverted index
     sql """ CREATE INDEX idx_user_id ON ${tableName}(`user_id`) USING INVERTED """
+    wait_for_latest_op_on_table_finish(tableName, timeout)
     sql """ CREATE INDEX idx_note ON ${tableName}(`note`) USING INVERTED PROPERTIES("parser"="english") """
+    wait_for_latest_op_on_table_finish(tableName, timeout)
     sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED PROPERTIES("parser"="english") """
+    wait_for_latest_op_on_table_finish(tableName, timeout)
 
     // create bitmap index
     sql """ CREATE INDEX idx_sex ON ${tableName}(`sex`) USING BITMAP """

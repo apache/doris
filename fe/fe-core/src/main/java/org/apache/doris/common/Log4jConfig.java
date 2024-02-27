@@ -29,6 +29,7 @@ import org.apache.logging.log4j.core.lookup.StrSubstitutor;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 //
@@ -47,7 +48,7 @@ public class Log4jConfig extends XmlConfiguration {
             + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n"
             + "      </PatternLayout>\n"
             + "    </Console>"
-            + "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i\" immediateFlush=\"${immediate_flush_flag}\">\n"
+            + "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n"
             + "      <PatternLayout charset=\"UTF-8\">\n"
             + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n"
             + "      </PatternLayout>\n"
@@ -62,7 +63,7 @@ public class Log4jConfig extends XmlConfiguration {
             + "        </Delete>\n"
             + "      </DefaultRolloverStrategy>\n"
             + "    </RollingFile>\n"
-            + "    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i\" immediateFlush=\"${immediate_flush_flag}\">\n"
+            + "    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i${sys_file_postfix}\" immediateFlush=\"${immediate_flush_flag}\">\n"
             + "      <PatternLayout charset=\"UTF-8\">\n"
             + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n"
             + "      </PatternLayout>\n"
@@ -77,7 +78,7 @@ public class Log4jConfig extends XmlConfiguration {
             + "        </Delete>\n"
             + "      </DefaultRolloverStrategy>\n"
             + "    </RollingFile>\n"
-            + "    <RollingFile name=\"Auditfile\" fileName=\"${audit_log_dir}/fe.audit.log\" filePattern=\"${audit_log_dir}/fe.audit.log.${audit_file_pattern}-%i\">\n"
+            + "    <RollingFile name=\"Auditfile\" fileName=\"${audit_log_dir}/fe.audit.log\" filePattern=\"${audit_log_dir}/fe.audit.log.${audit_file_pattern}-%i${audit_file_postfix}\">\n"
             + "      <PatternLayout charset=\"UTF-8\">\n"
             + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n</Pattern>\n"
             + "      </PatternLayout>\n"
@@ -85,7 +86,7 @@ public class Log4jConfig extends XmlConfiguration {
             + "        <TimeBasedTriggeringPolicy/>\n"
             + "        <SizeBasedTriggeringPolicy size=\"${audit_roll_maxsize}MB\"/>\n"
             + "      </Policies>\n"
-            + "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"min\">\n"
+            + "      <DefaultRolloverStrategy max=\"${audit_roll_num}\" fileIndex=\"min\">\n"
             + "        <Delete basePath=\"${audit_log_dir}/\" maxDepth=\"1\">\n"
             + "          <IfFileName glob=\"fe.audit.log.*\" />\n"
             + "          <IfLastModified age=\"${audit_log_delete_age}\" />\n"
@@ -132,6 +133,7 @@ public class Log4jConfig extends XmlConfiguration {
         String sysLogDir = Config.sys_log_dir;
         String sysRollNum = String.valueOf(Config.sys_log_roll_num);
         String sysDeleteAge = String.valueOf(Config.sys_log_delete_age);
+        boolean compressSysLog = Config.sys_log_enable_compress;
 
         if (!(sysLogLevel.equalsIgnoreCase("INFO")
                 || sysLogLevel.equalsIgnoreCase("WARN")
@@ -162,6 +164,7 @@ public class Log4jConfig extends XmlConfiguration {
         String auditRollNum = String.valueOf(Config.audit_log_roll_num);
         String auditRollMaxSize = String.valueOf(Config.log_roll_size_mb);
         String auditDeleteAge = String.valueOf(Config.audit_log_delete_age);
+        boolean compressAuditLog = Config.audit_log_enable_compress;
         if (Config.audit_log_roll_interval.equals("HOUR")) {
             auditLogRollPattern = "%d{yyyyMMddHH}";
         } else if (Config.audit_log_roll_interval.equals("DAY")) {
@@ -197,6 +200,7 @@ public class Log4jConfig extends XmlConfiguration {
             newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY Console Logger-->",
                     consoleLogger.toString());
         }
+
         Map<String, String> properties = Maps.newHashMap();
         properties.put("sys_log_dir", sysLogDir);
         properties.put("sys_file_pattern", sysLogRollPattern);
@@ -204,6 +208,7 @@ public class Log4jConfig extends XmlConfiguration {
         properties.put("sys_roll_num", sysRollNum);
         properties.put("sys_log_delete_age", sysDeleteAge);
         properties.put("sys_log_level", sysLogLevel);
+        properties.put("sys_file_postfix", compressSysLog ? ".gz" : "");
 
         properties.put("audit_log_dir", auditLogDir);
         properties.put("audit_file_pattern", auditLogRollPattern);
@@ -212,6 +217,7 @@ public class Log4jConfig extends XmlConfiguration {
         properties.put("audit_log_delete_age", auditDeleteAge);
         properties.put("include_location_flag", sysLogMode.equalsIgnoreCase("NORMAL") ? "true" : "false");
         properties.put("immediate_flush_flag", sysLogMode.equalsIgnoreCase("ASYNC") ? "false" : "true");
+        properties.put("audit_file_postfix", compressAuditLog ? ".gz" : "");
 
         strSub = new StrSubstitutor(new Interpolator(properties));
         newXmlConfTemplate = strSub.replace(newXmlConfTemplate);
@@ -223,12 +229,20 @@ public class Log4jConfig extends XmlConfiguration {
         SpringLog4j2Config.writeSpringLogConf(customConfDir);
 
         // new SimpleLog4jConfiguration with xmlConfTemplate
-        ByteArrayInputStream bis = new ByteArrayInputStream(newXmlConfTemplate.getBytes("UTF-8"));
-        ConfigurationSource source = new ConfigurationSource(bis);
-        Log4jConfig config = new Log4jConfig(source);
+        if (newXmlConfTemplate == null || newXmlConfTemplate.isEmpty()) {
+            throw new IOException("The configuration template is empty!");
+        }
 
-        LoggerContext context = (LoggerContext) LogManager.getContext(false);
-        context.start(config);
+        Log4jConfig config;
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(newXmlConfTemplate.getBytes(StandardCharsets.UTF_8))) {
+            ConfigurationSource source = new ConfigurationSource(bis);
+            config = new Log4jConfig(source);
+
+            LoggerContext context = (LoggerContext) LogManager.getContext(LogManager.class.getClassLoader(), false);
+            context.start(config);
+        } catch (Exception e) {
+            throw new IOException("Error occurred while configuring Log4j", e);
+        }
     }
 
     public static String getLogXmlConfTemplate() {

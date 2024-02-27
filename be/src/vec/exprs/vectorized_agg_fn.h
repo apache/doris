@@ -56,16 +56,12 @@ public:
                    const SlotDescriptor* intermediate_slot_desc,
                    const SlotDescriptor* output_slot_desc);
 
-    void set_timer(RuntimeProfile::Counter* exec_timer, RuntimeProfile::Counter* merge_timer,
-                   RuntimeProfile::Counter* expr_timer) {
-        _exec_timer = exec_timer;
+    void set_timer(RuntimeProfile::Counter* merge_timer, RuntimeProfile::Counter* expr_timer) {
         _merge_timer = merge_timer;
         _expr_timer = expr_timer;
     }
 
     Status open(RuntimeState* state);
-
-    void close(RuntimeState* state);
 
     // create/destroy AGG Data
     void create(AggregateDataPtr place);
@@ -101,12 +97,17 @@ public:
     bool is_merge() const { return _is_merge; }
     const VExprContextSPtrs& input_exprs_ctxs() const { return _input_exprs_ctxs; }
 
+    void set_version(const int version) { _function->set_version(version); }
+
+    AggFnEvaluator* clone(RuntimeState* state, ObjectPool* pool);
+
 private:
     const TFunction _fn;
 
     const bool _is_merge;
 
     AggFnEvaluator(const TExprNode& desc);
+    AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state);
 
     Status _calc_argument_columns(Block* block);
 
@@ -115,12 +116,11 @@ private:
 
     const TypeDescriptor _return_type;
 
-    const SlotDescriptor* _intermediate_slot_desc;
-    const SlotDescriptor* _output_slot_desc;
+    const SlotDescriptor* _intermediate_slot_desc = nullptr;
+    const SlotDescriptor* _output_slot_desc = nullptr;
 
-    RuntimeProfile::Counter* _exec_timer;
-    RuntimeProfile::Counter* _merge_timer;
-    RuntimeProfile::Counter* _expr_timer;
+    RuntimeProfile::Counter* _merge_timer = nullptr;
+    RuntimeProfile::Counter* _expr_timer = nullptr;
 
     // input context
     VExprContextSPtrs _input_exprs_ctxs;

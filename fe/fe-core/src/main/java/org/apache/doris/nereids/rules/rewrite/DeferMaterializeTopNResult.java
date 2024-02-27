@@ -60,6 +60,7 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                                 .when(r -> r.child().getOrderKeys().stream().map(OrderKey::getExpr)
                                         .allMatch(Expression::isColumnFromTable))
                                 .when(r -> r.child().child().getTable().getEnableLightSchemaChange())
+                                .when(r -> r.child().child().getTable().isDupKeysOrMergeOnWrite())
                                 .then(r -> deferMaterialize(r, r.child(), Optional.empty(), r.child().child()))
                 ),
                 RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
@@ -69,6 +70,7 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                                 .when(r -> r.child().getOrderKeys().stream().map(OrderKey::getExpr)
                                         .allMatch(Expression::isColumnFromTable))
                                 .when(r -> r.child().child().child().getTable().getEnableLightSchemaChange())
+                                .when(r -> r.child().child().child().getTable().isDupKeysOrMergeOnWrite())
                                 .then(r -> {
                                     LogicalFilter<LogicalOlapScan> filter = r.child().child();
                                     return deferMaterialize(r, r.child(), Optional.of(filter), filter.child());
@@ -81,7 +83,8 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
             LogicalTopN<? extends Plan> logicalTopN, Optional<LogicalFilter<? extends Plan>> logicalFilter,
             LogicalOlapScan logicalOlapScan) {
         Column rowId = new Column(Column.ROWID_COL, Type.STRING, false, null, false, "", "rowid column");
-        SlotReference columnId = SlotReference.fromColumn(rowId, logicalOlapScan.getQualifier());
+        SlotReference columnId = SlotReference.fromColumn(logicalOlapScan.getTable(), rowId,
+                        logicalOlapScan.getQualifier(), logicalOlapScan);
         Set<ExprId> deferredMaterializedExprIds = Sets.newHashSet(logicalOlapScan.getOutputExprIdSet());
         logicalFilter.ifPresent(filter -> filter.getConjuncts()
                 .forEach(e -> deferredMaterializedExprIds.removeAll(e.getInputSlotExprIds())));

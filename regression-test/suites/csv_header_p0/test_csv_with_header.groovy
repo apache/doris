@@ -61,7 +61,7 @@ suite("test_csv_with_header") {
     def check_import_result = {checklabel, testTable4, expected_rows->
         max_try_secs = 100000
         while(max_try_secs--) {
-            result = sql "show load where label = '${checklabel}'"
+            def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
                 sql "sync"
                 result_count = sql "select count(*) from ${testTable4}"
@@ -151,7 +151,7 @@ suite("test_csv_with_header") {
         def check_export_result = {checklabel1->
             max_try_secs = 100000
             while(max_try_secs--) {
-                result = sql "show export where label='${checklabel1}'"
+                def result = sql "show export where label='${checklabel1}'"
                 if(result[0][2] == "FINISHED") {
                     break
                 } else {
@@ -194,7 +194,7 @@ suite("test_csv_with_header") {
         label = UUID.randomUUID().toString().replaceAll("-", "")
         export_to_hdfs.call(testTable, label, hdfsDataDir + "/" + label, format_csv_with_names, brokerName, hdfsUser, hdfsPasswd)
         check_export_result(label)
-        result = downloadExportFromHdfs(label + "/export-data")
+        def result = downloadExportFromHdfs(label + "/export-data")
         check_download_result(result, format_csv_with_names, currentTotalRows)
 
         // export table to hdfs format=csv_with_names_and_types

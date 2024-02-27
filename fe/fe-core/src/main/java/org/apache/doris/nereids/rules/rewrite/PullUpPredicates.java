@@ -47,7 +47,6 @@ import java.util.stream.Collectors;
  */
 public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void> {
 
-    PredicatePropagation propagation = new PredicatePropagation();
     Map<Plan, ImmutableSet<Expression>> cache = new IdentityHashMap<>();
 
     @Override
@@ -73,32 +72,8 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             Set<Expression> predicates = Sets.newHashSet();
             ImmutableSet<Expression> leftPredicates = join.left().accept(this, context);
             ImmutableSet<Expression> rightPredicates = join.right().accept(this, context);
-            switch (join.getJoinType()) {
-                case INNER_JOIN:
-                case CROSS_JOIN:
-                    predicates.addAll(leftPredicates);
-                    predicates.addAll(rightPredicates);
-                    join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
-                    break;
-                case LEFT_SEMI_JOIN:
-                    predicates.addAll(leftPredicates);
-                    join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
-                    break;
-                case RIGHT_SEMI_JOIN:
-                    predicates.addAll(rightPredicates);
-                    join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
-                    break;
-                case LEFT_OUTER_JOIN:
-                case LEFT_ANTI_JOIN:
-                case NULL_AWARE_LEFT_ANTI_JOIN:
-                    predicates.addAll(leftPredicates);
-                    break;
-                case RIGHT_OUTER_JOIN:
-                case RIGHT_ANTI_JOIN:
-                    predicates.addAll(rightPredicates);
-                    break;
-                default:
-            }
+            predicates.addAll(leftPredicates);
+            predicates.addAll(rightPredicates);
             return getAvailableExpressions(predicates, join);
         });
     }
@@ -123,6 +98,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     public ImmutableSet<Expression> visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
         return cacheOrElse(aggregate, () -> {
             ImmutableSet<Expression> childPredicates = aggregate.child().accept(this, context);
+            // TODO
             Map<Expression, Slot> expressionSlotMap = aggregate.getOutputExpressions()
                     .stream()
                     .filter(this::hasAgg)
@@ -154,7 +130,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     private ImmutableSet<Expression> getAvailableExpressions(Collection<Expression> predicates, Plan plan) {
         Set<Expression> expressions = Sets.newHashSet(predicates);
-        expressions.addAll(propagation.infer(expressions));
+        expressions.addAll(PredicatePropagation.infer(expressions));
         return expressions.stream()
                 .filter(p -> plan.getOutputSet().containsAll(p.getInputSlots()))
                 .collect(ImmutableSet.toImmutableSet());

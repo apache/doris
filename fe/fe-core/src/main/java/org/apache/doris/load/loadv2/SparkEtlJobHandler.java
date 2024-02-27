@@ -223,11 +223,13 @@ public class SparkEtlJobHandler {
                     if (stderr.contains("doesn't exist in RM")) {
                         LOG.warn("spark app not found. spark app id: {}, load job id: {}", appId, loadJobId);
                         status.setState(TEtlState.CANCELLED);
+                        status.setFailMsg(stderr);
                     }
                 }
                 LOG.warn("yarn application status failed. spark app id: {}, load job id: {}, timeout: {}, msg: {}",
                             appId, loadJobId, EXEC_CMD_TIMEOUT_MS, stderr);
                 status.setState(TEtlState.CANCELLED);
+                status.setFailMsg(stderr);
                 return status;
             }
             ApplicationReport report = new YarnApplicationReport(result.getStdout()).getReport();
@@ -346,7 +348,9 @@ public class SparkEtlJobHandler {
             }
             filePathToSize.put(fstatus.getPath(), fstatus.getSize());
         }
-        LOG.debug("get spark etl file paths. files map: {}", filePathToSize);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get spark etl file paths. files map: {}", filePathToSize);
+        }
 
         return filePathToSize;
     }

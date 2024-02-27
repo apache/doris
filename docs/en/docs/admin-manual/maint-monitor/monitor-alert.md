@@ -84,14 +84,10 @@ jvm_young_size_bytes{type="max"} 907345920
 jvm_old_size_bytes{type="used"} 114633448
 jvm_old_size_bytes{type="peak_used"} 114633448
 jvm_old_size_bytes{type="max"} 7455834112
-# HELP  jvm_young_gc jvm young gc stat
-# TYPE  jvm_young_gc gauge
-jvm_young_gc{type="count"} 247
-jvm_young_gc{type="time"} 860
-# HELP  jvm_old_gc jvm old gc stat
-# TYPE  jvm_old_gc gauge
-jvm_old_gc{type="count"} 3
-jvm_old_gc{type="time"} 211
+# HELP  jvm_gc jvm gc stat
+# TYPE  jvm_gc gauge
+<GarbageCollector>{type="count"} 247
+<GarbageCollector>{type="time"} 860
 # HELP  jvm_thread jvm thread stat
 # TYPE  jvm_thread gauge
 jvm_thread{type="count"} 162

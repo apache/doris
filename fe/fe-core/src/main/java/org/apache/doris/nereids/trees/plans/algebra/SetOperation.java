@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import java.util.List;
 
@@ -36,11 +36,11 @@ public interface SetOperation {
 
     Qualifier getQualifier();
 
-    List<Slot> getFirstOutput();
-
-    List<Slot> getChildOutput(int i);
+    List<SlotReference> getRegularChildOutput(int i);
 
     List<NamedExpression> getOutputs();
+
+    List<List<SlotReference>> getRegularChildrenOutputs();
 
     int getArity();
 }

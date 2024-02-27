@@ -29,7 +29,7 @@ namespace doris {
 // boost: 1000 times cost 1min, has line numbers, but has memory leak.
 // glibc: 1000 times cost 1min, no line numbers, unresolved backtrace symbol.
 // libunwind: cost is negligible, has line numbers.
-std::string get_stack_trace();
+std::string get_stack_trace(int start_pointers_index = 0);
 
 // Note: there is a libc bug that causes this not to work on 64 bit machines
 // for recursive calls.
@@ -53,6 +53,6 @@ std::string get_stack_trace_by_glibc();
 //  2. Support signal handle
 //  3. libunwid support unw_backtrace for jemalloc
 //  4. Use of undefined compile option USE_MUSL for later
-std::string get_stack_trace_by_libunwind();
+std::string get_stack_trace_by_libunwind(int start_pointers_index);
 
 } // namespace doris

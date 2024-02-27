@@ -22,20 +22,24 @@ import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -53,16 +57,29 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
         }
     });
 
-    public TableValuedFunction(String functionName, TVFProperties tvfProperties) {
+    public TableValuedFunction(String functionName, Properties tvfProperties) {
         super(functionName, tvfProperties);
     }
 
     protected abstract TableValuedFunctionIf toCatalogFunction();
 
-    public abstract Statistics computeStats(List<Slot> slots);
+    /**
+     * For most of tvf, eg, s3/local/hdfs, the column stats is unknown.
+     * The derived tvf can override this method to compute the column stats.
+     *
+     * @param slots the slots of the tvf
+     * @return the column stats of the tvf
+     */
+    public Statistics computeStats(List<Slot> slots) {
+        Map<Expression, ColumnStatistic> columnToStatistics = Maps.newHashMap();
+        for (Slot slot : slots) {
+            columnToStatistics.put(slot, ColumnStatistic.UNKNOWN);
+        }
+        return new Statistics(0, columnToStatistics);
+    }
 
-    public TVFProperties getTVFProperties() {
-        return (TVFProperties) child(0);
+    public Properties getTVFProperties() {
+        return (Properties) child(0);
     }
 
     public final String getTableName() {
@@ -92,7 +109,7 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
     }
 
     public PhysicalProperties getPhysicalProperties() {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override

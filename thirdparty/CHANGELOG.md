@@ -2,6 +2,39 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20240112
+
+- Modified: hadoop libhdfs 3.3.4.6
+
+## v20231229
+
+- Added: streamvbyte 1.0.0
+
+## v20231210
+- Modified: librdkafka 1.8.2 -> 2.0.2
+
+## v20231020
+- Added: avx2neon -> 1.0.0
+
+## v20231008
+- Modified: aws sdk 1.9.211 -> 1.11.119
+
+## v20230824
+- Modified: protobuf 3.15.0 -> 21.11
+- Modified: glog 0.4.0 -> 0.6.0
+- Modified: lz4 1.9.3 -> 1.9.4
+- Modified: curl 7.79.0 -> 8.2.1
+- Modified: zstd 1.5.2 -> 1.5.5
+- Modified: arrow 7.0.0 -> 13.0.0
+- Modified: abseil 20220623.1 -> 20230125.3
+- Modified: orc 1.7.2 -> 1.9.0
+- Modified: jemalloc for arrow 5.2.1 -> 5.3.0
+- Modified: xsimd 7.0.0 -> 13.0.0
+- Modified: opentelemetry-proto 0.19.0 -> 1.0.0
+- Modified: opentelemetry 1.8.3 -> 1.10.0
+- Added: c-ares -> 1.19.1
+- Added: grpc -> 1.54.3
+
 ## v20230721
 
 - Modified hadoop libhdfs 3.3.4.4 -> 3.3.4.5

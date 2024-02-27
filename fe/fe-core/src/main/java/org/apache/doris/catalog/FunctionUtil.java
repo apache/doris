@@ -19,8 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -66,7 +66,9 @@ public class FunctionUtil {
         List<Function> existFuncs = name2Function.get(functionName);
         if (existFuncs == null) {
             if (ifExists) {
-                LOG.debug("function name does not exist: " + functionName);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("function name does not exist: " + functionName);
+                }
                 return false;
             }
             throw new UserException("function name does not exist: " + functionName);
@@ -82,7 +84,9 @@ public class FunctionUtil {
         }
         if (!isFound) {
             if (ifExists) {
-                LOG.debug("function does not exist: " + function);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("function does not exist: " + function);
+                }
                 return false;
             }
             throw new UserException("function does not exist: " + function);
@@ -113,7 +117,9 @@ public class FunctionUtil {
                 for (Function existFunc : existFuncs) {
                     if (function.compare(existFunc, Function.CompareMode.IS_IDENTICAL)) {
                         if (ifNotExists) {
-                            LOG.debug("function already exists");
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("function already exists");
+                            }
                             return false;
                         }
                         throw new UserException("function already exists");
@@ -181,7 +187,8 @@ public class FunctionUtil {
         }
     }
 
-    public static void readFields(DataInput in, ConcurrentMap<String, ImmutableList<Function>> name2Function)
+    public static void readFields(DataInput in, String dbName,
+            ConcurrentMap<String, ImmutableList<Function>> name2Function)
             throws IOException {
         int numEntries = in.readInt();
         for (int i = 0; i < numEntries; ++i) {
@@ -191,7 +198,11 @@ public class FunctionUtil {
             for (int j = 0; j < numFunctions; ++j) {
                 builder.add(Function.read(in));
             }
-            name2Function.put(name, builder.build());
+            ImmutableList<Function> functions = builder.build();
+            name2Function.put(name, functions);
+            for (Function f : functions) {
+                translateToNereids(dbName, f);
+            }
         }
     }
 
@@ -211,15 +222,13 @@ public class FunctionUtil {
      * @return
      * @throws AnalysisException
      */
-    public static String reAcquireDbName(Analyzer analyzer, String dbName, String clusterName)
+    public static String reAcquireDbName(Analyzer analyzer, String dbName)
             throws AnalysisException {
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-        } else {
-            dbName = ClusterNamespace.getFullName(clusterName, dbName);
         }
         return dbName;
     }
@@ -234,7 +243,8 @@ public class FunctionUtil {
                 JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
             }
         } catch (Exception e) {
-            LOG.warn("Nereids create function {}:{} failed", dbName, function.getFunctionName().getFunction(), e);
+            LOG.warn("Nereids create function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
+                    function.getFunctionName().getFunction(), e);
         }
         return true;
     }
@@ -246,8 +256,21 @@ public class FunctionUtil {
                     .collect(Collectors.toList());
             Env.getCurrentEnv().getFunctionRegistry().dropUdf(dbName, fnName, argTypes);
         } catch (Exception e) {
-            LOG.warn("Nereids drop function {}:{} failed", dbName, function.getName(), e);
+            LOG.warn("Nereids drop function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
+                    function.getName(), e);
         }
         return false;
+    }
+
+    public static void checkEnableJavaUdf() throws AnalysisException {
+        if (!Config.enable_java_udf) {
+            throw new AnalysisException("java_udf has been disabled.");
+        }
+    }
+
+    public static void checkEnableJavaUdfForNereids() {
+        if (!Config.enable_java_udf) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException("java_udf has been disabled.");
+        }
     }
 }

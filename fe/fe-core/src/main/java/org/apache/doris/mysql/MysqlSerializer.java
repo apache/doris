@@ -265,7 +265,8 @@ public class MysqlSerializer {
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:
-            case DECIMAL128: {
+            case DECIMAL128:
+            case DECIMAL256: {
                 // https://github.com/mysql/mysql-connector-j/blob/release/5.1/src/com/mysql/jdbc/ResultSetMetaData.java
                 // in function: int getPrecision(int column)
                 // f.getDecimals() > 0 ? clampedGetLength(f) - 1 + f.getPrecisionAdjustFactor()
@@ -296,6 +297,7 @@ public class MysqlSerializer {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case DECIMAL256:
                 return ((ScalarType) type).decimalScale();
             case FLOAT:
             case DOUBLE:

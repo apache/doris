@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Metrics_types.h>
 
+#include <memory>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep

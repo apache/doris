@@ -68,24 +68,35 @@ Status OrdinalIndexWriter::finish(io::FileWriter* file_writer, ColumnIndexMetaPB
 }
 
 Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
-    if (_index_meta->root_page().is_root_data_page()) {
+    // TODO yyq: implement a new once flag to avoid status construct.
+    return _load_once.call([this, use_page_cache, kept_in_memory] {
+        return _load(use_page_cache, kept_in_memory, std::move(_meta_pb));
+    });
+}
+
+Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
+                                 std::unique_ptr<OrdinalIndexPB> index_meta) {
+    if (index_meta->root_page().is_root_data_page()) {
         // only one data page, no index page
         _num_pages = 1;
         _ordinals.push_back(0);
         _ordinals.push_back(_num_values);
-        _pages.emplace_back(_index_meta->root_page().root_page());
+        _pages.emplace_back(index_meta->root_page().root_page());
         return Status::OK();
     }
     // need to read index page
-    PageReadOptions opts;
-    opts.file_reader = _file_reader.get();
-    opts.page_pointer = PagePointer(_index_meta->root_page().root_page());
-    opts.codec = nullptr; // ordinal index page uses NO_COMPRESSION right now
     OlapReaderStatistics tmp_stats;
-    opts.stats = &tmp_stats;
-    opts.use_page_cache = use_page_cache;
-    opts.kept_in_memory = kept_in_memory;
-    opts.type = INDEX_PAGE;
+    PageReadOptions opts {
+            .use_page_cache = use_page_cache,
+            .kept_in_memory = kept_in_memory,
+            .type = INDEX_PAGE,
+            .file_reader = _file_reader.get(),
+            .page_pointer = PagePointer(index_meta->root_page().root_page()),
+            // ordinal index page uses NO_COMPRESSION right now
+            .codec = nullptr,
+            .stats = &tmp_stats,
+            .io_ctx = io::IOContext {.is_index_data = true},
+    };
 
     // read index page
     PageHandle page_handle;

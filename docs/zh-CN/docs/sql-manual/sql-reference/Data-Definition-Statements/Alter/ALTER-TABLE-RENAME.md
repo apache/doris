@@ -81,7 +81,7 @@ RENAME COLUMN old_column_name new_column_name;
 ```
 
 注意：
-- 目前仅支持unique模型的表，并且建表时需要在property中设置light_schema_change=true
+- 建表时需要在property中设置light_schema_change=true
 
 
 ### Example

@@ -108,7 +108,10 @@ suite("load") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+    }
 
+    Thread.sleep(70000) // wait for row count report of the tables just loaded
+    for (String tableName in tables) {
         sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
 
@@ -118,4 +121,6 @@ suite("load") {
     // We need wait to make sure BE could pass the stats info to FE so that
     // avoid unnessary inconsistent generated plan which would cause the regression test fail
     sleep(60000)
+
+    sql """ sync """
 }

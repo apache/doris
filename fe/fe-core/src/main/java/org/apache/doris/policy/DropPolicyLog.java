@@ -58,13 +58,16 @@ public class DropPolicyLog implements Writable {
     @SerializedName(value = "user")
     private UserIdentity user;
 
+    @SerializedName(value = "roleName")
+    private String roleName;
+
     /**
      * Generate delete logs through stmt.
      **/
     public static DropPolicyLog fromDropStmt(DropPolicyStmt stmt) throws AnalysisException {
         switch (stmt.getType()) {
             case STORAGE:
-                return new DropPolicyLog(-1, -1, stmt.getType(), stmt.getPolicyName(), null);
+                return new DropPolicyLog(-1, -1, stmt.getType(), stmt.getPolicyName(), null, null);
             case ROW:
                 String curDb = stmt.getTableName().getDb();
                 if (curDb == null) {
@@ -73,7 +76,7 @@ public class DropPolicyLog implements Writable {
                 Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(curDb);
                 Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
                 return new DropPolicyLog(db.getId(), table.getId(), stmt.getType(),
-                                         stmt.getPolicyName(), stmt.getUser());
+                        stmt.getPolicyName(), stmt.getUser(), stmt.getRoleName());
             default:
                 throw new AnalysisException("Invalid policy type: " + stmt.getType().name());
         }

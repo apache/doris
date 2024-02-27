@@ -72,19 +72,17 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
     });
 }
 
-LoadChannelMgr::~LoadChannelMgr() {
+void LoadChannelMgr::stop() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
     DEREGISTER_HOOK_METRIC(load_channel_mem_consumption);
     _stop_background_threads_latch.count_down();
     if (_load_channels_clean_thread) {
         _load_channels_clean_thread->join();
     }
-    delete _last_success_channel;
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    _memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
-    _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
+    _last_success_channels = std::make_unique<LastSuccessChannelCache>(1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
@@ -112,7 +110,6 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     }
 
     RETURN_IF_ERROR(channel->open(params));
-    _register_channel_all_writers(channel);
 
     return Status::OK();
 }
@@ -126,10 +123,10 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
     std::lock_guard<std::mutex> l(_lock);
     auto it = _load_channels.find(load_id);
     if (it == _load_channels.end()) {
-        auto handle = _last_success_channel->lookup(load_id.to_string());
+        auto handle = _last_success_channels->cache()->lookup(load_id.to_string());
         // success only when eos be true
         if (handle != nullptr) {
-            _last_success_channel->release(handle);
+            _last_success_channels->cache()->release(handle);
             if (request.has_eos() && request.eos()) {
                 is_eof = true;
                 return Status::OK();
@@ -159,7 +156,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         // If this is a high priority load task, do not handle this.
         // because this may block for a while, which may lead to rpc timeout.
         SCOPED_TIMER(channel->get_handle_mem_limit_timer());
-        _memtable_memory_limiter->handle_memtable_flush();
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
 
     // 3. add batch to load channel
@@ -167,8 +164,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
     // this case will be handled in load channel's add batch method.
     Status st = channel->add_batch(request, response);
     if (UNLIKELY(!st.ok())) {
-        _deregister_channel_all_writers(channel);
-        channel->cancel();
+        static_cast<void>(channel->cancel());
         return st;
     }
 
@@ -184,11 +180,11 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_load_channels.find(load_id) != _load_channels.end()) {
-            _deregister_channel_all_writers(_load_channels.find(load_id)->second);
             _load_channels.erase(load_id);
         }
-        auto handle = _last_success_channel->insert(load_id.to_string(), nullptr, 1, dummy_deleter);
-        _last_success_channel->release(handle);
+        auto handle = _last_success_channels->cache()->insert(load_id.to_string(), nullptr, 1,
+                                                              dummy_deleter);
+        _last_success_channels->cache()->release(handle);
     }
     VLOG_CRITICAL << "removed load channel " << load_id;
 }
@@ -200,13 +196,12 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
         std::lock_guard<std::mutex> l(_lock);
         if (_load_channels.find(load_id) != _load_channels.end()) {
             cancelled_channel = _load_channels[load_id];
-            _deregister_channel_all_writers(cancelled_channel);
             _load_channels.erase(load_id);
         }
     }
 
     if (cancelled_channel != nullptr) {
-        cancelled_channel->cancel();
+        static_cast<void>(cancelled_channel->cancel());
         LOG(INFO) << "load channel has been cancelled: " << load_id;
     }
 
@@ -219,7 +214,7 @@ Status LoadChannelMgr::_start_bg_worker() {
             [this]() {
                 while (!_stop_background_threads_latch.wait_for(
                         std::chrono::seconds(START_BG_INTERVAL))) {
-                    _start_load_channels_clean();
+                    static_cast<void>(_start_load_channels_clean());
                 }
             },
             &_load_channels_clean_thread));
@@ -245,7 +240,6 @@ Status LoadChannelMgr::_start_load_channels_clean() {
         }
 
         for (auto& key : need_delete_channel_ids) {
-            _deregister_channel_all_writers(_load_channels.find(key)->second);
             _load_channels.erase(key);
             LOG(INFO) << "erase timeout load channel: " << key;
         }
@@ -255,7 +249,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
     // otherwise some object may be invalid before trying to visit it.
     // eg: MemTracker in load channel
     for (auto& channel : need_delete_channels) {
-        channel->cancel();
+        static_cast<void>(channel->cancel());
         LOG(INFO) << "load channel has been safely deleted: " << channel->load_id()
                   << ", timeout(s): " << channel->timeout();
     }

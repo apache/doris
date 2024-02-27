@@ -87,8 +87,7 @@ public class LocalFileDeployManager extends DeployManager {
         FileChannel channel = null;
         FileLock lock = null;
         BufferedReader bufferedReader = null;
-        try {
-            FileInputStream stream = new FileInputStream(clusterInfoFile);
+        try (FileInputStream stream = new FileInputStream(clusterInfoFile)) {
             channel = stream.getChannel();
             lock = channel.lock(0, Long.MAX_VALUE, true);
 
@@ -98,7 +97,9 @@ public class LocalFileDeployManager extends DeployManager {
                 if (!str.startsWith(groupName)) {
                     continue;
                 }
-                LOG.debug("read line: {}", str);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("read line: {}", str);
+                }
                 String[] parts = str.split("=");
                 if (parts.length != 2 || Strings.isNullOrEmpty(parts[1])) {
                     return result;

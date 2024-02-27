@@ -22,25 +22,23 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.CacheBulkLoader;
-import org.apache.doris.common.util.S3Util;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CacheException;
-import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
-import org.apache.doris.external.hive.util.HiveUtil;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.FileSystemCache;
-import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.RemoteFiles;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -51,7 +49,6 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
-import org.apache.doris.planner.external.FileSplit;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -78,20 +75,16 @@ import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.utils.FileUtils;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.mapred.FileInputFormat;
-import org.apache.hadoop.mapred.InputFormat;
-import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.FileNotFoundException;
-import java.io.UnsupportedEncodingException;
 import java.net.URI;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -297,21 +290,15 @@ public class HiveMetaStoreCache {
         Preconditions.checkState(parts.length == types.size(), partitionName + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String part : parts) {
-            String[] kv = part.split("=");
-            Preconditions.checkState(kv.length == 2, partitionName);
-            String partitionValue;
-            try {
-                // hive partition value maybe contains special characters like '=' and '/'
-                partitionValue = URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name());
-            } catch (UnsupportedEncodingException e) {
-                // It should not be here
-                throw new RuntimeException(e);
-            }
+            String partitionValue = HiveUtil.getHivePartitionValue(part);
             values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
         }
         try {
-            PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types);
-            return new ListPartitionItem(Lists.newArrayList(key));
+            PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
+            ListPartitionItem listPartitionItem = new ListPartitionItem(Lists.newArrayList(key));
+            // if `PartitionKey` is default, set `PartitionItem` to default
+            listPartitionItem.setDefaultPartition(key.isHiveDefaultPartition());
+            return listPartitionItem;
         } catch (AnalysisException e) {
             throw new CacheException("failed to convert hive partition %s to list partition in catalog %s",
                     e, partitionName, catalog.getName());
@@ -326,10 +313,15 @@ public class HiveMetaStoreCache {
                     sd.getInputFormat(), sd.getLocation(), key, catalog.getName());
         }
         // TODO: more info?
-        return new HivePartition(key.dbName, key.tblName, false, sd.getInputFormat(), sd.getLocation(), key.values);
+        return new HivePartition(key.dbName, key.tblName, false, sd.getInputFormat(), sd.getLocation(), key.values,
+                partition.getParameters());
     }
 
     private Map<PartitionCacheKey, HivePartition> loadPartitions(Iterable<? extends PartitionCacheKey> keys) {
+        Map<PartitionCacheKey, HivePartition> ret = new HashMap<>();
+        if (keys == null || !keys.iterator().hasNext()) {
+            return ret;
+        }
         PartitionCacheKey oneKey = Iterables.get(keys, 0);
         String dbName = oneKey.getDbName();
         String tblName = oneKey.getTblName();
@@ -351,24 +343,25 @@ public class HiveMetaStoreCache {
         }).collect(Collectors.toList());
         List<Partition> partitions = catalog.getClient().getPartitions(dbName, tblName, partitionNames);
         // Compose the return result map.
-        Map<PartitionCacheKey, HivePartition> ret = new HashMap<>();
         for (Partition partition : partitions) {
             StorageDescriptor sd = partition.getSd();
             ret.put(new PartitionCacheKey(dbName, tblName, partition.getValues()),
                     new HivePartition(dbName, tblName, false,
-                        sd.getInputFormat(), sd.getLocation(), partition.getValues()));
+                            sd.getInputFormat(), sd.getLocation(), partition.getValues(), partition.getParameters()));
         }
         return ret;
     }
 
     // Get File Status by using FileSystem API.
-    private FileCacheValue getFileCache(String location, InputFormat<?, ?> inputFormat,
-                                        JobConf jobConf,
-                                        List<String> partitionValues) throws UserException {
+    private FileCacheValue getFileCache(String location, String inputFormat,
+            JobConf jobConf,
+            List<String> partitionValues,
+            String bindBrokerName) throws UserException {
         FileCacheValue result = new FileCacheValue();
-        result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
         RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                new FileSystemCache.FileSystemCacheKey(FileSystemFactory.getFSIdentity(location), jobConf));
+                new FileSystemCache.FileSystemCacheKey(LocationPath.getFSIdentity(
+                        location, bindBrokerName), jobConf, bindBrokerName));
+        result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, location, jobConf));
         try {
             // For Tez engine, it may generate subdirectoies for "union" query.
             // So there may be files and directories in the table directory at the same time. eg:
@@ -379,9 +372,10 @@ public class HiveMetaStoreCache {
             // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
             RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, true);
             for (RemoteFile remoteFile : locatedFiles.files()) {
-                Path srcPath = remoteFile.getPath();
-                Path convertedPath = S3Util.toScanRangeLocation(srcPath.toString(), catalog.getProperties());
-                if (!convertedPath.toString().equals(srcPath.toString())) {
+                String srcPath = remoteFile.getPath().toString();
+                LocationPath locationPath = new LocationPath(srcPath, catalog.getProperties());
+                Path convertedPath = locationPath.toScanRangeLocation();
+                if (!convertedPath.toString().equals(srcPath)) {
                     remoteFile.setPath(convertedPath);
                 }
                 result.addFile(remoteFile);
@@ -405,46 +399,28 @@ public class HiveMetaStoreCache {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
-            String finalLocation = S3Util.convertToS3IfNecessary(key.location, catalog.getProperties());
+            Map<String, String> props = catalog.getCatalogProperty().getProperties();
+            LocationPath finalLocation = new LocationPath(key.location, props);
             // disable the fs cache in FileSystem, or it will always from new FileSystem
             // and save it in cache when calling FileInputFormat.setInputPaths().
             try {
-                Path path = new Path(finalLocation);
-                URI uri = path.toUri();
+                URI uri = finalLocation.getPath().toUri();
                 if (uri.getScheme() != null) {
-                    updateJobConf("fs." + uri.getScheme() + ".impl.disable.cache", "true");
+                    String scheme = uri.getScheme();
+                    updateJobConf("fs." + scheme + ".impl.disable.cache", "true");
+                    if (jobConf.get("fs." + scheme + ".impl") == null) {
+                        if (!scheme.equals("hdfs") && !scheme.equals("viewfs")) {
+                            updateJobConf("fs." + scheme + ".impl", PropertyConverter.getHadoopFSImplByScheme(scheme));
+                        }
+                    }
                 }
             } catch (Exception e) {
                 LOG.warn("unknown scheme in path: " + finalLocation, e);
             }
-            FileInputFormat.setInputPaths(jobConf, finalLocation);
+            FileInputFormat.setInputPaths(jobConf, finalLocation.get());
             try {
-                FileCacheValue result;
-                InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(jobConf, key.inputFormat, false);
-                // TODO: This is a temp config, will remove it after the HiveSplitter is stable.
-                if (key.useSelfSplitter) {
-                    result = getFileCache(finalLocation, inputFormat, jobConf, key.getPartitionValues());
-                } else {
-                    InputSplit[] splits;
-                    String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
-                    if (!Strings.isNullOrEmpty(remoteUser)) {
-                        UserGroupInformation ugi = UserGroupInformation.createRemoteUser(remoteUser);
-                        splits = ugi.doAs(
-                            (PrivilegedExceptionAction<InputSplit[]>) () -> inputFormat.getSplits(jobConf, 0));
-                    } else {
-                        splits = inputFormat.getSplits(jobConf, 0 /* use hdfs block size as default */);
-                    }
-                    result = new FileCacheValue();
-                    // Convert the hadoop split to Doris Split.
-                    for (int i = 0; i < splits.length; i++) {
-                        org.apache.hadoop.mapred.FileSplit fs = ((org.apache.hadoop.mapred.FileSplit) splits[i]);
-                        // todo: get modification time
-                        Path splitFilePath = S3Util.toScanRangeLocation(fs.getPath().toString(),
-                                    catalog.getProperties());
-                        result.addSplit(new FileSplit(splitFilePath, fs.getStart(), fs.getLength(), -1, null, null));
-                    }
-                }
-
+                FileCacheValue result = getFileCache(finalLocation.get(), key.inputFormat, jobConf,
+                        key.getPartitionValues(), key.bindBrokerName);
                 // Replace default hive partition with a null_string.
                 for (int i = 0; i < result.getValuesSize(); i++) {
                     if (HIVE_DEFAULT_PARTITION.equals(result.getPartitionValues().get(i))) {
@@ -502,24 +478,23 @@ public class HiveMetaStoreCache {
     }
 
     public List<FileCacheValue> getFilesByPartitionsWithCache(List<HivePartition> partitions,
-            boolean useSelfSplitter) {
-        return getFilesByPartitions(partitions, useSelfSplitter, true);
+                                                              String bindBrokerName) {
+        return getFilesByPartitions(partitions, true, bindBrokerName);
     }
 
     public List<FileCacheValue> getFilesByPartitionsWithoutCache(List<HivePartition> partitions,
-            boolean useSelfSplitter) {
-        return getFilesByPartitions(partitions, useSelfSplitter, false);
+                                                                 String bindBrokerName) {
+        return getFilesByPartitions(partitions, false, bindBrokerName);
     }
 
     private List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions,
-            boolean useSelfSplitter, boolean withCache) {
+                                                      boolean withCache, String bindBrokerName) {
         long start = System.currentTimeMillis();
         List<FileCacheKey> keys = partitions.stream().map(p -> {
             FileCacheKey fileCacheKey = p.isDummyPartition()
                     ? FileCacheKey.createDummyCacheKey(p.getDbName(), p.getTblName(), p.getPath(),
-                    p.getInputFormat(), useSelfSplitter)
-                    : new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues());
-            fileCacheKey.setUseSelfSplitter(useSelfSplitter);
+                    p.getInputFormat(), bindBrokerName)
+                    : new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues(), bindBrokerName);
             return fileCacheKey;
         }).collect(Collectors.toList());
 
@@ -545,10 +520,12 @@ public class HiveMetaStoreCache {
                     e, catalog.getName());
         }
 
-        LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
-                fileLists.stream().mapToInt(l -> l.getFiles() == null
-                        ? (l.getSplits() == null ? 0 : l.getSplits().size()) : l.getFiles().size()).sum(),
-                partitions.size(), catalog.getName(), (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
+                    fileLists.stream().mapToInt(l -> l.getFiles() == null
+                            ? (l.getSplits() == null ? 0 : l.getSplits().size()) : l.getFiles().size()).sum(),
+                    partitions.size(), catalog.getName(), (System.currentTimeMillis() - start));
+        }
         return fileLists;
     }
 
@@ -581,8 +558,10 @@ public class HiveMetaStoreCache {
             throw new CacheException("failed to get partition in catalog %s", e, catalog.getName());
         }
 
-        LOG.debug("get #{} partitions in catalog {} cost: {} ms", partitions.size(), catalog.getName(),
-                (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get #{} partitions in catalog {} cost: {} ms", partitions.size(), catalog.getName(),
+                    (System.currentTimeMillis() - start));
+        }
         return partitions;
     }
 
@@ -596,14 +575,16 @@ public class HiveMetaStoreCache {
                 HivePartition partition = partitionCache.getIfPresent(partKey);
                 if (partition != null) {
                     fileCacheRef.get().invalidate(new FileCacheKey(partition.getPath(),
-                            null, partition.getPartitionValues()));
+                            null, partition.getPartitionValues(), null));
                     partitionCache.invalidate(partKey);
                 }
             }
             partitionValuesCache.invalidate(key);
-            LOG.debug("invalid table cache for {}.{} in catalog {}, cache num: {}, cost: {} ms",
-                    dbName, tblName, catalog.getName(), partitionValues.partitionValuesMap.size(),
-                    (System.currentTimeMillis() - start));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("invalid table cache for {}.{} in catalog {}, cache num: {}, cost: {} ms",
+                        dbName, tblName, catalog.getName(), partitionValues.partitionValuesMap.size(),
+                        (System.currentTimeMillis() - start));
+            }
         } else {
             /**
              * A file cache entry can be created reference to
@@ -614,7 +595,7 @@ public class HiveMetaStoreCache {
              * and FE will exit if some network problems occur.
              * */
             FileCacheKey fileCacheKey = FileCacheKey.createDummyCacheKey(
-                    dbName, tblName, null, null, false);
+                    dbName, tblName, null, null, null);
             fileCacheRef.get().invalidate(fileCacheKey);
         }
     }
@@ -629,7 +610,7 @@ public class HiveMetaStoreCache {
             HivePartition partition = partitionCache.getIfPresent(partKey);
             if (partition != null) {
                 fileCacheRef.get().invalidate(new FileCacheKey(partition.getPath(),
-                        null, partition.getPartitionValues()));
+                        null, partition.getPartitionValues(), null));
                 partitionCache.invalidate(partKey);
             }
         }
@@ -643,15 +624,19 @@ public class HiveMetaStoreCache {
                 invalidateTableCache(dbName, key.tblName);
             }
         }
-        LOG.debug("invalid db cache for {} in catalog {}, cache num: {}, cost: {} ms", dbName, catalog.getName(),
-                keys.size(), (System.currentTimeMillis() - start));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid db cache for {} in catalog {}, cache num: {}, cost: {} ms", dbName, catalog.getName(),
+                    keys.size(), (System.currentTimeMillis() - start));
+        }
     }
 
     public void invalidateAll() {
         partitionValuesCache.invalidateAll();
         partitionCache.invalidateAll();
         fileCacheRef.get().invalidateAll();
-        LOG.debug("invalid all meta cache in catalog {}", catalog.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid all meta cache in catalog {}", catalog.getName());
+        }
     }
 
     // partition name format: nation=cn/city=beijing
@@ -775,9 +760,9 @@ public class HiveMetaStoreCache {
     }
 
     public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds,
-            boolean isFullAcid, long tableId) {
+            boolean isFullAcid, long tableId, String bindBrokerName) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
-        String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
+        String remoteUser = jobConf.get(AuthenticationConfig.HADOOP_USER_NAME);
         try {
             for (HivePartition partition : partitions) {
                 FileCacheValue fileCacheValue = new FileCacheValue();
@@ -789,6 +774,9 @@ public class HiveMetaStoreCache {
                 } else {
                     directory = AcidUtils.getAcidState(new Path(partition.getPath()), jobConf, validWriteIds, false,
                             true);
+                }
+                if (directory == null) {
+                    return Collections.emptyList();
                 }
                 if (!directory.getOriginalFiles().isEmpty()) {
                     throw new Exception("Original non-ACID files in transactional tables are not supported");
@@ -803,10 +791,14 @@ public class HiveMetaStoreCache {
                     Path baseOrDeltaPath = directory.getBaseDirectory() != null ? directory.getBaseDirectory() :
                             !directory.getCurrentDirectories().isEmpty() ? directory.getCurrentDirectories().get(0)
                                     .getPath() : null;
+                    if (baseOrDeltaPath == null) {
+                        return Collections.emptyList();
+                    }
                     String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                             new FileSystemCache.FileSystemCacheKey(
-                                    FileSystemFactory.getFSIdentity(baseOrDeltaPath.toUri().toString()), jobConf));
+                                    LocationPath.getFSIdentity(baseOrDeltaPath.toUri().toString(),
+                                            bindBrokerName), jobConf, bindBrokerName));
                     Status status = fs.exists(acidVersionPath);
                     if (status != Status.OK) {
                         if (status.getErrCode() == ErrCode.NOT_FOUND) {
@@ -827,7 +819,9 @@ public class HiveMetaStoreCache {
                 for (AcidUtils.ParsedDelta delta : directory.getCurrentDirectories()) {
                     String location = delta.getPath().toString();
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                            new FileSystemCache.FileSystemCacheKey(FileSystemFactory.getFSIdentity(location), jobConf));
+                            new FileSystemCache.FileSystemCacheKey(
+                                    LocationPath.getFSIdentity(location, bindBrokerName),
+                                            jobConf, bindBrokerName));
                     RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
                     if (delta.isDeleteDelta()) {
                         List<String> deleteDeltaFileNames = locatedFiles.files().stream().map(f -> f.getName()).filter(
@@ -845,7 +839,9 @@ public class HiveMetaStoreCache {
                 if (directory.getBaseDirectory() != null) {
                     String location = directory.getBaseDirectory().toString();
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                            new FileSystemCache.FileSystemCacheKey(FileSystemFactory.getFSIdentity(location), jobConf));
+                            new FileSystemCache.FileSystemCacheKey(
+                                    LocationPath.getFSIdentity(location, bindBrokerName),
+                                            jobConf, bindBrokerName));
                     RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
                     locatedFiles.files().stream().filter(
                             f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
@@ -943,26 +939,25 @@ public class HiveMetaStoreCache {
         private String location;
         // not in key
         private String inputFormat;
-        // Temp variable, use self file splitter or use InputFormat.getSplits.
-        // Will remove after self splitter is stable.
-        private boolean useSelfSplitter;
+        // Broker name for file split and file scan.
+        private String bindBrokerName;
         // The values of partitions.
         // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
         // partitionValues would be ["part1", "part2"]
         protected List<String> partitionValues;
 
-        public FileCacheKey(String location, String inputFormat, List<String> partitionValues) {
+        public FileCacheKey(String location, String inputFormat, List<String> partitionValues, String bindBrokerName) {
             this.location = location;
             this.inputFormat = inputFormat;
             this.partitionValues = partitionValues == null ? Lists.newArrayList() : partitionValues;
-            this.useSelfSplitter = true;
+            this.bindBrokerName = bindBrokerName;
         }
 
         public static FileCacheKey createDummyCacheKey(String dbName, String tblName, String location,
-                                                       String inputFormat, boolean useSelfSplitter) {
-            FileCacheKey fileCacheKey = new FileCacheKey(location, inputFormat, null);
+                                                       String inputFormat,
+                                                       String bindBrokerName) {
+            FileCacheKey fileCacheKey = new FileCacheKey(location, inputFormat, null, bindBrokerName);
             fileCacheKey.dummyKey = dbName + "." + tblName;
-            fileCacheKey.useSelfSplitter = useSelfSplitter;
             return fileCacheKey;
         }
 
@@ -1000,6 +995,7 @@ public class HiveMetaStoreCache {
         // File Cache for self splitter.
         private final List<HiveFileStatus> files = Lists.newArrayList();
         // File split cache for old splitter. This is a temp variable.
+        @Deprecated
         private final List<FileSplit> splits = Lists.newArrayList();
         private boolean isSplittable;
         // The values of partitions.
@@ -1021,6 +1017,7 @@ public class HiveMetaStoreCache {
             }
         }
 
+        @Deprecated
         public void addSplit(FileSplit split) {
             if (isFileVisible(split.getPath())) {
                 splits.add(split);
@@ -1048,11 +1045,17 @@ public class HiveMetaStoreCache {
                 return false;
             }
             for (String name : path.toString().split("/")) {
-                if (name.startsWith(".hive-staging")) {
+                if (isGeneratedPath(name)) {
                     return false;
                 }
             }
             return true;
+        }
+
+        private static boolean isGeneratedPath(String name) {
+            return "_temporary".equals(name) // generated by spark
+                    || "_imapala_insert_staging".equals(name) // generated by impala
+                    || name.startsWith("."); // generated by hive or hidden file
         }
     }
 
@@ -1063,6 +1066,9 @@ public class HiveMetaStoreCache {
         long length;
         long blockSize;
         long modificationTime;
+        boolean splittable;
+        List<String> partitionValues;
+        AcidInfo acidInfo;
     }
 
     @Data
@@ -1122,4 +1128,3 @@ public class HiveMetaStoreCache {
         }
     }
 }
-

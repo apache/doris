@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hdfs_json_load", "p0,external,hive") {
+suite("test_hdfs_json_load", "p0,external,external_docker,external_docker_hive,hive") {
     // define a sql table
     def testTable = "test_hdfs_json_load"
     
@@ -69,6 +69,8 @@ suite("test_hdfs_json_load", "p0,external,hive") {
                             "max_filter_ratio"="0"
                             );
                         """
+
+        println "${result1}"
         
         assertTrue(result1.size() == 1)
         assertTrue(result1[0].size() == 1)
@@ -96,7 +98,8 @@ suite("test_hdfs_json_load", "p0,external,hive") {
 
 
     String hdfs_port = context.config.otherConfigs.get("hdfs_port")
-    def fsPath = "hdfs://127.0.0.1:${hdfs_port}"
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    def fsPath = "hdfs://${externalEnvIp}:${hdfs_port}"
     // It's okay to use random `hdfsUser`, but can not be empty.
     def hdfsUser = "doris"
 

@@ -19,10 +19,13 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -32,9 +35,11 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Table;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.stream.IntStream;
 
 public class RebalancerTestUtil {
@@ -105,5 +110,70 @@ public class RebalancerTestUtil {
             tablet.addReplica(replica, true);
             invertedIndex.addReplica(tablet.getId(), replica);
         });
+    }
+
+    public static void updateReplicaPathHash() {
+        Table<Long, Long, Replica> replicaMetaTable =
+                Env.getCurrentInvertedIndex().getReplicaMetaTable();
+        for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
+            long beId = cell.getColumnKey();
+            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
+            if (be == null) {
+                continue;
+            }
+            Replica replica = cell.getValue();
+            TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(cell.getRowKey());
+            ImmutableMap<String, DiskInfo> diskMap = be.getDisks();
+            for (DiskInfo diskInfo : diskMap.values()) {
+                if (diskInfo.getStorageMedium() == tabletMeta.getStorageMedium()) {
+                    replica.setPathHash(diskInfo.getPathHash());
+                    break;
+                }
+            }
+        }
+    }
+
+
+    public static void updateReplicaDataSize(long minReplicaSize, int tableSkew,  int tabletSkew) {
+        Random random = new Random();
+        tableSkew = Math.max(tableSkew, 1);
+        tabletSkew = Math.max(tabletSkew, 1);
+        Env env = Env.getCurrentEnv();
+        List<Long> dbIds = env.getInternalCatalog().getDbIds();
+        for (Long dbId : dbIds) {
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
+            if (db == null) {
+                continue;
+            }
+
+            if (db instanceof MysqlCompatibleDatabase) {
+                continue;
+            }
+
+            for (org.apache.doris.catalog.Table table : db.getTables()) {
+                long tableBaseSize = minReplicaSize * (1 + random.nextInt(tableSkew));
+                table.readLock();
+                try {
+                    if (table.getType() != TableType.OLAP) {
+                        continue;
+                    }
+
+                    OlapTable tbl = (OlapTable) table;
+                    for (Partition partition : tbl.getAllPartitions()) {
+                        for (MaterializedIndex idx : partition.getMaterializedIndices(
+                                    MaterializedIndex.IndexExtState.VISIBLE)) {
+                            for (Tablet tablet : idx.getTablets()) {
+                                long tabletSize = tableBaseSize * (1 + random.nextInt(tabletSkew));
+                                for (Replica replica : tablet.getReplicas()) {
+                                    replica.updateStat(tabletSize, 1000L);
+                                }
+                            }
+                        }
+                    }
+                } finally {
+                    table.readUnlock();
+                }
+            }
+        }
     }
 }

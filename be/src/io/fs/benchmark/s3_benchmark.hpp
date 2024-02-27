@@ -65,8 +65,8 @@ public:
         RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         io::FileReaderSPtr reader;
-        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
-        io::FileDescription fd;
+        io::FileReaderOptions reader_opts;
+        FileDescription fd;
         fd.path = file_path;
         RETURN_IF_ERROR(FileFactory::create_s3_reader(
                 _conf_map, fd, reader_opts, reinterpret_cast<std::shared_ptr<io::FileSystem>*>(&fs),
@@ -113,11 +113,10 @@ public:
 
         FileDescription fd;
         fd.path = get_file_path(state);
-        fd.start_offset = 0;
         fd.file_size = _file_size;
         std::shared_ptr<io::FileSystem> fs;
         io::FileReaderSPtr reader;
-        io::FileReaderOptions reader_options = FileFactory::get_reader_options(nullptr);
+        io::FileReaderOptions reader_options;
         IOContext io_ctx;
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 nullptr, fs_props, fd, reader_options, &fs, &reader,

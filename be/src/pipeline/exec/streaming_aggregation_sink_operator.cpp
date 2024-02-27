@@ -21,7 +21,6 @@
 
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
@@ -91,5 +90,4 @@ StreamingAggSinkOperatorBuilder::StreamingAggSinkOperatorBuilder(int32_t id, Exe
 OperatorPtr StreamingAggSinkOperatorBuilder::build_operator() {
     return std::make_shared<StreamingAggSinkOperator>(this, _node, _data_queue);
 }
-
 } // namespace doris::pipeline

@@ -21,16 +21,22 @@
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <stdint.h>
+
+#include <chrono>
+#include <thread>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <memory>
 #include <ostream>
 #include <utility>
 
+#include "arrow/record_batch.h"
+#include "arrow/type_fwd.h"
 #include "runtime/buffer_control_block.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/thread.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -40,12 +46,12 @@ ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
     // Each BufferControlBlock has a limited queue size of 1024, it's not needed to count the
     // actual size of all BufferControlBlock.
     REGISTER_HOOK_METRIC(result_buffer_block_count, [this]() {
-        // std::lock_guard<std::mutex> l(_lock);
+        // std::lock_guard<std::mutex> l(_buffer_map_lock);
         return _buffer_map.size();
     });
 }
 
-ResultBufferMgr::~ResultBufferMgr() {
+void ResultBufferMgr::stop() {
     DEREGISTER_HOOK_METRIC(result_buffer_block_count);
     _stop_background_threads_latch.count_down();
     if (_clean_thread) {
@@ -78,7 +84,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
     }
 
     {
-        std::lock_guard<std::mutex> l(_lock);
+        std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
         _buffer_map.insert(std::make_pair(query_id, control_block));
         // BufferControlBlock should destroy after max_timeout
         // for exceed max_timeout FE will return timeout to client
@@ -86,15 +92,14 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
         // details see issue https://github.com/apache/doris/issues/16203
         // add extra 5s for avoid corner case
         int64_t max_timeout = time(nullptr) + exec_timout + 5;
-        cancel_at_time(max_timeout, query_id);
+        static_cast<void>(cancel_at_time(max_timeout, query_id));
     }
     *sender = control_block;
     return Status::OK();
 }
 
 std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TUniqueId& query_id) {
-    // TODO(zhaochun): this lock can be bottleneck?
-    std::lock_guard<std::mutex> l(_lock);
+    std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
     BufferMap::iterator iter = _buffer_map.find(query_id);
 
     if (_buffer_map.end() != iter) {
@@ -104,26 +109,65 @@ std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TU
     return std::shared_ptr<BufferControlBlock>();
 }
 
+void ResultBufferMgr::register_arrow_schema(const TUniqueId& query_id,
+                                            const std::shared_ptr<arrow::Schema>& arrow_schema) {
+    std::unique_lock<std::shared_mutex> wlock(_arrow_schema_map_lock);
+    _arrow_schema_map.insert(std::make_pair(query_id, arrow_schema));
+}
+
+std::shared_ptr<arrow::Schema> ResultBufferMgr::find_arrow_schema(const TUniqueId& query_id) {
+    std::shared_lock<std::shared_mutex> rlock(_arrow_schema_map_lock);
+    auto iter = _arrow_schema_map.find(query_id);
+
+    if (_arrow_schema_map.end() != iter) {
+        return iter->second;
+    }
+
+    return nullptr;
+}
+
 void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx) {
     TUniqueId tid;
     tid.__set_hi(finst_id.hi());
     tid.__set_lo(finst_id.lo());
     std::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
     if (cb == nullptr) {
-        LOG(WARNING) << "no result for this query, id=" << tid;
+        LOG(WARNING) << "no result for this query, id=" << print_id(tid);
         ctx->on_failure(Status::InternalError("no result for this query"));
         return;
     }
     cb->get_batch(ctx);
 }
 
-Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
-    std::lock_guard<std::mutex> l(_lock);
-    BufferMap::iterator iter = _buffer_map.find(query_id);
+Status ResultBufferMgr::fetch_arrow_data(const TUniqueId& finst_id,
+                                         std::shared_ptr<arrow::RecordBatch>* result) {
+    std::shared_ptr<BufferControlBlock> cb = find_control_block(finst_id);
+    if (cb == nullptr) {
+        LOG(WARNING) << "no result for this query, id=" << print_id(finst_id);
+        return Status::InternalError("no result for this query");
+    }
+    RETURN_IF_ERROR(cb->get_arrow_batch(result));
+    return Status::OK();
+}
 
-    if (_buffer_map.end() != iter) {
-        iter->second->cancel();
-        _buffer_map.erase(iter);
+Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
+    {
+        std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
+        BufferMap::iterator iter = _buffer_map.find(query_id);
+
+        if (_buffer_map.end() != iter) {
+            static_cast<void>(iter->second->cancel());
+            _buffer_map.erase(iter);
+        }
+    }
+
+    {
+        std::unique_lock<std::shared_mutex> wlock(_arrow_schema_map_lock);
+        auto arrow_schema_iter = _arrow_schema_map.find(query_id);
+
+        if (_arrow_schema_map.end() != arrow_schema_iter) {
+            _arrow_schema_map.erase(arrow_schema_iter);
+        }
     }
 
     return Status::OK();
@@ -165,7 +209,7 @@ void ResultBufferMgr::cancel_thread() {
 
         // cancel query
         for (int i = 0; i < query_to_cancel.size(); ++i) {
-            cancel(query_to_cancel[i]);
+            static_cast<void>(cancel(query_to_cancel[i]));
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 

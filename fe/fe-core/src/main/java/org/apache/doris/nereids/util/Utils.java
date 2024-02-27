@@ -17,15 +17,15 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
+import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -139,13 +139,19 @@ public class Utils {
         }
 
         for (int i = 0; i < variables.length - 1; i += 2) {
-            stringBuilder.append(variables[i]).append("=").append(variables[i + 1]);
-            if (i < variables.length - 2) {
-                stringBuilder.append(", ");
+            if (! "".equals(toStringOrNull(variables[i + 1]))) {
+                if (i != 0) {
+                    stringBuilder.append(", ");
+                }
+                stringBuilder.append(toStringOrNull(variables[i])).append("=").append(toStringOrNull(variables[i + 1]));
             }
         }
 
         return stringBuilder.append(" )").toString();
+    }
+
+    private static String toStringOrNull(Object obj) {
+        return obj == null ? "null" : obj.toString();
     }
 
     /**
@@ -159,21 +165,8 @@ public class Utils {
      */
     public static List<Expression> getCorrelatedSlots(List<Expression> correlatedPredicates,
             List<Expression> correlatedSlots) {
-        List<Expression> slots = new ArrayList<>();
-        correlatedPredicates.forEach(predicate -> {
-            if (!(predicate instanceof BinaryExpression) && !(predicate instanceof Not)) {
-                throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
-            }
-
-            BinaryExpression binaryExpression;
-            if (predicate instanceof Not) {
-                binaryExpression = (BinaryExpression) ((Not) predicate).child();
-            } else {
-                binaryExpression = (BinaryExpression) predicate;
-            }
-            slots.addAll(collectCorrelatedSlotsFromChildren(binaryExpression, correlatedSlots));
-        });
-        return slots;
+        return ExpressionUtils.getInputSlotSet(correlatedPredicates).stream()
+                .filter(slot -> !correlatedSlots.contains(slot)).collect(Collectors.toList());
     }
 
     private static List<Expression> collectCorrelatedSlotsFromChildren(
@@ -255,5 +248,34 @@ public class Utils {
 
     public static <T> List<T> copyRequiredList(List<T> list) {
         return ImmutableList.copyOf(Objects.requireNonNull(list, "non-null list is required"));
+    }
+
+    public static <T> List<T> copyRequiredMutableList(List<T> list) {
+        return Lists.newArrayList(Objects.requireNonNull(list, "non-null list is required"));
+    }
+
+    /**
+     * Normalize the name to lower underscore style, return default name if the name is empty.
+     */
+    public static String normalizeName(String name, String defaultName) {
+        if (StringUtils.isEmpty(name)) {
+            return defaultName;
+        }
+        if (name.contains("$")) {
+            name = name.replace("$", "_");
+        }
+        return CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, name);
+    }
+
+    /**
+     * Check the content if contains chinese or not, if true when contains chinese or false
+     */
+    public static boolean containChinese(String text) {
+        for (char textChar : text.toCharArray()) {
+            if (Character.UnicodeScript.of(textChar) == Character.UnicodeScript.HAN) {
+                return true;
+            }
+        }
+        return false;
     }
 }

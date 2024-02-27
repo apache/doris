@@ -19,7 +19,7 @@
 suite("test_backends_tvf","p0,external,tvf,external_docker") {
     List<List<Object>> table =  sql """ select * from backends(); """
     assertTrue(table.size() > 0)
-    assertEquals(23, table[0].size)
+    assertEquals(25, table[0].size)
 
     // filter columns
     table = sql """ select BackendId, Host, Alive, TotalCapacity, Version, NodeRole from backends();"""
@@ -58,4 +58,13 @@ suite("test_backends_tvf","p0,external,tvf,external_docker") {
             MaxDiskUsedPct, RemoteUsedCapacity, Tag, ErrMsg, Version, Status
             HeartbeatFailureCounter, NodeRole from backends();
     """
+
+
+    // test exception
+    test {
+        sql """ select * from backends("backendId" = "10003"); """
+
+        // check exception
+        exception "backends table-valued-function does not support any params"
+    }
 }

@@ -102,8 +102,13 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
 
     @Override
     public String toString() {
+        StringBuilder builder = new StringBuilder();
+        if (!getAppliedRuntimeFilters().isEmpty()) {
+            getAppliedRuntimeFilters()
+                    .stream().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
+        }
         return Utils.toSqlString("PhysicalCTEConsumer[" + id.asInt() + "]",
-                "cteId", cteId);
+                "stats", getStats(), "cteId", cteId, "RFs", builder);
     }
 
     @Override
@@ -136,18 +141,30 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
 
     @Override
     public String shapeInfo() {
-        return Utils.toSqlString("PhysicalCteConsumer",
-                "cteId", cteId);
+        StringBuilder shapeBuilder = new StringBuilder();
+        shapeBuilder.append(Utils.toSqlString("PhysicalCteConsumer",
+                "cteId", cteId));
+        if (!getAppliedRuntimeFilters().isEmpty()) {
+            shapeBuilder.append(" apply RFs:");
+            getAppliedRuntimeFilters()
+                    .stream().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
+        }
+        return shapeBuilder.toString();
     }
 
     @Override
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-                                         AbstractPhysicalJoin builderNode,
-                                         Expression src, Expression probeExpr,
-                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+            AbstractPhysicalJoin<?, ?> builderNode,
+            Expression src, Expression probeExpr,
+            TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         // push down rf on cte sender
         // TODO: refactor pushing down into cte internal here
         return super.pushDownRuntimeFilter(context, generator, builderNode,
                 src, probeExpr, type, buildSideNdv, exprOrder);
+    }
+
+    @Override
+    public boolean canPushDownRuntimeFilter() {
+        return true;
     }
 }

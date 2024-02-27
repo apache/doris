@@ -36,20 +36,21 @@ public:
 
     virtual Status open() { return Status::OK(); }
 
-    virtual Status process_init(Block* block) = 0;
+    virtual Status process_init(Block* block, RuntimeState* state) = 0;
 
-    virtual Status process_row(size_t row_idx) {
-        _cur_size = 0;
-        return reset();
+    virtual void process_row(size_t row_idx) {
+        if (!_is_const) {
+            _cur_size = 0;
+        }
+        reset();
     }
 
     // only used for vectorized.
-    virtual Status process_close() = 0;
+    virtual void process_close() = 0;
 
-    virtual Status reset() {
+    virtual void reset() {
         _eos = false;
         _cur_offset = 0;
-        return Status::OK();
     }
 
     virtual void get_value(MutableColumnPtr& column) = 0;
@@ -66,7 +67,7 @@ public:
 
     virtual Status close() { return Status::OK(); }
 
-    virtual Status forward(int step = 1) {
+    virtual void forward(int step = 1) {
         if (current_empty()) {
             _eos = true;
         } else {
@@ -75,7 +76,6 @@ public:
                 _eos = true;
             }
         }
-        return Status::OK();
     }
 
     std::string name() const { return _fn_name; }

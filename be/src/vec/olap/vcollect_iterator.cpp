@@ -26,7 +26,6 @@
 #include <set>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "io/io_common.h"
@@ -58,11 +57,7 @@ namespace vectorized {
         }                                                              \
     } while (false)
 
-VCollectIterator::~VCollectIterator() {
-    for (auto child : _children) {
-        delete child;
-    }
-}
+VCollectIterator::~VCollectIterator() = default;
 
 void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, bool force_merge,
                             bool is_reverse) {
@@ -102,8 +97,7 @@ Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
         return Status::OK();
     }
 
-    std::unique_ptr<LevelIterator> child(new Level0Iterator(rs_splits.rs_reader, _reader));
-    _children.push_back(child.release());
+    _children.push_back(std::make_unique<Level0Iterator>(rs_splits.rs_reader, _reader));
     return Status::OK();
 }
 
@@ -127,7 +121,6 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
              c_iter != _children.end();) {
             auto s = (*c_iter)->init(have_multiple_child);
             if (!s.ok()) {
-                delete (*c_iter);
                 c_iter = _children.erase(c_iter);
                 r_iter = rs_readers.erase(r_iter);
                 if (!s.is<END_OF_FILE>()) {
@@ -156,39 +149,39 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
             auto base_reader_child = _children.begin();
             std::advance(base_reader_child, base_reader_idx);
 
-            std::list<LevelIterator*> cumu_children;
+            std::list<std::unique_ptr<LevelIterator>> cumu_children;
             for (auto iter = _children.begin(); iter != _children.end();) {
                 if (iter != base_reader_child) {
-                    cumu_children.push_back(*iter);
+                    cumu_children.push_back(std::move(*iter));
                     iter = _children.erase(iter);
                 } else {
                     ++iter;
                 }
             }
-            auto cumu_iter = std::make_unique<Level1Iterator>(
-                    cumu_children, _reader, cumu_children.size() > 1, _is_reverse, _skip_same);
+            bool is_merge = cumu_children.size() > 1;
+            std::unique_ptr<LevelIterator> cumu_iter = std::make_unique<Level1Iterator>(
+                    std::move(cumu_children), _reader, is_merge, _is_reverse, _skip_same);
             RETURN_IF_NOT_EOF_AND_OK(cumu_iter->init());
-            std::list<LevelIterator*> children;
-            children.push_back(*base_reader_child);
-            children.push_back(cumu_iter.get());
-            auto level1_iter =
-                    new Level1Iterator(children, _reader, _merge, _is_reverse, _skip_same);
-            cumu_iter.release();
-            _inner_iter.reset(level1_iter);
+            std::list<std::unique_ptr<LevelIterator>> children;
+            children.push_back(std::move(*base_reader_child));
+            children.push_back(std::move(cumu_iter));
+            _inner_iter.reset(new Level1Iterator(std::move(children), _reader, _merge, _is_reverse,
+                                                 _skip_same));
             // need to clear _children here, or else if the following _inner_iter->init() return early
             // base_reader_child will be double deleted
             _children.clear();
         } else {
             // _children.size() == 1
-            _inner_iter.reset(
-                    new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
+            _inner_iter.reset(new Level1Iterator(std::move(_children), _reader, _merge, _is_reverse,
+                                                 _skip_same));
         }
     } else {
-        auto level1_iter = std::make_unique<Level1Iterator>(_children, _reader, _merge, _is_reverse,
-                                                            _skip_same);
+        auto level1_iter = std::make_unique<Level1Iterator>(std::move(_children), _reader, _merge,
+                                                            _is_reverse, _skip_same);
         _children.clear();
-        RETURN_IF_ERROR(level1_iter->init_level0_iterators_for_union());
-        _inner_iter.reset(level1_iter.release());
+        level1_iter->init_level0_iterators_for_union();
+        RETURN_IF_ERROR(level1_iter->ensure_first_row_ref());
+        _inner_iter = std::move(level1_iter);
     }
     RETURN_IF_NOT_EOF_AND_OK(_inner_iter->init());
     // Clear _children earlier to release any related references
@@ -262,11 +255,14 @@ Status VCollectIterator::_topn_next(Block* block) {
 
     auto clone_block = block->clone_empty();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
-    // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
+    // clear TEMP columns to avoid column align problem in mutable_block.add_rows bellow
     auto all_column_names = mutable_block.get_names();
     for (auto& name : all_column_names) {
         if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
             mutable_block.erase(name);
+            // clear TEMP columns from block to prevent from storage engine merge with this
+            // fake column
+            block->erase(name);
         }
     }
 
@@ -470,7 +466,8 @@ Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
         _block = std::make_shared<Block>(_schema.create_block(
                 _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
     }
-    auto st = _refresh_current_row();
+
+    auto st = refresh_current_row();
     if (_get_data_by_ref && _block_view.size()) {
         _ref = _block_view[0];
     } else {
@@ -485,35 +482,29 @@ Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
 //     collect_iter->next(&_next_row);
 // }
 // so first child load first row and other child row_pos = -1
-Status VCollectIterator::Level0Iterator::init_for_union(bool is_first_child, bool get_data_by_ref) {
+void VCollectIterator::Level0Iterator::init_for_union(bool get_data_by_ref) {
     _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref();
-    if (!_get_data_by_ref) {
-        _block = std::make_shared<Block>(_schema.create_block(
-                _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
-    }
-    auto st = _refresh_current_row();
-    if (_get_data_by_ref && _block_view.size()) {
-        if (is_first_child) {
-            _ref = _block_view[0];
-        } else {
-            _ref = _block_view[-1];
-        }
-    } else {
-        if (is_first_child) {
-            _ref = {_block, 0, false};
-        } else {
-            _ref = {_block, -1, false};
-        }
-    }
-    return st;
+}
+
+Status VCollectIterator::Level0Iterator::ensure_first_row_ref() {
+    DCHECK(!_get_data_by_ref);
+    auto s = refresh_current_row();
+    _ref = {_block, 0, false};
+
+    return s;
 }
 
 int64_t VCollectIterator::Level0Iterator::version() const {
     return _rs_reader->version().second;
 }
 
-Status VCollectIterator::Level0Iterator::_refresh_current_row() {
+Status VCollectIterator::Level0Iterator::refresh_current_row() {
     do {
+        if (_block == nullptr && !_get_data_by_ref) {
+            _block = std::make_shared<Block>(_schema.create_block(
+                    _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+        }
+
         if (!_is_empty() && _current_valid()) {
             return Status::OK();
         } else {
@@ -533,6 +524,7 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
     } while (!_is_empty());
     _ref.row_pos = -1;
     _current = -1;
+    _rs_reader = nullptr;
     return Status::Error<END_OF_FILE>("");
 }
 
@@ -543,7 +535,7 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
         _ref.row_pos++;
     }
 
-    RETURN_IF_ERROR(_refresh_current_row());
+    RETURN_IF_ERROR(refresh_current_row());
 
     if (_get_data_by_ref) {
         _ref = _block_view[_current];
@@ -560,6 +552,9 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
         _ref.reset();
         return Status::OK();
     } else {
+        if (_rs_reader == nullptr) {
+            return Status::Error<END_OF_FILE>("");
+        }
         auto res = _rs_reader->next_block(block);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
             return res;
@@ -592,10 +587,10 @@ Status VCollectIterator::Level0Iterator::current_block_row_locations(
 }
 
 VCollectIterator::Level1Iterator::Level1Iterator(
-        const std::list<VCollectIterator::LevelIterator*>& children, TabletReader* reader,
+        std::list<std::unique_ptr<VCollectIterator::LevelIterator>> children, TabletReader* reader,
         bool merge, bool is_reverse, bool skip_same)
         : LevelIterator(reader),
-          _children(children),
+          _children(std::move(children)),
           _reader(reader),
           _merge(merge),
           _is_reverse(is_reverse),
@@ -608,20 +603,10 @@ VCollectIterator::Level1Iterator::Level1Iterator(
 }
 
 VCollectIterator::Level1Iterator::~Level1Iterator() {
-    for (auto child : _children) {
-        if (child != nullptr) {
-            delete child;
-            child = nullptr;
-        }
-    }
-
     if (_heap) {
         while (!_heap->empty()) {
-            auto child = _heap->top();
+            delete _heap->top();
             _heap->pop();
-            if (child) {
-                delete child;
-            }
         }
     }
 }
@@ -681,63 +666,70 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
             }
         }
         _heap.reset(new MergeHeap {LevelIteratorComparator(sequence_loc, _is_reverse)});
-        for (auto child : _children) {
+        for (auto&& child : _children) {
             DCHECK(child != nullptr);
             //DCHECK(child->current_row().ok());
-            _heap->push(child);
+            _heap->push(child.release());
         }
-        _cur_child = _heap->top();
+        _cur_child.reset(_heap->top());
+        _heap->pop();
         // Clear _children earlier to release any related references
         _children.clear();
     } else {
         _merge = false;
         _heap.reset(nullptr);
-        _cur_child = *_children.begin();
+        _cur_child = std::move(*_children.begin());
+        _children.pop_front();
     }
     _ref = *_cur_child->current_row_ref();
     return Status::OK();
 }
 
-Status VCollectIterator::Level1Iterator::init_level0_iterators_for_union() {
-    bool have_multiple_child = false;
-    bool is_first_child = true;
+Status VCollectIterator::Level1Iterator::ensure_first_row_ref() {
     for (auto iter = _children.begin(); iter != _children.end();) {
-        auto s = (*iter)->init_for_union(is_first_child, have_multiple_child);
+        auto s = (*iter)->ensure_first_row_ref();
         if (!s.ok()) {
-            delete (*iter);
             iter = _children.erase(iter);
             if (!s.is<END_OF_FILE>()) {
                 return s;
             }
         } else {
-            have_multiple_child = true;
-            is_first_child = false;
-            ++iter;
+            // we get a real row
+            break;
         }
     }
 
     return Status::OK();
 }
 
+void VCollectIterator::Level1Iterator::init_level0_iterators_for_union() {
+    bool have_multiple_child = false;
+    for (auto iter = _children.begin(); iter != _children.end();) {
+        (*iter)->init_for_union(have_multiple_child);
+        have_multiple_child = true;
+        ++iter;
+    }
+}
+
 Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
-    _heap->pop();
     auto res = _cur_child->next(ref);
     if (LIKELY(res.ok())) {
-        _heap->push(_cur_child);
-        _cur_child = _heap->top();
+        _heap->push(_cur_child.release());
+        _cur_child.reset(_heap->top());
+        _heap->pop();
     } else if (res.is<END_OF_FILE>()) {
         // current child has been read, to read next
-        delete _cur_child;
         if (!_heap->empty()) {
-            _cur_child = _heap->top();
+            _cur_child.reset(_heap->top());
+            _heap->pop();
         } else {
             _ref.reset();
-            _cur_child = nullptr;
+            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
         _ref.reset();
-        _cur_child = nullptr;
+        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
@@ -763,17 +755,16 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
         return Status::OK();
     } else if (res.is<END_OF_FILE>()) {
         // current child has been read, to read next
-        delete _cur_child;
-        _children.pop_front();
         if (!_children.empty()) {
-            _cur_child = *(_children.begin());
+            _cur_child = std::move(*(_children.begin()));
+            _children.pop_front();
             return _normal_next(ref);
         } else {
-            _cur_child = nullptr;
+            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
-        _cur_child = nullptr;
+        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
@@ -782,7 +773,7 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
 Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     int target_block_row = 0;
     auto target_columns = block->mutate_columns();
-    size_t column_count = block->columns();
+    size_t column_count = target_columns.size();
     IteratorRowRef cur_row = _ref;
     IteratorRowRef pre_row_ref = _ref;
 
@@ -806,10 +797,13 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
         // clear block column data
         if (pre_row_ref.row_pos + continuous_row_in_block == pre_row_ref.block->rows()) {
             const auto& src_block = pre_row_ref.block;
-            for (size_t i = 0; i < column_count; ++i) {
-                target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
-                                                     pre_row_ref.row_pos, continuous_row_in_block);
-            }
+            RETURN_IF_CATCH_EXCEPTION({
+                for (size_t i = 0; i < column_count; ++i) {
+                    target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                         pre_row_ref.row_pos,
+                                                         continuous_row_in_block);
+                }
+            });
             continuous_row_in_block = 0;
             pre_row_ref.reset();
         }
@@ -818,6 +812,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
             }
+            block->set_columns(std::move(target_columns));
             return res;
         }
 
@@ -834,6 +829,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
                                                          continuous_row_in_block);
                 }
             }
+            block->set_columns(std::move(target_columns));
             return Status::OK();
         }
         if (continuous_row_in_block == 0) {
@@ -861,17 +857,16 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
         return Status::OK();
     } else if (res.is<END_OF_FILE>()) {
         // current child has been read, to read next
-        delete _cur_child;
-        _children.pop_front();
         if (!_children.empty()) {
-            _cur_child = *(_children.begin());
+            _cur_child = std::move(*(_children.begin()));
+            _children.pop_front();
             return _normal_next(block);
         } else {
-            _cur_child = nullptr;
+            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
-        _cur_child = nullptr;
+        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }

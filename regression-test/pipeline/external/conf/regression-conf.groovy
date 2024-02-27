@@ -86,9 +86,10 @@ clickhouse_22_port=8123
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=true
 hms_port=7141
+hive_pg_port=5432
 
 enableEsTest=true
-es_6_port=19200
+es_6_port="19200/"
 es_7_port=29200
 es_8_port=39200
 
@@ -101,3 +102,4 @@ s3Region = "ap-hongkong"
 max_failure_num=50
 
 externalEnvIp="127.0.0.1"
+

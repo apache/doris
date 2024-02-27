@@ -32,10 +32,15 @@
 namespace doris {
 class RuntimeProfile;
 class TupleDescriptor;
+class QueryStatistics;
 
 namespace vectorized {
 class VExprContext;
 } // namespace vectorized
+
+namespace pipeline {
+class ScanLocalStateBase;
+} // namespace pipeline
 } // namespace doris
 
 namespace doris::vectorized {
@@ -53,6 +58,8 @@ struct ScannerCounter {
 class VScanner {
 public:
     VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile);
+    VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
+             RuntimeProfile* profile);
 
     virtual ~VScanner() = default;
 
@@ -61,8 +68,12 @@ public:
     virtual Status open(RuntimeState* state) { return Status::OK(); }
 
     Status get_block(RuntimeState* state, Block* block, bool* eos);
+    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
 
     virtual Status close(RuntimeState* state);
+
+    // Try to stop scanner, and all running readers.
+    virtual void try_stop() { _should_stop = true; };
 
     virtual std::string get_name() { return ""; }
 
@@ -79,6 +90,8 @@ protected:
 
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
+
+    Status _do_projections(vectorized::Block* origin_block, vectorized::Block* output_block);
 
     // Not virtual, all child will call this method explictly
     Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
@@ -108,22 +121,24 @@ public:
 
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
 
-    int64_t get_scanner_wait_worker_timer() { return _scanner_wait_worker_timer; }
+    int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
-    void update_scan_cpu_timer() { _scan_cpu_timer += _cpu_watch.elapsed_time(); }
+    void update_scan_cpu_timer() {
+        int64_t cpu_time = _cpu_watch.elapsed_time();
+        _scan_cpu_timer += cpu_time;
+        _query_statistics->add_cpu_nanos(cpu_time);
+    }
 
     RuntimeState* runtime_state() { return _state; }
 
     bool is_open() { return _is_open; }
     void set_opened() { _is_open = true; }
 
-    int queue_id() { return _state->exec_env()->store_path_to_index("xxx"); }
-
     virtual doris::TabletStorageType get_storage_type() {
         return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
 
-    bool need_to_close() { return _need_to_close; }
+    bool need_to_close() const { return _need_to_close; }
 
     void mark_to_need_to_close() {
         // If the scanner is failed during init or open, then not need update counters
@@ -138,14 +153,8 @@ public:
 
     void set_status_on_failure(const Status& st) { _status = st; }
 
-    // return false if _is_counted_down is already true,
-    // otherwise, set _is_counted_down to true and return true.
-    bool set_counted_down() {
-        if (_is_counted_down) {
-            return false;
-        }
-        _is_counted_down = true;
-        return true;
+    void set_query_statistics(QueryStatistics* query_statistics) {
+        _query_statistics = query_statistics;
     }
 
 protected:
@@ -156,15 +165,18 @@ protected:
         _conjuncts.clear();
     }
 
-protected:
-    RuntimeState* _state;
-    VScanNode* _parent;
+    RuntimeState* _state = nullptr;
+    VScanNode* _parent = nullptr;
+    pipeline::ScanLocalStateBase* _local_state = nullptr;
+    QueryStatistics* _query_statistics = nullptr;
+
     // Set if scan node has sort limit info
     int64_t _limit = -1;
 
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
 
     const TupleDescriptor* _output_tuple_desc = nullptr;
+    const RowDescriptor* _output_row_descriptor = nullptr;
 
     // If _input_tuple_desc is set, the scanner will read data into
     // this _input_block first, then convert to the output block.
@@ -182,6 +194,8 @@ protected:
     // Cloned from _conjuncts of scan node.
     // It includes predicate in SQL and runtime filters.
     VExprContextSPtrs _conjuncts;
+    VExprContextSPtrs _projections;
+    vectorized::Block _origin_block;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
     // Late arriving runtime filters will update _conjuncts.
@@ -191,6 +205,8 @@ protected:
 
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
+
+    int64_t _num_byte_read = 0;
 
     // num of rows return from scanner, after filter block
     int64_t _num_rows_return = 0;
@@ -206,13 +222,13 @@ protected:
     int64_t _scan_cpu_timer = 0;
 
     bool _is_load = false;
-    // set to true after decrease the "_num_unfinished_scanners" in scanner context
-    bool _is_counted_down = false;
 
     bool _is_init = true;
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
+
+    bool _should_stop = false;
 };
 
 using VScannerSPtr = std::shared_ptr<VScanner>;

@@ -114,7 +114,7 @@ public class ColocateMetaService extends RestBaseController {
         if ("POST".equalsIgnoreCase(method)) {
             colocateIndex.markGroupUnstable(groupId, "mark unstable via http api", true);
         } else if ("DELETE".equalsIgnoreCase(method)) {
-            colocateIndex.markGroupStable(groupId, true);
+            colocateIndex.markGroupStable(groupId, true, null);
         }
         return ResponseEntityBuilder.ok();
     }

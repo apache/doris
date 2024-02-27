@@ -45,8 +45,10 @@ class ConfigOptions {
     static Option dataOpt
     static Option realDataOpt
     static Option cacheDataOpt
+    static Option enableCacheDataOpt
     static Option pluginOpt
     static Option sslCertificateOpt
+    static Option imageOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
     static Option groupsOpt
@@ -145,7 +147,14 @@ class ConfigOptions {
                 .longOpt("cacheDataPath")
                 .desc("the cache data path caches data for stream load from s3")
                 .build()
-
+       enableCacheDataOpt = Option.builder("ECD")
+                .argName("enableCacheData")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("enableCacheData")
+                .desc("enable caches data for stream load from s3")
+                .build()
         pluginOpt = Option.builder("plugin")
                 .argName("pluginPath")
                 .required(false)
@@ -162,7 +171,16 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("sslCertificatePath")
                 .desc("the sslCertificate path")
-                .build() 
+                .build()
+
+        imageOpt = Option.builder("image")
+                .argName("image")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("image")
+                .desc("the docker image")
+                .build()
 
         suiteOpt = Option.builder("s")
                 .argName("suiteName")
@@ -373,6 +391,7 @@ class ConfigOptions {
                 .addOption(dataOpt)
                 .addOption(pluginOpt)
                 .addOption(sslCertificateOpt)
+                .addOption(imageOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(excludeSuiteOpt)

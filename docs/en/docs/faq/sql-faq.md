@@ -94,3 +94,8 @@ If the `curl 77: Problem with the SSL CA cert` error appears in the be.INFO log.
 1. Download the certificate at [https://curl.se/docs/caextract.html](https://curl.se/docs/caextract.html): cacert.pem
 2. Copy the certificate to the specified location: `sudo cp /tmp/cacert.pem /etc/ssl/certs/ca-certificates.crt`
 3. Restart the BE node.
+
+### Q7. import error："Message": "[INTERNAL_ERROR]single replica load is disabled on BE."
+
+1. Make sure this parameters `enable_single_replica_load` in be.conf is set true
+2.  Restart the BE node.

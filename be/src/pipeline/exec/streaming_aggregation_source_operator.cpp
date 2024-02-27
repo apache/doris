@@ -21,6 +21,7 @@
 
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -31,6 +32,7 @@ class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
+
 StreamingAggSourceOperator::StreamingAggSourceOperator(OperatorBuilderBase* templ, ExecNode* node,
                                                        std::shared_ptr<DataQueue> queue)
         : SourceOperator(templ, node), _data_queue(std::move(queue)) {}

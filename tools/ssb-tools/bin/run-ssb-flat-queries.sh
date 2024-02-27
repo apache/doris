@@ -117,13 +117,14 @@ origin_batch_size=$(
 run_sql "set global parallel_fragment_exec_instance_num=8;"
 run_sql "set global exec_mem_limit=8G;"
 run_sql "set global batch_size=4096;"
+run_sql "set global query_timeout=900;"
 echo '============================================'
 run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
 start=$(date +%s)
-run_sql "analyze database ${DB} with sync;"
+run_sql "analyze table lineorder_flat with sync;"
 end=$(date +%s)
 totalTime=$((end - start))
 echo "analyze database ${DB} with sync total time: ${totalTime} s"
@@ -131,12 +132,15 @@ echo '============================================'
 
 sum=0
 for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2' '4.3'; do
-    # First run to prevent the affect of cold start
-    mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D "${DB}" <"${QUERIES_DIR}/q${i}.sql" >/dev/null 2>&1
-    # Then run 3 times and takes the average time
-    res=$(mysqlslap -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" --create-schema="${DB}" --query="${QUERIES_DIR}/q${i}.sql" -F '\r' -i 3 | sed -n '2p' | cut -d ' ' -f 9,10)
-    echo "q${i}: ${res}"
-    cost=$(echo "${res}" | cut -d' ' -f1)
+    # Each query is executed 3 times and takes the min time
+    res1=$(mysql -vvv -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$(cat "${QUERIES_DIR}"/q"${i}".sql)" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
+    res2=$(mysql -vvv -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$(cat "${QUERIES_DIR}"/q"${i}".sql)" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
+    res3=$(mysql -vvv -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$(cat "${QUERIES_DIR}"/q"${i}".sql)" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
+
+    min_value=$(echo "${res1} ${res2} ${res3}" | tr ' ' '\n' | sort -n | head -n 1)
+    echo -e "q${i}:\t${res1}\t${res2}\t${res3}\tfast:${min_value}"
+
+    cost=$(echo "${min_value}" | cut -d' ' -f1)
     sum=$(echo "${sum} + ${cost}" | bc)
 done
 echo "total time: ${sum} seconds"

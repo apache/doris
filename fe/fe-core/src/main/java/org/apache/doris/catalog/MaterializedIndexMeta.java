@@ -28,10 +28,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SqlModeHelper;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
@@ -292,16 +290,9 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         initColumnNameMap();
-        parseStmt(null);
     }
 
     public void parseStmt(Analyzer analyzer) throws IOException {
-        if (analyzer == null && dbName != null) {
-            ConnectContext connectContext = new ConnectContext();
-            connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-            connectContext.setDatabase(dbName);
-            analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
-        }
         // analyze define stmt
         if (defineStmt == null) {
             return;
@@ -312,22 +303,23 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         CreateMaterializedViewStmt stmt;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
+            stmt.setIsReplay(true);
             if (analyzer != null) {
                 try {
                     stmt.analyze(analyzer);
                 } catch (Exception e) {
-                    LOG.warn("CreateMaterializedViewStmt analyze failed, reason=" + e.getMessage());
+                    LOG.warn("CreateMaterializedViewStmt analyze failed, mv=" + defineStmt.originStmt + ", reason=", e);
+                    return;
                 }
             }
 
-            stmt.setIsReplay(true);
             setWhereClause(stmt.getWhereClause());
             stmt.rewriteToBitmapWithCheck();
             try {
                 Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
                 setColumnsDefineExpr(columnNameToDefineExpr);
             } catch (Exception e) {
-                LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=" + e.getMessage());
+                LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=", e);
             }
 
         } catch (Exception e) {
@@ -353,8 +345,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
         this.schema.forEach(column -> {
             column.setUniqueId(incAndGetMaxColUniqueId());
-            LOG.debug("indexId: {},  column:{}, uniqueId:{}",
-                    indexId, column, column.getUniqueId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("indexId: {},  column:{}, uniqueId:{}",
+                        indexId, column, column.getUniqueId());
+            }
         });
     }
 

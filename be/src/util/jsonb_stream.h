@@ -34,16 +34,21 @@
 #endif
 
 #include <assert.h>
+#include <fmt/format.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cinttypes>
 #include <iostream>
 
 namespace doris {
 
+using int128_t = __int128;
+
 // lengths includes sign
 #define MAX_INT_DIGITS 11
 #define MAX_INT64_DIGITS 20
+#define MAX_INT128_DIGITS 40
 #define MAX_DOUBLE_DIGITS 23 // 1(sign)+16(significant)+1(decimal)+5(exponent)
 
 /*
@@ -126,9 +131,15 @@ public:
         size_ += len;
     }
 
-    void write(__int128 l) {
-        // TODO
-        assert(false);
+    void write(int128_t l) {
+        // snprintf automatically adds a NULL, so we need one more char
+        if (size_ + MAX_INT128_DIGITS + 1 > capacity_) {
+            realloc(MAX_INT128_DIGITS + 1);
+        }
+
+        const auto result = fmt::format_to_n(head_ + size_, MAX_INT128_DIGITS, "{}", l);
+        assert(result.size > 0);
+        size_ += result.size;
     }
 
     // write the double to string
@@ -174,7 +185,7 @@ private:
     }
 
 private:
-    char* head_;
+    char* head_ = nullptr;
     uint32_t size_;
     uint32_t capacity_;
     bool alloc_;

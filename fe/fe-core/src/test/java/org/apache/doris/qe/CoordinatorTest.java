@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -88,7 +89,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testComputeColocateJoinInstanceParam()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Coordinator coordinator =  EnvFactory.getInstance().createCoordinator(context, analyzer, originalPlanner, null);
 
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
@@ -288,7 +289,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testColocateJoinAssignment()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Coordinator coordinator =  EnvFactory.getInstance().createCoordinator(context, analyzer, originalPlanner, null);
 
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
@@ -514,7 +515,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testComputeScanRangeAssignmentByScheduler()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Coordinator coordinator =  EnvFactory.getInstance().createCoordinator(context, analyzer, originalPlanner, null);
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
         Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
@@ -605,7 +606,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testGetExecHostPortForFragmentIDAndBucketSeq()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Coordinator coordinator = EnvFactory.getInstance().createCoordinator(context, analyzer, originalPlanner, null);
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         // each olaptable bucket have the same TScanRangeLocations, be id is {0, 1, 2}
         TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();
@@ -735,7 +736,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testComputeScanRangeAssignment()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Coordinator coordinator =  EnvFactory.getInstance().createCoordinator(context, analyzer, originalPlanner, null);
 
         //TScanRangeLocations
         TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();

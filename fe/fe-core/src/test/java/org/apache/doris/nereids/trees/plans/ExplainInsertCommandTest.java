@@ -26,6 +26,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.PlanFragment;
@@ -40,7 +41,7 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     @Override
     public void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTable("create table t1 (\n"
                 + "    k1 int,\n"
                 + "    k2 int,\n"
@@ -110,6 +111,16 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testInsertIntoValues() throws Exception {
+        String sql = "explain insert into t1 values(1, 1, 1, 1), (2, 2, 2, 2), (3, 3, 3, 3)";
+        Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
+        sql = "explain insert into t2 values(1, 1, 1, 1), (2, 2, 2, 2), (3, 3, 3, 3)";
+        Assertions.assertEquals(6, getOutputFragment(sql).getOutputExprs().size());
+        sql = "explain insert into agg_have_dup_base values(-4, -4, -4, 'd')";
+        Assertions.assertEquals(8, getOutputFragment(sql).getOutputExprs().size());
+    }
+
+    @Test
     public void testAnalysisException() {
         String sql = "explain insert into t1(v1, v2) select k2 * 2, v1 + 1, v2 + 4 from src";
         Assertions.assertThrows(AnalysisException.class, () -> getOutputFragment(sql));
@@ -119,18 +130,17 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     public void testWithMV() throws Exception {
         String sql = "explain insert into agg_have_dup_base select -4, -4, -4, 'd'";
         Assertions.assertEquals(8, getOutputFragment(sql).getOutputExprs().size());
-        String sql1 = "explain insert into agg_have_dup_base select -4, k2, -4, 'd' from agg_have_dup_base";
-        Assertions.assertEquals(8, getOutputFragment(sql1).getOutputExprs().size());
+        sql = "explain insert into agg_have_dup_base select -4, k2, -4, 'd' from agg_have_dup_base";
+        Assertions.assertEquals(8, getOutputFragment(sql).getOutputExprs().size());
     }
 
     private PlanFragment getOutputFragment(String sql) throws Exception {
         StatementScopeIdGenerator.clear();
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        PhysicalPlan plan = planner.plan(
-                ((ExplainCommand) parser.parseSingle(sql)).getLogicalPlan(),
-                PhysicalProperties.ANY
-        );
+        LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
+                .getLogicalPlan())).getExplainPlan(connectContext);
+        PhysicalPlan plan = planner.plan(logicalPlan, PhysicalProperties.ANY);
         return new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(plan);
     }
 }

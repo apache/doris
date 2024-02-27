@@ -38,7 +38,7 @@
 #include "vec/common/demangle.h"
 #include "vec/common/hex.h"
 
-#if USE_UNWIND
+#if USE_UNWIND && defined(__x86_64__)
 #include <libunwind.h>
 #else
 #include <execinfo.h>
@@ -49,14 +49,14 @@ namespace {
 /// But we use atomic just in case, so it is possible to be modified at runtime.
 std::atomic<bool> show_addresses = true;
 
-#if defined(__ELF__) && !defined(__FreeBSD__)
-void writePointerHex(const void* ptr, std::stringstream& buf) {
-    buf.write("0x", 2);
-    char hex_str[2 * sizeof(ptr)];
-    doris::vectorized::write_hex_uint_lowercase(reinterpret_cast<uintptr_t>(ptr), hex_str);
-    buf.write(hex_str, 2 * sizeof(ptr));
-}
-#endif
+// #if defined(__ELF__) && !defined(__FreeBSD__)
+// void writePointerHex(const void* ptr, std::stringstream& buf) {
+//     buf.write("0x", 2);
+//     char hex_str[2 * sizeof(ptr)];
+//     doris::vectorized::write_hex_uint_lowercase(reinterpret_cast<uintptr_t>(ptr), hex_str);
+//     buf.write(hex_str, 2 * sizeof(ptr));
+// }
+// #endif
 
 bool shouldShowAddress(const void* addr) {
     /// If the address is less than 4096, most likely it is a nullptr dereference with offset,
@@ -299,7 +299,7 @@ StackTrace::StackTrace(const ucontext_t& signal_context) {
 void StackTrace::tryCapture() {
     // When unw_backtrace is not available, fall back on the standard
     // `backtrace` function from execinfo.h.
-#if USE_UNWIND
+#if USE_UNWIND && defined(__x86_64__) // TODO
     size = unw_backtrace(frame_pointers.data(), capacity);
 #else
     size = backtrace(frame_pointers.data(), capacity);
@@ -380,20 +380,15 @@ static void toStringEveryLineImpl([[maybe_unused]] const std::string dwarf_locat
                 reinterpret_cast<const void*>(uintptr_t(virtual_addr) - virtual_offset);
 
         std::stringstream out;
-        out << "\t" << i << ". ";
+        out << "\t" << i << "# ";
         if (i < 10) { // for alignment
             out << " ";
         }
 
-        if (shouldShowAddress(physical_addr)) {
-            out << "@ ";
-            writePointerHex(physical_addr, out);
-        }
-
         if (const auto* const symbol = symbol_index.findSymbol(virtual_addr)) {
-            out << "  " << collapseNames(demangle(symbol->name));
+            out << collapseNames(demangle(symbol->name));
         } else {
-            out << " ?";
+            out << "?";
         }
 
         if (std::error_code ec; object && std::filesystem::exists(object->name, ec) && !ec) {
@@ -403,11 +398,17 @@ static void toStringEveryLineImpl([[maybe_unused]] const std::string dwarf_locat
 
             if (dwarf_it->second.findAddress(uintptr_t(physical_addr), location, mode,
                                              inline_frames)) {
-                out << "  " << location.file.toString() << ":" << location.line;
+                out << " at " << location.file.toString() << ":" << location.line;
             }
         }
 
-        out << "  in " << (object ? object->name : "?");
+        // Do not display the stack address and file name, it is not important.
+        // if (shouldShowAddress(physical_addr)) {
+        //     out << " @ ";
+        //     writePointerHex(physical_addr, out);
+        // }
+
+        // out << "  in " << (object ? object->name : "?");
 
         callback(out.str());
 
@@ -458,11 +459,13 @@ std::string toStringCached(const StackTrace::FramePointers& pointers, size_t off
     }
 }
 
-std::string StackTrace::toString() const {
-    // Delete the first three frame pointers, which are inside the stacktrace.
+std::string StackTrace::toString(int start_pointers_index) const {
+    // Default delete the first three frame pointers, which are inside the stack_trace.cpp.
+    start_pointers_index += 3;
     StackTrace::FramePointers frame_pointers_raw {};
-    std::copy(frame_pointers.begin() + 3, frame_pointers.end(), frame_pointers_raw.begin());
-    return toStringCached(frame_pointers_raw, offset, size - 3);
+    std::copy(frame_pointers.begin() + start_pointers_index, frame_pointers.end(),
+              frame_pointers_raw.begin());
+    return toStringCached(frame_pointers_raw, offset, size - start_pointers_index);
 }
 
 std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_t size) {
@@ -472,6 +475,11 @@ std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_
     std::copy_n(frame_pointers_raw, size, frame_pointers.begin());
 
     return toStringCached(frame_pointers, offset, size);
+}
+
+void StackTrace::createCache() {
+    std::lock_guard lock {stacktrace_cache_mutex};
+    cacheInstance();
 }
 
 void StackTrace::dropCache() {

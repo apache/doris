@@ -116,7 +116,7 @@ public:
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_first_value, SIZE_OF_TYPE);
         return Status::OK();
@@ -125,7 +125,7 @@ public:
     Status get_last_value(void* value) const override {
         DCHECK(_finished);
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_last_value, SIZE_OF_TYPE);
         return Status::OK();
@@ -139,7 +139,7 @@ private:
     size_t _count;
     bool _finished;
     int _bit_width;
-    RleEncoder<CppType>* _rle_encoder;
+    RleEncoder<CppType>* _rle_encoder = nullptr;
     faststring _buf;
     CppType _first_value;
     CppType _last_value;
@@ -180,7 +180,7 @@ public:
         _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
                                            _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
 
-        seek_to_position_in_page(0);
+        static_cast<void>(seek_to_position_in_page(0));
         return Status::OK();
     }
 

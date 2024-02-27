@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -92,6 +93,12 @@ public class BackupJobInfo implements Writable {
 
     @SerializedName("meta_version")
     public int metaVersion;
+    @SerializedName("major_version")
+    public int majorVersion;
+    @SerializedName("minor_version")
+    public int minorVersion;
+    @SerializedName("patch_version")
+    public int patchVersion;
 
     @SerializedName("tablet_be_map")
     public Map<Long, Long> tabletBeMap = Maps.newHashMap();
@@ -476,25 +483,33 @@ public class BackupJobInfo implements Writable {
     // eg: __db_10001/__tbl_10002/__part_10003/__idx_10002/__10004
     public String getFilePath(String db, String tbl, String part, String idx, long tabletId) {
         if (!db.equalsIgnoreCase(dbName)) {
-            LOG.debug("db name does not equal: {}-{}", dbName, db);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("db name does not equal: {}-{}", dbName, db);
+            }
             return null;
         }
 
         BackupOlapTableInfo tblInfo = backupOlapTableObjects.get(tbl);
         if (tblInfo == null) {
-            LOG.debug("tbl {} does not exist", tbl);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("tbl {} does not exist", tbl);
+            }
             return null;
         }
 
         BackupPartitionInfo partInfo = tblInfo.getPartInfo(part);
         if (partInfo == null) {
-            LOG.debug("part {} does not exist", part);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("part {} does not exist", part);
+            }
             return null;
         }
 
         BackupIndexInfo idxInfo = partInfo.getIdx(idx);
         if (idxInfo == null) {
-            LOG.debug("idx {} does not exist", idx);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("idx {} does not exist", idx);
+            }
             return null;
         }
 
@@ -588,6 +603,9 @@ public class BackupJobInfo implements Writable {
         jobInfo.metaVersion = FeConstants.meta_version;
         jobInfo.content = content;
         jobInfo.tableCommitSeqMap = tableCommitSeqMap;
+        jobInfo.majorVersion = Version.DORIS_BUILD_VERSION_MAJOR;
+        jobInfo.minorVersion = Version.DORIS_BUILD_VERSION_MINOR;
+        jobInfo.patchVersion = Version.DORIS_BUILD_VERSION_PATCH;
 
         Collection<Table> tbls = backupMeta.getTables().values();
         // tbls

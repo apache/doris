@@ -34,13 +34,15 @@
 namespace doris {
 namespace io {
 
-HdfsFileWriter::HdfsFileWriter(Path file, FileSystemSPtr fs) : FileWriter(std::move(file), fs) {
+HdfsFileWriter::HdfsFileWriter(Path file, FileSystemSPtr fs, const FileWriterOptions* opts)
+        : FileWriter(std::move(file), fs) {
+    _create_empty_file = opts ? opts->create_empty_file : true;
     _hdfs_fs = (HdfsFileSystem*)_fs.get();
 }
 
 HdfsFileWriter::~HdfsFileWriter() {
     if (_opened) {
-        close();
+        static_cast<void>(close());
     }
     CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
 }
@@ -58,17 +60,12 @@ Status HdfsFileWriter::close() {
         std::stringstream ss;
         ss << "failed to flush hdfs file. "
            << "(BE: " << BackendOptions::get_localhost() << ")"
-           << "namenode:" << _hdfs_fs->_namenode << " path:" << _path << ", err: " << hdfs_error();
+           << "namenode:" << _hdfs_fs->_fs_name << " path:" << _path << ", err: " << hdfs_error();
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
     hdfsCloseFile(_hdfs_fs->_fs_handle->hdfs_fs, _hdfs_file);
     _hdfs_file = nullptr;
-    return Status::OK();
-}
-
-Status HdfsFileWriter::abort() {
-    // TODO: should delete remote file
     return Status::OK();
 }
 
@@ -88,7 +85,7 @@ Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
                     hdfsWrite(_hdfs_fs->_fs_handle->hdfs_fs, _hdfs_file, p, left_bytes);
             if (written_bytes < 0) {
                 return Status::InternalError("write hdfs failed. namenode: {}, path: {}, error: {}",
-                                             _hdfs_fs->_namenode, _path.native(), hdfs_error());
+                                             _hdfs_fs->_fs_name, _path.native(), hdfs_error());
             }
             left_bytes -= written_bytes;
             p += written_bytes;
@@ -108,8 +105,16 @@ Status HdfsFileWriter::finalize() {
     return Status::OK();
 }
 
+Status HdfsFileWriter::open() {
+    if (_create_empty_file && !_opened) {
+        RETURN_IF_ERROR(_open());
+        _opened = true;
+    }
+    return Status::OK();
+}
+
 Status HdfsFileWriter::_open() {
-    _path = convert_path(_path, _hdfs_fs->_namenode);
+    _path = convert_path(_path, _hdfs_fs->_fs_name);
     std::string hdfs_dir = _path.parent_path().string();
     int exists = hdfsExists(_hdfs_fs->_fs_handle->hdfs_fs, hdfs_dir.c_str());
     if (exists != 0) {
@@ -119,7 +124,7 @@ Status HdfsFileWriter::_open() {
             std::stringstream ss;
             ss << "create dir failed. "
                << "(BE: " << BackendOptions::get_localhost() << ")"
-               << " namenode: " << _hdfs_fs->_namenode << " path: " << hdfs_dir
+               << " namenode: " << _hdfs_fs->_fs_name << " path: " << hdfs_dir
                << ", err: " << hdfs_error();
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
@@ -131,11 +136,11 @@ Status HdfsFileWriter::_open() {
         std::stringstream ss;
         ss << "open file failed. "
            << "(BE: " << BackendOptions::get_localhost() << ")"
-           << " namenode:" << _hdfs_fs->_namenode << " path:" << _path << ", err: " << hdfs_error();
+           << " namenode:" << _hdfs_fs->_fs_name << " path:" << _path << ", err: " << hdfs_error();
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
-    VLOG_NOTICE << "open file. namenode:" << _hdfs_fs->_namenode << ", path:" << _path;
+    VLOG_NOTICE << "open file. namenode:" << _hdfs_fs->_fs_name << ", path:" << _path;
     return Status::OK();
 }
 

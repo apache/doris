@@ -21,8 +21,11 @@
 
 #include <memory>
 
+#include "aggregation_sink_operator.h"
+#include "aggregation_source_operator.h"
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/vaggregation_node.h"
@@ -47,7 +50,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class StreamingAggSinkOperator final : public StreamingOperator<StreamingAggSinkOperatorBuilder> {
+class StreamingAggSinkOperator final : public StreamingOperator<vectorized::AggregationNode> {
 public:
     StreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
                              std::shared_ptr<DataQueue>);
@@ -63,8 +66,8 @@ public:
 private:
     vectorized::Block _preagg_block = vectorized::Block();
 
-    RuntimeProfile::Counter* _queue_byte_size_counter;
-    RuntimeProfile::Counter* _queue_size_counter;
+    RuntimeProfile::Counter* _queue_byte_size_counter = nullptr;
+    RuntimeProfile::Counter* _queue_size_counter = nullptr;
 
     std::shared_ptr<DataQueue> _data_queue;
 };

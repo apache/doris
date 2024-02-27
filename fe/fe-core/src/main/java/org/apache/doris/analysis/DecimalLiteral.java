@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDecimalLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -41,7 +42,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
 
-public class DecimalLiteral extends LiteralExpr {
+public class DecimalLiteral extends NumericLiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DecimalLiteral.class);
     private BigDecimal value;
 
@@ -126,6 +127,19 @@ public class DecimalLiteral extends LiteralExpr {
         this.value = value;
         int precision = getBigDecimalPrecision(this.value);
         int scale = getBigDecimalScale(this.value);
+        int maxPrecision =
+                SessionVariable.getEnableDecimal256() ? ScalarType.MAX_DECIMAL256_PRECISION
+                        : ScalarType.MAX_DECIMAL128_PRECISION;
+        int integerPart = precision - scale;
+        if (precision > maxPrecision) {
+            BigDecimal stripedValue = value.stripTrailingZeros();
+            int stripedPrecision = getBigDecimalPrecision(stripedValue);
+            if (stripedPrecision <= maxPrecision) {
+                this.value = stripedValue.setScale(maxPrecision - integerPart);
+                precision = getBigDecimalPrecision(this.value);
+                scale = getBigDecimalScale(this.value);
+            }
+        }
         if (enforceV3) {
             type = ScalarType.createDecimalV3Type(precision, scale);
         } else {
@@ -213,6 +227,7 @@ public class DecimalLiteral extends LiteralExpr {
                 buffer.putLong(value.unscaledValue().longValue());
                 break;
             case DECIMAL128:
+            case DECIMAL256:
                 LargeIntLiteral tmp = new LargeIntLiteral(value.unscaledValue());
                 return tmp.getHashValue(type);
             default:
@@ -243,6 +258,11 @@ public class DecimalLiteral extends LiteralExpr {
                         + " and " + expr.toSqlImpl());
             }
         }
+    }
+
+    @Override
+    public String getStringValueInFe() {
+        return value.toPlainString();
     }
 
     @Override

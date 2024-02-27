@@ -23,415 +23,193 @@
 #include <memory>
 #include <mutex>
 
+#include "common/status.h"
 #include "exec/exec_node.h"
 #include "vec/columns/column.h"
 #include "vec/common/columns_hashing.h"
-#include "vec/common/hash_table/fixed_hash_map.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
 #include "vec/core/block.h"
+#include "vec/exec/vaggregation_node.h"
 
 namespace doris {
 namespace vectorized {
 static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 << 20;
+static constexpr size_t PARTITION_SORT_ROWS_THRESHOLD = 20000;
+
+struct PartitionSortInfo {
+    ~PartitionSortInfo() = default;
+
+    PartitionSortInfo(VSortExecExprs* vsort_exec_exprs, int64_t limit, int64_t offset,
+                      ObjectPool* pool, const std::vector<bool>& is_asc_order,
+                      const std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
+                      RuntimeState* runtime_state, RuntimeProfile* runtime_profile,
+                      bool has_global_limit, int64_t partition_inner_limit,
+                      TopNAlgorithm::type top_n_algorithm, TPartTopNPhase::type topn_phase)
+            : _vsort_exec_exprs(vsort_exec_exprs),
+              _limit(limit),
+              _offset(offset),
+              _pool(pool),
+              _is_asc_order(is_asc_order),
+              _nulls_first(nulls_first),
+              _row_desc(row_desc),
+              _runtime_state(runtime_state),
+              _runtime_profile(runtime_profile),
+              _has_global_limit(has_global_limit),
+              _partition_inner_limit(partition_inner_limit),
+              _top_n_algorithm(top_n_algorithm),
+              _topn_phase(topn_phase) {}
+
+public:
+    VSortExecExprs* _vsort_exec_exprs = nullptr;
+    int64_t _limit = -1;
+    int64_t _offset = 0;
+    ObjectPool* _pool = nullptr;
+    std::vector<bool> _is_asc_order;
+    std::vector<bool> _nulls_first;
+    const RowDescriptor& _row_desc;
+    RuntimeState* _runtime_state = nullptr;
+    RuntimeProfile* _runtime_profile = nullptr;
+    bool _has_global_limit = false;
+    int64_t _partition_inner_limit = 0;
+    TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::ROW_NUMBER;
+    TPartTopNPhase::type _topn_phase = TPartTopNPhase::TWO_PHASE_GLOBAL;
+};
 
 struct PartitionBlocks {
 public:
-    PartitionBlocks() = default;
+    PartitionBlocks(std::shared_ptr<PartitionSortInfo> partition_sort_info, bool is_first_sorter)
+            : _is_first_sorter(is_first_sorter), _partition_sort_info(partition_sort_info) {}
     ~PartitionBlocks() = default;
 
-    void add_row_idx(size_t row) { selector.push_back(row); }
+    void add_row_idx(size_t row) { _selector.push_back(row); }
 
-    void append_block_by_selector(const vectorized::Block* input_block,
-                                  const RowDescriptor& row_desc, bool is_limit,
-                                  int64_t partition_inner_limit, int batch_size) {
-        if (blocks.empty() || reach_limit()) {
-            init_rows = batch_size;
-            blocks.push_back(Block::create_unique(VectorizedUtils::create_empty_block(row_desc)));
-        }
-        auto columns = input_block->get_columns();
-        auto mutable_columns = blocks.back()->mutate_columns();
-        DCHECK(columns.size() == mutable_columns.size());
-        for (int i = 0; i < mutable_columns.size(); ++i) {
-            columns[i]->append_data_by_selector(mutable_columns[i], selector);
-        }
-        init_rows = init_rows - selector.size();
-        total_rows = total_rows + selector.size();
-        selector.clear();
-    }
+    Status append_block_by_selector(const vectorized::Block* input_block, bool eos);
+
+    Status do_partition_topn_sort();
+
+    void create_or_reset_sorter_state();
 
     void append_whole_block(vectorized::Block* input_block, const RowDescriptor& row_desc) {
         auto empty_block = Block::create_unique(VectorizedUtils::create_empty_block(row_desc));
         empty_block->swap(*input_block);
-        blocks.emplace_back(std::move(empty_block));
+        _blocks.emplace_back(std::move(empty_block));
     }
 
     bool reach_limit() {
-        return init_rows <= 0 || blocks.back()->bytes() > INITIAL_BUFFERED_BLOCK_BYTES;
+        return _init_rows <= 0 || _blocks.back()->bytes() > INITIAL_BUFFERED_BLOCK_BYTES;
     }
 
-    size_t get_total_rows() const { return total_rows; }
+    size_t get_total_rows() const { return _total_rows; }
+    size_t get_topn_filter_rows() const { return _topn_filter_rows; }
+    size_t get_do_topn_count() const { return _do_partition_topn_count; }
 
-    IColumn::Selector selector;
-    std::vector<std::unique_ptr<Block>> blocks;
-    size_t total_rows = 0;
-    int init_rows = 4096;
+    IColumn::Selector _selector;
+    std::vector<std::unique_ptr<Block>> _blocks;
+    size_t _total_rows = 0;
+    size_t _current_input_rows = 0;
+    size_t _topn_filter_rows = 0;
+    size_t _do_partition_topn_count = 0;
+    int _init_rows = 4096;
+    bool _is_first_sorter = false;
+
+    std::unique_ptr<SortCursorCmp> _previous_row;
+    std::unique_ptr<PartitionSorter> _partition_topn_sorter = nullptr;
+    std::shared_ptr<PartitionSortInfo> _partition_sort_info = nullptr;
 };
 
 using PartitionDataPtr = PartitionBlocks*;
-using PartitionDataWithStringKey = PHHashMap<StringRef, PartitionDataPtr, DefaultHash<StringRef>>;
+using PartitionDataWithStringKey = PHHashMap<StringRef, PartitionDataPtr>;
 using PartitionDataWithShortStringKey = StringHashMap<PartitionDataPtr>;
-using PartitionDataWithUInt8Key =
-        FixedImplicitZeroHashMapWithCalculatedSize<UInt8, PartitionDataPtr>;
-using PartitionDataWithUInt16Key = FixedImplicitZeroHashMap<UInt16, PartitionDataPtr>;
+using PartitionDataWithUInt8Key = PHHashMap<UInt8, PartitionDataPtr>;
+using PartitionDataWithUInt16Key = PHHashMap<UInt16, PartitionDataPtr>;
 using PartitionDataWithUInt32Key = PHHashMap<UInt32, PartitionDataPtr, HashCRC32<UInt32>>;
 using PartitionDataWithUInt64Key = PHHashMap<UInt64, PartitionDataPtr, HashCRC32<UInt64>>;
 using PartitionDataWithUInt128Key = PHHashMap<UInt128, PartitionDataPtr, HashCRC32<UInt128>>;
 using PartitionDataWithUInt256Key = PHHashMap<UInt256, PartitionDataPtr, HashCRC32<UInt256>>;
-template <typename TData>
-struct PartitionMethodSerialized {
-    using Data = TData;
-    using Key = typename Data::key_type;
-    using Mapped = typename Data::mapped_type;
-    using Iterator = typename Data::iterator;
+using PartitionDataWithUInt136Key = PHHashMap<UInt136, PartitionDataPtr, HashCRC32<UInt136>>;
 
-    Data data;
-    Iterator iterator;
-    bool inited = false;
-    std::vector<StringRef> keys;
-    size_t keys_memory_usage = 0;
-    PartitionMethodSerialized() : _serialized_key_buffer_size(0), _serialized_key_buffer(nullptr) {
-        _arena.reset(new Arena());
-        _serialize_key_arena.reset(new Arena());
-    }
+using PartitionedMethodVariants = std::variant<
+        MethodSerialized<PartitionDataWithStringKey>,
+        MethodOneNumber<UInt8, PartitionDataWithUInt8Key>,
+        MethodOneNumber<UInt16, PartitionDataWithUInt16Key>,
+        MethodOneNumber<UInt32, PartitionDataWithUInt32Key>,
+        MethodOneNumber<UInt64, PartitionDataWithUInt64Key>,
+        MethodOneNumber<UInt128, PartitionDataWithUInt128Key>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt8, DataWithNullKey<PartitionDataWithUInt8Key>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt16, DataWithNullKey<PartitionDataWithUInt16Key>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt32, DataWithNullKey<PartitionDataWithUInt32Key>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt64, DataWithNullKey<PartitionDataWithUInt64Key>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt128, DataWithNullKey<PartitionDataWithUInt128Key>>>,
+        MethodKeysFixed<PartitionDataWithUInt64Key, false>,
+        MethodKeysFixed<PartitionDataWithUInt64Key, true>,
+        MethodKeysFixed<PartitionDataWithUInt128Key, false>,
+        MethodKeysFixed<PartitionDataWithUInt128Key, true>,
+        MethodKeysFixed<PartitionDataWithUInt256Key, false>,
+        MethodKeysFixed<PartitionDataWithUInt256Key, true>,
+        MethodKeysFixed<PartitionDataWithUInt136Key, false>,
+        MethodKeysFixed<PartitionDataWithUInt136Key, true>,
+        MethodStringNoCache<PartitionDataWithShortStringKey>,
+        MethodSingleNullableColumn<
+                MethodStringNoCache<DataWithNullKey<PartitionDataWithShortStringKey>>>>;
 
-    using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped, true>;
-
-    template <typename Other>
-    explicit PartitionMethodSerialized(const Other& other) : data(other.data) {
-        _arena.reset(new Arena());
-        _serialize_key_arena.reset(new Arena());
-    }
-
-    size_t serialize_keys(const ColumnRawPtrs& key_columns, size_t num_rows) {
-        if (keys.size() < num_rows) {
-            keys.resize(num_rows);
-        }
-
-        size_t max_one_row_byte_size = 0;
-        for (const auto& column : key_columns) {
-            max_one_row_byte_size += column->get_max_row_byte_size();
-        }
-        size_t total_bytes = max_one_row_byte_size * num_rows;
-
-        if (total_bytes > config::pre_serialize_keys_limit_bytes) {
-            // reach mem limit, don't serialize in batch
-            // for simplicity, we just create a new arena here.
-            _arena->clear();
-            size_t keys_size = key_columns.size();
-            for (size_t i = 0; i < num_rows; ++i) {
-                keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
-            }
-            keys_memory_usage = _arena->size();
-        } else {
-            _arena->clear();
-            if (total_bytes > _serialized_key_buffer_size) {
-                _serialized_key_buffer_size = total_bytes;
-                _serialize_key_arena->clear();
-                _serialized_key_buffer = reinterpret_cast<uint8_t*>(
-                        _serialize_key_arena->alloc(_serialized_key_buffer_size));
-            }
-
-            for (size_t i = 0; i < num_rows; ++i) {
-                keys[i].data =
-                        reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size);
-                keys[i].size = 0;
-            }
-
-            for (const auto& column : key_columns) {
-                column->serialize_vec(keys, num_rows, max_one_row_byte_size);
-            }
-            keys_memory_usage = _serialized_key_buffer_size;
-        }
-        return max_one_row_byte_size;
-    }
-
-private:
-    size_t _serialized_key_buffer_size;
-    uint8_t* _serialized_key_buffer;
-    std::unique_ptr<Arena> _serialize_key_arena;
-    std::unique_ptr<Arena> _arena;
-};
-
-//for string
-template <typename TData>
-struct PartitionMethodStringNoCache {
-    using Data = TData;
-    using Key = typename Data::key_type;
-    using Mapped = typename Data::mapped_type;
-    using Iterator = typename Data::iterator;
-
-    Data data;
-    Iterator iterator;
-    bool inited = false;
-
-    PartitionMethodStringNoCache() = default;
-
-    explicit PartitionMethodStringNoCache(size_t size_hint) : data(size_hint) {}
-
-    template <typename Other>
-    explicit PartitionMethodStringNoCache(const Other& other) : data(other.data) {}
-
-    using State = ColumnsHashing::HashMethodString<typename Data::value_type, Mapped, true, false>;
-
-    static const bool low_cardinality_optimization = false;
-};
-
-/// For the case where there is one numeric key.
-/// FieldType is UInt8/16/32/64 for any type with corresponding bit width.
-template <typename FieldType, typename TData, bool consecutive_keys_optimization = false>
-struct PartitionMethodOneNumber {
-    using Data = TData;
-    using Key = typename Data::key_type;
-    using Mapped = typename Data::mapped_type;
-    using Iterator = typename Data::iterator;
-
-    Data data;
-    Iterator iterator;
-    bool inited = false;
-
-    PartitionMethodOneNumber() = default;
-
-    template <typename Other>
-    PartitionMethodOneNumber(const Other& other) : data(other.data) {}
-
-    /// To use one `Method` in different threads, use different `State`.
-    using State = ColumnsHashing::HashMethodOneNumber<typename Data::value_type, Mapped, FieldType,
-                                                      consecutive_keys_optimization>;
-};
-
-template <typename Base>
-struct PartitionDataWithNullKey : public Base {
-    using Base::Base;
-
-    bool& has_null_key_data() { return has_null_key; }
-    PartitionDataPtr& get_null_key_data() { return null_key_data; }
-    bool has_null_key_data() const { return has_null_key; }
-    PartitionDataPtr get_null_key_data() const { return null_key_data; }
-    size_t size() const { return Base::size() + (has_null_key ? 1 : 0); }
-    bool empty() const { return Base::empty() && !has_null_key; }
-
-    void clear() {
-        Base::clear();
-        has_null_key = false;
-    }
-
-    void clear_and_shrink() {
-        Base::clear_and_shrink();
-        has_null_key = false;
-    }
-
-private:
-    bool has_null_key = false;
-    PartitionDataPtr null_key_data = nullptr;
-};
-
-template <typename SingleColumnMethod>
-struct PartitionMethodSingleNullableColumn : public SingleColumnMethod {
-    using Base = SingleColumnMethod;
-    using BaseState = typename Base::State;
-
-    using Data = typename Base::Data;
-    using Key = typename Base::Key;
-    using Mapped = typename Base::Mapped;
-
-    using Base::data;
-
-    PartitionMethodSingleNullableColumn() = default;
-
-    template <typename Other>
-    explicit PartitionMethodSingleNullableColumn(const Other& other) : Base(other) {}
-
-    using State = ColumnsHashing::HashMethodSingleLowNullableColumn<BaseState, Mapped, true>;
-};
-
-template <typename TData, bool has_nullable_keys_ = false>
-struct PartitionMethodKeysFixed {
-    using Data = TData;
-    using Key = typename Data::key_type;
-    using Mapped = typename Data::mapped_type;
-    using Iterator = typename Data::iterator;
-    static constexpr bool has_nullable_keys = has_nullable_keys_;
-
-    Data data;
-    Iterator iterator;
-    PartitionMethodKeysFixed() = default;
-
-    template <typename Other>
-    PartitionMethodKeysFixed(const Other& other) : data(other.data) {}
-
-    using State = ColumnsHashing::HashMethodKeysFixed<typename Data::value_type, Key, Mapped,
-                                                      has_nullable_keys, false>;
-};
-
-using PartitionedMethodVariants =
-        std::variant<PartitionMethodSerialized<PartitionDataWithStringKey>,
-                     PartitionMethodOneNumber<UInt8, PartitionDataWithUInt8Key>,
-                     PartitionMethodOneNumber<UInt16, PartitionDataWithUInt16Key>,
-                     PartitionMethodOneNumber<UInt32, PartitionDataWithUInt32Key>,
-                     PartitionMethodOneNumber<UInt64, PartitionDataWithUInt64Key>,
-                     PartitionMethodOneNumber<UInt128, PartitionDataWithUInt128Key>,
-                     PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
-                             UInt8, PartitionDataWithNullKey<PartitionDataWithUInt8Key>>>,
-                     PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
-                             UInt16, PartitionDataWithNullKey<PartitionDataWithUInt16Key>>>,
-                     PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
-                             UInt32, PartitionDataWithNullKey<PartitionDataWithUInt32Key>>>,
-                     PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
-                             UInt64, PartitionDataWithNullKey<PartitionDataWithUInt64Key>>>,
-                     PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
-                             UInt128, PartitionDataWithNullKey<PartitionDataWithUInt128Key>>>,
-                     PartitionMethodKeysFixed<PartitionDataWithUInt64Key, false>,
-                     PartitionMethodKeysFixed<PartitionDataWithUInt64Key, true>,
-                     PartitionMethodKeysFixed<PartitionDataWithUInt128Key, false>,
-                     PartitionMethodKeysFixed<PartitionDataWithUInt128Key, true>,
-                     PartitionMethodKeysFixed<PartitionDataWithUInt256Key, false>,
-                     PartitionMethodKeysFixed<PartitionDataWithUInt256Key, true>,
-                     PartitionMethodStringNoCache<PartitionDataWithShortStringKey>,
-                     PartitionMethodSingleNullableColumn<PartitionMethodStringNoCache<
-                             PartitionDataWithNullKey<PartitionDataWithShortStringKey>>>>;
-
-struct PartitionedHashMapVariants {
-    PartitionedHashMapVariants() = default;
-    PartitionedHashMapVariants(const PartitionedHashMapVariants&) = delete;
-    PartitionedHashMapVariants& operator=(const PartitionedHashMapVariants&) = delete;
-    PartitionedMethodVariants _partition_method_variant;
-
-    enum class Type {
-        EMPTY = 0,
-        serialized,
-        int8_key,
-        int16_key,
-        int32_key,
-        int64_key,
-        int128_key,
-        int64_keys,
-        int128_keys,
-        int256_keys,
-        string_key,
-    };
-
-    Type _type = Type::EMPTY;
-
-    void init(Type type, bool is_nullable = false) {
+struct PartitionedHashMapVariants
+        : public DataVariants<PartitionedMethodVariants, MethodSingleNullableColumn,
+                              MethodOneNumber, MethodKeysFixed, DataWithNullKey> {
+    template <bool nullable>
+    void init(Type type) {
         _type = type;
         switch (_type) {
         case Type::serialized: {
-            _partition_method_variant
-                    .emplace<PartitionMethodSerialized<PartitionDataWithStringKey>>();
+            method_variant.emplace<MethodSerialized<PartitionDataWithStringKey>>();
             break;
         }
         case Type::int8_key: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
-                                UInt8, PartitionDataWithNullKey<PartitionDataWithUInt8Key>>>>();
-            } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodOneNumber<UInt8, PartitionDataWithUInt8Key>>();
-            }
+            emplace_single<UInt8, PartitionDataWithUInt8Key, nullable>();
             break;
         }
         case Type::int16_key: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
-                                UInt16, PartitionDataWithNullKey<PartitionDataWithUInt16Key>>>>();
-            } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodOneNumber<UInt16, PartitionDataWithUInt16Key>>();
-            }
+            emplace_single<UInt16, PartitionDataWithUInt16Key, nullable>();
             break;
         }
         case Type::int32_key: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
-                                UInt32, PartitionDataWithNullKey<PartitionDataWithUInt32Key>>>>();
-            } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodOneNumber<UInt32, PartitionDataWithUInt32Key>>();
-            }
+            emplace_single<UInt32, PartitionDataWithUInt32Key, nullable>();
             break;
         }
         case Type::int64_key: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
-                                UInt64, PartitionDataWithNullKey<PartitionDataWithUInt64Key>>>>();
-            } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodOneNumber<UInt64, PartitionDataWithUInt64Key>>();
-            }
+            emplace_single<UInt64, PartitionDataWithUInt64Key, nullable>();
             break;
         }
         case Type::int128_key: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
-                                UInt128, PartitionDataWithNullKey<PartitionDataWithUInt128Key>>>>();
-            } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodOneNumber<UInt128, PartitionDataWithUInt128Key>>();
-            }
-            break;
-        }
-        case Type::int64_keys: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt64Key, true>>();
-            } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt64Key, false>>();
-            }
-            break;
-        }
-        case Type::int128_keys: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt128Key, true>>();
-            } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt128Key, false>>();
-            }
-            break;
-        }
-        case Type::int256_keys: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt256Key, true>>();
-            } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt256Key, false>>();
-            }
+            emplace_single<UInt128, PartitionDataWithUInt128Key, nullable>();
             break;
         }
         case Type::string_key: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodSingleNullableColumn<PartitionMethodStringNoCache<
-                                PartitionDataWithNullKey<PartitionDataWithShortStringKey>>>>();
+            if (nullable) {
+                method_variant.emplace<MethodSingleNullableColumn<
+                        MethodStringNoCache<DataWithNullKey<PartitionDataWithShortStringKey>>>>();
             } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodStringNoCache<PartitionDataWithShortStringKey>>();
+                method_variant.emplace<MethodStringNoCache<PartitionDataWithShortStringKey>>();
             }
             break;
         }
         default:
-            DCHECK(false) << "Do not have a rigth partition by data type: ";
+            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid key type, type={}", type);
+        }
+    }
+    void init(Type type, bool is_nullable = false) {
+        if (is_nullable) {
+            init<true>(type);
+        } else {
+            init<false>(type);
         }
     }
 };
@@ -458,19 +236,10 @@ public:
     bool can_read();
 
 private:
-    template <typename AggState, typename AggMethod>
-    void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
-                                    const ColumnRawPtrs& key_columns, const size_t num_rows) {
-        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<AggState>::value) {
-            (agg_method.serialize_keys(key_columns, num_rows));
-            state.set_serialized_keys(agg_method.keys.data());
-        }
-    }
-
     void _init_hash_method();
-    Status _split_block_by_partition(vectorized::Block* input_block, int batch_size);
-    void _emplace_into_hash_table(const ColumnRawPtrs& key_columns,
-                                  const vectorized::Block* input_block, int batch_size);
+    Status _split_block_by_partition(vectorized::Block* input_block, bool eos);
+    Status _emplace_into_hash_table(const ColumnRawPtrs& key_columns,
+                                    const vectorized::Block* input_block, bool eos);
     Status get_sorted_block(RuntimeState* state, Block* output_block, bool* eos);
 
     // hash table
@@ -480,11 +249,10 @@ private:
     int _partition_exprs_num = 0;
     VExprContextSPtrs _partition_expr_ctxs;
     std::vector<const IColumn*> _partition_columns;
-    std::vector<size_t> _partition_key_sz;
-    std::vector<size_t> _hash_values;
 
     std::vector<std::unique_ptr<PartitionSorter>> _partition_sorts;
     std::vector<PartitionDataPtr> _value_places;
+    std::shared_ptr<PartitionSortInfo> _partition_sort_info = nullptr;
     // Expressions and parameters used for build _sort_description
     VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;
@@ -494,18 +262,18 @@ private:
     int _num_partition = 0;
     int64_t _partition_inner_limit = 0;
     int _sort_idx = 0;
-    std::unique_ptr<SortCursorCmp> _previous_row = nullptr;
     std::queue<Block> _blocks_buffer;
     int64_t child_input_rows = 0;
     std::mutex _buffer_mutex;
+    TPartTopNPhase::type _topn_phase;
 
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _emplace_key_timer;
-    RuntimeProfile::Counter* _partition_sort_timer;
-    RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _selector_block_timer;
+    RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _emplace_key_timer = nullptr;
+    RuntimeProfile::Counter* _partition_sort_timer = nullptr;
+    RuntimeProfile::Counter* _get_sorted_timer = nullptr;
+    RuntimeProfile::Counter* _selector_block_timer = nullptr;
 
-    RuntimeProfile::Counter* _hash_table_size_counter;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     //only for profile record
     std::vector<int> partition_profile_output_rows;
 };

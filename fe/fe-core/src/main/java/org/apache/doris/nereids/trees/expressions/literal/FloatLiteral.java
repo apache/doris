@@ -25,7 +25,7 @@ import org.apache.doris.nereids.types.FloatType;
 /**
  * float type literal
  */
-public class FloatLiteral extends Literal {
+public class FloatLiteral extends FractionalLiteral {
 
     private final float value;
 

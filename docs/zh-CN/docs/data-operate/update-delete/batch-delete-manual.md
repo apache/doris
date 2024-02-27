@@ -26,7 +26,7 @@ under the License.
 
 # 批量删除
 
-目前Doris 支持 [Broker Load](../import/import-way/broker-load-manual.md)，[Routine Load](../import/import-way/routine-load-manual.md)， [Stream Load](../import/import-way/stream-load-manual.md) 等多种导入方式，对于数据的删除目前只能通过delete语句进行删除，使用delete 语句的方式删除时，每执行一次delete 都会生成一个新的数据版本，如果频繁删除会严重影响查询性能，并且在使用delete方式删除时，是通过生成一个空的rowset来记录删除条件实现，每次读取都要对删除条件进行过滤，同样在条件较多时会对性能造成影响。对比其他的系统，greenplum 的实现方式更像是传统数据库产品，snowflake 通过merge 语法实现。
+目前Doris 支持 [Broker Load](../import/import-way/broker-load-manual.md)，[Routine Load](../import/import-way/routine-load-manual)， [Stream Load](../import/import-way/stream-load-manual) 等多种导入方式，对于数据的删除目前只能通过delete语句进行删除，使用delete 语句的方式删除时，每执行一次delete 都会生成一个新的数据版本，如果频繁删除会严重影响查询性能，并且在使用delete方式删除时，是通过生成一个空的rowset来记录删除条件实现，每次读取都要对删除条件进行过滤，同样在条件较多时会对性能造成影响。对比其他的系统，greenplum 的实现方式更像是传统数据库产品，snowflake 通过merge 语法实现。
 
 对于类似于cdc数据导入的场景，数据中insert和delete一般是穿插出现的，面对这种场景我们目前的导入方式也无法满足，即使我们能够分离出insert和delete虽然可以解决导入的问题，但是仍然解决不了删除的问题。使用批量删除功能可以解决这些个别场景的需求。数据导入有三种合并方式：
 
@@ -60,7 +60,7 @@ Base Compaction 时要将标记为删除的行的删掉，以减少数据占用�
 
 启用批量删除支持有一下两种形式：
 
-1. 通过在fe 配置文件中增加`enable_batch_delete_by_default=true` 重启fe 后新建表的都支持批量删除，此选项默认为false；
+1. 通过在fe 配置文件中增加`enable_batch_delete_by_default=true` 重启fe 后新建表的都支持批量删除，此选项默认为true；
 2. 对于没有更改上述fe配置或对于已存在的不支持批量删除功能的表，可以使用如下语句： `ALTER TABLE tablename ENABLE FEATURE "BATCH_DELETE"` 来启用批量删除。本操作本质上是一个schema change 操作，操作立即返回，可以通过`show alter table column` 来确认操作是否完成。
 
 那么如何确定一个表是否支持批量删除，可以通过设置一个session variable 来显示隐藏列 `SET show_hidden_columns=true` ，之后使用`desc tablename`，如果输出中有`__DORIS_DELETE_SIGN__` 列则支持，如果没有则不支持。

@@ -137,6 +137,10 @@ suite("load") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+    }
+
+    Thread.sleep(70000) // wait for row count report of the tables just loaded
+    for (String tableName in tables) {
         sql """SET query_timeout=1800"""
         sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
@@ -152,4 +156,6 @@ suite("load") {
     sql "insert into tt select * from t"
     new_count = sql "select count(*) from tt"
     assertEquals(origin_count, new_count)
+
+    sql """ sync """
 }

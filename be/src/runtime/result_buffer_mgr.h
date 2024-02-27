@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -30,6 +31,11 @@
 #include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
+
+namespace arrow {
+class RecordBatch;
+class Schema;
+} // namespace arrow
 
 namespace doris {
 
@@ -42,9 +48,12 @@ class Thread;
 class ResultBufferMgr {
 public:
     ResultBufferMgr();
-    ~ResultBufferMgr();
+    ~ResultBufferMgr() = default;
     // init Result Buffer Mgr, start cancel thread
     Status init();
+
+    void stop();
+
     // create one result sender for this query_id
     // the returned sender do not need release
     // sender is not used when call cancel or unregister
@@ -52,7 +61,14 @@ public:
                          std::shared_ptr<BufferControlBlock>* sender, bool enable_pipeline,
                          int exec_timeout);
 
+    // fetch data result to FE
     void fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx);
+    // fetch data result to Arrow Flight Server
+    Status fetch_arrow_data(const TUniqueId& finst_id, std::shared_ptr<arrow::RecordBatch>* result);
+
+    void register_arrow_schema(const TUniqueId& query_id,
+                               const std::shared_ptr<arrow::Schema>& arrow_schema);
+    std::shared_ptr<arrow::Schema> find_arrow_schema(const TUniqueId& query_id);
 
     // cancel
     Status cancel(const TUniqueId& fragment_id);
@@ -63,6 +79,7 @@ public:
 private:
     using BufferMap = std::unordered_map<TUniqueId, std::shared_ptr<BufferControlBlock>>;
     using TimeoutMap = std::map<time_t, std::vector<TUniqueId>>;
+    using ArrowSchemaMap = std::unordered_map<TUniqueId, std::shared_ptr<arrow::Schema>>;
 
     std::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
 
@@ -71,9 +88,13 @@ private:
     void cancel_thread();
 
     // lock for buffer map
-    std::mutex _lock;
+    std::shared_mutex _buffer_map_lock;
     // buffer block map
     BufferMap _buffer_map;
+    // lock for arrow schema map
+    std::shared_mutex _arrow_schema_map_lock;
+    // for arrow flight
+    ArrowSchemaMap _arrow_schema_map;
 
     // lock for timeout map
     std::mutex _timeout_lock;
@@ -86,6 +107,4 @@ private:
     scoped_refptr<Thread> _clean_thread;
 };
 
-// TUniqueId hash function used for std::unordered_map
-std::size_t hash_value(const TUniqueId& fragment_id);
 } // namespace doris

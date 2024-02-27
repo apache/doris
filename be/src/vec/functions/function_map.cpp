@@ -93,7 +93,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         DCHECK(arguments.size() % 2 == 0)
                 << "function: " << get_name() << ", arguments should not be even number";
 
@@ -146,65 +146,7 @@ public:
     }
 };
 
-class FunctionMapSize : public IFunction {
-public:
-    static constexpr auto name = "map_size";
-    static FunctionPtr create() { return std::make_shared<FunctionMapSize>(); }
-
-    /// Get function name.
-    String get_name() const override { return name; }
-
-    bool is_variadic() const override { return false; }
-
-    size_t get_number_of_arguments() const override { return 1; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr datatype = arguments[0];
-        if (datatype->is_nullable()) {
-            datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
-        }
-        DCHECK(is_map(datatype)) << "first argument for function: " << name
-                                 << " should be DataTypeMap";
-        return std::make_shared<DataTypeInt64>();
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        const auto& [left_column, left_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const ColumnMap* map_column = nullptr;
-        // const UInt8* map_null_map = nullptr;
-        if (left_column->is_nullable()) {
-            auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
-            map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
-            // map_null_map = nullable_column->get_null_map_column().get_data().data();
-        } else {
-            map_column = check_and_get_column<ColumnMap>(*left_column.get());
-        }
-        if (!map_column) {
-            return Status::RuntimeError("unsupported types for function {}({})", get_name(),
-                                        block.get_by_position(arguments[0]).type->get_name());
-        }
-
-        auto dst_column = ColumnInt64::create(input_rows_count);
-        auto& dst_data = dst_column->get_data();
-
-        if (left_const) {
-            for (size_t i = 0; i < map_column->size(); i++) {
-                dst_data[i] = map_column->size_at(0);
-            }
-        } else {
-            for (size_t i = 0; i < map_column->size(); i++) {
-                dst_data[i] = map_column->size_at(i);
-            }
-        }
-
-        block.replace_by_position(result, std::move(dst_column));
-        return Status::OK();
-    }
-};
-
-template <bool is_key>
+template <bool is_key, bool OldVersion = false>
 class FunctionMapContains : public IFunction {
 public:
     static constexpr auto name = is_key ? "map_contains_key" : "map_contains_value";
@@ -228,11 +170,20 @@ public:
         }
         DCHECK(is_map(datatype)) << "first argument for function: " << name
                                  << " should be DataTypeMap";
-        return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+
+        if constexpr (OldVersion) {
+            return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+        } else {
+            if (arguments[0]->is_nullable()) {
+                return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+            } else {
+                return std::make_shared<DataTypeNumber<UInt8>>();
+            }
+        }
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         // backup original argument 0
         auto orig_arg0 = block.get_by_position(arguments[0]);
         auto left_column =
@@ -295,7 +246,7 @@ public:
     }
 
 private:
-    FunctionArrayIndex<ArrayContainsAction, FunctionMapContains<is_key>> array_contains;
+    FunctionArrayIndex<ArrayContainsAction> array_contains;
 };
 
 template <bool is_key>
@@ -327,7 +278,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnMap* map_column = nullptr;
@@ -354,7 +305,6 @@ public:
 
 void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMap>();
-    factory.register_function<FunctionMapSize>();
     factory.register_function<FunctionMapContains<true>>();
     factory.register_function<FunctionMapContains<false>>();
     factory.register_function<FunctionMapEntries<true>>();

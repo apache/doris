@@ -55,6 +55,9 @@ public class GetLogFileAction extends RestBaseController {
 
     @RequestMapping(path = "/api/get_log_file", method = {RequestMethod.GET, RequestMethod.HEAD})
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
+        if (!Config.enable_get_log_file_api) {
+            return ResponseEntityBuilder.badRequest("feature disabled");
+        }
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 

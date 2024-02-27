@@ -22,6 +22,8 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.Objects;
 
 /**
@@ -33,23 +35,10 @@ public class VariableDesc extends Expression implements LeafExpression {
     final String name;
 
     public VariableDesc(boolean isSystemVariable, SetType setType, String name) {
+        super(ImmutableList.of());
         this.isSystemVariable = isSystemVariable;
         this.setType = setType;
         this.name = name;
-    }
-
-    public VariableDesc(SetType setType, String name) {
-        //Construct system variable
-        this(true, setType, name);
-    }
-
-    public VariableDesc(String name) {
-        //Construct user variable
-        this(false, SetType.DEFAULT, name);
-    }
-
-    public boolean isSystemVariable() {
-        return isSystemVariable;
     }
 
     public String getName() {

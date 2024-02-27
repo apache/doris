@@ -40,6 +40,7 @@ public class ShowRolesStmt extends ShowStmt {
         builder.addColumn(new Column("DatabasePrivs", ScalarType.createVarchar(300)));
         builder.addColumn(new Column("TablePrivs", ScalarType.createVarchar(300)));
         builder.addColumn(new Column("ResourcePrivs", ScalarType.createVarchar(300)));
+        builder.addColumn(new Column("CloudClusterPrivs", ScalarType.createVarchar(300)));
 
         META_DATA = builder.build();
     }

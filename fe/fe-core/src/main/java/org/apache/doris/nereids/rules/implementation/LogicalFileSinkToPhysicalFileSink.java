@@ -34,6 +34,7 @@ public class LogicalFileSinkToPhysicalFileSink extends OneImplementationRuleFact
         return logicalFileSink().thenApply(ctx -> {
             LogicalFileSink<? extends Plan> sink = ctx.root;
             return new PhysicalFileSink<>(
+                    sink.getOutputExprs(),
                     sink.getFilePath(),
                     sink.getFormat(),
                     sink.getProperties(),

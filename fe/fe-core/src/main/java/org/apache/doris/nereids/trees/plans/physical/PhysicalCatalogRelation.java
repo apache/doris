@@ -101,7 +101,7 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     public List<Slot> computeOutput() {
         return table.getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(col, qualified()))
+                .map(col -> SlotReference.fromColumn(table, col, qualified(), this))
                 .collect(ImmutableList.toImmutableList());
     }
 
@@ -123,4 +123,21 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
         return Utils.qualifiedName(qualifier, table.getName());
     }
 
+    @Override
+    public boolean canPushDownRuntimeFilter() {
+        return true;
+    }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder shapeBuilder = new StringBuilder();
+        shapeBuilder.append(this.getClass().getSimpleName())
+                .append("[").append(table.getName()).append("]");
+        if (!getAppliedRuntimeFilters().isEmpty()) {
+            shapeBuilder.append(" apply RFs:");
+            getAppliedRuntimeFilters()
+                    .stream().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
+        }
+        return shapeBuilder.toString();
+    }
 }

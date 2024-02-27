@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -37,7 +38,12 @@ public class OrderExpression extends Expression implements UnaryExpression, Prop
     private final OrderKey orderKey;
 
     public OrderExpression(OrderKey orderKey) {
-        super(orderKey.getExpr());
+        super(ImmutableList.of(orderKey.getExpr()));
+        this.orderKey = orderKey;
+    }
+
+    private OrderExpression(List<Expression> children, OrderKey orderKey) {
+        super(children);
         this.orderKey = orderKey;
     }
 
@@ -61,7 +67,7 @@ public class OrderExpression extends Expression implements UnaryExpression, Prop
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new OrderExpression(new OrderKey(children.get(0), orderKey.isAsc(), orderKey.isNullFirst()));
+        return new OrderExpression(children, new OrderKey(children.get(0), orderKey.isAsc(), orderKey.isNullFirst()));
     }
 
     @Override

@@ -32,7 +32,9 @@ suite("test_select_count_optimize", "p2,external,hive,external_remote,external_r
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
-        sql """ set query_timeout=3600; """ 
+
+        sql """set experimental_enable_nereids_planner=true;"""
+        sql """set enable_fallback_to_original_planner=false;"""
 
         //parquet 
         qt_sql """ select * from tpch_1000_parquet.nation order by n_name,n_regionkey,n_nationkey,n_comment ; """
@@ -86,6 +88,108 @@ suite("test_select_count_optimize", "p2,external,hive,external_remote,external_r
 
         qt_sql """ select count(*) as a from tpch_1000.nation group by n_regionkey order by a;""" 
         
+        explain {
+            
+            sql "select count(*) from tpch_1000_parquet.nation;"
+
+            contains "pushdown agg=COUNT"
+        } 
+
+        explain {
+            
+            sql "select count(1) from tpch_1000_parquet.nation;"
+
+            contains "pushdown agg=COUNT"
+        } 
+
+
+        explain {
+            
+            sql "select count(2) from tpch_1000_parquet.nation;"
+
+            contains "pushdown agg=COUNT"
+        } 
+
+
+        explain {
+            
+            sql "select count(n_name) from tpch_1000_parquet.nation;"
+
+            notContains "pushdown agg=COUNT"
+        }
+        
+        explain {
+            
+            sql "select count(n_name) from tpch_1000_parquet.nation  where n_nationkey = 1;"
+
+            notContains "pushdown agg=COUNT"
+        }
+
+        explain {
+            
+            sql "select count(*) from tpch_1000_parquet.nation group by n_regionkey ;"
+
+            notContains "pushdown agg=COUNT"
+        }
+
+
+        explain {
+
+            sql " select count(*) from  multi_catalog.test_csv_format_error; "
+
+            contains "pushdown agg=COUNT"
+        } 
+
+        explain {
+            sql "select count(*) from  multi_catalog.hits_orc ; "
+
+            contains "pushdown agg=COUNT"
+
+        }
+
+
+        explain {
+            sql "select count(*) from  multi_catalog.hits_orc ; "
+
+            contains "pushdown agg=COUNT"
+
+        }
+
+
+        explain {
+
+            sql "select count(*) from multi_catalog.parquet_one_column;"
+
+            contains "pushdown agg=COUNT"
+        }
+
+        explain {
+
+            sql "select count(col1) from multi_catalog.parquet_one_column;"
+
+            notContains "pushdown agg=COUNT"
+        }
+    
+        explain {
+
+            sql "select count(*) from multi_catalog.parquet_two_column;"
+
+            contains "pushdown agg=COUNT"
+        }
+        explain {
+
+            sql "select count(*) from multi_catalog.parquet_two_column where col1 = 1;"
+
+            notContains "pushdown agg=COUNT"
+        }
+
+
+        explain {
+
+            sql "select count(*) from  multi_catalog.logs2_orc;"
+
+            contains "pushdown agg=COUNT"
+        }
     }
 }
 

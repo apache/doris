@@ -39,6 +39,7 @@ suite("test_external_catalog_hive_partition", "p2,external,hive,external_remote,
             qt_q04 """ select * from multi_catalog.parquet_partitioned_columns order by t_float """
             qt_q05 """ select * from multi_catalog.parquet_partitioned_columns where t_int is null order by t_float """
             qt_q06 """ select * from multi_catalog.parquet_partitioned_columns where t_int is not null order by t_float """
+            qt_q07 """ select  o_orderyear, o_orderkey, o_custkey from multi_catalog.orders_par_parquet where o_custkey=1820677 order by o_orderkey """
         }
         // test orc format
         def q01_orc = {
@@ -48,6 +49,7 @@ suite("test_external_catalog_hive_partition", "p2,external,hive,external_remote,
             qt_q04 """ select * from multi_catalog.orc_partitioned_columns order by t_float """
             qt_q05 """ select * from multi_catalog.orc_partitioned_columns where t_int is null order by t_float """
             qt_q06 """ select * from multi_catalog.orc_partitioned_columns where t_int is not null order by t_float """
+            qt_q07 """ select  o_orderyear, o_orderkey, o_custkey from multi_catalog.orders_par_orc where o_custkey=1820677 order by o_orderkey """
         }
         // test text format
         def q01_text = {

@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -37,7 +38,36 @@ public class BatchModifyPartitionsInfo implements Writable {
     private List<ModifyPartitionInfo> infos;
 
     public BatchModifyPartitionsInfo(List<ModifyPartitionInfo> infos) {
+        if (infos == null || infos.isEmpty()) {
+            throw new IllegalArgumentException("infos is null or empty");
+        }
+
+        long dbId = infos.get(0).getDbId();
+        long tableId = infos.get(0).getTableId();
+        for (ModifyPartitionInfo info : infos) {
+            if (info.getDbId() != dbId || info.getTableId() != tableId) {
+                throw new IllegalArgumentException("dbId or tableId is not equal");
+            }
+        }
+
         this.infos = infos;
+    }
+
+    public BatchModifyPartitionsInfo(ModifyPartitionInfo info) {
+        if (info == null) {
+            throw new IllegalArgumentException("info is null");
+        }
+
+        this.infos = Lists.newArrayList();
+        this.infos.add(info);
+    }
+
+    public long getDbId() {
+        return infos.get(0).getDbId();
+    }
+
+    public long getTableId() {
+        return infos.get(0).getTableId();
     }
 
     @Override
@@ -71,5 +101,9 @@ public class BatchModifyPartitionsInfo implements Writable {
             }
         }
         return true;
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 }

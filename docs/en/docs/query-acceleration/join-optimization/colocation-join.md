@@ -356,7 +356,7 @@ Whether to close Doris's automatic Colocation replica repair. The default is fal
 
 Whether to turn off automatic Colocation replica balancing for Doris. The default is false, i.e. not closed. This parameter only affects the replica balance of the Collocation table, but does not affect the common table.
 
-User can set these configurations at runtime. See `HELP ADMIN SHOW CONFIG;` and `HELP ADMIN SET CONFIG;`.
+User can set these configurations at runtime. See `HELP SHOW CONFIG;` and `HELP ADMIN SET CONFIG;`.
 
 * disable\_colocate\_join
 
@@ -400,7 +400,7 @@ The API is implemented on the FE side and accessed using `fe_host: fe_http_port`
   * Mark as Stable
 
         ```
-        POST /api/colocate/group_stable?db_id=10005&group_id=10008
+        DELETE /api/colocate/group_stable?db_id=10005&group_id=10008
         
         Returns: 200
         ```
@@ -408,7 +408,7 @@ The API is implemented on the FE side and accessed using `fe_host: fe_http_port`
   * Mark as Unstable
 
         ```
-        DELETE /api/colocate/group_stable?db_id=10005&group_id=10008
+        POST /api/colocate/group_stable?db_id=10005&group_id=10008
         
         Returns: 200
         ```

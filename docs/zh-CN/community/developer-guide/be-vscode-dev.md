@@ -92,6 +92,11 @@ cd /home/workspace/doris
 
 如果不出意外，应该会编译成功，最终的部署文件将产出到 /home/workspace/doris/output/ 目录下。如果还遇到其他问题，可以参照 doris 的安装文档 http://doris.apache.org。
 
+注意：如果编译fe时希望单独指定私有的maven仓地址，可以设置环境变量USER_SETTINGS_MVN_REPO指定settings.xml的文件路径。
+举例：
+```
+  export USER_SETTINGS_MVN_REPO="/xxx/xxx/settings.xml"
+```
 ## 部署调试(GDB)
 
 1. 给 be 编译结果文件授权
@@ -114,6 +119,7 @@ be_rpc_port = 9070
 webserver_port = 8040
 heartbeat_service_port = 9050
 brpc_port = 8060
+arrow_flight_sql_port = -1
 
 # Note that there should at most one ip match this list.
 # If no ip match this rule, will choose one randomly.
@@ -162,6 +168,7 @@ mkdir -p /soft/be/storage
                            ],
             "externalConsole": true,
             "MIMode": "gdb",
+            "miDebuggerPath": "/path/to/gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -176,6 +183,8 @@ mkdir -p /soft/be/storage
 
 其中，environment 定义了几个环境变量 DORIS_HOME UDF_RUNTIME_DIR LOG_DIR PID_DIR，这是 doris_be 运行时需要的环境变量，如果没有设置，启动会失败。
 
+miDebuggerPath 指定了调试器的路径（如gdb），如果不指定 miDebuggerPath ，它将在操作系统的 PATH 变量中搜索调试器。系统自带的 gdb 版本有可能过低，这时就需要手动去指定新版本的 gdb 路径。
+
 **注意：如果希望是 attach(附加进程）调试，配置代码如下：**
 
 ```
@@ -189,6 +198,7 @@ mkdir -p /soft/be/storage
           "program": "/home/workspace/doris/output/lib/doris_be",
           "processId":,
           "MIMode": "gdb",
+          "miDebuggerPath": "/path/to/gdb",
           "internalConsoleOptions":"openOnSessionStart",
           "setupCommands": [
                 {
@@ -229,6 +239,7 @@ lsof -i | grep -m 1 doris_be | awk "{print $2}"
             "program": "/home/workspace/doris/output/be/lib/doris_be",
             "processId": 17016,
             "MIMode": "gdb",
+            "miDebuggerPath": "/path/to/gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -265,6 +276,7 @@ lsof -i | grep -m 1 doris_be | awk "{print $2}"
             ],
             "externalConsole": false,
             "MIMode": "gdb",
+            "miDebuggerPath": "/path/to/gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",

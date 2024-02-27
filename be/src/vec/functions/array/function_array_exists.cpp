@@ -64,7 +64,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         // 1. get first array column
         const auto first_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();

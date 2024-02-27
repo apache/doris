@@ -19,21 +19,19 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.rules.OrToIn.OrToInContext;
-import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -57,7 +55,7 @@ import java.util.Set;
  * adding any additional rule-specific fields to the default ExpressionRewriteContext. However, the entire expression
  * rewrite framework always passes an ExpressionRewriteContext of type context to all rules.
  */
-public class OrToIn extends DefaultExpressionRewriter<OrToInContext> implements
+public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> implements
         ExpressionRewriteRule<ExpressionRewriteContext> {
 
     public static final OrToIn INSTANCE = new OrToIn();
@@ -66,25 +64,23 @@ public class OrToIn extends DefaultExpressionRewriter<OrToInContext> implements
 
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        return expr.accept(this, new OrToInContext());
+        return expr.accept(this, null);
     }
 
     @Override
-    public Expression visitCompoundPredicate(CompoundPredicate compoundPredicate, OrToInContext context) {
-        if (compoundPredicate instanceof And) {
-            return compoundPredicate.withChildren(compoundPredicate.child(0).accept(new OrToIn(),
-                            new OrToInContext()),
-                    compoundPredicate.child(1).accept(new OrToIn(),
-                            new OrToInContext()));
-        }
-        List<Expression> expressions = ExpressionUtils.extractDisjunction(compoundPredicate);
+    public Expression visitOr(Or or, ExpressionRewriteContext ctx) {
+        Map<NamedExpression, Set<Literal>> slotNameToLiteral = new HashMap<>();
+        List<Expression> expressions = ExpressionUtils.extractDisjunction(or);
+        Map<Expression, NamedExpression> disConjunctToSlot = Maps.newHashMap();
         for (Expression expression : expressions) {
             if (expression instanceof EqualTo) {
-                addSlotToLiteralMap((EqualTo) expression, context);
+                handleEqualTo((EqualTo) expression, slotNameToLiteral, disConjunctToSlot);
+            } else if (expression instanceof InPredicate) {
+                handleInPredicate((InPredicate) expression, slotNameToLiteral, disConjunctToSlot);
             }
         }
         List<Expression> rewrittenOr = new ArrayList<>();
-        for (Map.Entry<NamedExpression, Set<Literal>> entry : context.slotNameToLiteral.entrySet()) {
+        for (Map.Entry<NamedExpression, Set<Literal>> entry : slotNameToLiteral.entrySet()) {
             Set<Literal> literals = entry.getValue();
             if (literals.size() >= REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
                 InPredicate inPredicate = new InPredicate(entry.getKey(), ImmutableList.copyOf(entry.getValue()));
@@ -92,58 +88,48 @@ public class OrToIn extends DefaultExpressionRewriter<OrToInContext> implements
             }
         }
         for (Expression expression : expressions) {
-            if (!ableToConvertToIn(expression, context)) {
-                rewrittenOr.add(expression);
+            if (disConjunctToSlot.get(expression) == null) {
+                rewrittenOr.add(expression.accept(this, null));
+            } else {
+                Set<Literal> literals = slotNameToLiteral.get(disConjunctToSlot.get(expression));
+                if (literals.size() < REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
+                    rewrittenOr.add(expression);
+                }
             }
         }
 
         return ExpressionUtils.or(rewrittenOr);
     }
 
-    private void addSlotToLiteralMap(EqualTo equal, OrToInContext context) {
+    private void handleEqualTo(EqualTo equal, Map<NamedExpression, Set<Literal>> slotNameToLiteral,
+                               Map<Expression, NamedExpression> disConjunctToSlot) {
         Expression left = equal.left();
         Expression right = equal.right();
         if (left instanceof NamedExpression && right instanceof Literal) {
-            addSlotToLiteral((NamedExpression) left, (Literal) right, context);
-        }
-        if (right instanceof NamedExpression && left instanceof Literal) {
-            addSlotToLiteral((NamedExpression) right, (Literal) left, context);
+            addSlotToLiteral((NamedExpression) left, (Literal) right, slotNameToLiteral);
+            disConjunctToSlot.put(equal, (NamedExpression) left);
+        } else if (right instanceof NamedExpression && left instanceof Literal) {
+            addSlotToLiteral((NamedExpression) right, (Literal) left, slotNameToLiteral);
+            disConjunctToSlot.put(equal, (NamedExpression) right);
         }
     }
 
-    private boolean ableToConvertToIn(Expression expression, OrToInContext context) {
-        if (!(expression instanceof EqualTo)) {
-            return false;
+    private void handleInPredicate(InPredicate inPredicate, Map<NamedExpression, Set<Literal>> slotNameToLiteral,
+                                   Map<Expression, NamedExpression> disConjunctToSlot) {
+        // TODO a+b in (1,2,3...) is not supported now
+        if (inPredicate.getCompareExpr() instanceof NamedExpression
+                && inPredicate.getOptions().stream().allMatch(opt -> opt instanceof Literal)) {
+            for (Expression opt : inPredicate.getOptions()) {
+                addSlotToLiteral((NamedExpression) inPredicate.getCompareExpr(), (Literal) opt, slotNameToLiteral);
+            }
+            disConjunctToSlot.put(inPredicate, (NamedExpression) inPredicate.getCompareExpr());
         }
-        EqualTo equalTo = (EqualTo) expression;
-        Expression left = equalTo.left();
-        Expression right = equalTo.right();
-        NamedExpression namedExpression = null;
-        if (left instanceof NamedExpression && right instanceof Literal) {
-            namedExpression = (NamedExpression) left;
-        }
-        if (right instanceof NamedExpression && left instanceof Literal) {
-            namedExpression = (NamedExpression) right;
-        }
-        return namedExpression != null
-                && findSizeOfLiteralThatEqualToSameSlotInOr(namedExpression, context)
-                >= REWRITE_OR_TO_IN_PREDICATE_THRESHOLD;
     }
 
-    public void addSlotToLiteral(NamedExpression namedExpression, Literal literal, OrToInContext context) {
-        Set<Literal> literals = context.slotNameToLiteral.computeIfAbsent(namedExpression, k -> new HashSet<>());
+    public void addSlotToLiteral(NamedExpression namedExpression, Literal literal,
+            Map<NamedExpression, Set<Literal>> slotNameToLiteral) {
+        Set<Literal> literals = slotNameToLiteral.computeIfAbsent(namedExpression, k -> new HashSet<>());
         literals.add(literal);
     }
 
-    public int findSizeOfLiteralThatEqualToSameSlotInOr(NamedExpression namedExpression, OrToInContext context) {
-        return context.slotNameToLiteral.getOrDefault(namedExpression, Collections.emptySet()).size();
-    }
-
-    /**
-     * Context of OrToIn
-     */
-    public static class OrToInContext {
-        public final Map<NamedExpression, Set<Literal>> slotNameToLiteral = new HashMap<>();
-
-    }
 }

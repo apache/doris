@@ -34,8 +34,14 @@ public:
         _data.insert(data, data + len);
         _now_offset += len;
     }
+    inline void write(char c) {
+        const char* p = &c;
+        _data.insert(p, p + 1);
+        _now_offset += 1;
+    }
 
     inline void commit() {
+        ColumnString::check_chars_length(_offsets.back() + _now_offset, 0);
         _offsets.push_back(_offsets.back() + _now_offset);
         _now_offset = 0;
     }

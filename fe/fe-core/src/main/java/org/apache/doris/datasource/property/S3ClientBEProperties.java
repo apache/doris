@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.constants.S3Properties.Env;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -70,6 +71,18 @@ public class S3ClientBEProperties {
         }
         if (properties.containsKey(S3Properties.BUCKET)) {
             beProperties.put(S3Properties.Env.BUCKET, properties.get(S3Properties.BUCKET));
+        }
+        if (properties.containsKey(S3Properties.MAX_CONNECTIONS)) {
+            beProperties.put(Env.MAX_CONNECTIONS, properties.get(S3Properties.MAX_CONNECTIONS));
+        }
+        if (properties.containsKey(S3Properties.REQUEST_TIMEOUT_MS)) {
+            beProperties.put(Env.REQUEST_TIMEOUT_MS, properties.get(S3Properties.REQUEST_TIMEOUT_MS));
+        }
+        if (properties.containsKey(S3Properties.CONNECTION_TIMEOUT_MS)) {
+            beProperties.put(Env.CONNECTION_TIMEOUT_MS, properties.get(S3Properties.CONNECTION_TIMEOUT_MS));
+        }
+        if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+            beProperties.put(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
         }
         return beProperties;
     }

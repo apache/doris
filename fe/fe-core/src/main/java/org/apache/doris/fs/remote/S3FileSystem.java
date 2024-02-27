@@ -42,13 +42,17 @@ public class S3FileSystem extends ObjFileSystem {
 
     public S3FileSystem(Map<String, String> properties) {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, new S3ObjStorage(properties));
-        this.properties.putAll(properties);
+        initFsProperties();
     }
 
     @VisibleForTesting
     public S3FileSystem(S3ObjStorage storage) {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, storage);
-        this.properties.putAll(storage.getProperties());
+        initFsProperties();
+    }
+
+    private void initFsProperties() {
+        this.properties.putAll(((S3ObjStorage) objStorage).getProperties());
     }
 
     @Override
@@ -102,5 +106,9 @@ public class S3FileSystem extends ObjFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         return Status.OK;
+    }
+
+    public Status deleteDirectory(String absolutePath) {
+        return ((S3ObjStorage) objStorage).deleteObjects(absolutePath);
     }
 }

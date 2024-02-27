@@ -42,10 +42,11 @@ class Block;
 // Table Connector for scan data from ODBC/JDBC
 class TableConnector {
 public:
-    TableConnector(const TupleDescriptor* tuple_desc, const std::string& sql_str);
+    TableConnector(const TupleDescriptor* tuple_desc, bool use_transaction,
+                   std::string_view table_name, const std::string& sql_str);
     virtual ~TableConnector() = default;
 
-    virtual Status open(RuntimeState* state, bool read = false) = 0;
+    virtual Status init_to_write(RuntimeProfile*) = 0;
     // exec query for table
     virtual Status query() = 0;
 
@@ -53,6 +54,8 @@ public:
     virtual Status begin_trans() = 0;  // should be call after connect and before query
     virtual Status abort_trans() = 0;  // should be call after transaction abort
     virtual Status finish_trans() = 0; // should be call after transaction commit
+
+    virtual Status close(Status) = 0;
 
     virtual Status exec_stmt_write(vectorized::Block* block,
                                    const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
@@ -62,10 +65,10 @@ public:
                                   const fmt::memory_buffer& _insert_stmt_buffer) = 0;
 
     //write data into table vectorized
-    Status append(const std::string& table_name, vectorized::Block* block,
-                  const vectorized::VExprContextSPtrs& _output_vexpr_ctxs, uint32_t start_send_row,
-                  uint32_t* num_rows_sent, bool is_odbc,
-                  TOdbcTableType::type table_type = TOdbcTableType::MYSQL);
+    virtual Status append(vectorized::Block* block,
+                          const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
+                          uint32_t start_send_row, uint32_t* num_rows_sent,
+                          TOdbcTableType::type table_type = TOdbcTableType::MYSQL) = 0;
 
     void init_profile(RuntimeProfile*);
 
@@ -75,12 +78,15 @@ public:
                                const vectorized::DataTypePtr& type_ptr, const TypeDescriptor& type,
                                int row, TOdbcTableType::type table_type);
 
-    virtual Status close() { return Status::OK(); }
+    // Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
+    static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;
 
 protected:
     bool _is_open;
+    bool _use_tranaction;
     bool _is_in_transaction;
-    const TupleDescriptor* _tuple_desc;
+    std::string_view _table_name;
+    const TupleDescriptor* _tuple_desc = nullptr;
     // only use in query
     std::string _sql_str;
     // only use in write

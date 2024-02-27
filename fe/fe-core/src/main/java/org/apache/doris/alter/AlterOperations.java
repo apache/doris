@@ -48,6 +48,14 @@ public class AlterOperations {
         }
     }
 
+    public void checkMTMVAllow(List<AlterClause> alterClauses) throws DdlException {
+        for (AlterClause alterClause : alterClauses) {
+            if (!alterClause.getOpType().mtmvAllowOp()) {
+                throw new DdlException("Alter operation " + alterClause.getOpType() + " Not allowed to MTMV");
+            }
+        }
+    }
+
     // some operations take up disk space. so we need to check the disk capacity before processing.
     // return true if we see these kind of operations.
     public boolean needCheckCapacity() {
@@ -84,6 +92,12 @@ public class AlterOperations {
         ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED));
     }
 
+    public boolean checkMinLoadReplicaNum(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM));
+    }
+
     public boolean checkBinlogConfigChange(List<AlterClause> alterClauses) {
         return alterClauses.stream().filter(clause ->
             clause instanceof ModifyTablePropertiesClause
@@ -91,60 +105,6 @@ public class AlterOperations {
             || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
             || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)
             || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
-    }
-
-    public boolean checkCompactionPolicy(List<AlterClause> alterClauses) {
-        return alterClauses.stream().filter(clause ->
-            clause instanceof ModifyTablePropertiesClause
-        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY));
-    }
-
-    public String getCompactionPolicy(List<AlterClause> alterClauses) {
-        return alterClauses.stream().filter(clause ->
-            clause instanceof ModifyTablePropertiesClause
-        ).map(c -> ((ModifyTablePropertiesClause) c).compactionPolicy()).findFirst().orElse("");
-    }
-
-    public boolean checkTimeSeriesCompactionGoalSizeMbytes(List<AlterClause> alterClauses) {
-        return alterClauses.stream().filter(clause ->
-            clause instanceof ModifyTablePropertiesClause
-        ).anyMatch(clause -> clause.getProperties()
-                    .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES));
-    }
-
-    public long getTimeSeriesCompactionGoalSizeMbytes(List<AlterClause> alterClauses) {
-        return alterClauses.stream().filter(clause ->
-            clause instanceof ModifyTablePropertiesClause
-        ).map(c -> ((ModifyTablePropertiesClause) c)
-        .timeSeriesCompactionGoalSizeMbytes()).findFirst().orElse((long) -1);
-    }
-
-    public boolean checkTimeSeriesCompactionFileCountThreshold(List<AlterClause> alterClauses) {
-        return alterClauses.stream().filter(clause ->
-            clause instanceof ModifyTablePropertiesClause
-        ).anyMatch(clause -> clause.getProperties()
-                    .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD));
-    }
-
-    public long getTimeSeriesCompactionFileCountThreshold(List<AlterClause> alterClauses) {
-        return alterClauses.stream().filter(clause ->
-            clause instanceof ModifyTablePropertiesClause
-        ).map(c -> ((ModifyTablePropertiesClause) c)
-        .timeSeriesCompactionFileCountThreshold()).findFirst().orElse((long) -1);
-    }
-
-    public boolean checkTimeSeriesCompactionTimeThresholdSeconds(List<AlterClause> alterClauses) {
-        return alterClauses.stream().filter(clause ->
-            clause instanceof ModifyTablePropertiesClause
-        ).anyMatch(clause -> clause.getProperties()
-                    .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
-    }
-
-    public long getTimeSeriesCompactionTimeThresholdSeconds(List<AlterClause> alterClauses) {
-        return alterClauses.stream().filter(clause ->
-            clause instanceof ModifyTablePropertiesClause
-        ).map(c -> ((ModifyTablePropertiesClause) c)
-        .timeSeriesCompactionTimeThresholdSeconds()).findFirst().orElse((long) -1);
     }
 
     public boolean isBeingSynced(List<AlterClause> alterClauses) {

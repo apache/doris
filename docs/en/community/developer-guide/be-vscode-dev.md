@@ -93,6 +93,11 @@ Note: This compilation has the following instructions:
 
 If nothing happens, the compilation should be successful, and the final deployment file will be output to the /home/workspace/doris/output/ directory. If you still encounter other problems, you can refer to the doris installation document http://doris.apache.org.
 
+Note: If you want to specify the private maven repository address separately when compiling fe, you can set the environment variable USER_SETTINGS_MVN_REPO to specify the file path to settings.xml.
+Example:
+```
+  export USER_SETTINGS_MVN_REPO="/xxx/xxx/settings.xml"
+```
 ## Deployment and debugging(GDB)
 
 1. Authorize be compilation result files
@@ -115,6 +120,7 @@ be_rpc_port = 9070
 webserver_port = 8040
 heartbeat_service_port = 9050
 brpc_port = 8060
+arrow_flight_sql_port = -1
 
 # Note that there should be at most one ip that matches this list.
 # If no ip matches this rule, it will choose one randomly.
@@ -163,6 +169,7 @@ mkdir -p /soft/be/storage
                            ],
             "externalConsole": true,
             "MIMode": "gdb",
+            "miDebuggerPath": "/path/to/gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -177,6 +184,8 @@ mkdir -p /soft/be/storage
 
 Among them, environment defines several environment variables DORIS_HOME UDF_RUNTIME_DIR LOG_DIR PID_DIR, which are the environment variables needed when doris_be is running. If it is not set, the startup will fail
 
+MiDebuggerPath specifies the path of the debugger (such as gdb). If miDebuggerPath is not specified, it will search for gdb path in the PATH variable of the os. The gdb version that comes with the system can be too low, you may need to manually specify the new version of gdb path.
+
 **Note: If you want attach (additional process) debugging, the configuration code is as follows:**
 
 ```
@@ -190,6 +199,7 @@ Among them, environment defines several environment variables DORIS_HOME UDF_RUN
           "program": "/home/workspace/doris/output/lib/doris_be",
           "processId":,
           "MIMode": "gdb",
+          "miDebuggerPath": "/path/to/gdb",
           "internalConsoleOptions":"openOnSessionStart",
           "setupCommands": [
                 {
@@ -230,6 +240,7 @@ An example of a complete launch.json is as follows:
             "program": "/home/workspace/doris/output/be/lib/doris_be",
             "processId": 17016,
             "MIMode": "gdb",
+            "miDebuggerPath": "/path/to/gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -266,6 +277,7 @@ An example of a complete launch.json is as follows:
             ],
             "externalConsole": false,
             "MIMode": "gdb",
+            "miDebuggerPath": "/path/to/gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -297,7 +309,7 @@ lldb's attach mode is faster than gdb，and the usage is similar to gdb. we shou
 }
 ```
 
-It should be noted that this method requires the system `glibc` version to be `2.18+`. you can refer [Get VSCode CodeLLDB plugin work on CentOS 7](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) to make plugin work。
+It should be noted that this method requires the system `glibc` version to be `2.18+`. you can refer [Get VSCode CodeLLDB plugin work on CentOS 7](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) to make plugin work.
 
 ## Debugging core dump files
 

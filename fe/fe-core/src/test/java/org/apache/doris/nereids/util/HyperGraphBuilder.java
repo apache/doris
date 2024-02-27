@@ -20,7 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -51,6 +52,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -61,14 +63,14 @@ public class HyperGraphBuilder {
     private final HashMap<BitSet, LogicalPlan> plans = new HashMap<>();
     private final HashMap<BitSet, List<Integer>> schemas = new HashMap<>();
 
-    private final ImmutableList<JoinType> fullJoinTypes = ImmutableList.of(
+    private ImmutableList<JoinType> fullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
             JoinType.FULL_OUTER_JOIN
     );
 
-    private final ImmutableList<JoinType> leftFullJoinTypes = ImmutableList.of(
+    private ImmutableList<JoinType> leftFullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
@@ -78,7 +80,7 @@ public class HyperGraphBuilder {
             JoinType.NULL_AWARE_LEFT_ANTI_JOIN
     );
 
-    private final ImmutableList<JoinType> rightFullJoinTypes = ImmutableList.of(
+    private ImmutableList<JoinType> rightFullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
@@ -86,6 +88,20 @@ public class HyperGraphBuilder {
             JoinType.RIGHT_SEMI_JOIN,
             JoinType.RIGHT_ANTI_JOIN
     );
+
+    public HyperGraphBuilder() {}
+
+    public HyperGraphBuilder(Set<JoinType> validJoinType) {
+        fullJoinTypes = fullJoinTypes.stream()
+                .filter(validJoinType::contains)
+                .collect(ImmutableList.toImmutableList());
+        leftFullJoinTypes = leftFullJoinTypes.stream()
+                .filter(validJoinType::contains)
+                .collect(ImmutableList.toImmutableList());
+        rightFullJoinTypes = rightFullJoinTypes.stream()
+                .filter(validJoinType::contains)
+                .collect(ImmutableList.toImmutableList());
+    }
 
     public HyperGraph build() {
         assert plans.size() == 1 : "there are cross join";
@@ -102,7 +118,7 @@ public class HyperGraphBuilder {
     public Plan buildJoinPlan() {
         assert plans.size() == 1 : "there are cross join";
         Plan plan = plans.values().iterator().next();
-        return buildPlanWithJoinType(plan, new BitSet());
+        return buildPlanWithJoinType(plan, new BitSet(), false);
     }
 
     public Plan randomBuildPlanWith(int tableNum, int edgeNum) {
@@ -115,11 +131,18 @@ public class HyperGraphBuilder {
         return this.build();
     }
 
+    public Plan buildJoinPlanWithJoinHint(int tableNum, int edgeNum) {
+        randomBuildInit(tableNum, edgeNum);
+        assert plans.size() == 1 : "there are cross join";
+        Plan plan = plans.values().iterator().next();
+        return buildPlanWithJoinType(plan, new BitSet(), true);
+    }
+
     private void randomBuildInit(int tableNum, int edgeNum) {
         Preconditions.checkArgument(edgeNum >= tableNum - 1,
-                String.format("We can't build a connected graph with %d tables %d edges", tableNum, edgeNum));
+                "We can't build a connected graph with %s tables %s edges", tableNum, edgeNum);
         Preconditions.checkArgument(edgeNum <= tableNum * (tableNum - 1) / 2,
-                String.format("The edges are redundant with %d tables %d edges", tableNum, edgeNum));
+                "The edges are redundant with %s tables %s edges", tableNum, edgeNum);
 
         int[] tableRowCounts = new int[tableNum];
         for (int i = 1; i <= tableNum; i++) {
@@ -189,9 +212,9 @@ public class HyperGraphBuilder {
 
     public HyperGraphBuilder addEdge(JoinType joinType, int node1, int node2) {
         Preconditions.checkArgument(node1 >= 0 && node1 < rowCounts.size(),
-                String.format("%d must in [%d, %d)", node1, 0, rowCounts.size()));
+                "%d must in [%s, %ds", node1, 0, rowCounts.size());
         Preconditions.checkArgument(node2 >= 0 && node1 < rowCounts.size(),
-                String.format("%d must in [%d, %d)", node1, 0, rowCounts.size()));
+                "%d must in [%d, %d)", node1, 0, rowCounts.size());
 
         BitSet leftBitmap = new BitSet();
         leftBitmap.set(node1);
@@ -204,8 +227,8 @@ public class HyperGraphBuilder {
         if (!fullKey.isPresent()) {
             Optional<BitSet> leftKey = findPlan(leftBitmap);
             Optional<BitSet> rightKey = findPlan(rightBitmap);
-            assert leftKey.isPresent() && rightKey.isPresent() : String.format("can not find plan %s-%s", leftBitmap,
-                    rightBitmap);
+            Preconditions.checkArgument(leftKey.isPresent() && rightKey.isPresent(),
+                    "can not find plan %s-%s", leftBitmap, rightBitmap);
             Plan leftPlan = plans.get(leftKey.get());
             Plan rightPlan = plans.get(rightKey.get());
             LogicalJoin join = new LogicalJoin<>(joinType, leftPlan, rightPlan);
@@ -229,7 +252,7 @@ public class HyperGraphBuilder {
         return this;
     }
 
-    private Plan buildPlanWithJoinType(Plan plan, BitSet requireTable) {
+    private Plan buildPlanWithJoinType(Plan plan, BitSet requireTable, boolean withJoinHint) {
         if (!(plan instanceof LogicalJoin)) {
             return plan;
         }
@@ -256,11 +279,20 @@ public class HyperGraphBuilder {
             }
         }
 
-        Plan left = buildPlanWithJoinType(join.left(), requireTable);
-        Plan right = buildPlanWithJoinType(join.right(), requireTable);
+        Plan left = buildPlanWithJoinType(join.left(), requireTable, withJoinHint);
+        Plan right = buildPlanWithJoinType(join.right(), requireTable, withJoinHint);
         Set<Slot> outputs = Stream.concat(left.getOutput().stream(), right.getOutput().stream())
                 .collect(Collectors.toSet());
         assert outputs.containsAll(requireSlots);
+        if (withJoinHint) {
+            DistributeType[] values = DistributeType.values();
+            Random random = new Random();
+            int randomIndex = random.nextInt(values.length);
+            DistributeType hint = values[randomIndex];
+            Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);
+            ((LogicalJoin) hintJoin).setHint(new DistributeHint(hint));
+            return hintJoin;
+        }
         return ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);
     }
 
@@ -301,17 +333,20 @@ public class HyperGraphBuilder {
     private HyperGraph buildHyperGraph(Plan plan) {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
-        JoinOrderJob joinOrderJob = new JoinOrderJob(cascadesContext.getMemo().getRoot(),
-                cascadesContext.getCurrentJobContext());
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         injectRowcount(cascadesContext.getMemo().getRoot());
-        HyperGraph hyperGraph = new HyperGraph();
-        joinOrderJob.buildGraph(cascadesContext.getMemo().getRoot(), hyperGraph);
-        return hyperGraph;
+        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
+    }
+
+    public static HyperGraph buildHyperGraphFromPlan(Plan plan) {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
+                plan);
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
     }
 
     private void injectRowcount(Group group) {
-        if (!group.isValidJoinGroup()) {
+        if (!HyperGraph.isValidJoin(group.getLogicalExpression().getPlan())) {
             LogicalOlapScan scanPlan = (LogicalOlapScan) group.getLogicalExpression().getPlan();
             Statistics stats = injectRowcount(scanPlan);
             group.setStatistics(stats);
@@ -327,7 +362,7 @@ public class HyperGraphBuilder {
         for (Slot slot : scanPlan.getOutput()) {
             slotIdToColumnStats.put(slot,
                     new ColumnStatistic(count, count, null, 1, 0, 0, 0,
-                            count, 1, null, null, true, null,
+                            count, null, null, true,
                             new Date().toString()));
         }
         return new Statistics(count, slotIdToColumnStats);
@@ -512,6 +547,8 @@ public class HyperGraphBuilder {
                             matchPair.stream().map(p -> Pair.of(p.second, p.first)).collect(Collectors.toList()));
                 case NULL_AWARE_LEFT_ANTI_JOIN:
                     return calLNAAJ(left, right, matchPair);
+                case CROSS_JOIN:
+                    return calFOJ(left, right, matchPair);
                 default:
                     assert false;
             }

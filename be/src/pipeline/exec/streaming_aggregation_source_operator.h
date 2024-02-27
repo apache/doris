@@ -22,6 +22,8 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/exec/aggregation_source_operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vaggregation_node.h"
 
 namespace doris {
@@ -47,7 +49,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class StreamingAggSourceOperator final : public SourceOperator<StreamingAggSourceOperatorBuilder> {
+class StreamingAggSourceOperator final : public SourceOperator<vectorized::AggregationNode> {
 public:
     StreamingAggSourceOperator(OperatorBuilderBase*, ExecNode*, std::shared_ptr<DataQueue>);
     bool can_read() override;

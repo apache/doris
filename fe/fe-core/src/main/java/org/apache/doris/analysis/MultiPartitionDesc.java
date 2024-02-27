@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.DynamicPartitionProperty;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -83,6 +84,21 @@ public class MultiPartitionDesc implements AllPartitionDesc {
         this.properties = properties;
         this.intervalTrans();
         this.trans();
+    }
+
+    /**
+     * for Nereids
+     */
+    public MultiPartitionDesc(PartitionKeyDesc partitionKeyDesc, ReplicaAllocation replicaAllocation,
+            Map<String, String> properties) throws AnalysisException {
+        this.partitionKeyDesc = partitionKeyDesc;
+        this.properties = properties;
+        this.intervalTrans();
+        this.trans();
+        for (SinglePartitionDesc desc : getSinglePartitionDescList()) {
+            desc.setReplicaAlloc(replicaAllocation);
+            desc.setAnalyzed(true);
+        }
     }
 
     public List<SinglePartitionDesc> getSinglePartitionDescList() throws AnalysisException {

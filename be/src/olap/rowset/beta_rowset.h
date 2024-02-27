@@ -45,26 +45,25 @@ using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
 
 class BetaRowset final : public Rowset {
 public:
-    virtual ~BetaRowset();
+    ~BetaRowset() override;
 
     Status create_reader(RowsetReaderSharedPtr* result) override;
 
-    std::string segment_file_path(int segment_id);
-
-    std::string segment_cache_path(int segment_id);
-
-    static bool is_segment_cache_dir(const std::string& cache_dir);
+    std::string segment_file_path(int segment_id) const;
 
     static std::string segment_file_path(const std::string& rowset_dir, const RowsetId& rowset_id,
                                          int segment_id);
 
+    // Return the absolute path of local segcompacted segment file
     static std::string local_segment_path_segcompacted(const std::string& tablet_path,
                                                        const RowsetId& rowset_id, int64_t begin,
                                                        int64_t end);
 
+    // Return the relative path of remote segment file
     static std::string remote_segment_path(int64_t tablet_id, const RowsetId& rowset_id,
                                            int segment_id);
 
+    // Return the relative path of remote segment file
     static std::string remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
                                            int segment_id);
 
@@ -92,7 +91,10 @@ public:
     Status load_segments(int64_t seg_id_begin, int64_t seg_id_end,
                          std::vector<segment_v2::SegmentSharedPtr>* segments);
 
+    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
+
     Status get_segments_size(std::vector<size_t>* segments_size);
+    Status get_inverted_index_size_by_index_id(int64_t index_id, size_t* index_size);
 
     [[nodiscard]] virtual Status add_to_binlog() override;
 
@@ -112,6 +114,10 @@ protected:
 private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
+
+    // Remote format: {remote_fs_root}/data/{tablet_id}
+    // Local format: {local_storage_root}/data/{shard_id}/{tablet_id}/{schema_hash}
+    std::string _rowset_dir;
 };
 
 } // namespace doris

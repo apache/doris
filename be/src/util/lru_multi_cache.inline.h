@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include "util/lru_multi_cache.h"
 #include "util/time.h"
 

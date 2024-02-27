@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Star-Schema-Benchmark",
+    "title": "Star Schema Benchmark",
     "language": "en"
 }
 ---

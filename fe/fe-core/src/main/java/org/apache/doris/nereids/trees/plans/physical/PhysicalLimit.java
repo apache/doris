@@ -101,6 +101,11 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
         return phase == LimitPhase.GLOBAL;
     }
 
+    public Plan withLimit(long limit) {
+        return new PhysicalLimit<>(limit, offset, phase, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, children.get(0));
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
@@ -156,12 +161,17 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalLimit[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalLimit[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "limit", limit,
                 "offset", offset,
                 "phase", phase,
                 "stats", statistics
         );
+    }
+
+    @Override
+    public String shapeInfo() {
+        return this.getClass().getSimpleName() + "[" + phase + "]";
     }
 
     @Override

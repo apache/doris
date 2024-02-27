@@ -31,6 +31,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * CheckPolicy.
@@ -40,22 +41,34 @@ public class CheckPolicy implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            RuleType.CHECK_ROW_POLICY.build(
-                logicalCheckPolicy(any().when(child -> !(child instanceof UnboundRelation))).thenApply(ctx -> {
-                    LogicalCheckPolicy<Plan> checkPolicy = ctx.root;
-                    Plan child = checkPolicy.child();
-                    if (!(child instanceof LogicalRelation)
-                            || ctx.connectContext.getSessionVariable().isPlayNereidsDump()) {
-                        return child;
-                    }
-                    LogicalRelation relation = (LogicalRelation) child;
-                    Optional<Expression> filter = checkPolicy.getFilter(relation, ctx.connectContext);
-                    if (!filter.isPresent()) {
-                        return relation;
-                    }
-                    return new LogicalFilter(ExpressionUtils.extractConjunctionToSet(filter.get()), relation);
-                })
-            )
+                RuleType.CHECK_ROW_POLICY.build(
+                        logicalCheckPolicy(any().when(child -> !(child instanceof UnboundRelation))).thenApply(ctx -> {
+                            LogicalCheckPolicy<Plan> checkPolicy = ctx.root;
+                            LogicalFilter<Plan> upperFilter = null;
+
+                            Plan child = checkPolicy.child();
+                            // Because the unique table will automatically include a filter condition
+                            if (child instanceof LogicalFilter && child.bound() && child
+                                    .child(0) instanceof LogicalRelation) {
+                                upperFilter = (LogicalFilter) child;
+                                child = child.child(0);
+                            }
+                            if (!(child instanceof LogicalRelation)
+                                    || ctx.connectContext.getSessionVariable().isPlayNereidsDump()) {
+                                return ctx.root.child();
+                            }
+                            LogicalRelation relation = (LogicalRelation) child;
+                            Optional<Expression> filter = checkPolicy.getFilter(relation, ctx.connectContext);
+                            if (!filter.isPresent()) {
+                                return ctx.root.child();
+                            }
+                            Set<Expression> combineFilter = ExpressionUtils.extractConjunctionToSet(filter.get());
+                            if (upperFilter != null) {
+                                combineFilter.addAll(upperFilter.getConjuncts());
+                            }
+                            return new LogicalFilter<>(combineFilter, relation);
+                        })
+                )
         );
     }
 }

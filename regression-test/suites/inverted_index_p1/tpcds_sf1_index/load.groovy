@@ -99,4 +99,10 @@ suite("load") {
             }
         }
     }
+
+    Thread.sleep(70000) // wait for row count report of the tables just loaded
+    for (String tableName in tables) {
+        sql """ ANALYZE TABLE $tableName WITH SYNC """
+    }
+    sql """ sync """
 }
