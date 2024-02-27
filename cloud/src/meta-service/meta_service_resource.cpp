@@ -277,8 +277,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     }
     // Iterate all the resources to return to the rpc caller
     for (const auto& resource_id : instance.resource_ids()) {
-        std::string storage_vault_k;
-        storage_vault_key({instance_id, resource_id}, &storage_vault_k);
+        std::string storage_vault_k = storage_vault_key({instance_id, resource_id});
         if (auto ret = fetch_all_storage_valut(std::move(storage_vault_k), instance_id, response,
                                                txn_kv_.get(), code, msg);
             ret != 0) {
@@ -288,6 +287,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     response->mutable_obj_info()->CopyFrom(instance.obj_info());
 }
 
+// The next avaiable vault id would be max(max(obj info id), max(vault id)) + 1.
 static std::string next_avaiable_vault_id(const InstanceInfoPB& instance) {
     std::string vault_id = "1";
     auto cmp = [](const std::string& prev, const auto& last) {
@@ -421,8 +421,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
     } break;
-    case AlterObjStoreInfoRequest::UNKNOWN:
-        break;
+    case AlterObjStoreInfoRequest::UNKNOWN: {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "Unknown alter info " + proto_to_json(*request);
+        return;
+    } break;
     }
 
     // TODO(dx): check s3 info right

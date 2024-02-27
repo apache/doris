@@ -5054,6 +5054,28 @@ TEST(MetaServiceTest, AddHdfsInfoTest) {
         ASSERT_EQ(instance.storage_vault_names().begin(), "test_alter_add_hdfs_info");
     }
 
+    // to test if the vault id is expected
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
+        AlterHdfsParams hdfs;
+        hdfs.set_vault_name("test_alter_add_hdfs_info_1");
+        HdfsParams params;
+
+        hdfs.mutable_hdfs()->CopyFrom(params);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        ASSERT_EQ(instance.resource_ids().begin() + 1, "3");
+        ASSERT_EQ(instance.storage_vault_names().begin() + 1, "test_alter_add_hdfs_info_1");
+    }
+
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
 }
