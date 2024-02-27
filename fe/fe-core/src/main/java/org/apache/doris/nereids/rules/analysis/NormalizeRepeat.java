@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -170,12 +171,11 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .flatMap(function -> function.getArguments().stream())
                 .collect(ImmutableSet.toImmutableSet());
 
-        // Set<AggregateFunction> aggregateFunctions = ExpressionUtils.collect(
-        //        repeat.getOutputExpressions(), AggregateFunction.class::isInstance);
-        List<AggregateFunction> aggFuncs = Lists.newArrayList();
-        repeat.getOutputExpressions().forEach(o -> o.accept(NormalizeAggregate.CollectNonWindowedAggFuncs.INSTANCE,
-                aggFuncs));
-        ImmutableSet<Expression> argumentsOfAggregateFunction = aggFuncs.stream()
+        List<AggregateFunction> aggregateFunctions = Lists.newArrayList();
+        repeat.getOutputExpressions().forEach(
+                o -> o.accept(PlanUtils.CollectNonWindowedAggFuncs.INSTANCE, aggregateFunctions));
+
+        ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
                 .flatMap(function -> function.getArguments().stream().map(arg -> {
                     if (arg instanceof OrderExpression) {
                         return arg.child(0);
