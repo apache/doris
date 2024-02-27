@@ -24,13 +24,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.NereidsException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -50,7 +47,6 @@ import java.time.temporal.TemporalAccessor;
 import java.util.Date;
 import java.util.Map;
 import java.util.TimeZone;
-import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -337,25 +333,5 @@ public class TimeUtils {
         return String.format("%s-%02d-%02d%s", parts[0], Integer.parseInt(parts[1]), Integer.parseInt(parts[2]),
                 parts.length > 3 ? String.format(" %02d:%02d:%02d", Integer.parseInt(parts[3]),
                         Integer.parseInt(parts[4]), Integer.parseInt(parts[5])) : "");
-    }
-
-    public static long timer(Runnable task) {
-        return timer(() -> {
-            task.run();
-            return null;
-        }).second;
-    }
-
-    public static <R> Pair<R, Long> timer(Callable<R> task) {
-        long startTime = System.currentTimeMillis();
-        try {
-            R result = task.call();
-            long finishTime = System.currentTimeMillis();
-            return Pair.of(result, finishTime - startTime);
-        } catch (Throwable t) {
-            Throwables.propagateIfInstanceOf(t, RuntimeException.class);
-            throw new NereidsException(t.getMessage(),
-                    t instanceof Exception ? (Exception) t : new IllegalStateException(t.getMessage(), t));
-        }
     }
 }
