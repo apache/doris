@@ -22,6 +22,9 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -95,5 +98,27 @@ public class PlanUtils {
                 return getAlias == null ? expr : getAlias;
             }
         }).collect(ImmutableList.toImmutableList());
+    }
+
+    /**
+     * collect non_window_agg_func
+     */
+    public static class CollectNonWindowedAggFuncs extends DefaultExpressionVisitor<Void, List<AggregateFunction>> {
+
+        public static final CollectNonWindowedAggFuncs INSTANCE = new CollectNonWindowedAggFuncs();
+
+        @Override
+        public Void visitWindow(WindowExpression windowExpression, List<AggregateFunction> context) {
+            for (Expression child : windowExpression.getExpressionsInWindowSpec()) {
+                child.accept(this, context);
+            }
+            return null;
+        }
+
+        @Override
+        public Void visitAggregateFunction(AggregateFunction aggregateFunction, List<AggregateFunction> context) {
+            context.add(aggregateFunction);
+            return null;
+        }
     }
 }
