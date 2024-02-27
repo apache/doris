@@ -56,7 +56,6 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
-                "data-table/advance-usage",
                 {
                     "type": "category",
                     "label": "Index",
@@ -1436,13 +1435,13 @@
             "type": "category",
             "label": "Release notes",
             "items": [
-                "releasenotes/release-2.0-Beta",
-                "releasenotes/release-2.0-Alpha",
                 "releasenotes/release-2.0.4",
                 "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
                 "releasenotes/release-2.0.0",
+                "releasenotes/release-2.0-Beta",
+                "releasenotes/release-2.0-Alpha",
                 "releasenotes/release-1.2.7",
                 "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",
