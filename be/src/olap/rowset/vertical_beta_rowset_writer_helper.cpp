@@ -42,7 +42,7 @@ namespace doris {
 using namespace ErrorCode;
 
 VerticalBetaRowsetWriterHelper::VerticalBetaRowsetWriterHelper(std::vector<std::unique_ptr<segment_v2::SegmentWriter>>* segment_writers,
-            bool already_built, RowsetMetaSharedPtr rowset_meta, std::atomic<int32_t>* num_segment,
+            bool already_built, RowsetMetaSharedPtr& rowset_meta, std::atomic<int32_t>* num_segment,
             RowsetWriterContext& context, std::atomic<int64_t>* num_rows_written,
             std::vector<KeyBoundsPB>* segments_encoded_key_bounds, std::vector<uint32_t>* segment_num_rows,
             std::atomic<int64_t>* total_index_size, std::vector<io::FileWriterPtr>* file_writers,
@@ -60,7 +60,7 @@ VerticalBetaRowsetWriterHelper::VerticalBetaRowsetWriterHelper(std::vector<std::
         _total_data_size(total_data_size),
         _lock(lock) {}
 
-VerticalBetaRowsetWriterHelper::~VerticalBetaRowsetWriterHelper() {
+void VerticalBetaRowsetWriterHelper::destruct_writer() {
     if (!_already_built) {
         const auto& fs = _rowset_meta->fs();
         if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
@@ -195,7 +195,9 @@ Status VerticalBetaRowsetWriterHelper::_create_segment_writer(
         return Status::Error<INIT_FAILED>("get fs failed");
     }
     io::FileWriterPtr file_writer;
-    Status st = fs->create_file(path, &file_writer);
+    io::FileWriterOptions opts;
+    opts.create_empty_file = false;
+    Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
