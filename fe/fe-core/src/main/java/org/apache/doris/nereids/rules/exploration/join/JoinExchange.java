@@ -89,14 +89,14 @@ public class JoinExchange extends OneExplorationRuleFactory {
 
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
-                            new DistributeHint(DistributeType.NONE), a, c);
+                            new DistributeHint(DistributeType.NONE), a, c, null);
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
-                            new DistributeHint(DistributeType.NONE), b, d);
+                            new DistributeHint(DistributeType.NONE), b, d, null);
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts,
                             new DistributeHint(DistributeType.NONE),
-                            newLeftJoin, newRightJoin);
+                            newLeftJoin, newRightJoin, null);
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 
                     return newTopJoin;
@@ -107,7 +107,7 @@ public class JoinExchange extends OneExplorationRuleFactory {
      * check reorder masks.
      */
     public static boolean checkReorder(LogicalJoin<? extends Plan, ? extends Plan> topJoin) {
-        if (topJoin.getJoinReorderContext().isLeadingJoin()
+        if (topJoin.isLeadingJoin()
                 || isChildLeadingJoin(topJoin.left()) || isChildLeadingJoin(topJoin.right())) {
             return false;
         }
@@ -128,11 +128,11 @@ public class JoinExchange extends OneExplorationRuleFactory {
      */
     public static boolean isChildLeadingJoin(Plan child) {
         if (child instanceof LogicalProject) {
-            if (((LogicalJoin) (child.child(0))).getJoinReorderContext().isLeadingJoin()) {
+            if (((LogicalJoin) (child.child(0))).isLeadingJoin()) {
                 return true;
             }
         } else if (child instanceof LogicalJoin) {
-            if (((LogicalJoin) child).getJoinReorderContext().isLeadingJoin()) {
+            if (((LogicalJoin) child).isLeadingJoin()) {
                 return true;
             }
         }

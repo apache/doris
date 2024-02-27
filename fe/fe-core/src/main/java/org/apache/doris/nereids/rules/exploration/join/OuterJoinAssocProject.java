@@ -86,7 +86,7 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                     }
 
                     /* ********** new Plan ********** */
-                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c);
+                    LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c, null);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
 
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
@@ -95,7 +95,7 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                     Plan left = CBOUtils.newProject(topUsedExprIds, a);
                     Plan right = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
 
-                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right);
+                    LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     OuterJoinAssoc.setReorderContext(newTopJoin, newBottomJoin);
 

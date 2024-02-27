@@ -81,7 +81,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             .thenApply(ctx -> {
                 if (ctx.statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
                         || ctx.cascadesContext.isLeadingDisableJoinReorder()
-                        || ((LogicalJoin<?, ?>) ctx.root.child()).getJoinReorderContext().isLeadingJoin()) {
+                        || ((LogicalJoin<?, ?>) ctx.root.child()).isLeadingJoin()) {
                     return null;
                 }
                 LogicalFilter<Plan> filter = ctx.root;
@@ -288,7 +288,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                     new DistributeHint(DistributeType.fromRightPlanHintType(
                             planToHintType.getOrDefault(right, JoinDistributeType.NONE))),
                     Optional.empty(),
-                    left, right));
+                    left, right, null));
         }
 
         // following this multiJoin just contain INNER/CROSS.
@@ -364,7 +364,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                         new DistributeHint(DistributeType.fromRightPlanHintType(
                                 planToHintType.getOrDefault(candidate, JoinDistributeType.NONE))),
                         Optional.empty(),
-                        left, candidate);
+                        left, candidate, null);
             }
         }
         // All { left -> one in [candidates] } is CrossJoin
@@ -377,7 +377,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 new DistributeHint(DistributeType.fromRightPlanHintType(
                         planToHintType.getOrDefault(right, JoinDistributeType.NONE))),
                 Optional.empty(),
-                left, right);
+                left, right, null);
     }
 
     private boolean nonJoinAndNonFilter(Plan plan) {

@@ -74,7 +74,7 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
                     }
 
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(
-                            newBottomHashConjuncts, newBottomOtherConjuncts, b, c);
+                            newBottomHashConjuncts, newBottomOtherConjuncts, b, c, null);
 
                     // new Project.
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
@@ -84,7 +84,7 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
                     Plan right = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
-                            newTopHashConjuncts, newTopOtherConjuncts, left, right);
+                            newTopHashConjuncts, newTopOtherConjuncts, left, right, null);
                     newTopJoin.getJoinReorderContext().setHasRightAssociate(true);
 
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
@@ -95,8 +95,8 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
      * Check JoinReorderContext
      */
     public static boolean checkReorder(LogicalJoin<? extends Plan, GroupPlan> topJoin) {
-        if (topJoin.getJoinReorderContext().isLeadingJoin()
-                || ((LogicalJoin) topJoin.left().child(0)).getJoinReorderContext().isLeadingJoin()) {
+        if (topJoin.isLeadingJoin()
+                || ((LogicalJoin) topJoin.left().child(0)).isLeadingJoin()) {
             return false;
         }
         return !topJoin.getJoinReorderContext().hasCommute()

@@ -65,7 +65,7 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                 ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE),
                 apply.getMarkJoinSlotReference(),
-                (LogicalPlan) apply.left(), assertNumRows);
+                (LogicalPlan) apply.left(), assertNumRows, null);
     }
 
     private Plan correlatedToJoin(LogicalApply apply) {
@@ -88,6 +88,6 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                 ExpressionUtils.extractConjunction(correlationFilter.get()),
                 new DistributeHint(DistributeType.NONE),
                 apply.getMarkJoinSlotReference(),
-                apply.children());
+                apply.children(), null);
     }
 }
