@@ -41,6 +41,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Sets.SetView;
@@ -184,10 +185,12 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .flatMap(function -> function.getArguments().stream())
                 .collect(ImmutableSet.toImmutableSet());
 
-        Set<AggregateFunction> aggregateFunctions = ExpressionUtils.collect(
-                repeat.getOutputExpressions(), AggregateFunction.class::isInstance);
-
-        ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
+        // Set<AggregateFunction> aggregateFunctions = ExpressionUtils.collect(
+        //        repeat.getOutputExpressions(), AggregateFunction.class::isInstance);
+        List<AggregateFunction> aggFuncs = Lists.newArrayList();
+        repeat.getOutputExpressions().forEach(o -> o.accept(NormalizeAggregate.CollectNonWindowedAggFuncs.INSTANCE,
+                aggFuncs));
+        ImmutableSet<Expression> argumentsOfAggregateFunction = aggFuncs.stream()
                 .flatMap(function -> function.getArguments().stream().map(arg -> {
                     if (arg instanceof OrderExpression) {
                         return arg.child(0);
