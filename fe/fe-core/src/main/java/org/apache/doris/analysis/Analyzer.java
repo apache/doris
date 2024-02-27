@@ -472,6 +472,7 @@ public class Analyzer {
             rules.add(ElementAtToSlotRefRule.INSTANCE);
             rules.add(FunctionAlias.INSTANCE);
             rules.add(CaseWhenToIf.INSTANCE);
+            rules.add(CountDistinctToBitmapOrHLLRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);
@@ -480,7 +481,6 @@ public class Analyzer {
             List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();
             mvRewriteRules.add(new ExprToSlotRefRule());
             mvRewriteRules.add(ToBitmapToSlotRefRule.INSTANCE);
-            mvRewriteRules.add(CountDistinctToBitmapOrHLLRule.INSTANCE);
             mvRewriteRules.add(CountDistinctToBitmap.INSTANCE);
             mvRewriteRules.add(NDVToHll.INSTANCE);
             mvRewriteRules.add(HLLHashToSlotRefRule.INSTANCE);

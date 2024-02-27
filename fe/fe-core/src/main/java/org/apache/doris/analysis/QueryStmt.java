@@ -275,10 +275,15 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     }
 
     protected Expr rewriteQueryExprByMvColumnExpr(Expr expr, Analyzer analyzer) throws AnalysisException {
-        if (analyzer == null || analyzer.getMVExprRewriter() == null || forbiddenMVRewrite) {
+        if (analyzer == null || analyzer.getMVExprRewriter() == null) {
             return expr;
         }
-        ExprRewriter rewriter = analyzer.getMVExprRewriter();
+        ExprRewriter rewriter;
+        if (forbiddenMVRewrite) {
+            rewriter = analyzer.getExprRewriter();
+        } else {
+            rewriter = analyzer.getMVExprRewriter();
+        }
         rewriter.reset();
         rewriter.setInfoMVRewriter(disableTuplesMVRewriter, mvSMap, aliasSMap);
         rewriter.setUpBottom();
