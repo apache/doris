@@ -35,6 +35,7 @@ echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
 if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger not set" && exit 1; fi
 if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
+if [[ -z "${oss_ak}" || -z "${oss_sk}" ]]; then echo "ERROR: env oss_ak or oss_sk not set." && exit 1; fi
 
 echo "#### Deploy Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
