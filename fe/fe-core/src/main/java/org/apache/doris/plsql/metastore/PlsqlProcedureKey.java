@@ -37,29 +37,29 @@ public class PlsqlProcedureKey implements Writable {
     @SerializedName(value = "name")
     private String name;
 
-    @SerializedName(value = "catalogName")
-    private String catalogName;
+    @SerializedName(value = "catalogId")
+    private long catalogId;
 
     @SerializedName(value = "dbId")
     private long dbId;
 
-    public PlsqlProcedureKey(String name, String catalogName, long dbId) {
+    public PlsqlProcedureKey(String name, long catalogId, long dbId) {
         this.name = name;
-        this.catalogName = catalogName;
+        this.catalogId = catalogId;
         this.dbId = dbId;
     }
 
     public TPlsqlProcedureKey toThrift() {
-        return new TPlsqlProcedureKey().setName(name).setCatalogName(catalogName).setDbId(dbId);
+        return new TPlsqlProcedureKey().setName(name).setCatalogId(catalogId).setDbId(dbId);
     }
 
     public static PlsqlProcedureKey fromThrift(TPlsqlProcedureKey key) {
-        return new PlsqlProcedureKey(key.getName(), key.getCatalogName(), key.getDbId());
+        return new PlsqlProcedureKey(key.getName(), key.getCatalogId(), key.getDbId());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, catalogName, dbId);
+        return Objects.hash(name, catalogId, dbId);
     }
 
     @Override
@@ -67,14 +67,14 @@ public class PlsqlProcedureKey implements Writable {
         if (!(obj instanceof PlsqlProcedureKey)) {
             return false;
         }
-        return Objects.equals(this.name, ((PlsqlProcedureKey) obj).name) && Objects.equals(this.catalogName,
-                ((PlsqlProcedureKey) obj).catalogName)
+        return Objects.equals(this.name, ((PlsqlProcedureKey) obj).name) && Objects.equals(this.catalogId,
+                ((PlsqlProcedureKey) obj).catalogId)
                 && Objects.equals(this.dbId, ((PlsqlProcedureKey) obj).dbId);
     }
 
     @Override
     public String toString() {
-        return "name:" + name + ", catalogName:" + catalogName + ", dbId:" + dbId;
+        return "name:" + name + ", catalogName:" + catalogId + ", dbId:" + dbId;
     }
 
     @Override

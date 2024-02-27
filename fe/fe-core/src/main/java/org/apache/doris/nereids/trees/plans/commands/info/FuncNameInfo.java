@@ -38,9 +38,10 @@ import java.util.Optional;
 public class FuncNameInfo {
     private final List<String> nameParts;
     private String ctl = "";
+    private long ctlId = -1;
     private String db = "";
-    private final String name;
     private long dbId = -1;
+    private final String name;
     private boolean isAnalyzed = false;
 
     /**
@@ -106,17 +107,16 @@ public class FuncNameInfo {
                     ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
                 }
             }
+            ctlId = ctx.getCatalog(ctl).getId();
             if (Strings.isNullOrEmpty(db)) {
                 db = ctx.getDatabase();
                 if (Strings.isNullOrEmpty(db)) {
-                    Optional<DatabaseIf> dbInstance = ctx.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)
-                            .getDb(FeConstants.INTERNAL_DB_NAME);
-                    db = dbInstance.map(DatabaseIf::getFullName).orElse("");
-                    dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
-                } else {
-                    Optional<DatabaseIf> dbInstance = ctx.getCatalog(ctl).getDb(db);
-                    dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
+                    db = FeConstants.INTERNAL_DB_NAME;
                 }
+            }
+            if (Strings.isNullOrEmpty(db)) {
+                Optional<DatabaseIf> dbInstance = ctx.getCatalog(ctl).getDb(db);
+                dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
             }
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("procedure/function/package name is null");
@@ -138,6 +138,16 @@ public class FuncNameInfo {
     }
 
     /**
+     * get catalog id
+     *
+     * @return ctlId
+     */
+    public long getCtlId() {
+        analyze(ConnectContext.get());
+        return ctlId;
+    }
+
+    /**
      * get db name
      *
      * @return dbName
@@ -145,16 +155,6 @@ public class FuncNameInfo {
     public String getDbName() {
         analyze(ConnectContext.get());
         return db == null ? "" : db;
-    }
-
-    /**
-     * get table name
-     *
-     * @return tableName
-     */
-    public String getName() {
-        analyze(ConnectContext.get());
-        return name == null ? "" : name;
     }
 
     /**
@@ -167,9 +167,18 @@ public class FuncNameInfo {
         return dbId;
     }
 
+    /**
+     * get table name
+     *
+     * @return tableName
+     */
+    public String getName() {
+        analyze(ConnectContext.get());
+        return name == null ? "" : name;
+    }
+
     public String toString() {
         analyze(ConnectContext.get());
-        return nameParts.stream().map(Utils::quoteIfNeeded)
-                .reduce((left, right) -> left + "." + right).orElse("");
+        return nameParts.stream().map(Utils::quoteIfNeeded).reduce((left, right) -> left + "." + right).orElse("");
     }
 }

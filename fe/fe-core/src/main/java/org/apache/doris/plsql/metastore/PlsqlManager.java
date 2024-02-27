@@ -49,7 +49,7 @@ public class PlsqlManager implements Writable {
     }
 
     public void addPlsqlStoredProcedure(PlsqlStoredProcedure procedure, boolean isForce) {
-        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(procedure.getName(), procedure.getCatalogName(),
+        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(procedure.getName(), procedure.getCatalogId(),
                 procedure.getDbId());
         if (isForce) {
             nameToStoredProcedures.put(plsqlProcedureKey, procedure);
@@ -61,7 +61,7 @@ public class PlsqlManager implements Writable {
     }
 
     public void replayAddPlsqlStoredProcedure(PlsqlStoredProcedure procedure) {
-        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(procedure.getName(), procedure.getCatalogName(),
+        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(procedure.getName(), procedure.getCatalogId(),
                 procedure.getDbId());
         nameToStoredProcedures.put(plsqlProcedureKey, procedure);
         LOG.info("Replay add stored procedure success: {}", plsqlProcedureKey);
@@ -83,7 +83,7 @@ public class PlsqlManager implements Writable {
     }
 
     public void addPackage(PlsqlPackage pkg, boolean isForce) {
-        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(pkg.getName(), pkg.getCatalogName(),
+        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(pkg.getName(), pkg.getCatalogId(),
                 pkg.getDbId());
         nameToPackages.put(plsqlProcedureKey, pkg);
         if (isForce) {
@@ -96,7 +96,7 @@ public class PlsqlManager implements Writable {
     }
 
     public void replayAddPlsqlPackage(PlsqlPackage pkg) {
-        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(pkg.getName(), pkg.getCatalogName(),
+        PlsqlProcedureKey plsqlProcedureKey = new PlsqlProcedureKey(pkg.getName(), pkg.getCatalogId(),
                 pkg.getDbId());
         nameToPackages.put(plsqlProcedureKey, pkg);
         LOG.info("Replay add plsql package success: {}", plsqlProcedureKey);

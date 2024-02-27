@@ -66,7 +66,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
     @Override
     public void remove(FuncNameInfo procedureName) {
         try {
-            client.dropPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(), procedureName.getDbId());
+            client.dropPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtlId(), procedureName.getDbId());
         } catch (Exception e) {
             throw new RuntimeException("failed to remove procedure", e);
         }
@@ -151,7 +151,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
     }
 
     private Optional<PlsqlStoredProcedure> getProc(FuncNameInfo procedureName) {
-        return Optional.ofNullable(client.getPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(),
+        return Optional.ofNullable(client.getPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtlId(),
                 procedureName.getDbId()));
     }
 
@@ -197,7 +197,8 @@ public class DorisFunctionRegistry implements FunctionRegistry {
     public void save(FuncNameInfo procedureName, String source, boolean isForce) {
         try {
             // TODO support packageName
-            client.addPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtl(), procedureName.getDbId(), "",
+            client.addPlsqlStoredProcedure(procedureName.getName(), procedureName.getCtlId(), procedureName.getDbId(),
+                    "",
                     ConnectContext.get().getQualifiedUser(), source, isForce);
         } catch (Exception e) {
             throw new RuntimeException("failed to save procedure", e);

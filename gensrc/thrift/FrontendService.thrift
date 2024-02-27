@@ -1160,7 +1160,7 @@ struct TRestoreSnapshotResult {
 
 struct TPlsqlStoredProcedure {
     1: optional string name
-    2: optional string catalogName
+    2: optional i64 catalogId
     3: optional i64 dbId
     4: optional string packageName
     5: optional string ownerName
@@ -1169,7 +1169,7 @@ struct TPlsqlStoredProcedure {
 
 struct TPlsqlPackage {
     1: optional string name
-    2: optional string catalogName
+    2: optional i64 catalogId
     3: optional i64 dbId
     4: optional string ownerName
     5: optional string header
@@ -1178,7 +1178,7 @@ struct TPlsqlPackage {
 
 struct TPlsqlProcedureKey {
     1: optional string name
-    2: optional string catalogName
+    2: optional i64 catalogId
     3: optional i64 dbId
 }
 
