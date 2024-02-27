@@ -1220,7 +1220,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (columnCtx.EXCEPT() != null) {
                     throw new ParseException("select-except cannot be used in one row relation", selectCtx);
                 }
-                relation = withOneRowRelation(columnCtx);
+                relation = new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
+                        ImmutableList.of(new UnboundAlias(Literal.of(0))));
             } else {
                 relation = visitFromClause(ctx.fromClause());
             }
