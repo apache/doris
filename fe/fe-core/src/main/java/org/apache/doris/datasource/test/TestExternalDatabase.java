@@ -28,7 +28,7 @@ public class TestExternalDatabase extends ExternalDatabase<TestExternalTable> {
     }
 
     @Override
-    protected TestExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected TestExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new TestExternalTable(tblId, tableName, name, (TestExternalCatalog) extCatalog);
     }
 }
