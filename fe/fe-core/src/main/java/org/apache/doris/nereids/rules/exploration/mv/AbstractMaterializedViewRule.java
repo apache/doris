@@ -493,26 +493,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         : ExpressionUtils.and(residualCompensatePredicates));
     }
 
-    private boolean containsNullRejectSlot(Set<Set<Slot>> requireNoNullableViewSlot,
-            Set<Expression> queryPredicates,
-            SlotMapping queryToViewMapping,
-            CascadesContext cascadesContext) {
-        Set<Expression> queryPulledUpPredicates = queryPredicates.stream()
-                .flatMap(expr -> ExpressionUtils.extractConjunction(expr).stream())
-                .collect(Collectors.toSet());
-        Set<Expression> nullRejectPredicates = ExpressionUtils.inferNotNull(queryPulledUpPredicates,
-                cascadesContext);
-        Set<Expression> queryUsedNeedRejectNullSlotsViewBased = nullRejectPredicates.stream()
-                .map(expression -> TypeUtils.isNotNull(expression).orElse(null))
-                .filter(Objects::nonNull)
-                .map(expr -> ExpressionUtils.replace((Expression) expr, queryToViewMapping.toSlotReferenceMap()))
-                .collect(Collectors.toSet());
-        // query pulledUp predicates should have null reject predicates and contains any require noNullable slot
-        return !queryPulledUpPredicates.containsAll(nullRejectPredicates)
-                && requireNoNullableViewSlot.stream().noneMatch(
-                        set -> Sets.intersection(set, queryUsedNeedRejectNullSlotsViewBased).isEmpty());
-    }
-
     /**
      * Check the queryPredicates contains the required nullable slot
      */
