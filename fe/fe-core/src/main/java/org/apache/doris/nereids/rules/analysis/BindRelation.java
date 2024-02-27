@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -26,6 +27,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -59,6 +61,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
@@ -251,8 +255,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case MATERIALIZED_VIEW:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
-                Plan viewPlan = parseAndAnalyzeView(((View) table).getInlineViewDef(), cascadesContext);
-                return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
+                String inlineViewDef = ((View) table).getInlineViewDef();
+                Plan viewBody = parseAndAnalyzeView(inlineViewDef, cascadesContext);
+                DatabaseIf database = table.getDatabase();
+                CatalogIf catalog = database.getCatalog();
+                LogicalView<Plan> logicalView = new LogicalView<>(
+                        catalog.getName(), database.getFullName(), table.getName(), inlineViewDef, viewBody);
+                return new LogicalSubQueryAlias<>(tableQualifier, logicalView);
             case HMS_EXTERNAL_TABLE:
                 if (Config.enable_query_hive_views && ((HMSExternalTable) table).isView()) {
                     String hiveCatalog = ((HMSExternalTable) table).getCatalog().getName();
@@ -276,6 +285,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 return new LogicalOdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
             case ES_EXTERNAL_TABLE:
                 return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table, tableQualifier);
+            case TEST_EXTERNAL_TABLE:
+                return new LogicalTestScan(unboundRelation.getRelationId(), table, tableQualifier);
             default:
                 throw new AnalysisException("Unsupported tableType " + table.getType());
         }
