@@ -90,8 +90,7 @@ public:
 
     [[nodiscard]] bool is_source() const override { return true; }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
 private:
     friend class SetSourceLocalState<is_intersect>;
@@ -102,7 +101,7 @@ private:
     template <typename HashTableContext>
     Status _get_data_in_hashtable(SetSourceLocalState<is_intersect>& local_state,
                                   HashTableContext& hash_table_ctx, vectorized::Block* output_block,
-                                  const int batch_size, SourceState& source_state);
+                                  const int batch_size, bool* eos);
 
     void _add_result_columns(SetSourceLocalState<is_intersect>& local_state,
                              vectorized::RowRefListWithFlags& value, int& block_size);
