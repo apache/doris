@@ -124,8 +124,8 @@ public class CascadesContext implements ScheduleContext {
     private final boolean shouldCheckRelationAuthentication;
     private final ThreadLocal<Boolean> showPlanProcess = new ThreadLocal<>();
 
-    // This list is used to listen the event of the plan change trigger by rule
-    // and show by `explain plan process` statement
+    // This list is used to listen the change event of the plan which
+    // trigger by rule and show by `explain plan process` statement
     private final List<PlanProcess> planProcesses = new ArrayList<>();
 
     /**
