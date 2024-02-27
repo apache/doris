@@ -77,6 +77,7 @@
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/hash_util.hpp"
 #include "util/mem_info.h"
@@ -119,6 +120,9 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
     REGISTER_HOOK_METRIC(fragment_instance_count,
                          [this]() { return _fragment_instance_map.size(); });
+
+    entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
+    REGISTER_INIT_UINT64_BVAR_METRIC(entity_, timeout_canceled_fragment_count_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(), false)
 
     auto s = Thread::create(
             "FragmentMgr", "cancel_timeout_plan_fragment", [this]() { this->cancel_worker(); },
@@ -1148,6 +1152,7 @@ void FragmentMgr::cancel_worker() {
         // TODO(zhiqiang): It seems that timeout_canceled_fragment_count is
         // designed to count canceled fragment of non-pipeline query.
         timeout_canceled_fragment_count->increment(to_cancel.size());
+        timeout_canceled_fragment_count_->increment(to_cancel.size());
         for (auto& id : to_cancel) {
             cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT);
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout instance "

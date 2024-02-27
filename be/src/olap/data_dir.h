@@ -32,6 +32,7 @@
 
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "util/bvar_metrics.h"
 #include "util/metrics.h"
 
 namespace doris {
@@ -199,6 +200,15 @@ private:
     IntGauge* disks_state = nullptr;
     IntGauge* disks_compaction_score = nullptr;
     IntGauge* disks_compaction_num = nullptr;
+    std::shared_ptr<BvarMetricEntity> data_dir_metric_entity_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> disks_total_capacity_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> disks_avail_capacity_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> disks_local_used_capacity_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> disks_remote_used_capacity_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> disks_trash_used_capacity_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> disks_state_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> disks_compaction_score_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> disks_compaction_num_;
 };
 
 } // namespace doris

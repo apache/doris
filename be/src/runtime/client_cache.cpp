@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
 
@@ -30,7 +31,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_used_clients, MetricUnit::NOUNIT,
                                    "Number of clients 'checked-out' from the cache");
 DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_opened_clients, MetricUnit::NOUNIT,
                                    "Total clients in the cache, including those in use");
-
 ClientCacheHelper::~ClientCacheHelper() {
     for (auto& it : _client_map) {
         delete it.second;
@@ -65,6 +65,7 @@ Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, ClientFact
 
     if (_metrics_enabled) {
         thrift_used_clients->increment(1);
+        thrift_used_clients_->increment(1);
     }
 
     return Status::OK();
@@ -97,6 +98,7 @@ Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, void** cl
 
     if (_metrics_enabled) {
         thrift_opened_clients->increment(-1);
+        thrift_opened_clients_->increment(-1);
     }
 
     RETURN_IF_ERROR(_create_client(make_network_address(ipaddress, port), factory_method,
@@ -134,6 +136,7 @@ Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
 
     if (_metrics_enabled) {
         thrift_opened_clients->increment(1);
+        thrift_opened_clients_->increment(1);
     }
 
     return Status::OK();
@@ -167,11 +170,13 @@ void ClientCacheHelper::release_client(void** client_key) {
         delete client_to_close;
         if (_metrics_enabled) {
             thrift_opened_clients->increment(-1);
+            thrift_opened_clients_->increment(-1);
         }
     }
 
     if (_metrics_enabled) {
         thrift_used_clients->increment(-1);
+        thrift_used_clients_->increment(-1);
     }
 
     *client_key = nullptr;
@@ -204,6 +209,11 @@ void ClientCacheHelper::init_metrics(const std::string& name) {
     INT_GAUGE_METRIC_REGISTER(_thrift_client_metric_entity, thrift_used_clients);
     INT_GAUGE_METRIC_REGISTER(_thrift_client_metric_entity, thrift_opened_clients);
 
+    thrift_client_metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
+            std::string("thrift_client.") + name, {{"name", name}});
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_client_metric_entity_, thrift_used_clients_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "Number of clients 'checked-out' from the cache", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_client_metric_entity_, thrift_opened_clients_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "Total clients in the cache, including those in use", "", Labels(), false)
+    
     _metrics_enabled = true;
 }
 

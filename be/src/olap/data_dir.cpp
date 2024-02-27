@@ -135,6 +135,17 @@ DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacit
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_num);
+    data_dir_metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
+            std::string("data_dir.") + path, {{"path", path}});
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_total_capacity_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_avail_capacity_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_local_used_capacity_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_remote_used_capacity_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_trash_used_capacity_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_state_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_score_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(data_dir_metric_entity_, disks_compaction_num_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(), false)
+    
 }
 
 DataDir::~DataDir() {
@@ -238,6 +249,7 @@ void DataDir::health_check() {
         }
     }
     disks_state->set_value(_is_used ? 1 : 0);
+    disks_state_->set_value(_is_used ? 1 : 0);
 }
 
 Status DataDir::_read_and_write_test_file() {
@@ -855,6 +867,8 @@ Status DataDir::update_capacity() {
                                                                   &_available_bytes));
     disks_total_capacity->set_value(_disk_capacity_bytes);
     disks_avail_capacity->set_value(_available_bytes);
+    disks_total_capacity_->set_value(_disk_capacity_bytes);
+    disks_avail_capacity_->set_value(_available_bytes);
     LOG(INFO) << "path: " << _path << " total capacity: " << _disk_capacity_bytes
               << ", available capacity: " << _available_bytes << ", usage: " << get_usage(0)
               << ", in_use: " << is_used();
@@ -871,15 +885,18 @@ void DataDir::update_trash_capacity() {
         return;
     }
     disks_trash_used_capacity->set_value(_trash_used_bytes);
+    disks_trash_used_capacity_->set_value(_trash_used_bytes);
     LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes;
 }
 
 void DataDir::update_local_data_size(int64_t size) {
     disks_local_used_capacity->set_value(size);
+    disks_local_used_capacity_->set_value(size);
 }
 
 void DataDir::update_remote_data_size(int64_t size) {
     disks_remote_used_capacity->set_value(size);
+    disks_remote_used_capacity_->set_value(size);
 }
 
 size_t DataDir::tablet_size() const {
@@ -901,10 +918,12 @@ bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
 
 void DataDir::disks_compaction_score_increment(int64_t delta) {
     disks_compaction_score->increment(delta);
+    disks_compaction_score_->increment(delta);
 }
 
 void DataDir::disks_compaction_num_increment(int64_t delta) {
     disks_compaction_num->increment(delta);
+    disks_compaction_num_->increment(delta);
 }
 
 Status DataDir::move_to_trash(const std::string& tablet_path) {

@@ -58,6 +58,8 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "util/bvar_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/histogram.h"
 #include "util/metrics.h"
@@ -265,7 +267,7 @@ bool TabletManager::_check_tablet_id_exist_unlocked(TTabletId tablet_id) {
 Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores,
                                     RuntimeProfile* profile) {
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
-
+    g_adder_create_tablet_requests_total.increment(1);
     int64_t tablet_id = request.tablet_id;
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id
               << ", table_id=" << request.table_id << ", partition_id=" << request.partition_id
@@ -319,6 +321,7 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         }
         if (base_tablet == nullptr) {
             DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
+            g_adder_create_tablet_requests_failed.increment(1);
             return Status::Error<TABLE_CREATE_META_ERROR>(
                     "fail to create tablet(change schema), base tablet does not exist. "
                     "new_tablet_id={}, base_tablet_id={}",
@@ -338,6 +341,7 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
                                                               base_tablet.get(), stores, profile);
     if (tablet == nullptr) {
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
+        g_adder_create_tablet_requests_failed.increment(1);
         return Status::Error<CE_CMD_PARAMS_ERROR>("fail to create tablet. tablet_id={}",
                                                   request.tablet_id);
     }
@@ -533,7 +537,7 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id
               << ", is_drop_table_or_partition=" << is_drop_table_or_partition;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
-
+    g_adder_drop_tablet_requests_total.increment(1);
     // Fetch tablet which need to be dropped
     TabletSharedPtr to_drop_tablet = _get_tablet_unlocked(tablet_id);
     if (to_drop_tablet == nullptr) {
@@ -1031,6 +1035,8 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
     }
     DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(
             tablet_version_num_hist);
+    // g_adder_tablet_version_num_distribution.set_histogram(
+    //         tablet_version_num_hist);
     LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();
 }
 
