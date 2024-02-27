@@ -2717,14 +2717,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
 
+            boolean showPlanProcess = false;
             if (ctx.level != null) {
                 if (!ctx.level.getText().equalsIgnoreCase("plan")) {
                     explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
                 } else {
                     explainLevel = parseExplainPlanType(ctx.planType());
+
+                    if (ctx.PROCESS() != null) {
+                        showPlanProcess = true;
+                    }
                 }
             }
-            return new ExplainCommand(explainLevel, inputPlan);
+            return new ExplainCommand(explainLevel, inputPlan, showPlanProcess);
         });
     }
 
