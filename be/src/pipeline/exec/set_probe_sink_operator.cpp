@@ -105,7 +105,7 @@ Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
 
 template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
-                                                 SourceState source_state) {
+                                                 bool eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -129,7 +129,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                 *local_state._shared_state->hash_table_variants));
     }
 
-    if (source_state == SourceState::FINISHED) {
+    if (eos) {
         _finalize_probe(local_state);
     }
     return Status::OK();

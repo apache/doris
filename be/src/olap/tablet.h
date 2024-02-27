@@ -184,8 +184,6 @@ public:
 
     std::shared_timed_mutex& get_migration_lock() { return _migration_lock; }
 
-    std::mutex& get_schema_change_lock() { return _schema_change_lock; }
-
     std::mutex& get_build_inverted_index_lock() { return _build_inverted_index_lock; }
 
     // operation for compaction
@@ -506,7 +504,6 @@ private:
     std::mutex _ingest_lock;
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
-    std::mutex _schema_change_lock;
     std::shared_timed_mutex _migration_lock;
     std::mutex _build_inverted_index_lock;
 

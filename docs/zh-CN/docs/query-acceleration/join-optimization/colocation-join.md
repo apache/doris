@@ -401,7 +401,7 @@ Doris 提供了几个和 Colocation Join 有关的 HTTP Restful API，用于查�
    - 标记为 Stable
 
      ```text
-     POST /api/colocate/group_stable?db_id=10005&group_id=10008
+     DELETE /api/colocate/group_stable?db_id=10005&group_id=10008
      
      返回：200
      ```
@@ -409,7 +409,7 @@ Doris 提供了几个和 Colocation Join 有关的 HTTP Restful API，用于查�
    - 标记为 Unstable
 
      ```text
-     DELETE /api/colocate/group_stable?db_id=10005&group_id=10008
+     POST /api/colocate/group_stable?db_id=10005&group_id=10008
      
      返回：200
      ```

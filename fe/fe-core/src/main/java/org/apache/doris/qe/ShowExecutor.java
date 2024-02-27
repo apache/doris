@@ -36,6 +36,7 @@ import org.apache.doris.analysis.ShowBrokerStmt;
 import org.apache.doris.analysis.ShowBuildIndexStmt;
 import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
+import org.apache.doris.analysis.ShowCharsetStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnHistStmt;
@@ -347,6 +348,8 @@ public class ShowExecutor {
             handleShowData();
         } else if (stmt instanceof ShowQueryStatsStmt) {
             handleShowQueryStats();
+        } else if (stmt instanceof ShowCharsetStmt) {
+            handleShowCharset();
         } else if (stmt instanceof ShowCollationStmt) {
             handleShowCollation();
         } else if (stmt instanceof ShowPartitionsStmt) {
@@ -1701,14 +1704,28 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
+    // Show character set.
+    private void handleShowCharset() throws AnalysisException {
+        ShowCharsetStmt showStmt = (ShowCharsetStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        // | utf8mb4 | UTF-8 Unicode | utf8mb4_general_ci | 4|
+        row.add(ctx.getSessionVariable().getCharsetServer());
+        row.add("UTF-8 Unicode");
+        row.add(ctx.getSessionVariable().getCollationConnection());
+        row.add("4");
+        rows.add(row);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
     // Show alter statement.
     private void handleShowCollation() throws AnalysisException {
         ShowCollationStmt showStmt = (ShowCollationStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
         // | utf8mb4_0900_bin | utf8mb4 | 309 | Yes | Yes | 1 |
-        row.add("utf8mb4_0900_bin");
-        row.add("utf8mb4");
+        row.add(ctx.getSessionVariable().getCollationConnection());
+        row.add(ctx.getSessionVariable().getCharsetServer());
         row.add("309");
         row.add("Yes");
         row.add("Yes");

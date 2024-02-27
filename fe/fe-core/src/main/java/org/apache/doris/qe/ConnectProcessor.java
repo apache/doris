@@ -211,6 +211,7 @@ public abstract class ConnectProcessor {
 
         List<StatementBase> stmts = null;
         Exception nereidsParseException = null;
+        long parseSqlStartTime = System.currentTimeMillis();
         // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
         if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
@@ -255,6 +256,7 @@ public abstract class ConnectProcessor {
                 LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", convertedStmt);
             }
         }
+        long parseSqlFinishTime = System.currentTimeMillis();
 
         boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
         for (int i = 0; i < stmts.size(); ++i) {
@@ -269,6 +271,8 @@ public abstract class ConnectProcessor {
             parsedStmt.setOrigStmt(new OriginStatement(convertedStmt, i));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
+            executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
+            executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
             ctx.setExecutor(executor);
 
             try {

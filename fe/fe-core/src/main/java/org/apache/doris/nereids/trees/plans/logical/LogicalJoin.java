@@ -376,6 +376,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 ImmutableList.of(left, right), null);
     }
 
+    /**
+     * Using in binding using join, and must set logical properties to empty.
+     */
     public LogicalJoin<Plan, Plan> withJoinConjuncts(List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
@@ -387,7 +390,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                                                      List<Expression> otherJoinConjuncts,
                                                      List<Expression> markJoinConjuncts) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
-                hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
+                hint, markJoinSlotReference, Optional.empty(), Optional.of(getLogicalProperties()),
                 children, null);
     }
 

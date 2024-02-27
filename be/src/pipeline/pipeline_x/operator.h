@@ -83,7 +83,7 @@ public:
     void clear_origin_block();
 
     [[nodiscard]] bool reached_limit() const;
-    void reached_limit(vectorized::Block* block, SourceState& source_state);
+    void reached_limit(vectorized::Block* block, bool* eos);
     RuntimeProfile* profile() { return _runtime_profile.get(); }
 
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
@@ -191,6 +191,9 @@ public:
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
     }
+    [[nodiscard]] virtual bool need_data_from_children(RuntimeState* state) const {
+        return is_source() ? true : _child_x == nullptr || _child_x->need_data_from_children(state);
+    }
     [[nodiscard]] virtual bool ignore_data_distribution() const {
         return _child_x ? _child_x->ignore_data_distribution() : _ignore_data_distribution;
     }
@@ -202,6 +205,15 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override {
+        LOG(FATAL) << "should not be called in pipelineX";
+        return Status::OK();
+    }
+
+    [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
+                                           bool* eos) = 0;
 
     [[nodiscard]] bool can_terminate_early() override { return false; }
 
@@ -285,8 +297,7 @@ public:
     [[nodiscard]] bool is_source() const override { return false; }
 
     [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state,
-                                                          vectorized::Block* block,
-                                                          SourceState& source_state);
+                                                          vectorized::Block* block, bool* eos);
 
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
@@ -477,6 +488,13 @@ public:
     Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
 
+    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override {
+        LOG(FATAL) << "should not reach here!";
+        return Status::OK();
+    }
+
+    [[nodiscard]] virtual Status sink(RuntimeState* state, vectorized::Block* block, bool eos) = 0;
+
     [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
                                                    LocalSinkStateInfo& info) = 0;
 
@@ -640,11 +658,9 @@ public:
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
     virtual ~StreamingOperatorX() = default;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
-    virtual Status pull(RuntimeState* state, vectorized::Block* block,
-                        SourceState& source_state) = 0;
+    virtual Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) = 0;
 };
 
 /**
@@ -665,14 +681,22 @@ public:
 
     using OperatorX<LocalStateType>::get_local_state;
 
-    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
-                                   SourceState& source_state) final;
+    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) final;
 
     [[nodiscard]] virtual Status pull(RuntimeState* state, vectorized::Block* block,
-                                      SourceState& source_state) const = 0;
+                                      bool* eos) const = 0;
     [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
-                                      SourceState source_state) const = 0;
+                                      bool eos) const = 0;
+
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const = 0;
+
+    bool need_data_from_children(RuntimeState* state) const override {
+        if (need_more_input_data(state)) {
+            return OperatorX<LocalStateType>::_child_x->need_data_from_children(state);
+        } else {
+            return false;
+        }
+    }
 };
 
 template <typename Writer, typename Parent>
@@ -691,7 +715,7 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state);
+    Status sink(RuntimeState* state, vectorized::Block* block, bool eos);
 
     Dependency* dependency() override { return _async_writer_dependency.get(); }
     Status close(RuntimeState* state, Status exec_status) override;
