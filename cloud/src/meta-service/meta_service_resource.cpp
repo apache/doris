@@ -310,7 +310,7 @@ static std::string next_avaiable_vault_id(const InstanceInfoPB& instance) {
             cmp);
 }
 
-static int add_hdfs_storage_valut(const InstanceInfoPB& instance, TxnKv* txn_kv,
+static int add_hdfs_storage_valut(InstanceInfoPB& instance, TxnKv* txn_kv,
                                   const AlterHdfsParams& hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
     std::string key;
@@ -345,6 +345,8 @@ static int add_hdfs_storage_valut(const InstanceInfoPB& instance, TxnKv* txn_kv,
                           vault_id, hdfs_param.vault_name(), err);
         return -1;
     }
+    instance.mutable_resource_ids()->Add(std::move(vault_id));
+    *instance.mutable_storage_vault_names()->Add() = hdfs_param.vault_name();
     return 0;
 }
 
@@ -412,8 +414,13 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         };
     } break;
-    case AlterObjStoreInfoRequest::ADD_HDFS_INFO:
-        break;
+    case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
+        if (!request->has_hdfs()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "hdfs info is not found " + proto_to_json(*request);
+            return;
+        }
+    } break;
     case AlterObjStoreInfoRequest::UNKNOWN:
         break;
     }
