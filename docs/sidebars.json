@@ -180,10 +180,9 @@
                 "advanced/sql-mode",
                 "advanced/small-file-mgr",
                 "advanced/cold-hot-separation",
-                "advanced/compute-node",
-                "advanced/lateral-view",
                 "advanced/is-being-synced",
-                "advanced/sql-mode"
+                "advanced/lateral-view"
+                
             ]
         },
         {
@@ -229,6 +228,7 @@
                 },
                 "lakehouse/file",
                 "lakehouse/filecache",
+                "lakehouse/compute-node",
                 "lakehouse/external-statistics",
                 "lakehouse/fs-benchmark-tool",
                 "lakehouse/faq"
