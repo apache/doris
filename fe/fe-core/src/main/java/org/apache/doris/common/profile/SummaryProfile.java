@@ -71,6 +71,7 @@ public class SummaryProfile {
     public static final String WRITE_RESULT_TIME = "Write Result Time";
     public static final String WAIT_FETCH_RESULT_TIME = "Wait and Fetch Result Time";
 
+    public static final String PARSE_SQL_TIME = "Parse SQL Time";
     public static final String NEREIDS_ANALYSIS_TIME = "Nereids Analysis Time";
     public static final String NEREIDS_REWRITE_TIME = "Nereids Rewrite Time";
     public static final String NEREIDS_OPTIMIZE_TIME = "Nereids Optimize Time";
@@ -83,7 +84,7 @@ public class SummaryProfile {
             START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT);
 
     public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(
-            NEREIDS_ANALYSIS_TIME, NEREIDS_REWRITE_TIME, NEREIDS_OPTIMIZE_TIME, NEREIDS_TRANSLATE_TIME,
+            PARSE_SQL_TIME, NEREIDS_ANALYSIS_TIME, NEREIDS_REWRITE_TIME, NEREIDS_OPTIMIZE_TIME, NEREIDS_TRANSLATE_TIME,
             WORKLOAD_GROUP, ANALYSIS_TIME,
             PLAN_TIME, JOIN_REORDER_TIME, CREATE_SINGLE_NODE_TIME, QUERY_DISTRIBUTED_TIME,
             INIT_SCAN_NODE_TIME, FINALIZE_SCAN_NODE_TIME, GET_SPLITS_TIME, GET_PARTITIONS_TIME,
@@ -108,6 +109,8 @@ public class SummaryProfile {
     private RuntimeProfile summaryProfile;
     private RuntimeProfile executionSummaryProfile;
 
+    private long parseSqlStartTime = -1;
+    private long parseSqlFinishTime = -1;
     private long nereidsAnalysisFinishTime = -1;
     private long nereidsRewriteFinishTime = -1;
     private long nereidsOptimizeFinishTime = -1;
@@ -189,6 +192,7 @@ public class SummaryProfile {
     }
 
     private void updateExecutionSummaryProfile() {
+        executionSummaryProfile.addInfoString(PARSE_SQL_TIME, getPrettyParseSqlTime());
         executionSummaryProfile.addInfoString(NEREIDS_ANALYSIS_TIME, getPrettyNereidsAnalysisTime());
         executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
         executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
@@ -210,6 +214,14 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
                 RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(WAIT_FETCH_RESULT_TIME, getPrettyQueryFetchResultFinishTime());
+    }
+
+    public void setParseSqlStartTime(long parseSqlStartTime) {
+        this.parseSqlStartTime = parseSqlStartTime;
+    }
+
+    public void setParseSqlFinishTime(long parseSqlFinishTime) {
+        this.parseSqlFinishTime = parseSqlFinishTime;
     }
 
     public void setNereidsAnalysisTime() {
@@ -410,28 +422,35 @@ public class SummaryProfile {
         }
     }
 
-    private String getPrettyNereidsAnalysisTime() {
+    public String getPrettyParseSqlTime() {
+        if (parseSqlStartTime == -1 || parseSqlFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(parseSqlFinishTime - parseSqlStartTime, TUnit.TIME_MS);
+    }
+
+    public String getPrettyNereidsAnalysisTime() {
         if (nereidsAnalysisFinishTime == -1 || queryAnalysisFinishTime == -1) {
             return "N/A";
         }
         return RuntimeProfile.printCounter(nereidsAnalysisFinishTime - queryBeginTime, TUnit.TIME_MS);
     }
 
-    private String getPrettyNereidsRewriteTime() {
+    public String getPrettyNereidsRewriteTime() {
         if (nereidsRewriteFinishTime == -1 || nereidsAnalysisFinishTime == -1) {
             return "N/A";
         }
         return RuntimeProfile.printCounter(nereidsRewriteFinishTime - nereidsAnalysisFinishTime, TUnit.TIME_MS);
     }
 
-    private String getPrettyNereidsOptimizeTime() {
+    public String getPrettyNereidsOptimizeTime() {
         if (nereidsOptimizeFinishTime == -1 || nereidsRewriteFinishTime == -1) {
             return "N/A";
         }
         return RuntimeProfile.printCounter(nereidsOptimizeFinishTime - nereidsRewriteFinishTime, TUnit.TIME_MS);
     }
 
-    private String getPrettyNereidsTranslateTime() {
+    public String getPrettyNereidsTranslateTime() {
         if (nereidsTranslateFinishTime == -1 || nereidsOptimizeFinishTime == -1) {
             return "N/A";
         }

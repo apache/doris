@@ -121,6 +121,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -637,7 +638,7 @@ public class StmtExecutor {
                 }
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
                 throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
-                        new AnalysisException(e.getMessage(), e));
+                        new AnalysisException(e.getMessage() == null ? e.toString() : e.getMessage(), e));
             }
         } else {
             context.getState().setIsQuery(true);
@@ -2444,6 +2445,26 @@ public class StmtExecutor {
                 .build();
         ResultSet resultSet = new ShowResultSet(metaData, result);
         sendResultSet(resultSet);
+    }
+
+    public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {
+        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("Rule", ScalarType.createVarchar(-1)))
+                .addColumn(new Column("Before", ScalarType.createVarchar(-1)))
+                .addColumn(new Column("After", ScalarType.createVarchar(-1)))
+                .build();
+        if (context.getConnectType() == ConnectType.MYSQL) {
+            sendMetaData(metaData);
+
+            for (PlanProcess row : result) {
+                serializer.reset();
+                serializer.writeLenEncodedString(row.ruleName);
+                serializer.writeLenEncodedString(row.beforeShape);
+                serializer.writeLenEncodedString(row.afterShape);
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
+        }
+        context.getState().setEof();
     }
 
     public void handleExplainStmt(String result, boolean isNereids) throws IOException {
