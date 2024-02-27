@@ -17,13 +17,7 @@
 
 package org.apache.doris.hudi;
 
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopUGI;
-
 import org.apache.commons.io.FileUtils;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hudi.common.table.HoodieTableMetaClient;
 import sun.management.VMManagement;
 
 import java.io.BufferedReader;
@@ -34,7 +28,6 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.security.PrivilegedExceptionAction;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -85,25 +78,5 @@ public class Utils {
         } catch (Exception e) {
             throw new RuntimeException("Couldn't kill process PID " + pid, e);
         }
-    }
-
-    public static HoodieTableMetaClient getMetaClient(Configuration conf, String basePath) {
-        UserGroupInformation ugi = HadoopUGI.loginWithUGI(AuthenticationConfig.getKerberosConfig(conf));
-        HoodieTableMetaClient metaClient;
-        if (ugi != null) {
-            try {
-                ugi.checkTGTAndReloginFromKeytab();
-                metaClient = ugi.doAs(
-                        (PrivilegedExceptionAction<HoodieTableMetaClient>) () -> HoodieTableMetaClient.builder()
-                                .setConf(conf).setBasePath(basePath).build());
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            } catch (InterruptedException e) {
-                throw new RuntimeException("Cannot get hudi client.", e);
-            }
-        } else {
-            metaClient = HoodieTableMetaClient.builder().setConf(conf).setBasePath(basePath).build();
-        }
-        return metaClient;
     }
 }
