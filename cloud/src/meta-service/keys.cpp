@@ -67,6 +67,7 @@ namespace doris::cloud {
 [[maybe_unused]] static const char* COPY_JOB_KEY_INFIX        = "job";
 [[maybe_unused]] static const char* COPY_FILE_KEY_INFIX       = "loading_file";
 [[maybe_unused]] static const char* STAGE_KEY_INFIX           = "stage";
+[[maybe_unused]] static const char* VAULT_KEY_PREFIX          = "storage_vault";
 
 // clang-format on
 
@@ -120,8 +121,7 @@ static void encode_prefix(const T& t, std::string* key) {
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
-    if        constexpr (std::is_same_v<T, InstanceKeyInfo>
-                      || std::is_same_v<T, StorageVaultKeyInfo>) {
+    if        constexpr (std::is_same_v<T, InstanceKeyInfo>) {
         encode_bytes(INSTANCE_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, TxnLabelKeyInfo>
                       || std::is_same_v<T, TxnInfoKeyInfo>
@@ -171,11 +171,6 @@ static void encode_prefix(const T& t, std::string* key) {
 
 void instance_key(const InstanceKeyInfo& in, std::string* out) {
     encode_prefix(in, out); // 0x01 "instance" ${instance_id}
-}
-
-void storage_vault_key(const StorageVaultKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);
-    encode_bytes(std::get<1>(in), out);
 }
 
 //==============================================================================
@@ -461,6 +456,16 @@ std::string system_meta_service_encryption_key_info_key() {
     encode_bytes("meta-service", &ret);
     encode_bytes("encryption_key_info", &ret);
     return ret;
+}
+
+//==============================================================================
+// Storage Vault keys
+//==============================================================================
+
+void storage_vault_key(const StorageVaultKeyInfo& in, std::string* out) {
+    encode_bytes(VAULT_KEY_PREFIX, out);
+    encode_bytes(std::get<0>(in), out);
+    encode_bytes(std::get<1>(in), out);
 }
 
 //==============================================================================
