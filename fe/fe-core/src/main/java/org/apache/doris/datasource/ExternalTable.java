@@ -306,6 +306,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
             return 0;
         }
         // All external table should get external row count from cache.
+        makeSureInitialized();
         return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
     }
 
