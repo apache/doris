@@ -13,6 +13,7 @@
 
 #include "gutil/bits.h"
 #include "runtime/thread_context.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/time.h"
 
@@ -378,6 +379,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
     THREAD_MEM_TRACKER_TRANSFER_TO(e->bytes, tracker);
     DorisMetrics::instance()->lru_cache_memory_bytes->increment(e->bytes);
+    g_adder_lru_cache_memory_bytes.increment(e->bytes);
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
@@ -561,6 +563,15 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_lookup_count);
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_hit_count);
     INT_DOUBLE_METRIC_REGISTER(_entity, cache_hit_ratio);
+    entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
+            std::string("lru_cache:") + name, {{"name", name}});
+    entity_->register_hook(name, std::bind(&ShardedLRUCache::update_cache_metrics, this));
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, cache_capacity_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, cache_usage_, BvarMetricType::GAUGE, BvarMetricUnit::BYTES, "", "", Labels(), false)
+    REGISTER_INIT_DOUBLE_BVAR_METRIC(entity_, cache_usage_ratio_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, cache_lookup_count_, BvarMetricType::COUNTER, BvarMetricUnit::OPERATIONS, "", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(entity_, cache_hit_count_, BvarMetricType::COUNTER, BvarMetricUnit::OPERATIONS, "", "", Labels(), false)
+    REGISTER_INIT_DOUBLE_BVAR_METRIC(entity_, cache_hit_ratio_, BvarMetricType::GAUGE, BvarMetricUnit::NOUNIT, "", "", Labels(), false)
 
     _hit_count_bvar.reset(new bvar::Adder<uint64_t>("doris_cache", _name));
     _hit_count_per_second.reset(new bvar::PerSecond<bvar::Adder<uint64_t>>(
@@ -679,6 +690,14 @@ void ShardedLRUCache::update_cache_metrics() const {
     cache_hit_count->set_value(total_hit_count);
     cache_usage_ratio->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));
     cache_hit_ratio->set_value(
+            total_lookup_count == 0 ? 0 : ((double)total_hit_count / total_lookup_count));
+    
+    cache_capacity_->set_value(total_capacity);
+    cache_usage_->set_value(total_usage);
+    cache_lookup_count_->set_value(total_lookup_count);
+    cache_hit_count_->set_value(total_hit_count);
+    cache_usage_ratio_->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));
+    cache_hit_ratio_->set_value(
             total_lookup_count == 0 ? 0 : ((double)total_hit_count / total_lookup_count));
 }
 

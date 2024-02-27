@@ -39,6 +39,7 @@
 #include <thread>
 
 #include "service/backend_options.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 
 namespace apache {
@@ -252,7 +253,8 @@ void* ThriftServer::ThriftServerEventProcessor::createContext(
 
     _thrift_server->thrift_connections_total->increment(1L);
     _thrift_server->thrift_current_connections->increment(1L);
-
+    _thrift_server->thrift_connections_total_->increment(1L);
+    _thrift_server->thrift_current_connections_->increment(1L);
     // Store the _session_key in the per-client context to avoid recomputing
     // it. If only this were accessible from RPC method calls, we wouldn't have to
     // mess around with thread locals.
@@ -279,6 +281,7 @@ void ThriftServer::ThriftServerEventProcessor::deleteContext(
     }
 
     _thrift_server->thrift_current_connections->increment(-1L);
+    _thrift_server->thrift_current_connections_->increment(-1L);
 }
 
 ThriftServer::ThriftServer(const std::string& name,
@@ -297,6 +300,11 @@ ThriftServer::ThriftServer(const std::string& name,
             std::string("thrift_server.") + name, {{"name", name}});
     INT_GAUGE_METRIC_REGISTER(_thrift_server_metric_entity, thrift_current_connections);
     INT_COUNTER_METRIC_REGISTER(_thrift_server_metric_entity, thrift_connections_total);
+
+    thrift_server_metric_entity_ = DorisBvarMetrics::instance()->metric_registry()->register_entity(
+            std::string("thrift_server.") + name, {{"name", name}});
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_server_metric_entity_, thrift_current_connections_, BvarMetricType::GAUGE, BvarMetricUnit::CONNECTIONS, "Number of currently active connections", "", Labels(), false)
+    REGISTER_INIT_INT64_BVAR_METRIC(thrift_server_metric_entity_, thrift_connections_total_, BvarMetricType::COUNTER, BvarMetricUnit::CONNECTIONS, "Total connections made over the lifetime of this server", "", Labels(), false)
 }
 
 ThriftServer::~ThriftServer() {

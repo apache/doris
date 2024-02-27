@@ -129,6 +129,14 @@ private:
     // Total clients in the cache, including those in use
     IntGauge* thrift_opened_clients = nullptr;
 
+    std::shared_ptr<BvarMetricEntity> thrift_client_metric_entity_;
+
+    // Number of clients 'checked-out' from the cache
+    std::shared_ptr<BvarAdderMetric<int64_t>> thrift_used_clients_;
+
+    // Total clients in the cache, including those in use
+    std::shared_ptr<BvarAdderMetric<int64_t>> thrift_opened_clients_;
+
     // Create a new client for specific host/port in 'client' and put it in _client_map
     Status _create_client(const TNetworkAddress& hostport, ClientFactory& factory_method,
                           void** client_key, int timeout_ms);

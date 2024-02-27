@@ -26,6 +26,7 @@
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
 #include "olap/version_graph.h"
+#include "util/bvar_metrics.h"
 #include "util/metrics.h"
 
 namespace doris {
@@ -237,6 +238,8 @@ protected:
 
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity;
+    std::shared_ptr<BvarMetricEntity> metric_entity_;
+    
 
 public:
     IntCounter* query_scan_bytes = nullptr;
@@ -244,6 +247,11 @@ public:
     IntCounter* query_scan_count = nullptr;
     IntCounter* flush_bytes = nullptr;
     IntCounter* flush_finish_count = nullptr;
+    std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_bytes_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_rows_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_count_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> flush_bytes_;
+    std::shared_ptr<BvarAdderMetric<int64_t>> flush_finish_count_;
     std::atomic<int64_t> published_count = 0;
 };
 

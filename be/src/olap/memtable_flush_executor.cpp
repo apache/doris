@@ -28,7 +28,9 @@
 #include "common/signal_handler.h"
 #include "olap/memtable.h"
 #include "olap/rowset/rowset_writer.h"
+#include "util/bvar_metrics.h"
 #include "util/debug_points.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/stopwatch.hpp"
@@ -147,6 +149,8 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     _memtable_stat += memtable->stat();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
+    g_adder_memtable_flush_total.increment(1);
+    g_adder_memtable_flush_duration_us.increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
                   << ", flushsize: " << *flush_size;
     return Status::OK();
