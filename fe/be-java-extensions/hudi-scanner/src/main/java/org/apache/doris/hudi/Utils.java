@@ -17,7 +17,12 @@
 
 package org.apache.doris.hudi;
 
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopUGI;
+
 import org.apache.commons.io.FileUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import sun.management.VMManagement;
 
 import java.io.BufferedReader;
@@ -32,7 +37,6 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class Utils {
-
     public static long getCurrentProcId() {
         try {
             RuntimeMXBean mxbean = ManagementFactory.getRuntimeMXBean();
@@ -78,5 +82,10 @@ public class Utils {
         } catch (Exception e) {
             throw new RuntimeException("Couldn't kill process PID " + pid, e);
         }
+    }
+
+    public static HoodieTableMetaClient getMetaClient(Configuration conf, String basePath) {
+        return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf), () -> HoodieTableMetaClient.builder()
+                .setConf(conf).setBasePath(basePath).build());
     }
 }
